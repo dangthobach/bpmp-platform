@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package bpmp.configuration.v1;
+
+// Immutable protocol values. Runtime policy belongs in EnginePolicy.
+enum ConfigurationScopeType {
+  CONFIGURATION_SCOPE_TYPE_UNSPECIFIED = 0;
+  CONFIGURATION_SCOPE_TYPE_PLATFORM = 1;
+  CONFIGURATION_SCOPE_TYPE_ENVIRONMENT = 2;
+  CONFIGURATION_SCOPE_TYPE_TENANT = 3;
+  CONFIGURATION_SCOPE_TYPE_WORKFLOW_TYPE = 4;
+  CONFIGURATION_SCOPE_TYPE_WORKFLOW_VERSION = 5;
+  CONFIGURATION_SCOPE_TYPE_APPROVED_INSTANCE_OVERRIDE = 6;
+}
+
+message ConfigurationScope {
+  ConfigurationScopeType type = 1;
+  string reference = 2;
+}
+
+message RetryPolicy {
+  uint32 max_attempts = 1;
+  uint64 initial_backoff_ms = 2;
+  uint64 max_backoff_ms = 3;
+  uint32 multiplier_millis = 4;
+}
+
+message EnginePolicy {
+  uint32 snapshot_interval_events = 1;
+  uint32 max_events_per_decision = 2;
+  uint64 command_timeout_ms = 3;
+  RetryPolicy optimistic_conflict_retry = 4;
+  LocalWasmPolicy local_wasm = 5;
+  string authorization_audit_key_scope = 6;
+}
+
+message LocalWasmPolicy {
+  uint64 max_module_bytes = 1;
+  uint64 max_input_bytes = 2;
+  uint64 max_output_bytes = 3;
+  uint64 max_memory_bytes = 4;
+  uint64 max_wasm_stack_bytes = 5;
+  uint32 max_table_elements = 6;
+  uint32 max_instances = 7;
+  uint32 max_tables = 8;
+  uint32 max_memories = 9;
+  uint64 fuel = 10;
+}
+
+message ResolvedConfigurationSnapshot {
+  string config_id = 1;
+  string config_version = 2;
+  string policy_version = 3;
+  uint32 schema_version = 4;
+  repeated ConfigurationScope resolved_scopes = 5;
+  bytes content_hash = 6;
+  EnginePolicy engine = 7;
+}

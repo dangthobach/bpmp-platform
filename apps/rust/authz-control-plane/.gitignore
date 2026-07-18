@@ -1,0 +1,6 @@
+/target
+.env
+*.log
+authz_pgdata/
+.idea/
+.vscode/settings.json

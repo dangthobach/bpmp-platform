@@ -1,0 +1,159 @@
+syntax = "proto3";
+
+package bpmp.authorization.v1;
+
+enum ActorProofType {
+  ACTOR_PROOF_TYPE_UNSPECIFIED = 0;
+  ACTOR_PROOF_TYPE_ORIGINAL_JWT = 1;
+  ACTOR_PROOF_TYPE_SIGNED_INTERNAL_CONTEXT = 2;
+}
+
+enum AuthorizationDecisionType {
+  AUTHORIZATION_DECISION_TYPE_UNSPECIFIED = 0;
+  AUTHORIZATION_DECISION_TYPE_ALLOW = 1;
+  AUTHORIZATION_DECISION_TYPE_DENY = 2;
+}
+
+message ActorProof {
+  ActorProofType type = 1;
+  bytes signed_proof = 2;
+}
+
+message WorkloadProof {
+  bytes signed_proof = 1;
+}
+
+message SignedActorContext {
+  uint32 schema_version = 1;
+  string tenant_id = 2;
+  string actor_id = 3;
+  repeated string roles = 4;
+  repeated string capabilities = 5;
+  uint64 revoke_epoch = 6;
+  uint64 issued_at_epoch_ms = 7;
+  uint64 expires_at_epoch_ms = 8;
+  string audience_workload_id = 9;
+  string command_id = 10;
+  string signing_key_id = 11;
+  bytes content_hash = 12;
+  bytes signature = 13;
+}
+
+message SignedWorkloadContext {
+  uint32 schema_version = 1;
+  string tenant_id = 2;
+  string workload_id = 3;
+  string command_id = 4;
+  uint64 issued_at_epoch_ms = 5;
+  uint64 expires_at_epoch_ms = 6;
+  string signing_key_id = 7;
+  bytes content_hash = 8;
+  bytes signature = 9;
+}
+
+message TransitionResource {
+  string workflow_type = 1;
+  string workflow_version = 2;
+  string instance_id = 3;
+  string active_node_id = 4;
+  string action = 5;
+  bytes resource_attributes_digest = 6;
+}
+
+message AuthorizationContext {
+  string tenant_id = 1;
+  string command_id = 2;
+  string correlation_id = 3;
+  uint64 evaluated_at_epoch_ms = 4;
+  ActorProof actor_proof = 5;
+  WorkloadProof workload_proof = 6;
+  TransitionResource resource = 7;
+}
+
+message AuthorizationDecision {
+  string decision_id = 1;
+  AuthorizationDecisionType decision = 2;
+  string deny_reason_code = 3;
+  string actor_id = 4;
+  repeated string roles = 5;
+  repeated string capabilities = 6;
+  string policy_version = 7;
+  uint64 revoke_epoch = 8;
+  uint64 decided_at_epoch_ms = 9;
+  bytes actor_proof_digest = 10;
+}
+
+message AuthorizationAuditRecord {
+  string decision_id = 1;
+  string tenant_id = 2;
+  string actor_id = 3;
+  string workload_id = 4;
+  string action = 5;
+  string resource_ref = 6;
+  AuthorizationDecisionType decision = 7;
+  string deny_reason_code = 8;
+  string policy_version = 9;
+  uint64 revoke_epoch = 10;
+  uint64 occurred_at_epoch_ms = 11;
+  string command_id = 12;
+  string correlation_id = 13;
+  string workflow_type = 14;
+  string workflow_version = 15;
+  string instance_id = 16;
+  string active_node_id = 17;
+  repeated string roles = 18;
+  string config_version = 19;
+  uint64 bundle_sequence = 20;
+  repeated string matched_grant_ids = 21;
+}
+
+enum AuthorizationPolicyEffect {
+  AUTHORIZATION_POLICY_EFFECT_UNSPECIFIED = 0;
+  AUTHORIZATION_POLICY_EFFECT_ALLOW = 1;
+  AUTHORIZATION_POLICY_EFFECT_DENY = 2;
+}
+
+message AuthorizationPolicyGrant {
+  string grant_id = 1;
+  repeated string actor_ids = 2;
+  repeated string roles = 3;
+  repeated string required_capabilities = 4;
+  string workflow_type = 5;
+  string workflow_version = 6;
+  string active_node_id = 7;
+  string action = 8;
+  AuthorizationPolicyEffect effect = 9;
+  uint32 priority = 10;
+}
+
+message ActorRevokeEpoch {
+  string actor_id = 1;
+  uint64 revoke_epoch = 2;
+}
+
+message AuthorizationPolicyBundle {
+  uint32 schema_version = 1;
+  string tenant_id = 2;
+  uint64 bundle_sequence = 3;
+  string policy_version = 4;
+  uint64 revoke_epoch = 5;
+  uint64 valid_from_epoch_ms = 6;
+  uint64 expires_at_epoch_ms = 7;
+  repeated AuthorizationPolicyGrant grants = 8;
+  repeated ActorRevokeEpoch actor_revoke_epochs = 9;
+  string signing_key_id = 10;
+  bytes content_hash = 11;
+  bytes signature = 12;
+}
+
+message AuthorizationRevokeEpochUpdate {
+  uint32 schema_version = 1;
+  string tenant_id = 2;
+  string actor_id = 3;
+  uint64 revoke_epoch = 4;
+  uint64 bundle_sequence = 5;
+  uint64 issued_at_epoch_ms = 6;
+  string signing_key_id = 7;
+  bytes content_hash = 8;
+  bytes signature = 9;
+}

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL">
+  <bpmn:process id="order">
+    <bpmn:startEvent id="start" />
+    <bpmn:serviceTask id="charge-card" name="payment" />
+    <bpmn:endEvent id="end" />
+    <bpmn:sequenceFlow id="start-to-charge" sourceRef="start" targetRef="charge-card" />
+    <bpmn:sequenceFlow id="charge-to-end" sourceRef="charge-card" targetRef="end" />
+  </bpmn:process>
+</bpmn:definitions>

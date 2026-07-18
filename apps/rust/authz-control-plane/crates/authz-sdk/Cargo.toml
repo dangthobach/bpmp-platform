@@ -1,0 +1,33 @@
+[package]
+name = "authz-sdk"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Client SDK for the AuthZ Decision Plane (PDP). Used by PEP applications."
+
+[dependencies]
+authz-core = { workspace = true }
+
+tokio = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+thiserror = { workspace = true }
+
+reqwest = { workspace = true }
+
+moka = { workspace = true }
+dashmap = { workspace = true }
+
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+tracing = { workspace = true }
+metrics = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

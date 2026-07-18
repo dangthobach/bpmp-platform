@@ -1,0 +1,9 @@
+/target/
+*.log
+.env
+.env.*
+!.env.example
+/artifacts/
+/secrets/
+clippy_output.txt
+check_output.txt

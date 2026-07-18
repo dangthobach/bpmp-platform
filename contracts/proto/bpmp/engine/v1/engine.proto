@@ -1,0 +1,92 @@
+syntax = "proto3";
+
+package bpmp.engine.v1;
+
+import "bpmp/authorization/v1/authorization.proto";
+
+message CommandEnvelope {
+  string tenant_id = 1;
+  string instance_id = 2;
+  string command_id = 3;
+  string idempotency_key = 4;
+  string correlation_id = 5;
+  string actor_id = 6;
+  string workflow_type = 7;
+  string workflow_version = 8;
+  uint64 occurred_at_epoch_ms = 9;
+  oneof command {
+    StartWorkflow start_workflow = 10;
+    CompleteServiceTask complete_service_task = 11;
+  }
+  string encryption_key_scope = 12;
+  bpmp.authorization.v1.AuthorizationContext authorization_context = 13;
+}
+
+message StartWorkflow {}
+
+message CompleteServiceTask {
+  string node_id = 1;
+}
+
+message EventMetadata {
+  string event_id = 1;
+  string tenant_id = 2;
+  string instance_id = 3;
+  uint64 sequence = 4;
+  uint32 schema_version = 5;
+  string correlation_id = 6;
+  string causation_command_id = 7;
+  uint64 occurred_at_epoch_ms = 8;
+  string config_version = 9;
+  string policy_version = 10;
+  string actor_id = 11;
+  string encryption_key_scope = 12;
+}
+
+message EventEnvelope {
+  EventMetadata metadata = 1;
+  oneof event {
+    WorkflowStarted workflow_started = 10;
+    ServiceTaskActivated service_task_activated = 11;
+    ServiceTaskCompleted service_task_completed = 12;
+    WorkflowCompleted workflow_completed = 13;
+  }
+}
+
+message WorkflowStarted {
+  string workflow_type = 1;
+  string workflow_version = 2;
+  string start_node_id = 3;
+}
+
+message ServiceTaskActivated {
+  string node_id = 1;
+  string task_type = 2;
+}
+
+message ServiceTaskCompleted {
+  string node_id = 1;
+}
+
+message WorkflowCompleted {}
+
+enum WorkflowLifecycle {
+  WORKFLOW_LIFECYCLE_UNSPECIFIED = 0;
+  WORKFLOW_LIFECYCLE_INITIAL = 1;
+  WORKFLOW_LIFECYCLE_ACTIVE = 2;
+  WORKFLOW_LIFECYCLE_COMPLETED = 3;
+}
+
+message WorkflowSnapshot {
+  string tenant_id = 1;
+  string instance_id = 2;
+  uint64 sequence = 3;
+  uint32 schema_version = 4;
+  string workflow_type = 5;
+  string workflow_version = 6;
+  WorkflowLifecycle lifecycle = 7;
+  string active_node_id = 8;
+  string config_version = 9;
+  string policy_version = 10;
+  string encryption_key_scope = 11;
+}

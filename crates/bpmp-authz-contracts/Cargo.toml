@@ -1,0 +1,19 @@
+[package]
+name = "bpmp-authz-contracts"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+ed25519-dalek.workspace = true
+prost.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+
+[build-dependencies]
+prost-build = "0.14.4"
+protoc-bin-vendored = "3.2.0"
+
+[lints]
+workspace = true

@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: authz
+          POSTGRES_PASSWORD: authz_secret
+          POSTGRES_DB: authz_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgres://authz:authz_secret@localhost:5432/authz_test
+      TEST_DATABASE_URL: postgres://authz:authz_secret@localhost:5432/authz_test
+      JWT_JWKS_URL: http://localhost/.well-known/jwks.json
+      JWT_AUDIENCE: authz-platform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - run: cargo check --workspace
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+
+  frontend:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app:
+          - frontend/react-prototype
+          - frontend/angular-prototype
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install and build when lockfile exists
+        working-directory: ${{ matrix.app }}
+        run: |
+          test -f package-lock.json || exit 0
+          npm ci
+          npm run build --if-present

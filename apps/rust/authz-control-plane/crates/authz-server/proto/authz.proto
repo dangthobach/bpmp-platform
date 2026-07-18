@@ -1,0 +1,74 @@
+syntax = "proto3";
+
+package authz.v1;
+
+service AuthzEngine {
+  rpc Check (CheckRequest) returns (CheckResponse);
+  rpc Filter (FilterRequest) returns (FilterResponse);
+  rpc Explain (ExplainRequest) returns (ExplainResponse);
+}
+
+// ---------------------------------------------------------
+// Check API
+// ---------------------------------------------------------
+
+message CheckRequest {
+  string tenant_id = 1;
+  string user_id = 2;
+  string resource_type = 3;
+  string resource_ref = 4;
+  string action = 5;
+  // JSON encoded context
+  string context = 6; 
+}
+
+message CheckResponse {
+  string decision = 1;
+  // JSON encoded metadata/trace
+  string metadata = 2; 
+}
+
+// ---------------------------------------------------------
+// Filter API
+// ---------------------------------------------------------
+
+message FilterRequest {
+  string tenant_id = 1;
+  string user_id = 2;
+  string resource_type = 3;
+  string action = 4;
+  // backend target e.g., "sql", "elasticsearch", "mongodb"
+  string backend = 5; 
+  // JSON encoded context
+  string context = 6; 
+}
+
+message FilterResponse {
+  string decision = 1;
+  // JSON encoded filter
+  string filter = 2; 
+  // JSON encoded allowed fields
+  string allowed_fields = 3; 
+  // JSON encoded masked fields map
+  string masked_fields = 4; 
+}
+
+// ---------------------------------------------------------
+// Explain API
+// ---------------------------------------------------------
+
+message ExplainRequest {
+  string tenant_id = 1;
+  string user_id = 2;
+  string resource_type = 3;
+  string resource_ref = 4;
+  string action = 5;
+  // JSON encoded context
+  string context = 6; 
+}
+
+message ExplainResponse {
+  string decision = 1;
+  // Full JSON trace of all layers
+  string trace = 2; 
+}

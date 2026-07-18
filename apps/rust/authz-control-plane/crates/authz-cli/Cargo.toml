@@ -1,0 +1,25 @@
+[package]
+name = "authz-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "authz-cli"
+path = "src/main.rs"
+
+[dependencies]
+authz-core = { path = "../authz-core" }
+authz-db = { path = "../authz-db" }
+authz-engine = { path = "../authz-engine" }
+clap = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+config = { workspace = true }
+sqlx = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+reqwest = { workspace = true }

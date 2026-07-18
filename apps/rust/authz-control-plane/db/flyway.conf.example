@@ -1,0 +1,64 @@
+# ============================================================================
+# Flyway Configuration — AuthZ Platform
+# ============================================================================
+#
+# Copy this file to flyway.conf and fill in the database credentials.
+# DO NOT commit flyway.conf with real credentials.
+# Use environment variables (${ENV_VAR}) or a secrets manager instead.
+#
+# Reference: https://documentation.red-gate.com/fd/configuration-reference-184127624.html
+# ============================================================================
+
+# ── Connection ──────────────────────────────────────────────────────────────
+flyway.url      = jdbc:postgresql://${AUTHZ_DB_HOST:localhost}:${AUTHZ_DB_PORT:5432}/${AUTHZ_DB_NAME:authz}
+flyway.user     = ${AUTHZ_DB_USER:authz_app}
+flyway.password = ${AUTHZ_DB_PASSWORD}
+
+# ── Migration Location ───────────────────────────────────────────────────────
+# SQLx and Flyway consume the same canonical SQL files. Do not create a mirror.
+flyway.locations = filesystem:./crates/authz-db/migrations
+
+# ── Naming Conventions ───────────────────────────────────────────────────────
+# {version}_{description}.sql  -> versioned migration (runs once, tracked)
+# R__{description}.sql           → repeatable migration (re-runs when checksum changes)
+# U{version}__{description}.sql  → undo migration (Enterprise edition only)
+flyway.sqlMigrationPrefix    =
+flyway.repeatableSqlMigrationPrefix = R
+flyway.sqlMigrationSeparator = _
+flyway.sqlMigrationSuffixes  = .sql
+
+# ── Schema & Table ───────────────────────────────────────────────────────────
+flyway.defaultSchema        = public
+flyway.schemas              = public
+# Flyway's own tracking table (do not rename after first migration)
+flyway.table                = flyway_schema_history
+
+# ── Behavior ─────────────────────────────────────────────────────────────────
+# Fail if migrations are found on disk that are not in the history table
+# (prevents accidental deletion of migration files)
+flyway.outOfOrder           = false
+# Validate checksums of already-applied migrations on every run
+flyway.validateOnMigrate    = true
+# Fail if out-of-order migrations are detected
+flyway.mixed                = false
+# Clean DB before migrate — NEVER enable in production!
+flyway.cleanDisabled        = true
+
+# ── Encoding & Compatibility ──────────────────────────────────────────────────
+flyway.encoding             = UTF-8
+flyway.connectRetries       = 3
+flyway.connectRetriesInterval = 5
+
+# ── Placeholders (substitute ${key} in SQL files) ───────────────────────────
+# Example: use ${schema} in SQL → flyway.placeholders.schema=public
+flyway.placeholderReplacement = true
+# flyway.placeholders.schema = public
+
+# ── Baseline (for existing databases) ────────────────────────────────────────
+# If migrating an existing DB that wasn't managed by Flyway:
+# flyway.baselineOnMigrate  = true
+# flyway.baselineVersion    = 0
+# flyway.baselineDescription= Initial baseline before Flyway
+
+# ── Logging ──────────────────────────────────────────────────────────────────
+# flyway.loggers = slf4j

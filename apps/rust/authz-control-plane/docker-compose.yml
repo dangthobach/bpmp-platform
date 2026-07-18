@@ -1,0 +1,37 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: authz-postgres
+    environment:
+      POSTGRES_USER: authz
+      POSTGRES_PASSWORD: authz_secret
+      POSTGRES_DB: authz_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - authz_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U authz -d authz_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # Optional: pgAdmin for DB inspection
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: authz-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@authz.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles:
+      - tools
+
+volumes:
+  authz_pgdata:

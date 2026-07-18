@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package bpmp.storage.v1;
+
+message EncryptedEventRecord {
+  uint32 storage_schema_version = 1;
+  string key_scope = 2;
+  string key_version = 3;
+  uint64 key_epoch = 4;
+  string algorithm = 5;
+  bytes nonce = 6;
+  bytes ciphertext = 7;
+}
+
+message EncryptedSnapshotRecord {
+  uint32 storage_schema_version = 1;
+  uint64 snapshot_sequence = 2;
+  string key_scope = 3;
+  string key_version = 4;
+  uint64 key_epoch = 5;
+  string algorithm = 6;
+  bytes nonce = 7;
+  bytes ciphertext = 8;
+}
+
+message EncryptedAuthorizationAuditRecord {
+  uint32 storage_schema_version = 1;
+  string key_scope = 2;
+  string key_version = 3;
+  uint64 key_epoch = 4;
+  string algorithm = 5;
+  bytes nonce = 6;
+  bytes ciphertext = 7;
+}
+
+message StoredCommandResult {
+  string command_id = 1;
+  uint64 version = 2;
+  repeated string event_ids = 3;
+  string config_version = 4;
+  string policy_version = 5;
+}
+
+message OutboxEntry {
+  string tenant_id = 1;
+  string instance_id = 2;
+  uint64 sequence = 3;
+  string event_id = 4;
+  uint64 outbox_sequence = 5;
+}

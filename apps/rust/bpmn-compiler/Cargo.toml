@@ -1,0 +1,21 @@
+[package]
+name = "bpmn-compiler"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+bpmp-contracts.workspace = true
+clap.workspace = true
+quick-xml.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+bpmp-domain-core.workspace = true
+bpmp-engine = { path = "../bpmp-engine" }
+proptest.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package bpmp.wir.v1;
+
+message WorkflowIntermediateRepresentation {
+  uint32 schema_version = 1;
+  string workflow_type = 2;
+  string workflow_version = 3;
+  string start_node_id = 4;
+  repeated Node nodes = 5;
+  bytes content_hash = 6;
+  bytes signature = 7;
+}
+
+message Node {
+  string id = 1;
+  oneof kind {
+    StartNode start = 2;
+    ServiceTaskNode service_task = 3;
+    EndNode end = 4;
+  }
+}
+
+message StartNode {
+  string next_node_id = 1;
+}
+
+message ServiceTaskNode {
+  string task_type = 1;
+  string next_node_id = 2;
+}
+
+message EndNode {}
+
