@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use bpmp_adapter_policy_bundle::VerifiedAuthorizationStore;
 use bpmp_authz_contracts::authorization::v1::{
     AuthorizationPolicyBundle, AuthorizationPolicyEffect, AuthorizationPolicyGrant,
@@ -184,6 +186,7 @@ fn start_request() -> AuthorizedCommand {
         actor_proof,
         workload_proof,
         encryption_key_scope: KeyScope::new("tenant-a/operational").unwrap(),
+        variables: BTreeMap::default(),
         command: Command::StartWorkflow {
             occurred_at_epoch_ms: 42,
         },

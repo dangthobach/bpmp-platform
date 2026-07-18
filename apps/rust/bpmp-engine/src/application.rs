@@ -1,8 +1,10 @@
+use std::collections::BTreeMap;
+
 use bpmp_domain_core::{
     ActorId, Command, CommandId, ConfigError, ConfigVersion, CorrelationId, DecisionContext,
     DomainError, DomainEvent, IdempotencyKey, InstanceId, InstanceState, KeyScope, PolicyVersion,
-    ResolvedConfigSnapshot, TenantId, WorkflowDefinition, WorkflowType, WorkflowVersion, decide,
-    evolve, rehydrate,
+    ResolvedConfigSnapshot, TenantId, WorkflowDefinition, WorkflowType, WorkflowValue,
+    WorkflowVersion, decide, evolve, rehydrate,
 };
 use thiserror::Error;
 
@@ -25,6 +27,7 @@ pub struct AuthorizedCommand {
     pub actor_proof: Vec<u8>,
     pub workload_proof: Vec<u8>,
     pub encryption_key_scope: KeyScope,
+    pub variables: BTreeMap<String, WorkflowValue>,
     pub command: Command,
 }
 
@@ -194,6 +197,7 @@ where
             &request.command,
             DecisionContext {
                 configuration: &configuration,
+                variables: &request.variables,
             },
         )?;
         let envelopes = attach_metadata(

@@ -74,9 +74,38 @@ pub enum DiagnosticKind {
     DeadPath {
         element_id: String,
     },
+    NonExhaustiveGateway {
+        gateway_id: String,
+        detail: String,
+    },
+    AmbiguousGatewayCoverage {
+        gateway_id: String,
+        detail: String,
+    },
+    MissingCompensation {
+        activity_id: String,
+    },
+    SlaConflict {
+        detail: String,
+    },
+    DataContractMismatch {
+        from: String,
+        to: String,
+        expected: String,
+        actual: String,
+    },
+    InvalidGuardExpression {
+        flow_id: String,
+        detail: String,
+    },
+    InvalidDecisionTable {
+        table_id: String,
+        detail: String,
+    },
 }
 
 impl Display for DiagnosticKind {
+    #[allow(clippy::too_many_lines)]
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InputTooLarge {
@@ -146,6 +175,40 @@ impl Display for DiagnosticKind {
             }
             Self::DeadPath { element_id } => {
                 write!(formatter, "node {element_id} cannot reach an end event")
+            }
+            Self::NonExhaustiveGateway { gateway_id, detail } => write!(
+                formatter,
+                "exclusive gateway {gateway_id} is not exhaustive: {detail}"
+            ),
+            Self::AmbiguousGatewayCoverage { gateway_id, detail } => write!(
+                formatter,
+                "exclusive gateway {gateway_id} has ambiguous coverage: {detail}"
+            ),
+            Self::MissingCompensation { activity_id } => write!(
+                formatter,
+                "activity {activity_id} requires a compensation handler"
+            ),
+            Self::SlaConflict { detail } => write!(formatter, "SLA conflict: {detail}"),
+            Self::DataContractMismatch {
+                from,
+                to,
+                expected,
+                actual,
+            } => write!(
+                formatter,
+                "data contract mismatch from {from} to {to}: target expects {expected}, source produces {actual}"
+            ),
+            Self::InvalidGuardExpression { flow_id, detail } => {
+                write!(
+                    formatter,
+                    "sequence flow {flow_id} has invalid guard: {detail}"
+                )
+            }
+            Self::InvalidDecisionTable { table_id, detail } => {
+                write!(
+                    formatter,
+                    "DMN decision table {table_id} is invalid: {detail}"
+                )
             }
         }
     }

@@ -5,7 +5,7 @@ use std::process::ExitCode;
 
 use bpmn_compiler::{BpmnCompiler, CompilerLimits, SourceDocument};
 use bpmp_contracts::{Ed25519Signer, WirCodec};
-use clap::Parser;
+use clap::{ArgAction, Parser};
 use tempfile::NamedTempFile;
 
 #[derive(Debug, Parser)]
@@ -17,6 +17,8 @@ use tempfile::NamedTempFile;
 struct Arguments {
     #[arg(long)]
     input: PathBuf,
+    #[arg(long, action = ArgAction::Append)]
+    dmn: Vec<PathBuf>,
     #[arg(long)]
     output: PathBuf,
     #[arg(long)]
@@ -50,13 +52,26 @@ fn run(arguments: &Arguments) -> Result<(), CliError> {
     let limits = CompilerLimits::new(arguments.max_input_bytes, arguments.max_xml_depth)
         .map_err(|error| CliError::Configuration(error.to_string()))?;
     let input = read_bounded(&arguments.input, arguments.max_input_bytes)?;
+    let dmn_inputs = arguments
+        .dmn
+        .iter()
+        .map(|path| {
+            read_bounded(path, arguments.max_input_bytes)
+                .map(|bytes| (path.to_string_lossy().into_owned(), bytes))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let signing_key = read_exact_key(&arguments.signing_key)?;
+    let dmn_sources = dmn_inputs
+        .iter()
+        .map(|(name, bytes)| SourceDocument { name, bytes })
+        .collect::<Vec<_>>();
     let wir = BpmnCompiler::new(limits)
-        .compile(
+        .compile_with_decisions(
             SourceDocument {
                 name: &arguments.input.to_string_lossy(),
                 bytes: &input,
             },
+            &dmn_sources,
             &arguments.workflow_version,
         )
         .map_err(CliError::Compile)?;

@@ -10,6 +10,7 @@ message WorkflowIntermediateRepresentation {
   repeated Node nodes = 5;
   bytes content_hash = 6;
   bytes signature = 7;
+  repeated DecisionTable decision_tables = 8;
 }
 
 message Node {
@@ -18,7 +19,11 @@ message Node {
     StartNode start = 2;
     ServiceTaskNode service_task = 3;
     EndNode end = 4;
+    ExclusiveGatewayNode exclusive_gateway = 5;
   }
+  DataContract data_contract = 6;
+  uint64 sla_milliseconds = 7;
+  string compensation_handler_id = 8;
 }
 
 message StartNode {
@@ -32,3 +37,107 @@ message ServiceTaskNode {
 
 message EndNode {}
 
+message ExclusiveGatewayNode {
+  repeated ConditionalTransition transitions = 1;
+  GatewayCoverage coverage = 2;
+}
+
+message ConditionalTransition {
+  string target_node_id = 1;
+  string condition = 2;
+  bool is_default = 3;
+  GuardExpression guard = 4;
+}
+
+message GuardExpression {
+  string variable = 1;
+  ComparisonOperator operator = 2;
+  oneof literal {
+    bool boolean_value = 3;
+    sint64 integer_value = 4;
+    string string_value = 5;
+  }
+}
+
+message GatewayCoverage {
+  string variable = 1;
+  ValueType value_type = 2;
+  repeated string enum_values = 3;
+  repeated IntegerInterval integer_intervals = 4;
+}
+
+message IntegerInterval {
+  sint64 lower_bound = 1;
+  sint64 upper_bound = 2;
+  bool lower_unbounded = 3;
+  bool upper_unbounded = 4;
+}
+
+message DecisionTable {
+  string id = 1;
+  HitPolicy hit_policy = 2;
+  repeated DecisionInput inputs = 3;
+  repeated DecisionOutput outputs = 4;
+  repeated DecisionRule rules = 5;
+}
+
+message DecisionInput {
+  string name = 1;
+  ValueType value_type = 2;
+}
+
+message DecisionOutput {
+  string name = 1;
+  ValueType value_type = 2;
+}
+
+message DecisionRule {
+  string id = 1;
+  repeated UnaryTest input_tests = 2;
+  repeated WorkflowLiteral output_values = 3;
+}
+
+message UnaryTest {
+  oneof test {
+    WorkflowLiteral equal = 1;
+    IntegerInterval integer_interval = 2;
+    bool any = 3;
+  }
+}
+
+message WorkflowLiteral {
+  oneof value {
+    bool boolean_value = 1;
+    sint64 integer_value = 2;
+    string string_value = 3;
+  }
+}
+
+enum ComparisonOperator {
+  COMPARISON_OPERATOR_UNSPECIFIED = 0;
+  COMPARISON_OPERATOR_EQUAL = 1;
+  COMPARISON_OPERATOR_NOT_EQUAL = 2;
+  COMPARISON_OPERATOR_LESS_THAN = 3;
+  COMPARISON_OPERATOR_LESS_THAN_OR_EQUAL = 4;
+  COMPARISON_OPERATOR_GREATER_THAN = 5;
+  COMPARISON_OPERATOR_GREATER_THAN_OR_EQUAL = 6;
+}
+
+enum ValueType {
+  VALUE_TYPE_UNSPECIFIED = 0;
+  VALUE_TYPE_BOOLEAN = 1;
+  VALUE_TYPE_INTEGER = 2;
+  VALUE_TYPE_STRING = 3;
+}
+
+enum HitPolicy {
+  HIT_POLICY_UNSPECIFIED = 0;
+  HIT_POLICY_UNIQUE = 1;
+  HIT_POLICY_FIRST = 2;
+  HIT_POLICY_COLLECT = 3;
+}
+
+message DataContract {
+  string input_type = 1;
+  string output_type = 2;
+}

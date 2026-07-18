@@ -125,6 +125,20 @@ fn validate_schema(schema_version: u32) -> Result<(), ArtifactError> {
 fn canonicalize(wir: &mut WorkflowIntermediateRepresentation) {
     wir.nodes
         .sort_unstable_by(|left, right| left.id.cmp(&right.id));
+    wir.decision_tables
+        .sort_unstable_by(|left, right| left.id.cmp(&right.id));
+    for node in &mut wir.nodes {
+        if let Some(crate::wir::v1::node::Kind::ExclusiveGateway(gateway)) = &mut node.kind {
+            gateway
+                .transitions
+                .sort_unstable_by(|left, right| left.target_node_id.cmp(&right.target_node_id));
+        }
+    }
+    for table in &mut wir.decision_tables {
+        table
+            .rules
+            .sort_unstable_by(|left, right| left.id.cmp(&right.id));
+    }
 }
 
 fn digest_unsigned(wir: &WorkflowIntermediateRepresentation) -> [u8; 32] {
@@ -165,9 +179,13 @@ mod tests {
             nodes: vec![Node {
                 id: "end".into(),
                 kind: Some(node::Kind::End(EndNode {})),
+                data_contract: None,
+                sla_milliseconds: 0,
+                compensation_handler_id: String::new(),
             }],
             content_hash: Vec::new(),
             signature: Vec::new(),
+            decision_tables: Vec::new(),
         }
     }
 
