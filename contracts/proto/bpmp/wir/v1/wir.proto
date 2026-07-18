@@ -11,6 +11,7 @@ message WorkflowIntermediateRepresentation {
   bytes content_hash = 6;
   bytes signature = 7;
   repeated DecisionTable decision_tables = 8;
+  string tenant_id = 9;
 }
 
 message Node {
@@ -20,6 +21,7 @@ message Node {
     ServiceTaskNode service_task = 3;
     EndNode end = 4;
     ExclusiveGatewayNode exclusive_gateway = 5;
+    DecisionTaskNode decision_task = 9;
   }
   DataContract data_contract = 6;
   uint64 sla_milliseconds = 7;
@@ -32,6 +34,11 @@ message StartNode {
 
 message ServiceTaskNode {
   string task_type = 1;
+  string next_node_id = 2;
+}
+
+message DecisionTaskNode {
+  string decision_table_id = 1;
   string next_node_id = 2;
 }
 

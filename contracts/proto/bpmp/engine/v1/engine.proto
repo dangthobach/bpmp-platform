@@ -50,6 +50,7 @@ message EventEnvelope {
     ServiceTaskActivated service_task_activated = 11;
     ServiceTaskCompleted service_task_completed = 12;
     WorkflowCompleted workflow_completed = 13;
+    DecisionTaskEvaluated decision_task_evaluated = 14;
   }
 }
 
@@ -57,6 +58,7 @@ message WorkflowStarted {
   string workflow_type = 1;
   string workflow_version = 2;
   string start_node_id = 3;
+  string tenant_id = 4;
 }
 
 message ServiceTaskActivated {
@@ -69,6 +71,21 @@ message ServiceTaskCompleted {
 }
 
 message WorkflowCompleted {}
+
+message DecisionTaskEvaluated {
+  string node_id = 1;
+  string decision_table_id = 2;
+  repeated WorkflowVariable outputs = 3;
+}
+
+message WorkflowVariable {
+  string name = 1;
+  oneof value {
+    bool boolean_value = 2;
+    sint64 integer_value = 3;
+    string string_value = 4;
+  }
+}
 
 enum WorkflowLifecycle {
   WORKFLOW_LIFECYCLE_UNSPECIFIED = 0;
@@ -89,4 +106,5 @@ message WorkflowSnapshot {
   string config_version = 9;
   string policy_version = 10;
   string encryption_key_scope = 11;
+  repeated WorkflowVariable variables = 12;
 }

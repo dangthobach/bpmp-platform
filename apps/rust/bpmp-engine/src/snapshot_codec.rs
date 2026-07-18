@@ -1,7 +1,7 @@
 use bpmp_contracts::engine::v1 as wire;
 use bpmp_domain_core::{
     ConfigVersion, IdentifierError, InstanceId, InstanceState, KeyScope, Lifecycle, NodeId,
-    PolicyVersion, TenantId, WorkflowType, WorkflowVersion,
+    PolicyVersion, TenantId, WorkflowType, WorkflowValue, WorkflowVersion,
 };
 use prost::Message;
 use thiserror::Error;
@@ -50,6 +50,15 @@ fn to_wire(snapshot: &SnapshotEnvelope) -> wire::WorkflowSnapshot {
         config_version: snapshot.config_version.to_string(),
         policy_version: snapshot.policy_version.to_string(),
         encryption_key_scope: snapshot.encryption_key_scope.to_string(),
+        variables: snapshot
+            .state
+            .variables
+            .iter()
+            .map(|(name, value)| wire::WorkflowVariable {
+                name: name.clone(),
+                value: Some(workflow_value_to_wire(value)),
+            })
+            .collect(),
     }
 }
 
@@ -87,6 +96,11 @@ fn from_wire(snapshot: wire::WorkflowSnapshot) -> Result<SnapshotEnvelope, Snaps
         state: InstanceState {
             lifecycle,
             sequence: snapshot.sequence,
+            variables: snapshot
+                .variables
+                .into_iter()
+                .map(workflow_variable_from_wire)
+                .collect::<Result<_, _>>()?,
         },
         config_version: identifier(
             ConfigVersion::new,
@@ -104,6 +118,37 @@ fn from_wire(snapshot: wire::WorkflowSnapshot) -> Result<SnapshotEnvelope, Snaps
             "encryption_key_scope",
         )?,
     })
+}
+
+fn workflow_value_to_wire(value: &WorkflowValue) -> wire::workflow_variable::Value {
+    match value {
+        WorkflowValue::Boolean(value) => wire::workflow_variable::Value::BooleanValue(*value),
+        WorkflowValue::Integer(value) => wire::workflow_variable::Value::IntegerValue(*value),
+        WorkflowValue::String(value) => wire::workflow_variable::Value::StringValue(value.clone()),
+    }
+}
+
+fn workflow_variable_from_wire(
+    variable: wire::WorkflowVariable,
+) -> Result<(String, WorkflowValue), SnapshotCodecError> {
+    let name = non_empty(variable.name, "workflow_variable.name")?;
+    let value = match variable
+        .value
+        .ok_or(SnapshotCodecError::MissingWorkflowVariableValue)?
+    {
+        wire::workflow_variable::Value::BooleanValue(value) => WorkflowValue::Boolean(value),
+        wire::workflow_variable::Value::IntegerValue(value) => WorkflowValue::Integer(value),
+        wire::workflow_variable::Value::StringValue(value) => WorkflowValue::String(value),
+    };
+    Ok((name, value))
+}
+
+fn non_empty(value: String, field: &'static str) -> Result<String, SnapshotCodecError> {
+    if value.trim().is_empty() {
+        Err(SnapshotCodecError::EmptyField(field))
+    } else {
+        Ok(value)
+    }
 }
 
 fn identifier<T>(
@@ -124,6 +169,10 @@ pub enum SnapshotCodecError {
     InvalidLifecycle(i32),
     #[error("snapshot lifecycle fields are inconsistent for {0:?}")]
     InconsistentLifecycle(wire::WorkflowLifecycle),
+    #[error("snapshot field {0} must not be empty")]
+    EmptyField(&'static str),
+    #[error("workflow variable is missing a typed value")]
+    MissingWorkflowVariableValue,
     #[error("invalid snapshot identifier in field {field}: {source}")]
     Identifier {
         field: &'static str,
@@ -147,6 +196,7 @@ mod tests {
                     active_node: NodeId::new("charge").unwrap(),
                 },
                 sequence: 100,
+                variables: [("tier".into(), WorkflowValue::String("gold".into()))].into(),
             },
             config_version: ConfigVersion::new("config-7").unwrap(),
             policy_version: PolicyVersion::new("policy-3").unwrap(),

@@ -20,6 +20,8 @@ struct Arguments {
     #[arg(long, action = ArgAction::Append)]
     dmn: Vec<PathBuf>,
     #[arg(long)]
+    tenant_id: String,
+    #[arg(long)]
     output: PathBuf,
     #[arg(long)]
     workflow_version: String,
@@ -72,6 +74,7 @@ fn run(arguments: &Arguments) -> Result<(), CliError> {
                 bytes: &input,
             },
             &dmn_sources,
+            &arguments.tenant_id,
             &arguments.workflow_version,
         )
         .map_err(CliError::Compile)?;

@@ -902,6 +902,7 @@ mod tests {
                 encryption_key_scope: KeyScope::new("tenant-a/operational").unwrap(),
             },
             event: DomainEvent::WorkflowStarted {
+                tenant_id: TenantId::new("tenant-a").unwrap(),
                 workflow_type: WorkflowType::new("order").unwrap(),
                 workflow_version: WorkflowVersion::new("1").unwrap(),
                 start_node_id: NodeId::new("start").unwrap(),
@@ -929,6 +930,7 @@ mod tests {
                         active_node: NodeId::new("start").unwrap(),
                     },
                     sequence: 1,
+                    variables: Default::default(),
                 },
                 config_version: ConfigVersion::new("config-1").unwrap(),
                 policy_version: PolicyVersion::new("policy-1").unwrap(),

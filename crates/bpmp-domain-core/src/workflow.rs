@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use thiserror::Error;
 
-use crate::{NodeId, ResolvedConfigSnapshot, TaskType, WorkflowType, WorkflowVersion};
+use crate::{NodeId, ResolvedConfigSnapshot, TaskType, TenantId, WorkflowType, WorkflowVersion};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Node {
@@ -11,6 +11,10 @@ pub enum Node {
     },
     ServiceTask {
         task_type: TaskType,
+        next: NodeId,
+    },
+    DecisionTask {
+        decision_table_id: String,
         next: NodeId,
     },
     ExclusiveGateway {
@@ -71,10 +75,60 @@ pub struct IntegerInterval {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct WorkflowDefinition {
+    pub tenant_id: TenantId,
     pub workflow_type: WorkflowType,
     pub workflow_version: WorkflowVersion,
     pub start_node: NodeId,
     nodes: BTreeMap<NodeId, Node>,
+    decision_tables: BTreeMap<String, DecisionTable>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct DecisionTable {
+    pub id: String,
+    pub hit_policy: HitPolicy,
+    pub inputs: Vec<DecisionInput>,
+    pub outputs: Vec<DecisionOutput>,
+    pub rules: Vec<DecisionRule>,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum HitPolicy {
+    Unique,
+    First,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct DecisionInput {
+    pub name: String,
+    pub value_type: WorkflowValueType,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct DecisionOutput {
+    pub name: String,
+    pub value_type: WorkflowValueType,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct DecisionRule {
+    pub id: String,
+    pub input_tests: Vec<UnaryTest>,
+    pub output_values: Vec<WorkflowValue>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum UnaryTest {
+    Any,
+    Equal(WorkflowValue),
+    IntegerInterval(IntegerInterval),
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum WorkflowValueType {
+    Boolean,
+    Integer,
+    String,
 }
 
 impl WorkflowDefinition {
@@ -84,15 +138,46 @@ impl WorkflowDefinition {
     ///
     /// Returns a [`DomainError`] for duplicate, missing, invalid, or unreachable nodes.
     pub fn new(
+        tenant_id: TenantId,
         workflow_type: WorkflowType,
         workflow_version: WorkflowVersion,
         start_node: NodeId,
         nodes: impl IntoIterator<Item = (NodeId, Node)>,
     ) -> Result<Self, DomainError> {
+        Self::new_with_decisions(
+            tenant_id,
+            workflow_type,
+            workflow_version,
+            start_node,
+            nodes,
+            std::iter::empty(),
+        )
+    }
+
+    /// Builds a workflow definition with embedded pure decision tables.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`DomainError`] for invalid graph or decision-table shape.
+    pub fn new_with_decisions(
+        tenant_id: TenantId,
+        workflow_type: WorkflowType,
+        workflow_version: WorkflowVersion,
+        start_node: NodeId,
+        nodes: impl IntoIterator<Item = (NodeId, Node)>,
+        decision_tables: impl IntoIterator<Item = DecisionTable>,
+    ) -> Result<Self, DomainError> {
         let mut indexed = BTreeMap::new();
         for (node_id, node) in nodes {
             if indexed.insert(node_id.clone(), node).is_some() {
                 return Err(DomainError::DuplicateNode(node_id));
+            }
+        }
+        let mut indexed_tables = BTreeMap::new();
+        for table in decision_tables {
+            validate_decision_table(&table)?;
+            if indexed_tables.insert(table.id.clone(), table).is_some() {
+                return Err(DomainError::DuplicateDecisionTable);
             }
         }
 
@@ -108,6 +193,13 @@ impl WorkflowDefinition {
             {
                 validate_gateway(node_id, transitions, coverage.as_ref())?;
             }
+            if let Node::DecisionTask {
+                decision_table_id, ..
+            } = node
+                && !indexed_tables.contains_key(decision_table_id)
+            {
+                return Err(DomainError::MissingDecisionTable(decision_table_id.clone()));
+            }
             for next in node.targets() {
                 if !indexed.contains_key(next) {
                     return Err(DomainError::MissingTransitionTarget {
@@ -122,10 +214,12 @@ impl WorkflowDefinition {
         }
 
         let definition = Self {
+            tenant_id,
             workflow_type,
             workflow_version,
             start_node,
             nodes: indexed,
+            decision_tables: indexed_tables,
         };
         definition.validate_reachability()?;
         Ok(definition)
@@ -196,6 +290,44 @@ fn validate_gateway(
             gateway: node_id.clone(),
             target: duplicate.clone(),
         });
+    }
+    Ok(())
+}
+
+fn validate_decision_table(table: &DecisionTable) -> Result<(), DomainError> {
+    if table.id.trim().is_empty() {
+        return Err(DomainError::InvalidDecisionTable {
+            table_id: table.id.clone(),
+            detail: "decision table id is empty".into(),
+        });
+    }
+    if table.inputs.is_empty() || table.outputs.is_empty() {
+        return Err(DomainError::InvalidDecisionTable {
+            table_id: table.id.clone(),
+            detail: "decision table must declare inputs and outputs".into(),
+        });
+    }
+    for rule in &table.rules {
+        if rule.input_tests.len() != table.inputs.len() {
+            return Err(DomainError::InvalidDecisionTable {
+                table_id: table.id.clone(),
+                detail: format!("rule {} input count does not match table inputs", rule.id),
+            });
+        }
+        if rule.output_values.len() != table.outputs.len() {
+            return Err(DomainError::InvalidDecisionTable {
+                table_id: table.id.clone(),
+                detail: format!("rule {} output count does not match table outputs", rule.id),
+            });
+        }
+        for (value, output) in rule.output_values.iter().zip(&table.outputs) {
+            if !output.value_type.matches(value) {
+                return Err(DomainError::InvalidDecisionTable {
+                    table_id: table.id.clone(),
+                    detail: format!("rule {} output {} has wrong type", rule.id, output.name),
+                });
+            }
+        }
     }
     Ok(())
 }
@@ -438,9 +570,9 @@ fn invalid_gateway_coverage<T>(node_id: &NodeId, detail: &str) -> Result<T, Doma
 impl Node {
     fn targets(&self) -> Box<dyn Iterator<Item = &NodeId> + '_> {
         match self {
-            Self::Start { next } | Self::ServiceTask { next, .. } => {
-                Box::new(std::iter::once(next))
-            }
+            Self::Start { next }
+            | Self::ServiceTask { next, .. }
+            | Self::DecisionTask { next, .. } => Box::new(std::iter::once(next)),
             Self::ExclusiveGateway { transitions, .. } => {
                 Box::new(transitions.iter().map(|transition| &transition.target))
             }
@@ -452,6 +584,7 @@ impl Node {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Command {
     StartWorkflow {
+        tenant_id: TenantId,
         occurred_at_epoch_ms: u64,
     },
     CompleteServiceTask {
@@ -463,6 +596,7 @@ pub enum Command {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum DomainEvent {
     WorkflowStarted {
+        tenant_id: TenantId,
         workflow_type: WorkflowType,
         workflow_version: WorkflowVersion,
         start_node_id: NodeId,
@@ -475,6 +609,12 @@ pub enum DomainEvent {
     },
     ServiceTaskCompleted {
         node_id: NodeId,
+        occurred_at_epoch_ms: u64,
+    },
+    DecisionTaskEvaluated {
+        node_id: NodeId,
+        decision_table_id: String,
+        outputs: BTreeMap<String, WorkflowValue>,
         occurred_at_epoch_ms: u64,
     },
     WorkflowCompleted {
@@ -493,6 +633,7 @@ pub enum Lifecycle {
 pub struct InstanceState {
     pub lifecycle: Lifecycle,
     pub sequence: u64,
+    pub variables: BTreeMap<String, WorkflowValue>,
 }
 
 impl Default for InstanceState {
@@ -500,6 +641,7 @@ impl Default for InstanceState {
         Self {
             lifecycle: Lifecycle::Initial,
             sequence: 0,
+            variables: BTreeMap::new(),
         }
     }
 }
@@ -525,23 +667,32 @@ pub fn decide(
     let events = match (command, &state.lifecycle) {
         (
             Command::StartWorkflow {
+                tenant_id,
                 occurred_at_epoch_ms,
             },
             Lifecycle::Initial,
         ) => {
+            if tenant_id != &definition.tenant_id {
+                return Err(DomainError::TenantMismatch {
+                    expected: definition.tenant_id.clone(),
+                    actual: tenant_id.clone(),
+                });
+            }
             let Node::Start { next } = definition.node(&definition.start_node)? else {
                 return Err(DomainError::InvalidStartNode(definition.start_node.clone()));
             };
             let mut events = vec![DomainEvent::WorkflowStarted {
+                tenant_id: tenant_id.clone(),
                 workflow_type: definition.workflow_type.clone(),
                 workflow_version: definition.workflow_version.clone(),
                 start_node_id: definition.start_node.clone(),
                 occurred_at_epoch_ms: *occurred_at_epoch_ms,
             }];
-            events.push(activation_event(
+            let mut variables = state_variables_with_context(state, context.variables);
+            events.extend(activation_events(
                 definition,
                 next,
-                context.variables,
+                &mut variables,
                 *occurred_at_epoch_ms,
             )?);
             events
@@ -557,13 +708,18 @@ pub fn decide(
             let Node::ServiceTask { next, .. } = definition.node(node_id)? else {
                 return Err(DomainError::NodeIsNotServiceTask(node_id.clone()));
             };
-            vec![
-                DomainEvent::ServiceTaskCompleted {
-                    node_id: node_id.clone(),
-                    occurred_at_epoch_ms: *occurred_at_epoch_ms,
-                },
-                activation_event(definition, next, context.variables, *occurred_at_epoch_ms)?,
-            ]
+            let mut events = vec![DomainEvent::ServiceTaskCompleted {
+                node_id: node_id.clone(),
+                occurred_at_epoch_ms: *occurred_at_epoch_ms,
+            }];
+            let mut variables = state_variables_with_context(state, context.variables);
+            events.extend(activation_events(
+                definition,
+                next,
+                &mut variables,
+                *occurred_at_epoch_ms,
+            )?);
+            events
         }
         (Command::CompleteServiceTask { node_id, .. }, Lifecycle::Active { active_node }) => {
             return Err(DomainError::TaskNotActive {
@@ -593,38 +749,72 @@ pub fn decide(
     Ok(events)
 }
 
-fn activation_event(
+fn activation_events(
     definition: &WorkflowDefinition,
     node_id: &NodeId,
-    variables: &BTreeMap<String, WorkflowValue>,
+    variables: &mut BTreeMap<String, WorkflowValue>,
     occurred_at_epoch_ms: u64,
-) -> Result<DomainEvent, DomainError> {
-    let mut current = node_id;
+) -> Result<Vec<DomainEvent>, DomainError> {
+    let mut current = node_id.clone();
+    let mut events = Vec::new();
     for _ in 0..definition.nodes.len() {
-        match definition.node(current)? {
+        match definition.node(&current)? {
             Node::ServiceTask { task_type, .. } => {
-                return Ok(DomainEvent::ServiceTaskActivated {
-                    node_id: current.clone(),
+                events.push(DomainEvent::ServiceTaskActivated {
+                    node_id: current,
                     task_type: task_type.clone(),
                     occurred_at_epoch_ms,
                 });
+                return Ok(events);
             }
-            Node::End => {
-                return Ok(DomainEvent::WorkflowCompleted {
+            Node::DecisionTask {
+                decision_table_id,
+                next,
+            } => {
+                let outputs = evaluate_decision_table(
+                    definition
+                        .decision_tables
+                        .get(decision_table_id)
+                        .ok_or_else(|| {
+                            DomainError::MissingDecisionTable(decision_table_id.clone())
+                        })?,
+                    variables,
+                )?;
+                variables.extend(outputs.clone());
+                events.push(DomainEvent::DecisionTaskEvaluated {
+                    node_id: current,
+                    decision_table_id: decision_table_id.clone(),
+                    outputs,
                     occurred_at_epoch_ms,
                 });
+                current = next.clone();
+            }
+            Node::End => {
+                events.push(DomainEvent::WorkflowCompleted {
+                    occurred_at_epoch_ms,
+                });
+                return Ok(events);
             }
             Node::Start { .. } => {
-                return Err(DomainError::TransitionToStartNode(current.clone()));
+                return Err(DomainError::TransitionToStartNode(current));
             }
             Node::ExclusiveGateway { transitions, .. } => {
-                current = select_transition(current, transitions, variables)?;
+                current = select_transition(&current, transitions, variables)?.clone();
             }
         }
     }
     Err(DomainError::AutomaticTransitionLimitExceeded(
         node_id.clone(),
     ))
+}
+
+fn state_variables_with_context(
+    state: &InstanceState,
+    context_variables: &BTreeMap<String, WorkflowValue>,
+) -> BTreeMap<String, WorkflowValue> {
+    let mut variables = state.variables.clone();
+    variables.extend(context_variables.clone());
+    variables
 }
 
 fn select_transition<'a>(
@@ -652,6 +842,78 @@ fn select_transition<'a>(
                 .map(|transition| &transition.target)
         })
         .ok_or_else(|| DomainError::NoGatewayBranch(gateway_id.clone()))
+}
+
+fn evaluate_decision_table(
+    table: &DecisionTable,
+    variables: &BTreeMap<String, WorkflowValue>,
+) -> Result<BTreeMap<String, WorkflowValue>, DomainError> {
+    let mut selected = None;
+    for rule in &table.rules {
+        if decision_rule_matches(table, rule, variables)? {
+            match table.hit_policy {
+                HitPolicy::First => {
+                    selected = Some(rule);
+                    break;
+                }
+                HitPolicy::Unique if selected.is_none() => selected = Some(rule),
+                HitPolicy::Unique => {
+                    return Err(DomainError::AmbiguousDecisionTable(table.id.clone()));
+                }
+            }
+        }
+    }
+    let rule = selected.ok_or_else(|| DomainError::NoDecisionRuleMatched(table.id.clone()))?;
+    Ok(table
+        .outputs
+        .iter()
+        .zip(&rule.output_values)
+        .map(|(output, value)| (output.name.clone(), value.clone()))
+        .collect())
+}
+
+fn decision_rule_matches(
+    table: &DecisionTable,
+    rule: &DecisionRule,
+    variables: &BTreeMap<String, WorkflowValue>,
+) -> Result<bool, DomainError> {
+    for (input, test) in table.inputs.iter().zip(&rule.input_tests) {
+        let value =
+            variables
+                .get(&input.name)
+                .ok_or_else(|| DomainError::DecisionInputMissing {
+                    table_id: table.id.clone(),
+                    input: input.name.clone(),
+                })?;
+        if !input.value_type.matches(value) {
+            return Err(DomainError::DecisionInputTypeMismatch {
+                table_id: table.id.clone(),
+                input: input.name.clone(),
+                actual: value.type_name(),
+                expected: input.value_type.type_name(),
+            });
+        }
+        if !test.matches(value) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+impl UnaryTest {
+    fn matches(&self, value: &WorkflowValue) -> bool {
+        match self {
+            Self::Any => true,
+            Self::Equal(expected) => value == expected,
+            Self::IntegerInterval(interval) => {
+                let WorkflowValue::Integer(value) = value else {
+                    return false;
+                };
+                interval.lower.is_none_or(|lower| *value >= lower)
+                    && interval.upper.is_none_or(|upper| *value <= upper)
+            }
+        }
+    }
 }
 
 impl GuardExpression {
@@ -697,6 +959,25 @@ impl WorkflowValue {
     }
 }
 
+impl WorkflowValueType {
+    const fn matches(self, value: &WorkflowValue) -> bool {
+        matches!(
+            (self, value),
+            (Self::Boolean, WorkflowValue::Boolean(_))
+                | (Self::Integer, WorkflowValue::Integer(_))
+                | (Self::String, WorkflowValue::String(_))
+        )
+    }
+
+    const fn type_name(self) -> &'static str {
+        match self {
+            Self::Boolean => "boolean",
+            Self::Integer => "integer",
+            Self::String => "string",
+        }
+    }
+}
+
 pub fn evolve(mut state: InstanceState, event: &DomainEvent) -> InstanceState {
     state.sequence = state.sequence.saturating_add(1);
     state.lifecycle = match event {
@@ -707,6 +988,10 @@ pub fn evolve(mut state: InstanceState, event: &DomainEvent) -> InstanceState {
         | DomainEvent::ServiceTaskCompleted { node_id, .. } => Lifecycle::Active {
             active_node: node_id.clone(),
         },
+        DomainEvent::DecisionTaskEvaluated { outputs, .. } => {
+            state.variables.extend(outputs.clone());
+            state.lifecycle.clone()
+        }
         DomainEvent::WorkflowCompleted { .. } => Lifecycle::Completed,
     };
     state
@@ -736,6 +1021,11 @@ pub enum DomainError {
     NotStarted,
     #[error("workflow instance has already completed")]
     AlreadyCompleted,
+    #[error("command tenant {actual} does not match workflow definition tenant {expected}")]
+    TenantMismatch {
+        expected: TenantId,
+        actual: TenantId,
+    },
     #[error("node {0} is not a service task")]
     NodeIsNotServiceTask(NodeId),
     #[error("requested task {requested} is not active; active task is {active}")]
@@ -744,6 +1034,25 @@ pub enum DomainError {
     AmbiguousGateway(NodeId),
     #[error("exclusive gateway {0} has no matching branch and no default")]
     NoGatewayBranch(NodeId),
+    #[error("decision table {0} is missing from workflow definition")]
+    MissingDecisionTable(String),
+    #[error("workflow contains duplicate decision table")]
+    DuplicateDecisionTable,
+    #[error("decision table {table_id} is invalid: {detail}")]
+    InvalidDecisionTable { table_id: String, detail: String },
+    #[error("decision table {0} matched more than one rule")]
+    AmbiguousDecisionTable(String),
+    #[error("decision table {0} matched no rule")]
+    NoDecisionRuleMatched(String),
+    #[error("decision table {table_id} input {input} is missing")]
+    DecisionInputMissing { table_id: String, input: String },
+    #[error("decision table {table_id} input {input} has type {actual}, expected {expected}")]
+    DecisionInputTypeMismatch {
+        table_id: String,
+        input: String,
+        actual: &'static str,
+        expected: &'static str,
+    },
     #[error("automatic transition chain from {0} exceeds workflow node count")]
     AutomaticTransitionLimitExceeded(NodeId),
     #[error("exclusive gateway {0} must have at least two branches")]
@@ -795,6 +1104,7 @@ mod tests {
         let task = id(NodeId::new, "task");
         let end = id(NodeId::new, "end");
         WorkflowDefinition::new(
+            id(TenantId::new, "tenant-a"),
             id(WorkflowType::new, "order"),
             id(WorkflowVersion::new, "1"),
             start.clone(),
@@ -819,6 +1129,7 @@ mod tests {
         let approved = id(NodeId::new, "approved");
         let rejected = id(NodeId::new, "rejected");
         WorkflowDefinition::new(
+            id(TenantId::new, "tenant-a"),
             id(WorkflowType::new, "routing"),
             id(WorkflowVersion::new, "1"),
             start.clone(),
@@ -871,6 +1182,7 @@ mod tests {
             &definition,
             &InstanceState::default(),
             &Command::StartWorkflow {
+                tenant_id: id(TenantId::new, "tenant-a"),
                 occurred_at_epoch_ms: 7,
             },
             DecisionContext {
@@ -889,6 +1201,7 @@ mod tests {
                 &definition,
                 &InstanceState::default(),
                 &Command::StartWorkflow {
+                    tenant_id: id(TenantId::new, "tenant-a"),
                     occurred_at_epoch_ms: 7
                 },
                 DecisionContext {
@@ -905,6 +1218,7 @@ mod tests {
         let definition = gateway_definition();
         let configuration = configuration(2);
         let command = Command::StartWorkflow {
+            tenant_id: id(TenantId::new, "tenant-a"),
             occurred_at_epoch_ms: 7,
         };
         let missing = BTreeMap::new();
@@ -943,6 +1257,7 @@ mod tests {
         let approved = id(NodeId::new, "approved");
         let rejected = id(NodeId::new, "rejected");
         let definition = WorkflowDefinition::new(
+            id(TenantId::new, "tenant-a"),
             id(WorkflowType::new, "routing"),
             id(WorkflowVersion::new, "1"),
             start.clone(),
@@ -997,6 +1312,7 @@ mod tests {
             &definition,
             &InstanceState::default(),
             &Command::StartWorkflow {
+                tenant_id: id(TenantId::new, "tenant-a"),
                 occurred_at_epoch_ms: 7,
             },
             DecisionContext {
@@ -1009,6 +1325,125 @@ mod tests {
             &events[1],
             DomainEvent::ServiceTaskActivated { node_id, .. } if node_id == &approved
         ));
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn decision_task_evaluates_table_and_persists_outputs_for_replay() {
+        let start = id(NodeId::new, "start");
+        let decision = id(NodeId::new, "risk");
+        let gateway = id(NodeId::new, "route");
+        let approved = id(NodeId::new, "approved");
+        let rejected = id(NodeId::new, "rejected");
+        let definition = WorkflowDefinition::new_with_decisions(
+            id(TenantId::new, "tenant-a"),
+            id(WorkflowType::new, "routing"),
+            id(WorkflowVersion::new, "1"),
+            start.clone(),
+            [
+                (
+                    start,
+                    Node::Start {
+                        next: decision.clone(),
+                    },
+                ),
+                (
+                    decision,
+                    Node::DecisionTask {
+                        decision_table_id: "risk-table".into(),
+                        next: gateway.clone(),
+                    },
+                ),
+                (
+                    gateway,
+                    Node::ExclusiveGateway {
+                        transitions: vec![
+                            GuardedTransition {
+                                target: approved.clone(),
+                                guard: Some(GuardExpression {
+                                    variable: "approved".into(),
+                                    operator: ComparisonOperator::Equal,
+                                    literal: WorkflowValue::Boolean(true),
+                                }),
+                            },
+                            GuardedTransition {
+                                target: rejected.clone(),
+                                guard: None,
+                            },
+                        ],
+                        coverage: None,
+                    },
+                ),
+                (
+                    approved.clone(),
+                    Node::ServiceTask {
+                        task_type: id(TaskType::new, "manual-review"),
+                        next: rejected.clone(),
+                    },
+                ),
+                (rejected, Node::End),
+            ],
+            [DecisionTable {
+                id: "risk-table".into(),
+                hit_policy: HitPolicy::First,
+                inputs: vec![DecisionInput {
+                    name: "amount".into(),
+                    value_type: WorkflowValueType::Integer,
+                }],
+                outputs: vec![DecisionOutput {
+                    name: "approved".into(),
+                    value_type: WorkflowValueType::Boolean,
+                }],
+                rules: vec![
+                    DecisionRule {
+                        id: "low".into(),
+                        input_tests: vec![UnaryTest::IntegerInterval(IntegerInterval {
+                            lower: None,
+                            upper: Some(99),
+                        })],
+                        output_values: vec![WorkflowValue::Boolean(false)],
+                    },
+                    DecisionRule {
+                        id: "high".into(),
+                        input_tests: vec![UnaryTest::IntegerInterval(IntegerInterval {
+                            lower: Some(100),
+                            upper: None,
+                        })],
+                        output_values: vec![WorkflowValue::Boolean(true)],
+                    },
+                ],
+            }],
+        )
+        .unwrap();
+        let configuration = configuration(3);
+        let variables = BTreeMap::from([("amount".into(), WorkflowValue::Integer(150))]);
+        let events = decide(
+            &definition,
+            &InstanceState::default(),
+            &Command::StartWorkflow {
+                tenant_id: id(TenantId::new, "tenant-a"),
+                occurred_at_epoch_ms: 7,
+            },
+            DecisionContext {
+                configuration: &configuration,
+                variables: &variables,
+            },
+        )
+        .unwrap();
+        assert!(matches!(
+            &events[1],
+            DomainEvent::DecisionTaskEvaluated { outputs, .. }
+                if outputs.get("approved") == Some(&WorkflowValue::Boolean(true))
+        ));
+        assert!(matches!(
+            &events[2],
+            DomainEvent::ServiceTaskActivated { node_id, .. } if node_id == &approved
+        ));
+        let replayed = rehydrate(None, &events);
+        assert_eq!(
+            replayed.variables.get("approved"),
+            Some(&WorkflowValue::Boolean(true))
+        );
     }
 
     fn configuration(max_events_per_decision: u32) -> ResolvedConfigSnapshot {
@@ -1056,6 +1491,7 @@ mod tests {
         let end = id(NodeId::new, "end");
         let unreachable = id(NodeId::new, "orphan");
         let result = WorkflowDefinition::new(
+            id(TenantId::new, "tenant-a"),
             id(WorkflowType::new, "order"),
             id(WorkflowVersion::new, "1"),
             start.clone(),
@@ -1085,7 +1521,10 @@ mod tests {
             let start_events = decide(
                 &definition,
                 &initial,
-                &Command::StartWorkflow { occurred_at_epoch_ms: started_at },
+                &Command::StartWorkflow {
+                    tenant_id: id(TenantId::new, "tenant-a"),
+                    occurred_at_epoch_ms: started_at,
+                },
                 context,
             ).expect("start must succeed");
             let active = rehydrate(None, &start_events);
@@ -1113,7 +1552,10 @@ mod tests {
             let result = decide(
                 &definition,
                 &InstanceState::default(),
-                &Command::StartWorkflow { occurred_at_epoch_ms: 1 },
+                &Command::StartWorkflow {
+                    tenant_id: id(TenantId::new, "tenant-a"),
+                    occurred_at_epoch_ms: 1,
+                },
                 DecisionContext {
                     configuration: &configuration,
                     variables: &variables,

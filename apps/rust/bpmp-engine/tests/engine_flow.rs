@@ -78,6 +78,7 @@ fn definition() -> WorkflowDefinition {
     let task = NodeId::new("charge-card").unwrap();
     let end = NodeId::new("end").unwrap();
     WorkflowDefinition::new(
+        TenantId::new("tenant-a").unwrap(),
         WorkflowType::new("order").unwrap(),
         WorkflowVersion::new("1").unwrap(),
         start.clone(),
@@ -188,6 +189,7 @@ fn start_request() -> AuthorizedCommand {
         encryption_key_scope: KeyScope::new("tenant-a/operational").unwrap(),
         variables: BTreeMap::default(),
         command: Command::StartWorkflow {
+            tenant_id: TenantId::new("tenant-a").unwrap(),
             occurred_at_epoch_ms: 42,
         },
     }

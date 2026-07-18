@@ -3,10 +3,10 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use bpmp_contracts::WIR_SCHEMA_VERSION;
 use bpmp_contracts::wir::v1::{
     ComparisonOperator, ConditionalTransition, DataContract, DecisionInput, DecisionOutput,
-    DecisionRule, DecisionTable, EndNode, ExclusiveGatewayNode, GatewayCoverage, GuardExpression,
-    HitPolicy, IntegerInterval, Node, ServiceTaskNode, StartNode, UnaryTest, ValueType,
-    WorkflowIntermediateRepresentation, WorkflowLiteral, guard_expression, node, unary_test,
-    workflow_literal,
+    DecisionRule, DecisionTable, DecisionTaskNode, EndNode, ExclusiveGatewayNode, GatewayCoverage,
+    GuardExpression, HitPolicy, IntegerInterval, Node, ServiceTaskNode, StartNode, UnaryTest,
+    ValueType, WorkflowIntermediateRepresentation, WorkflowLiteral, guard_expression, node,
+    unary_test, workflow_literal,
 };
 use quick_xml::XmlVersion;
 use quick_xml::events::{BytesStart, Event};
@@ -82,9 +82,10 @@ impl BpmnCompiler {
     pub fn compile(
         &self,
         source: SourceDocument<'_>,
+        tenant_id: &str,
         workflow_version: &str,
     ) -> Result<WorkflowIntermediateRepresentation, Vec<CompileDiagnostic>> {
-        self.compile_with_decisions(source, &[], workflow_version)
+        self.compile_with_decisions(source, &[], tenant_id, workflow_version)
     }
 
     /// Compiles one BPMN process plus optional DMN decision tables into WIR.
@@ -97,9 +98,19 @@ impl BpmnCompiler {
         &self,
         source: SourceDocument<'_>,
         decision_sources: &[SourceDocument<'_>],
+        tenant_id: &str,
         workflow_version: &str,
     ) -> Result<WorkflowIntermediateRepresentation, Vec<CompileDiagnostic>> {
         let locations = SourceLocations::new(source.name, source.bytes);
+        if tenant_id.trim().is_empty() {
+            return Err(vec![locations.diagnostic(
+                0,
+                DiagnosticKind::MissingAttribute {
+                    element: "compiler invocation".to_owned(),
+                    attribute: "tenant_id",
+                },
+            )]);
+        }
         if workflow_version.trim().is_empty() {
             return Err(vec![locations.diagnostic(
                 0,
@@ -126,8 +137,8 @@ impl BpmnCompiler {
             });
             return Err(parsed.diagnostics);
         }
-        let mut wir = lower(parsed, workflow_version);
         let mut diagnostics = Vec::new();
+        let mut decision_tables = Vec::new();
         for decision_source in decision_sources {
             let decision_locations =
                 SourceLocations::new(decision_source.name, decision_source.bytes);
@@ -142,11 +153,14 @@ impl BpmnCompiler {
                 continue;
             }
             match parse_dmn(*decision_source, self.limits, &decision_locations) {
-                Ok(mut tables) => wir.decision_tables.append(&mut tables),
+                Ok(mut tables) => decision_tables.append(&mut tables),
                 Err(mut errors) => diagnostics.append(&mut errors),
             }
         }
+        validate_decision_references(&parsed, &decision_tables, &locations, &mut diagnostics);
         if diagnostics.is_empty() {
+            let mut wir = lower(parsed, tenant_id, workflow_version);
+            wir.decision_tables = decision_tables;
             wir.decision_tables
                 .sort_unstable_by(|left, right| left.id.cmp(&right.id));
             Ok(wir)
@@ -176,6 +190,7 @@ impl BpmnCompiler {
 enum RawNodeKind {
     Start,
     ServiceTask,
+    DecisionTask,
     ExclusiveGateway,
     End,
 }
@@ -186,6 +201,7 @@ struct RawNode {
     task_type: Option<String>,
     input_type: Option<String>,
     output_type: Option<String>,
+    decision_ref: Option<String>,
     sla_milliseconds: Option<u64>,
     compensation_handler_id: Option<String>,
     requires_compensation: bool,
@@ -283,6 +299,7 @@ fn parse(
     parsed
 }
 
+#[allow(clippy::too_many_lines)]
 fn inspect_element(
     namespace: &ResolveResult<'_>,
     element: &BytesStart<'_>,
@@ -297,6 +314,7 @@ fn inspect_element(
         "process"
             | "startEvent"
             | "serviceTask"
+            | "businessRuleTask"
             | "endEvent"
             | "sequenceFlow"
             | "exclusiveGateway"
@@ -361,6 +379,15 @@ fn inspect_element(
                 locations,
             );
         }
+        "businessRuleTask" => insert_node(
+            element,
+            decoder,
+            RawNodeKind::DecisionTask,
+            None,
+            offset,
+            parsed,
+            locations,
+        ),
         "exclusiveGateway" => insert_node(
             element,
             decoder,
@@ -405,6 +432,7 @@ fn insert_node(
     let element_name = match kind {
         RawNodeKind::Start => "startEvent",
         RawNodeKind::ServiceTask => "serviceTask",
+        RawNodeKind::DecisionTask => "businessRuleTask",
         RawNodeKind::ExclusiveGateway => "exclusiveGateway",
         RawNodeKind::End => "endEvent",
     };
@@ -421,6 +449,7 @@ fn insert_node(
     };
     let input_type = optional_non_empty_attribute(element, decoder, b"inputType");
     let output_type = optional_non_empty_attribute(element, decoder, b"outputType");
+    let decision_ref = optional_non_empty_attribute(element, decoder, b"decisionRef");
     let sla_milliseconds = parse_optional_u64_attribute(
         element,
         decoder,
@@ -454,6 +483,7 @@ fn insert_node(
                 task_type,
                 input_type,
                 output_type,
+                decision_ref,
                 sla_milliseconds,
                 compensation_handler_id,
                 requires_compensation,
@@ -656,7 +686,9 @@ fn validate_graph(parsed: &mut ParsedProcess, locations: &SourceLocations) {
         let invalid_outgoing = match node.kind {
             RawNodeKind::ExclusiveGateway => outgoing_count < 2,
             RawNodeKind::End => outgoing_count != 0,
-            RawNodeKind::Start | RawNodeKind::ServiceTask => outgoing_count != 1,
+            RawNodeKind::Start | RawNodeKind::ServiceTask | RawNodeKind::DecisionTask => {
+                outgoing_count != 1
+            }
         };
         if invalid_outgoing {
             parsed.diagnostics.push(locations.diagnostic(
@@ -683,6 +715,15 @@ fn validate_graph(parsed: &mut ParsedProcess, locations: &SourceLocations) {
                 node.offset,
                 DiagnosticKind::MissingCompensation {
                     activity_id: id.clone(),
+                },
+            ));
+        }
+        if node.kind == RawNodeKind::DecisionTask && node.decision_ref.is_none() {
+            parsed.diagnostics.push(locations.diagnostic(
+                node.offset,
+                DiagnosticKind::MissingAttribute {
+                    element: "businessRuleTask".to_owned(),
+                    attribute: "decisionRef",
                 },
             ));
         }
@@ -829,6 +870,35 @@ fn validate_graph(parsed: &mut ParsedProcess, locations: &SourceLocations) {
 
 fn traverse<'a>(start: &'a str, edges: &BTreeMap<&'a str, Vec<&'a str>>) -> BTreeSet<&'a str> {
     traverse_many(&[start], edges)
+}
+
+fn validate_decision_references(
+    parsed: &ParsedProcess,
+    decision_tables: &[DecisionTable],
+    locations: &SourceLocations,
+    diagnostics: &mut Vec<CompileDiagnostic>,
+) {
+    let table_ids = decision_tables
+        .iter()
+        .map(|table| table.id.as_str())
+        .collect::<BTreeSet<_>>();
+    for (task_id, node) in &parsed.nodes {
+        if node.kind != RawNodeKind::DecisionTask {
+            continue;
+        }
+        let Some(decision_ref) = &node.decision_ref else {
+            continue;
+        };
+        if !table_ids.contains(decision_ref.as_str()) {
+            diagnostics.push(locations.diagnostic(
+                node.offset,
+                DiagnosticKind::MissingDecisionTable {
+                    task_id: task_id.clone(),
+                    table_id: decision_ref.clone(),
+                },
+            ));
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1141,7 +1211,11 @@ fn traverse_many<'a>(
     visited
 }
 
-fn lower(parsed: ParsedProcess, workflow_version: &str) -> WorkflowIntermediateRepresentation {
+fn lower(
+    parsed: ParsedProcess,
+    tenant_id: &str,
+    workflow_version: &str,
+) -> WorkflowIntermediateRepresentation {
     let next_by_source: BTreeMap<_, _> = parsed
         .flows
         .iter()
@@ -1162,6 +1236,12 @@ fn lower(parsed: ParsedProcess, workflow_version: &str) -> WorkflowIntermediateR
                 }),
                 RawNodeKind::ServiceTask => node::Kind::ServiceTask(ServiceTaskNode {
                     task_type: raw.task_type.unwrap_or_else(|| id.clone()),
+                    next_node_id: next_by_source[&id.as_str()].to_owned(),
+                }),
+                RawNodeKind::DecisionTask => node::Kind::DecisionTask(DecisionTaskNode {
+                    decision_table_id: raw
+                        .decision_ref
+                        .expect("decisionRef is validated before lowering"),
                     next_node_id: next_by_source[&id.as_str()].to_owned(),
                 }),
                 RawNodeKind::ExclusiveGateway => {
@@ -1227,6 +1307,7 @@ fn lower(parsed: ParsedProcess, workflow_version: &str) -> WorkflowIntermediateR
         content_hash: Vec::new(),
         signature: Vec::new(),
         decision_tables: Vec::new(),
+        tenant_id: tenant_id.to_owned(),
     }
 }
 
@@ -1926,6 +2007,8 @@ mod tests {
 
     use super::*;
 
+    const TENANT_ID: &str = "tenant-a";
+
     const VALID: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL">
   <bpmn:process id="order">
@@ -1949,6 +2032,7 @@ mod tests {
                     name: "order.bpmn",
                     bytes: VALID.as_bytes(),
                 },
+                TENANT_ID,
                 "1",
             )
             .unwrap();
@@ -1967,6 +2051,7 @@ mod tests {
                     name: "order.bpmn",
                     bytes: VALID.as_bytes(),
                 },
+                TENANT_ID,
                 "1",
             )
             .unwrap();
@@ -1977,6 +2062,7 @@ mod tests {
                     name: "canonical.bpmn",
                     bytes: printed.as_bytes(),
                 },
+                TENANT_ID,
                 "1",
             )
             .unwrap();
@@ -1994,6 +2080,7 @@ mod tests {
                     name: "invalid.bpmn",
                     bytes: invalid.as_bytes(),
                 },
+                TENANT_ID,
                 "1",
             )
             .unwrap_err();
@@ -2030,6 +2117,7 @@ mod tests {
                     name: "gateway.bpmn",
                     bytes: gateway.as_bytes(),
                 },
+                TENANT_ID,
                 "1",
             )
             .unwrap();
@@ -2040,6 +2128,7 @@ mod tests {
                     name: "canonical.bpmn",
                     bytes: canonical.as_bytes(),
                 },
+                TENANT_ID,
                 "1",
             )
             .unwrap();
@@ -2066,6 +2155,7 @@ mod tests {
                     name: "boolean-gateway.bpmn",
                     bytes: gateway.as_bytes(),
                 },
+                TENANT_ID,
                 "1",
             )
             .unwrap();
@@ -2076,6 +2166,7 @@ mod tests {
                     name: "canonical.bpmn",
                     bytes: canonical.as_bytes(),
                 },
+                TENANT_ID,
                 "1",
             )
             .unwrap();
@@ -2102,6 +2193,7 @@ mod tests {
                     name: "enum-gateway.bpmn",
                     bytes: gateway.as_bytes(),
                 },
+                TENANT_ID,
                 "1",
             )
             .unwrap();
@@ -2112,6 +2204,7 @@ mod tests {
                     name: "canonical.bpmn",
                     bytes: canonical.as_bytes(),
                 },
+                TENANT_ID,
                 "1",
             )
             .unwrap();
@@ -2137,6 +2230,7 @@ mod tests {
                     name: "numeric-gateway.bpmn",
                     bytes: gateway.as_bytes(),
                 },
+                TENANT_ID,
                 "1",
             )
             .unwrap();
@@ -2171,6 +2265,7 @@ mod tests {
                     name: "ambiguous-gateway.bpmn",
                     bytes: invalid.as_bytes(),
                 },
+                TENANT_ID,
                 "1",
             )
             .unwrap_err();
@@ -2202,12 +2297,67 @@ mod tests {
                     name: "risk.dmn",
                     bytes: dmn.as_bytes(),
                 }],
+                TENANT_ID,
                 "1",
             )
             .unwrap();
         assert_eq!(wir.decision_tables.len(), 1);
         assert_eq!(wir.decision_tables[0].id, "risk");
         assert_eq!(wir.decision_tables[0].rules.len(), 1);
+    }
+
+    #[test]
+    fn business_rule_task_round_trips_with_decision_ref() {
+        let bpmn = r#"<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL">
+  <bpmn:process id="risk-routing">
+    <bpmn:startEvent id="start" />
+    <bpmn:businessRuleTask id="risk" decisionRef="risk-table" />
+    <bpmn:endEvent id="end" />
+    <bpmn:sequenceFlow id="f1" sourceRef="start" targetRef="risk" />
+    <bpmn:sequenceFlow id="f2" sourceRef="risk" targetRef="end" />
+  </bpmn:process>
+</bpmn:definitions>"#;
+        let dmn = r#"<dmn:definitions xmlns:dmn="https://www.omg.org/spec/DMN/20191111/MODEL/">
+  <dmn:decisionTable id="risk-table" hitPolicy="FIRST">
+    <dmn:input id="amount" label="amount" typeRef="integer" />
+    <dmn:output id="approved" name="approved" typeRef="boolean" />
+    <dmn:rule id="high">
+      <dmn:inputEntry text="&gt;= 100" />
+      <dmn:outputEntry text="true" />
+    </dmn:rule>
+  </dmn:decisionTable>
+</dmn:definitions>"#;
+        let compiler = compiler();
+        let first = compiler
+            .compile_with_decisions(
+                SourceDocument {
+                    name: "risk.bpmn",
+                    bytes: bpmn.as_bytes(),
+                },
+                &[SourceDocument {
+                    name: "risk.dmn",
+                    bytes: dmn.as_bytes(),
+                }],
+                TENANT_ID,
+                "1",
+            )
+            .unwrap();
+        let canonical = compiler.print(&first).unwrap();
+        let second = compiler
+            .compile_with_decisions(
+                SourceDocument {
+                    name: "canonical.bpmn",
+                    bytes: canonical.as_bytes(),
+                },
+                &[SourceDocument {
+                    name: "risk.dmn",
+                    bytes: dmn.as_bytes(),
+                }],
+                TENANT_ID,
+                "1",
+            )
+            .unwrap();
+        assert_eq!(first, second);
     }
 
     #[test]
@@ -2229,6 +2379,7 @@ mod tests {
                     name: "semantic-errors.bpmn",
                     bytes: invalid.as_bytes(),
                 },
+                TENANT_ID,
                 "1",
             )
             .unwrap_err();
@@ -2264,6 +2415,7 @@ mod tests {
                     name: "gateway.bpmn",
                     bytes: invalid.as_bytes(),
                 },
+                TENANT_ID,
                 "1",
             )
             .unwrap_err();
@@ -2283,6 +2435,7 @@ mod tests {
                     name: "xxe.bpmn",
                     bytes: xml.as_bytes(),
                 },
+                TENANT_ID,
                 "1",
             )
             .unwrap_err();
@@ -2308,11 +2461,13 @@ mod tests {
             let compiler = compiler();
             let first = compiler.compile(
                 SourceDocument { name: "generated.bpmn", bytes: source.as_bytes() },
+                TENANT_ID,
                 "property-v1",
             ).expect("generated BPMN must compile");
             let canonical = compiler.print(&first).expect("WIR must print");
             let second = compiler.compile(
                 SourceDocument { name: "canonical.bpmn", bytes: canonical.as_bytes() },
+                TENANT_ID,
                 "property-v1",
             ).expect("canonical BPMN must compile");
             prop_assert_eq!(first, second);

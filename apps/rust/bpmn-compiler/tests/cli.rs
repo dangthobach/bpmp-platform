@@ -34,6 +34,8 @@ fn cli_emits_a_verifiable_artifact() {
             output.to_str().unwrap(),
             "--workflow-version",
             "1",
+            "--tenant-id",
+            "tenant-a",
             "--signing-key",
             key.to_str().unwrap(),
             "--max-input-bytes",
@@ -47,7 +49,8 @@ fn cli_emits_a_verifiable_artifact() {
     assert!(status.success());
     let signer = Ed25519Signer::from_bytes(&[17; 32]);
     let verifier = Ed25519Verifier::from_bytes(&signer.verifying_key_bytes()).unwrap();
-    assert!(WirCodec::open(&fs::read(output).unwrap(), &verifier).is_ok());
+    let wir = WirCodec::open(&fs::read(output).unwrap(), &verifier).unwrap();
+    assert_eq!(wir.tenant_id, "tenant-a");
 }
 
 #[test]
@@ -71,6 +74,8 @@ fn cli_returns_ci_failure_with_source_location() {
             output.to_str().unwrap(),
             "--workflow-version",
             "1",
+            "--tenant-id",
+            "tenant-a",
             "--signing-key",
             key.to_str().unwrap(),
             "--max-input-bytes",

@@ -16,7 +16,8 @@ pub use identifiers::{
     InstanceId, KeyScope, NodeId, PolicyVersion, TaskType, TenantId, WorkflowType, WorkflowVersion,
 };
 pub use workflow::{
-    Command, ComparisonOperator, DecisionContext, DomainError, DomainEvent, GatewayCoverage,
-    GatewayCoverageDomain, GuardExpression, GuardedTransition, InstanceState, IntegerInterval,
-    Lifecycle, Node, WorkflowDefinition, WorkflowValue, decide, evolve, rehydrate,
+    Command, ComparisonOperator, DecisionContext, DecisionInput, DecisionOutput, DecisionRule,
+    DecisionTable, DomainError, DomainEvent, GatewayCoverage, GatewayCoverageDomain,
+    GuardExpression, GuardedTransition, HitPolicy, InstanceState, IntegerInterval, Lifecycle, Node,
+    UnaryTest, WorkflowDefinition, WorkflowValue, WorkflowValueType, decide, evolve, rehydrate,
 };

@@ -102,6 +102,10 @@ pub enum DiagnosticKind {
         table_id: String,
         detail: String,
     },
+    MissingDecisionTable {
+        task_id: String,
+        table_id: String,
+    },
 }
 
 impl Display for DiagnosticKind {
@@ -210,6 +214,10 @@ impl Display for DiagnosticKind {
                     "DMN decision table {table_id} is invalid: {detail}"
                 )
             }
+            Self::MissingDecisionTable { task_id, table_id } => write!(
+                formatter,
+                "businessRuleTask {task_id} references missing DMN decision table {table_id}"
+            ),
         }
     }
 }

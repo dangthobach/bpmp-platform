@@ -30,7 +30,7 @@ pub(crate) fn print_canonical(
             .ok_or_else(|| PrintError::MissingNodeKind(node.id.clone()))?;
         match kind {
             node::Kind::Start(start) => {
-                write_node(&mut writer, "bpmn:startEvent", node, None, None)?;
+                write_node(&mut writer, "bpmn:startEvent", node, None, None, None)?;
                 flows.push((node.id.as_str(), start.next_node_id.as_str(), None, false));
             }
             node::Kind::ServiceTask(task) => {
@@ -40,6 +40,18 @@ pub(crate) fn print_canonical(
                     node,
                     Some(&task.task_type),
                     None,
+                    None,
+                )?;
+                flows.push((node.id.as_str(), task.next_node_id.as_str(), None, false));
+            }
+            node::Kind::DecisionTask(task) => {
+                write_node(
+                    &mut writer,
+                    "bpmn:businessRuleTask",
+                    node,
+                    None,
+                    Some(&task.decision_table_id),
+                    None,
                 )?;
                 flows.push((node.id.as_str(), task.next_node_id.as_str(), None, false));
             }
@@ -48,6 +60,7 @@ pub(crate) fn print_canonical(
                     &mut writer,
                     "bpmn:exclusiveGateway",
                     node,
+                    None,
                     None,
                     enum_values(gateway.coverage.as_ref()),
                 )?;
@@ -62,7 +75,7 @@ pub(crate) fn print_canonical(
                 }
             }
             node::Kind::End(_) => {
-                write_node(&mut writer, "bpmn:endEvent", node, None, None)?;
+                write_node(&mut writer, "bpmn:endEvent", node, None, None, None)?;
             }
         }
     }
@@ -116,12 +129,16 @@ fn write_node(
     element_name: &str,
     node: &bpmp_contracts::wir::v1::Node,
     task_type: Option<&str>,
+    decision_ref: Option<&str>,
     enum_values: Option<&[String]>,
 ) -> Result<(), std::io::Error> {
     let mut element = BytesStart::new(element_name);
     element.push_attribute(("id", node.id.as_str()));
     if let Some(task_type) = task_type {
         element.push_attribute(("name", task_type));
+    }
+    if let Some(decision_ref) = decision_ref {
+        element.push_attribute(("decisionRef", decision_ref));
     }
     if let Some(contract) = &node.data_contract {
         if !contract.input_type.is_empty() {

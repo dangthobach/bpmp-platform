@@ -141,6 +141,9 @@ where
         definition: &WorkflowDefinition,
         request: AuthorizedCommand,
     ) -> Result<HandleOutcome, EngineError> {
+        if request.tenant_id != definition.tenant_id {
+            return Err(EngineError::DefinitionTenantMismatch);
+        }
         let (active_node_id, action) = transition_selector(definition, &request.command);
         let principal = self.authorization.authorize(&AuthorizationRequest {
             tenant_id: &request.tenant_id,
@@ -376,6 +379,10 @@ const fn event_time(event: &DomainEvent) -> u64 {
             occurred_at_epoch_ms,
             ..
         }
+        | DomainEvent::DecisionTaskEvaluated {
+            occurred_at_epoch_ms,
+            ..
+        }
         | DomainEvent::WorkflowCompleted {
             occurred_at_epoch_ms,
         } => *occurred_at_epoch_ms,
@@ -396,6 +403,8 @@ pub enum EngineError {
     SequenceOverflow,
     #[error("snapshot workflow identity does not match the loaded definition")]
     SnapshotWorkflowMismatch,
+    #[error("workflow definition tenant does not match the command tenant")]
+    DefinitionTenantMismatch,
     #[error(
         "resolved configuration policy version {configured} differs from authorized policy version {authorized}"
     )]

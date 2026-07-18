@@ -186,6 +186,7 @@ mod tests {
             content_hash: Vec::new(),
             signature: Vec::new(),
             decision_tables: Vec::new(),
+            tenant_id: "tenant-a".into(),
         }
     }
 
