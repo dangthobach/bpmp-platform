@@ -7,10 +7,10 @@ use bpmp_contracts::wir::v1::{
     DecisionOutput, DecisionRule, DecisionTable, DecisionTaskNode, EndNode, ErrorTrigger,
     EventTrigger, ExclusiveGatewayNode, ExtensionProperty, GatewayCoverage, GatewayDirection,
     GuardExpression, HitPolicy, InclusiveGatewayNode, IntegerInterval, MessageTrigger,
-    MultiInstanceMode, MultiInstanceSpec, Node, ParallelGatewayNode, PropertyValue,
-    ServiceTaskNode, StartNode, SubProcessNode, TimerKind, TimerTrigger, UnaryTest, ValueType,
-    WorkflowIntermediateRepresentation, WorkflowLiteral, boolean_expression, event_trigger,
-    guard_expression, node, property_value, unary_test, workflow_literal,
+    MultiInstanceMode, MultiInstanceSpec, Node, ParallelGatewayNode, PropertyValue, ScriptTaskNode,
+    ServiceTaskNode, StartNode, SubProcessNode, TimerKind, TimerTrigger, UnaryTest, UserTaskNode,
+    ValueType, WorkflowIntermediateRepresentation, WorkflowLiteral, boolean_expression,
+    event_trigger, guard_expression, node, property_value, unary_test, workflow_literal,
 };
 use quick_xml::XmlVersion;
 use quick_xml::events::{BytesStart, Event};
@@ -18,7 +18,14 @@ use quick_xml::name::ResolveResult;
 use quick_xml::reader::NsReader;
 use thiserror::Error;
 
+use crate::bpmn_profile::{BpmnElementDisposition, classify_element};
 use crate::{CompileDiagnostic, DiagnosticKind, SourceSpan};
+
+mod graph_validation;
+mod normalization;
+
+use graph_validation::validate_gateway_structure;
+use normalization::{normalize_sub_processes, resolve_boundary_targets};
 
 const BPMN_MODEL_NAMESPACE: &[u8] = b"http://www.omg.org/spec/BPMN/20100524/MODEL";
 const DMN_MODEL_NAMESPACES: [&[u8]; 2] = [
@@ -240,7 +247,18 @@ impl BpmnCompiler {
         enrich_decision_contracts(&mut parsed, &decision_tables, &locations, &mut diagnostics);
         validate_data_flow_paths(&parsed, &locations, &mut diagnostics);
         if diagnostics.is_empty() {
-            let mut wir = lower(parsed, tenant_id, workflow_version);
+            let mut wir = match lower(parsed, tenant_id, workflow_version) {
+                Ok(wir) => wir,
+                Err(error) => {
+                    return Err(vec![locations.diagnostic(
+                        error.offset,
+                        DiagnosticKind::InternalCompilerInvariant {
+                            phase: "lowering",
+                            detail: error.detail,
+                        },
+                    )]);
+                }
+            };
             wir.decision_tables = decision_tables;
             wir.decision_tables
                 .sort_unstable_by(|left, right| left.id.cmp(&right.id));
@@ -286,6 +304,8 @@ impl BpmnCompiler {
 enum RawNodeKind {
     Start,
     ServiceTask,
+    UserTask,
+    ScriptTask,
     DecisionTask,
     ExclusiveGateway,
     InclusiveGateway,
@@ -293,6 +313,21 @@ enum RawNodeKind {
     CallActivity,
     SubProcess,
     End,
+}
+
+#[derive(Debug)]
+struct LoweringError {
+    offset: usize,
+    detail: String,
+}
+
+impl LoweringError {
+    fn new(offset: usize, detail: impl Into<String>) -> Self {
+        Self {
+            offset,
+            detail: detail.into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -320,6 +355,11 @@ struct RawNode {
     enum_values: Vec<String>,
     called_element: Option<String>,
     called_version: Option<String>,
+    assignment_policy_ref: Option<String>,
+    form_key: Option<String>,
+    result_variable: Option<String>,
+    implementation_ref: Option<String>,
+    implementation_version: Option<String>,
     scope_id: Option<String>,
     multi_instance: Option<RawMultiInstance>,
     properties: Vec<ExtensionProperty>,
@@ -487,243 +527,6 @@ fn parse(
 }
 
 #[allow(clippy::too_many_lines)]
-fn normalize_sub_processes(parsed: &mut ParsedProcess, locations: &SourceLocations) {
-    let mut subprocess_ids = parsed
-        .nodes
-        .iter()
-        .filter(|(_, node)| node.kind == RawNodeKind::SubProcess)
-        .map(|(id, node)| (scope_depth(parsed, id), id.clone(), node.offset))
-        .collect::<Vec<_>>();
-    subprocess_ids.sort_unstable_by(|left, right| right.0.cmp(&left.0));
-    for (_, subprocess_id, offset) in subprocess_ids {
-        let Some(subprocess) = parsed.nodes.get(&subprocess_id).cloned() else {
-            continue;
-        };
-        let retained = subprocess.multi_instance.is_some()
-            || subprocess.requires_compensation
-            || subprocess.compensation_handler_id.is_some()
-            || parsed
-                .boundary_events
-                .iter()
-                .any(|event| event.attached_to == subprocess_id);
-        let children = parsed
-            .nodes
-            .iter()
-            .filter(|(_, node)| node.scope_id.as_deref() == Some(subprocess_id.as_str()))
-            .map(|(id, node)| (id.clone(), node.kind))
-            .collect::<Vec<_>>();
-        let starts = children
-            .iter()
-            .filter(|(_, kind)| *kind == RawNodeKind::Start)
-            .map(|(id, _)| id.clone())
-            .collect::<Vec<_>>();
-        let ends = children
-            .iter()
-            .filter(|(_, kind)| *kind == RawNodeKind::End)
-            .map(|(id, _)| id.clone())
-            .collect::<Vec<_>>();
-        let incoming = parsed
-            .flows
-            .iter()
-            .filter(|flow| flow.target == subprocess_id)
-            .count();
-        let outgoing = parsed
-            .flows
-            .iter()
-            .filter(|flow| flow.source == subprocess_id)
-            .collect::<Vec<_>>();
-        let start_outgoing = starts.first().map_or(0, |start| {
-            parsed
-                .flows
-                .iter()
-                .filter(|flow| flow.source == *start)
-                .count()
-        });
-        let end_incoming = ends.first().map_or(0, |end| {
-            parsed
-                .flows
-                .iter()
-                .filter(|flow| flow.target == *end)
-                .count()
-        });
-        if starts.len() != 1
-            || ends.len() != 1
-            || incoming != 1
-            || outgoing.len() != 1
-            || start_outgoing != 1
-            || end_incoming == 0
-        {
-            parsed.diagnostics.push(locations.diagnostic(
-                offset,
-                DiagnosticKind::InvalidSubProcess {
-                    subprocess_id,
-                    detail: format!(
-                        "inline normalization requires one outer entry/exit and one inner start/end; found starts={}, ends={}, incoming={incoming}, outgoing={}, start outgoing={start_outgoing}, end incoming={end_incoming}",
-                        starts.len(),
-                        ends.len(),
-                        outgoing.len()
-                    ),
-                },
-            ));
-            continue;
-        }
-        if retained {
-            continue;
-        }
-        let start_id = &starts[0];
-        let end_id = &ends[0];
-        let entry_target = parsed
-            .flows
-            .iter()
-            .find(|flow| flow.source == *start_id)
-            .map(|flow| flow.target.clone())
-            .expect("sub-process start outgoing flow was counted");
-        let exit_target = outgoing[0].target.clone();
-        for flow in &mut parsed.flows {
-            if flow.target == subprocess_id {
-                flow.target.clone_from(&entry_target);
-            }
-            if flow.target == *end_id {
-                flow.target.clone_from(&exit_target);
-            }
-        }
-        parsed
-            .flows
-            .retain(|flow| flow.source != subprocess_id && flow.source != *start_id);
-        parsed.nodes.remove(&subprocess_id);
-        parsed.nodes.remove(start_id);
-        parsed.nodes.remove(end_id);
-        for node in parsed.nodes.values_mut() {
-            if node.scope_id.as_deref() == Some(subprocess_id.as_str()) {
-                node.scope_id.clone_from(&subprocess.scope_id);
-            }
-        }
-        if let Some(entry) = parsed.nodes.get_mut(&entry_target) {
-            entry.properties.extend(subprocess.properties);
-            entry.sla_milliseconds = match (entry.sla_milliseconds, subprocess.sla_milliseconds) {
-                (None, outer) => outer,
-                (inner, None) => inner,
-                (Some(inner), Some(outer)) => Some(inner.min(outer)),
-            };
-        }
-    }
-}
-
-fn scope_depth(parsed: &ParsedProcess, node_id: &str) -> usize {
-    let mut depth = 0_usize;
-    let mut scope = parsed
-        .nodes
-        .get(node_id)
-        .and_then(|node| node.scope_id.as_deref());
-    while let Some(scope_id) = scope {
-        depth = depth.saturating_add(1);
-        scope = parsed
-            .nodes
-            .get(scope_id)
-            .and_then(|node| node.scope_id.as_deref());
-    }
-    depth
-}
-
-fn resolve_boundary_targets(parsed: &mut ParsedProcess, locations: &SourceLocations) {
-    for boundary in &mut parsed.boundary_events {
-        if boundary.trigger_count != 1 {
-            parsed.diagnostics.push(locations.diagnostic(
-                boundary.offset,
-                DiagnosticKind::InvalidBoundaryEvent {
-                    boundary_id: boundary.id.clone(),
-                    detail: format!(
-                        "must declare exactly one event definition, found {}",
-                        boundary.trigger_count
-                    ),
-                },
-            ));
-            continue;
-        }
-        if boundary.is_compensation {
-            continue;
-        }
-        if !parsed.nodes.contains_key(&boundary.attached_to) {
-            parsed.diagnostics.push(locations.diagnostic(
-                boundary.offset,
-                DiagnosticKind::InvalidBoundaryEvent {
-                    boundary_id: boundary.id.clone(),
-                    detail: format!("attached activity {} does not exist", boundary.attached_to),
-                },
-            ));
-            continue;
-        }
-        let outgoing = parsed
-            .flows
-            .iter()
-            .filter(|flow| flow.source == boundary.id)
-            .collect::<Vec<_>>();
-        if outgoing.len() != 1 {
-            parsed.diagnostics.push(locations.diagnostic(
-                boundary.offset,
-                DiagnosticKind::InvalidBoundaryEvent {
-                    boundary_id: boundary.id.clone(),
-                    detail: format!(
-                        "must have exactly one outgoing sequence flow, found {}",
-                        outgoing.len()
-                    ),
-                },
-            ));
-            continue;
-        }
-        if boundary.trigger.is_none() {
-            parsed.diagnostics.push(locations.diagnostic(
-                boundary.offset,
-                DiagnosticKind::InvalidBoundaryEvent {
-                    boundary_id: boundary.id.clone(),
-                    detail: "must declare timer, error, message, or compensation definition".into(),
-                },
-            ));
-            continue;
-        }
-        match boundary.trigger.as_ref() {
-            Some(RawBoundaryTrigger::Timer { kind, expression })
-                if *kind == TimerKind::Unspecified || expression.trim().is_empty() =>
-            {
-                parsed.diagnostics.push(
-                    locations.diagnostic(
-                        boundary.offset,
-                        DiagnosticKind::InvalidBoundaryEvent {
-                            boundary_id: boundary.id.clone(),
-                            detail:
-                                "timer requires one non-empty timeDate, timeDuration, or timeCycle"
-                                    .into(),
-                        },
-                    ),
-                );
-                continue;
-            }
-            Some(RawBoundaryTrigger::Message { message_ref }) if message_ref.trim().is_empty() => {
-                parsed.diagnostics.push(locations.diagnostic(
-                    boundary.offset,
-                    DiagnosticKind::InvalidBoundaryEvent {
-                        boundary_id: boundary.id.clone(),
-                        detail: "message event requires messageRef".into(),
-                    },
-                ));
-                continue;
-            }
-            _ => {}
-        }
-        boundary.target = Some(outgoing[0].target.clone());
-    }
-    let boundary_ids = parsed
-        .boundary_events
-        .iter()
-        .filter(|boundary| !boundary.is_compensation && boundary.target.is_some())
-        .map(|boundary| boundary.id.as_str())
-        .collect::<BTreeSet<_>>();
-    parsed
-        .flows
-        .retain(|flow| !boundary_ids.contains(flow.source.as_str()));
-}
-
-#[allow(clippy::too_many_lines)]
 fn inspect_element(
     namespace: &ResolveResult<'_>,
     element: &BytesStart<'_>,
@@ -734,34 +537,10 @@ fn inspect_element(
     is_empty: bool,
 ) {
     let local_name = String::from_utf8_lossy(element.local_name().as_ref()).into_owned();
+    let disposition = classify_element(&local_name);
     let semantic = matches!(
-        local_name.as_str(),
-        "process"
-            | "startEvent"
-            | "serviceTask"
-            | "businessRuleTask"
-            | "endEvent"
-            | "sequenceFlow"
-            | "exclusiveGateway"
-            | "inclusiveGateway"
-            | "parallelGateway"
-            | "boundaryEvent"
-            | "compensateEventDefinition"
-            | "association"
-            | "multiInstanceLoopCharacteristics"
-            | "loopCardinality"
-            | "timerEventDefinition"
-            | "timeDate"
-            | "timeDuration"
-            | "timeCycle"
-            | "errorEventDefinition"
-            | "messageEventDefinition"
-            | "extensionElements"
-            | "conditionExpression"
-            | "userTask"
-            | "scriptTask"
-            | "callActivity"
-            | "subProcess"
+        disposition,
+        BpmnElementDisposition::Supported | BpmnElementDisposition::Unsupported
     );
     let is_bpmn = matches!(namespace, ResolveResult::Bound(namespace) if namespace.as_ref() == BPMN_MODEL_NAMESPACE);
     if !is_bpmn && parsed.extension_owner.is_some() {
@@ -778,6 +557,18 @@ fn inspect_element(
         return;
     }
     if !is_bpmn {
+        return;
+    }
+    if matches!(
+        disposition,
+        BpmnElementDisposition::Unsupported | BpmnElementDisposition::Unknown
+    ) {
+        parsed.diagnostics.push(locations.diagnostic(
+            offset,
+            DiagnosticKind::UnsupportedElement {
+                element: local_name,
+            },
+        ));
         return;
     }
 
@@ -822,6 +613,32 @@ fn inspect_element(
                 element,
                 decoder,
                 RawNodeKind::ServiceTask,
+                task_type,
+                offset,
+                parsed,
+                locations,
+            );
+        }
+        "userTask" => {
+            let task_type = optional_attribute(element, decoder, b"name")
+                .filter(|value| !value.trim().is_empty());
+            insert_node(
+                element,
+                decoder,
+                RawNodeKind::UserTask,
+                task_type,
+                offset,
+                parsed,
+                locations,
+            );
+        }
+        "scriptTask" => {
+            let task_type = optional_attribute(element, decoder, b"name")
+                .filter(|value| !value.trim().is_empty());
+            insert_node(
+                element,
+                decoder,
+                RawNodeKind::ScriptTask,
                 task_type,
                 offset,
                 parsed,
@@ -875,6 +692,32 @@ fn inspect_element(
         ),
         "subProcess" => {
             let id = optional_non_empty_attribute(element, decoder, b"id");
+            if let Some(value) = optional_attribute(element, decoder, b"triggeredByEvent") {
+                match value.trim() {
+                    "true" | "1" => {
+                        parsed.diagnostics.push(locations.diagnostic(
+                            offset,
+                            DiagnosticKind::UnsupportedElement {
+                                element: "eventSubProcess".into(),
+                            },
+                        ));
+                        return;
+                    }
+                    "false" | "0" => {}
+                    _ => {
+                        parsed.diagnostics.push(locations.diagnostic(
+                            offset,
+                            DiagnosticKind::InvalidSubProcess {
+                                subprocess_id: id.clone().unwrap_or_else(|| "<unknown>".into()),
+                                detail: format!(
+                                    "triggeredByEvent must be an XML boolean, found {value:?}"
+                                ),
+                            },
+                        ));
+                        return;
+                    }
+                }
+            }
             insert_node(
                 element,
                 decoder,
@@ -923,14 +766,6 @@ fn inspect_element(
                 parsed.text_capture = Some(TextCapture::FlowCondition { flow_id });
             }
         }
-        "userTask" | "scriptTask" => {
-            parsed.diagnostics.push(locations.diagnostic(
-                offset,
-                DiagnosticKind::UnsupportedElement {
-                    element: local_name,
-                },
-            ));
-        }
         _ => {}
     }
 }
@@ -950,6 +785,8 @@ fn track_open_node(
         local_name.as_str(),
         "startEvent"
             | "serviceTask"
+            | "userTask"
+            | "scriptTask"
             | "businessRuleTask"
             | "exclusiveGateway"
             | "inclusiveGateway"
@@ -1233,6 +1070,8 @@ fn insert_node(
     let element_name = match kind {
         RawNodeKind::Start => "startEvent",
         RawNodeKind::ServiceTask => "serviceTask",
+        RawNodeKind::UserTask => "userTask",
+        RawNodeKind::ScriptTask => "scriptTask",
         RawNodeKind::DecisionTask => "businessRuleTask",
         RawNodeKind::ExclusiveGateway => "exclusiveGateway",
         RawNodeKind::InclusiveGateway => "inclusiveGateway",
@@ -1273,6 +1112,13 @@ fn insert_node(
     let default_flow_id = optional_non_empty_attribute(element, decoder, b"default");
     let called_element = optional_non_empty_attribute(element, decoder, b"calledElement");
     let called_version = optional_non_empty_attribute(element, decoder, b"calledVersion");
+    let assignment_policy_ref =
+        optional_non_empty_attribute(element, decoder, b"assignmentPolicyRef");
+    let form_key = optional_non_empty_attribute(element, decoder, b"formKey");
+    let result_variable = optional_non_empty_attribute(element, decoder, b"resultVariable");
+    let implementation_ref = optional_non_empty_attribute(element, decoder, b"implementationRef");
+    let implementation_version =
+        optional_non_empty_attribute(element, decoder, b"implementationVersion");
     let enum_values = optional_non_empty_attribute(element, decoder, b"enumValues")
         .map(|values| {
             values
@@ -1301,6 +1147,11 @@ fn insert_node(
                 enum_values,
                 called_element,
                 called_version,
+                assignment_policy_ref,
+                form_key,
+                result_variable,
+                implementation_ref,
+                implementation_version,
                 scope_id: parsed.scope_stack.last().cloned(),
                 multi_instance: None,
                 properties: Vec::new(),
@@ -1767,6 +1618,8 @@ fn validate_graph(
             RawNodeKind::End => outgoing_count != 0,
             RawNodeKind::Start
             | RawNodeKind::ServiceTask
+            | RawNodeKind::UserTask
+            | RawNodeKind::ScriptTask
             | RawNodeKind::DecisionTask
             | RawNodeKind::CallActivity
             | RawNodeKind::SubProcess => outgoing_count != 1,
@@ -1814,6 +1667,26 @@ fn validate_graph(
                     attribute: "decisionRef",
                 },
             ));
+        }
+        if node.kind == RawNodeKind::ScriptTask {
+            if node.implementation_ref.is_none() {
+                parsed.diagnostics.push(locations.diagnostic(
+                    node.offset,
+                    DiagnosticKind::MissingAttribute {
+                        element: "scriptTask".to_owned(),
+                        attribute: "implementationRef",
+                    },
+                ));
+            }
+            if node.implementation_version.is_none() {
+                parsed.diagnostics.push(locations.diagnostic(
+                    node.offset,
+                    DiagnosticKind::MissingAttribute {
+                        element: "scriptTask".to_owned(),
+                        attribute: "implementationVersion",
+                    },
+                ));
+            }
         }
         if node.kind == RawNodeKind::CallActivity && node.called_element.is_none() {
             parsed.diagnostics.push(locations.diagnostic(
@@ -2021,7 +1894,10 @@ fn validate_multi_instance(
     };
     if !matches!(
         node.kind,
-        RawNodeKind::ServiceTask | RawNodeKind::DecisionTask | RawNodeKind::CallActivity
+        RawNodeKind::ServiceTask
+            | RawNodeKind::UserTask
+            | RawNodeKind::ScriptTask
+            | RawNodeKind::CallActivity
     ) {
         diagnostics.push(locations.diagnostic(
             node.offset,
@@ -2099,7 +1975,9 @@ fn validate_sla_paths(parsed: &mut ParsedProcess, locations: &SourceLocations) {
                 .entry(flow.source.clone())
                 .or_default()
                 .push(flow.target.clone());
-            *indegree.get_mut(&flow.target).expect("target was checked") += 1;
+            if let Some(count) = indegree.get_mut(&flow.target) {
+                *count += 1;
+            }
         }
     }
     let mut pending = indegree
@@ -2130,10 +2008,11 @@ fn validate_sla_paths(parsed: &mut ParsedProcess, locations: &SourceLocations) {
                     longest.insert(target.clone(), (candidate, candidate_path));
                 }
             }
-            let count = indegree.get_mut(target).expect("target was checked");
-            *count -= 1;
-            if *count == 0 {
-                pending.push_back(target.clone());
+            if let Some(count) = indegree.get_mut(target) {
+                *count = count.saturating_sub(1);
+                if *count == 0 {
+                    pending.push_back(target.clone());
+                }
             }
         }
     }
@@ -2234,213 +2113,6 @@ fn resolve_compensation_handlers(parsed: &mut ParsedProcess, locations: &SourceL
 
 fn traverse<'a>(start: &'a str, edges: &BTreeMap<&'a str, Vec<&'a str>>) -> BTreeSet<&'a str> {
     traverse_many(&[start], edges)
-}
-
-#[allow(clippy::too_many_lines)]
-fn validate_gateway_structure(parsed: &mut ParsedProcess, locations: &SourceLocations) {
-    let mut outgoing = BTreeMap::<String, Vec<String>>::new();
-    let mut incoming = BTreeMap::<String, Vec<String>>::new();
-    for flow in &parsed.flows {
-        outgoing
-            .entry(flow.source.clone())
-            .or_default()
-            .push(flow.target.clone());
-        incoming
-            .entry(flow.target.clone())
-            .or_default()
-            .push(flow.source.clone());
-    }
-    for flow in &parsed.flows {
-        if parsed.nodes.get(&flow.source).is_some_and(|node| {
-            node.kind == RawNodeKind::ParallelGateway
-                && outgoing
-                    .get(&flow.source)
-                    .is_some_and(|targets| targets.len() >= 2)
-        }) && (flow.condition.is_some() || flow.is_default)
-        {
-            parsed.diagnostics.push(locations.diagnostic(
-                flow.offset,
-                DiagnosticKind::InvalidGatewayFlow {
-                    gateway_id: flow.source.clone(),
-                    detail: "parallel split flows cannot declare guards or defaults".into(),
-                },
-            ));
-        }
-    }
-
-    if let Some(cycle_node) = first_cycle(&parsed.nodes, &outgoing) {
-        let offset = parsed.nodes.get(&cycle_node).map_or(0, |node| node.offset);
-        parsed.diagnostics.push(locations.diagnostic(
-            offset,
-            DiagnosticKind::UnexpectedCycle {
-                node_id: cycle_node,
-            },
-        ));
-        return;
-    }
-
-    let gateways = parsed
-        .nodes
-        .iter()
-        .filter(|(_, node)| {
-            matches!(
-                node.kind,
-                RawNodeKind::ParallelGateway | RawNodeKind::InclusiveGateway
-            )
-        })
-        .map(|(id, node)| (id.clone(), node.kind, node.offset))
-        .collect::<Vec<_>>();
-    let joins = gateways
-        .iter()
-        .filter(|(id, _, _)| incoming.get(id).map_or(0, Vec::len) >= 2)
-        .collect::<Vec<_>>();
-    let mut paired_joins = BTreeSet::new();
-
-    for (split_id, split_kind, split_offset) in gateways
-        .iter()
-        .filter(|(id, _, _)| outgoing.get(id).map_or(0, Vec::len) >= 2)
-    {
-        let branches = outgoing.get(split_id).map_or(&[][..], Vec::as_slice);
-        let mut candidates = joins
-            .iter()
-            .filter(|(_, join_kind, _)| join_kind == split_kind)
-            .filter_map(|(join_id, _, _)| {
-                let distances = branches
-                    .iter()
-                    .map(|branch| shortest_distance(branch, join_id, &outgoing))
-                    .collect::<Option<Vec<_>>>()?;
-                Some((
-                    distances.into_iter().max().unwrap_or_default(),
-                    (*join_id).clone(),
-                ))
-            })
-            .collect::<Vec<_>>();
-        candidates.sort_unstable();
-        let Some((_, join_id)) = candidates.first() else {
-            parsed.diagnostics.push(locations.diagnostic(
-                *split_offset,
-                DiagnosticKind::UnbalancedGateway {
-                    gateway_id: split_id.clone(),
-                    detail: "split has no reachable matching join".into(),
-                },
-            ));
-            continue;
-        };
-        if !branches
-            .iter()
-            .all(|branch| all_paths_reach_join(branch, join_id, &outgoing))
-        {
-            parsed.diagnostics.push(locations.diagnostic(
-                *split_offset,
-                DiagnosticKind::UnbalancedGateway {
-                    gateway_id: split_id.clone(),
-                    detail: format!("a branch can escape before paired join {join_id}"),
-                },
-            ));
-            continue;
-        }
-        if !paired_joins.insert(join_id.clone()) {
-            parsed.diagnostics.push(locations.diagnostic(
-                *split_offset,
-                DiagnosticKind::UnbalancedGateway {
-                    gateway_id: split_id.clone(),
-                    detail: format!("join {join_id} is paired with more than one split"),
-                },
-            ));
-            continue;
-        }
-        parsed
-            .gateway_pairs
-            .insert(split_id.clone(), join_id.clone());
-        parsed
-            .gateway_pairs
-            .insert(join_id.clone(), split_id.clone());
-    }
-
-    for (join_id, _, offset) in joins {
-        if !paired_joins.contains(join_id) {
-            parsed.diagnostics.push(locations.diagnostic(
-                *offset,
-                DiagnosticKind::UnbalancedGateway {
-                    gateway_id: join_id.clone(),
-                    detail: "join has no matching split".into(),
-                },
-            ));
-        }
-    }
-}
-
-fn shortest_distance(
-    start: &str,
-    target: &str,
-    outgoing: &BTreeMap<String, Vec<String>>,
-) -> Option<usize> {
-    let mut pending = VecDeque::from([(start, 0_usize)]);
-    let mut visited = BTreeSet::new();
-    while let Some((node, distance)) = pending.pop_front() {
-        if node == target {
-            return Some(distance);
-        }
-        if !visited.insert(node) {
-            continue;
-        }
-        if let Some(targets) = outgoing.get(node) {
-            pending.extend(targets.iter().map(|next| (next.as_str(), distance + 1)));
-        }
-    }
-    None
-}
-
-fn all_paths_reach_join(start: &str, join: &str, outgoing: &BTreeMap<String, Vec<String>>) -> bool {
-    let mut pending = vec![start];
-    let mut visited = BTreeSet::new();
-    while let Some(node) = pending.pop() {
-        if node == join || !visited.insert(node) {
-            continue;
-        }
-        let Some(targets) = outgoing.get(node).filter(|targets| !targets.is_empty()) else {
-            return false;
-        };
-        pending.extend(targets.iter().map(String::as_str));
-    }
-    true
-}
-
-fn first_cycle(
-    nodes: &BTreeMap<String, RawNode>,
-    outgoing: &BTreeMap<String, Vec<String>>,
-) -> Option<String> {
-    let mut indegree = nodes
-        .keys()
-        .map(|node| (node.clone(), 0_usize))
-        .collect::<BTreeMap<_, _>>();
-    for targets in outgoing.values() {
-        for target in targets {
-            if let Some(count) = indegree.get_mut(target) {
-                *count = count.saturating_add(1);
-            }
-        }
-    }
-    let mut ready = indegree
-        .iter()
-        .filter(|(_, count)| **count == 0)
-        .map(|(node, _)| node.clone())
-        .collect::<VecDeque<_>>();
-    while let Some(node) = ready.pop_front() {
-        if let Some(targets) = outgoing.get(&node) {
-            for target in targets {
-                let Some(count) = indegree.get_mut(target) else {
-                    continue;
-                };
-                *count -= 1;
-                if *count == 0 {
-                    ready.push_back(target.clone());
-                }
-            }
-        }
-        indegree.remove(&node);
-    }
-    indegree.into_keys().next()
 }
 
 fn validate_decision_references(
@@ -3253,26 +2925,31 @@ fn lower(
     parsed: ParsedProcess,
     tenant_id: &str,
     workflow_version: &str,
-) -> WorkflowIntermediateRepresentation {
-    let scope_shapes = parsed
+) -> Result<WorkflowIntermediateRepresentation, LoweringError> {
+    let mut scope_shapes = BTreeMap::new();
+    for (scope_id, scope) in parsed
         .nodes
         .iter()
         .filter(|(_, node)| node.kind == RawNodeKind::SubProcess)
-        .map(|(scope_id, _)| {
-            let child = |kind| {
-                parsed
-                    .nodes
-                    .iter()
-                    .find(|(_, node)| node.scope_id.as_ref() == Some(scope_id) && node.kind == kind)
-                    .map(|(id, _)| id.clone())
-                    .expect("retained sub-process shape is validated before lowering")
-            };
-            (
-                scope_id.clone(),
-                (child(RawNodeKind::Start), child(RawNodeKind::End)),
-            )
-        })
-        .collect::<BTreeMap<_, _>>();
+    {
+        let child = |kind| {
+            parsed
+                .nodes
+                .iter()
+                .find(|(_, node)| node.scope_id.as_ref() == Some(scope_id) && node.kind == kind)
+                .map(|(id, _)| id.clone())
+                .ok_or_else(|| {
+                    LoweringError::new(
+                        scope.offset,
+                        format!("retained sub-process {scope_id} has no {kind:?} child"),
+                    )
+                })
+        };
+        scope_shapes.insert(
+            scope_id.clone(),
+            (child(RawNodeKind::Start)?, child(RawNodeKind::End)?),
+        );
+    }
     let next_by_source: BTreeMap<_, _> = parsed
         .flows
         .iter()
@@ -3288,26 +2965,68 @@ fn lower(
         .into_iter()
         .filter(|(_, node)| !node.is_compensation_handler)
         .map(|(id, raw)| {
+            let next = || {
+                next_by_source
+                    .get(id.as_str())
+                    .map(|value| (*value).to_owned())
+                    .ok_or_else(|| {
+                        LoweringError::new(
+                            raw.offset,
+                            format!("node {id} has no resolved outgoing target"),
+                        )
+                    })
+            };
             let kind = match raw.kind {
                 RawNodeKind::Start => node::Kind::Start(StartNode {
-                    next_node_id: next_by_source[&id.as_str()].to_owned(),
+                    next_node_id: next()?,
                 }),
                 RawNodeKind::ServiceTask => node::Kind::ServiceTask(ServiceTaskNode {
                     task_type: raw.task_type.unwrap_or_else(|| id.clone()),
-                    next_node_id: next_by_source[&id.as_str()].to_owned(),
+                    next_node_id: next()?,
+                }),
+                RawNodeKind::UserTask => node::Kind::UserTask(UserTaskNode {
+                    task_type: raw.task_type.unwrap_or_else(|| id.clone()),
+                    next_node_id: next()?,
+                    assignment_policy_ref: raw.assignment_policy_ref.unwrap_or_else(|| id.clone()),
+                    form_key: raw.form_key.unwrap_or_default(),
+                    result_variable: raw.result_variable.unwrap_or_else(|| id.clone()),
+                }),
+                RawNodeKind::ScriptTask => node::Kind::ScriptTask(ScriptTaskNode {
+                    task_type: raw.task_type.unwrap_or_else(|| id.clone()),
+                    next_node_id: next()?,
+                    implementation_ref: raw.implementation_ref.clone().ok_or_else(|| {
+                        LoweringError::new(
+                            raw.offset,
+                            format!("scriptTask {id} has no implementationRef"),
+                        )
+                    })?,
+                    implementation_version: raw.implementation_version.clone().ok_or_else(
+                        || {
+                            LoweringError::new(
+                                raw.offset,
+                                format!("scriptTask {id} has no implementationVersion"),
+                            )
+                        },
+                    )?,
                 }),
                 RawNodeKind::DecisionTask => node::Kind::DecisionTask(DecisionTaskNode {
-                    decision_table_id: raw
-                        .decision_ref
-                        .expect("decisionRef is validated before lowering"),
-                    next_node_id: next_by_source[&id.as_str()].to_owned(),
+                    decision_table_id: raw.decision_ref.clone().ok_or_else(|| {
+                        LoweringError::new(
+                            raw.offset,
+                            format!("businessRuleTask {id} has no decisionRef"),
+                        )
+                    })?,
+                    next_node_id: next()?,
                 }),
                 RawNodeKind::CallActivity => node::Kind::CallActivity(CallActivityNode {
-                    called_element: raw
-                        .called_element
-                        .expect("calledElement is validated before lowering"),
+                    called_element: raw.called_element.clone().ok_or_else(|| {
+                        LoweringError::new(
+                            raw.offset,
+                            format!("callActivity {id} has no calledElement"),
+                        )
+                    })?,
                     called_version: raw.called_version.unwrap_or_default(),
-                    next_node_id: next_by_source[&id.as_str()].to_owned(),
+                    next_node_id: next()?,
                 }),
                 RawNodeKind::ExclusiveGateway => {
                     let outgoing_flows: Vec<_> = parsed
@@ -3318,8 +3037,18 @@ fn lower(
                     let has_default = outgoing_flows.iter().any(|flow| {
                         flow.is_default || raw.default_flow_id.as_deref() == Some(flow.id.as_str())
                     });
-                    let coverage = (!has_default)
-                        .then(|| coverage_to_wire(parsed.gateway_coverage[&id].clone()));
+                    let coverage = if has_default {
+                        None
+                    } else {
+                        Some(coverage_to_wire(
+                            parsed.gateway_coverage.get(&id).cloned().ok_or_else(|| {
+                                LoweringError::new(
+                                    raw.offset,
+                                    format!("exclusive gateway {id} has no coverage proof"),
+                                )
+                            })?,
+                        ))
+                    };
                     let mut transitions: Vec<_> = parsed
                         .flows
                         .iter()
@@ -3358,7 +3087,14 @@ fn lower(
                             .iter()
                             .map(|flow| flow.target.clone())
                             .collect(),
-                        paired_gateway_id: parsed.gateway_pairs[&id].clone(),
+                        paired_gateway_id: parsed.gateway_pairs.get(&id).cloned().ok_or_else(
+                            || {
+                                LoweringError::new(
+                                    raw.offset,
+                                    format!("parallel gateway {id} has no structural pair"),
+                                )
+                            },
+                        )?,
                     })
                 }
                 RawNodeKind::InclusiveGateway => {
@@ -3371,8 +3107,18 @@ fn lower(
                     let has_default = outgoing_flows.iter().any(|flow| {
                         flow.is_default || raw.default_flow_id.as_deref() == Some(flow.id.as_str())
                     });
-                    let coverage = (is_split && !has_default)
-                        .then(|| coverage_to_wire(parsed.gateway_coverage[&id].clone()));
+                    let coverage = if is_split && !has_default {
+                        Some(coverage_to_wire(
+                            parsed.gateway_coverage.get(&id).cloned().ok_or_else(|| {
+                                LoweringError::new(
+                                    raw.offset,
+                                    format!("inclusive gateway {id} has no coverage proof"),
+                                )
+                            })?,
+                        ))
+                    } else {
+                        None
+                    };
                     let mut transitions = if is_split {
                         outgoing_flows
                             .iter()
@@ -3401,19 +3147,39 @@ fn lower(
                         next_node_id: if is_split {
                             String::new()
                         } else {
-                            outgoing_flows[0].target.clone()
+                            outgoing_flows
+                                .first()
+                                .map(|flow| flow.target.clone())
+                                .ok_or_else(|| {
+                                    LoweringError::new(
+                                        raw.offset,
+                                        format!("inclusive join {id} has no outgoing target"),
+                                    )
+                                })?
                         },
-                        paired_gateway_id: parsed.gateway_pairs[&id].clone(),
+                        paired_gateway_id: parsed.gateway_pairs.get(&id).cloned().ok_or_else(
+                            || {
+                                LoweringError::new(
+                                    raw.offset,
+                                    format!("inclusive gateway {id} has no structural pair"),
+                                )
+                            },
+                        )?,
                         coverage,
                     })
                 }
                 RawNodeKind::End => node::Kind::End(EndNode {}),
                 RawNodeKind::SubProcess => {
-                    let (start_node_id, end_node_id) = &scope_shapes[&id];
+                    let (start_node_id, end_node_id) = scope_shapes.get(&id).ok_or_else(|| {
+                        LoweringError::new(
+                            raw.offset,
+                            format!("retained sub-process {id} has no validated scope shape"),
+                        )
+                    })?;
                     node::Kind::SubProcess(SubProcessNode {
                         start_node_id: start_node_id.clone(),
                         end_node_id: end_node_id.clone(),
-                        next_node_id: next_by_source[&id.as_str()].to_owned(),
+                        next_node_id: next()?,
                     })
                 }
             };
@@ -3426,8 +3192,8 @@ fn lower(
                         && boundary.target.is_some()
                 })
                 .map(boundary_to_wire)
-                .collect();
-            Node {
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(Node {
                 id,
                 kind: Some(kind),
                 data_contract: (raw.input_type.is_some() || raw.output_type.is_some()).then(|| {
@@ -3442,10 +3208,10 @@ fn lower(
                 multi_instance: raw.multi_instance.map(multi_instance_to_wire),
                 boundary_events,
                 owner_scope_id: raw.scope_id.unwrap_or_default(),
-            }
+            })
         })
-        .collect();
-    WorkflowIntermediateRepresentation {
+        .collect::<Result<Vec<_>, LoweringError>>()?;
+    Ok(WorkflowIntermediateRepresentation {
         schema_version: WIR_SCHEMA_VERSION,
         workflow_type: parsed.process_id.unwrap_or_default(),
         workflow_version: workflow_version.to_owned(),
@@ -3457,7 +3223,7 @@ fn lower(
         tenant_id: tenant_id.to_owned(),
         case_models: Vec::new(),
         properties: parsed.process_properties,
-    }
+    })
 }
 
 fn multi_instance_to_wire(spec: RawMultiInstance) -> MultiInstanceSpec {
@@ -3495,12 +3261,13 @@ fn lower_complex_guard(condition: Option<&str>) -> Option<BooleanExpression> {
     }
 }
 
-fn boundary_to_wire(boundary: &RawBoundaryEvent) -> BoundaryEvent {
-    let trigger = match boundary
-        .trigger
-        .as_ref()
-        .expect("boundary trigger is validated before lowering")
-    {
+fn boundary_to_wire(boundary: &RawBoundaryEvent) -> Result<BoundaryEvent, LoweringError> {
+    let trigger = match boundary.trigger.as_ref().ok_or_else(|| {
+        LoweringError::new(
+            boundary.offset,
+            format!("boundary event {} has no validated trigger", boundary.id),
+        )
+    })? {
         RawBoundaryTrigger::Timer { kind, expression } => {
             event_trigger::Trigger::Timer(TimerTrigger {
                 expression: expression.clone(),
@@ -3516,17 +3283,19 @@ fn boundary_to_wire(boundary: &RawBoundaryEvent) -> BoundaryEvent {
             })
         }
     };
-    BoundaryEvent {
+    Ok(BoundaryEvent {
         id: boundary.id.clone(),
         cancel_activity: boundary.cancel_activity,
-        target_node_id: boundary
-            .target
-            .clone()
-            .expect("boundary target is validated before lowering"),
+        target_node_id: boundary.target.clone().ok_or_else(|| {
+            LoweringError::new(
+                boundary.offset,
+                format!("boundary event {} has no validated target", boundary.id),
+            )
+        })?,
         trigger: Some(EventTrigger {
             trigger: Some(trigger),
         }),
-    }
+    })
 }
 
 fn coverage_to_wire(proof: CoverageProof) -> GatewayCoverage {
@@ -3724,7 +3493,9 @@ impl GuardParser {
             operands.push(self.parse_and()?);
         }
         Ok(if operands.len() == 1 {
-            operands.pop().expect("one operand exists")
+            operands
+                .pop()
+                .ok_or_else(|| "OR expression has no operand".to_owned())?
         } else {
             ParsedBooleanExpression::Disjunction(operands)
         })
@@ -3736,7 +3507,9 @@ impl GuardParser {
             operands.push(self.parse_unary()?);
         }
         Ok(if operands.len() == 1 {
-            operands.pop().expect("one operand exists")
+            operands
+                .pop()
+                .ok_or_else(|| "AND expression has no operand".to_owned())?
         } else {
             ParsedBooleanExpression::Conjunction(operands)
         })
@@ -4091,7 +3864,7 @@ fn inspect_cmmn_element(
                     condition: optional_non_empty_attribute(element, decoder, b"condition")
                         .unwrap_or_default(),
                 }),
-                _ => unreachable!(),
+                _ => (),
             }
         }
         _ => {}

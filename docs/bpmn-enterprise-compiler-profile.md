@@ -5,8 +5,40 @@ compiler and the exact failure behavior for combinations that are not yet
 executable. Unsupported combinations fail during compilation and never enter a
 signed WIR artifact.
 
+## Fail-Closed Catalog
+
+The parser classifies BPMN model elements through one centralized executable
+profile. Known presentation metadata is ignored explicitly. Every other element
+in the BPMN model namespace is either lowered by a supported branch or rejected
+with `UnsupportedElement` and an exact source span. Vendor extensions remain
+supported only through their own namespace under `extensionElements`.
+
+The following executable families are recognized but rejected until they have
+an end-to-end WIR and durable runtime implementation:
+
+- generic, send, receive, and manual tasks;
+- complex and event-based gateways;
+- intermediate catch and throw events;
+- transaction, ad-hoc, event sub-process, and standard-loop scopes;
+- signal, escalation, cancel, conditional, link, and terminate event definitions;
+- choreography, conversation, participant, and message-flow constructs.
+
+This classification is intentionally not an alias layer. For example, a receive
+task is not lowered as a service task because doing so would omit its durable
+message subscription and acknowledge semantics.
+
 ## Implemented
 
+- User tasks lower to a dedicated WIR node with a dynamic
+  `assignmentPolicyRef` lookup key and optional `formKey`. Activation and
+  completion use dedicated durable domain events; committed activations are
+  published through the engine outbox for Human Runtime projection. Omitting
+  `assignmentPolicyRef` uses the stable node ID as the configuration lookup key,
+  not a fixed assignee or group.
+- Script tasks lower to a dedicated WIR node only when both
+  `implementationRef` and `implementationVersion` pin an external executable
+  artifact. Activation/completion have typed durable events. Inline BPMN script
+  bodies fail closed so unversioned source cannot enter a signed deployment.
 - Plain embedded sub-processes with one outer entry/exit and one inner start/end
   are normalized into a flat canonical graph. Sub-processes that own boundary
   or compensation semantics are retained as explicit WIR scope nodes, and child
@@ -85,6 +117,23 @@ signed WIR artifact.
 - Call activity child-instance start/completion correlation is not yet wired to
   the application layer. The compiler, WIR, loader, and generated state machine
   retain the required call contract.
+- Human Runtime must still project `UserTaskActivated`, resolve the assignment
+  policy by tenant/workflow/version/node/config version, and submit authorized
+  `CompleteUserTask` commands. Assignment, claim/delegate, forms, and SLA state
+  are not owned by the compiler or deterministic engine core.
+- A deployment adapter must resolve the signed/pinned script artifact, execute
+  it through the Wasmtime port, durably persist its result, and only then submit
+  `CompleteScriptTask`. The compiler and core do not perform registry, network,
+  or clock I/O.
+- The fail-closed catalog above still requires separate vertical slices before
+  those elements become executable. The first slice should introduce one common
+  durable interaction contract for receive tasks, intermediate catch events,
+  and event-based gateways; the next should add send/throw outbox semantics.
+- Transaction/event sub-process cancellation, escalation, and compensation need
+  scope-instance keyed tokens before those scope variants can be enabled.
+- Choreography and conversation models should compile into participant process
+  contracts or a separate collaboration IR; they must not masquerade as local
+  workflow nodes in the authoritative engine.
 
 These remaining items are application orchestration or unsupported profile
 combinations; they do not require DB/network/clock access in the pure evaluator.

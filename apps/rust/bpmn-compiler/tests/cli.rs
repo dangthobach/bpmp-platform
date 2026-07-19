@@ -157,3 +157,43 @@ fn cli_compiles_combined_bpmn_dmn_cmmn_and_rust_outputs() {
     let generated = fs::read_to_string(rust_output).unwrap();
     assert!(generated.contains("fn decision_0"));
 }
+
+#[test]
+fn cli_rejects_signing_keys_outside_the_exact_32_byte_contract() {
+    for (name, bytes) in [("short", vec![7; 31]), ("long", vec![7; 33])] {
+        let directory = tempfile::tempdir().unwrap();
+        let input = directory.path().join("order.bpmn");
+        let output = directory.path().join("order.wir");
+        let key = directory.path().join(format!("{name}.key"));
+        fs::write(&input, VALID).unwrap();
+        fs::write(&key, bytes).unwrap();
+
+        let result = command()
+            .args([
+                "--input",
+                input.to_str().unwrap(),
+                "--output",
+                output.to_str().unwrap(),
+                "--workflow-version",
+                "1",
+                "--tenant-id",
+                "tenant-a",
+                "--signing-key",
+                key.to_str().unwrap(),
+                "--max-input-bytes",
+                "65536",
+                "--max-xml-depth",
+                "32",
+            ])
+            .output()
+            .unwrap();
+
+        assert_eq!(result.status.code(), Some(2), "key case {name}");
+        assert!(
+            String::from_utf8(result.stderr)
+                .unwrap()
+                .contains("exactly 32 raw bytes")
+        );
+        assert!(!output.exists());
+    }
+}

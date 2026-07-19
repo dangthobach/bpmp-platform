@@ -16,6 +16,19 @@ pub enum Node {
         task_type: TaskType,
         next: NodeId,
     },
+    UserTask {
+        task_type: TaskType,
+        assignment_policy_ref: String,
+        form_key: Option<String>,
+        result_variable: String,
+        next: NodeId,
+    },
+    ScriptTask {
+        task_type: TaskType,
+        implementation_ref: String,
+        implementation_version: String,
+        next: NodeId,
+    },
     DecisionTask {
         decision_table_id: String,
         next: NodeId,
@@ -412,12 +425,17 @@ impl WorkflowDefinition {
             if metadata.multi_instance.is_some()
                 && !matches!(
                     indexed.get(&owner),
-                    Some(Node::ServiceTask { .. } | Node::CallActivity { .. })
+                    Some(
+                        Node::ServiceTask { .. }
+                            | Node::UserTask { .. }
+                            | Node::ScriptTask { .. }
+                            | Node::CallActivity { .. }
+                    )
                 )
             {
                 return Err(DomainError::InvalidMultiInstance {
                     node: owner,
-                    detail: "runtime multi-instance is supported only for service tasks and call activities".into(),
+                    detail: "runtime multi-instance is supported only for service, user, script, and call activities".into(),
                 });
             }
             validate_node_metadata(&owner, &metadata)?;
@@ -657,6 +675,8 @@ fn validate_gateway_node(
         ),
         Node::Start { .. }
         | Node::ServiceTask { .. }
+        | Node::UserTask { .. }
+        | Node::ScriptTask { .. }
         | Node::DecisionTask { .. }
         | Node::CallActivity { .. }
         | Node::SubProcess { .. }
@@ -1019,6 +1039,8 @@ impl Node {
         match self {
             Self::Start { next }
             | Self::ServiceTask { next, .. }
+            | Self::UserTask { next, .. }
+            | Self::ScriptTask { next, .. }
             | Self::DecisionTask { next, .. }
             | Self::CallActivity { next, .. }
             | Self::ParallelJoin { next, .. }
@@ -1095,6 +1117,15 @@ pub enum Command {
         node_id: NodeId,
         occurred_at_epoch_ms: u64,
     },
+    CompleteUserTask {
+        node_id: NodeId,
+        decision: String,
+        occurred_at_epoch_ms: u64,
+    },
+    CompleteScriptTask {
+        node_id: NodeId,
+        occurred_at_epoch_ms: u64,
+    },
     CompleteMultiInstanceIteration {
         node_id: NodeId,
         iteration: u32,
@@ -1121,6 +1152,30 @@ pub enum DomainEvent {
         occurred_at_epoch_ms: u64,
     },
     ServiceTaskCompleted {
+        node_id: NodeId,
+        occurred_at_epoch_ms: u64,
+    },
+    UserTaskActivated {
+        node_id: NodeId,
+        task_type: TaskType,
+        assignment_policy_ref: String,
+        form_key: Option<String>,
+        occurred_at_epoch_ms: u64,
+    },
+    UserTaskCompleted {
+        node_id: NodeId,
+        decision: String,
+        result_variable: String,
+        occurred_at_epoch_ms: u64,
+    },
+    ScriptTaskActivated {
+        node_id: NodeId,
+        task_type: TaskType,
+        implementation_ref: String,
+        implementation_version: String,
+        occurred_at_epoch_ms: u64,
+    },
+    ScriptTaskCompleted {
         node_id: NodeId,
         occurred_at_epoch_ms: u64,
     },
@@ -1353,7 +1408,97 @@ pub fn decide(
             )?);
             events
         }
-        (Command::CompleteServiceTask { node_id, .. }, Lifecycle::Active { .. }) => {
+        (
+            Command::CompleteUserTask {
+                node_id,
+                decision,
+                occurred_at_epoch_ms,
+            },
+            Lifecycle::Active { .. },
+        ) if state
+            .active_tokens
+            .get(node_id)
+            .copied()
+            .unwrap_or_default()
+            > 0 =>
+        {
+            let Node::UserTask {
+                next,
+                result_variable,
+                ..
+            } = definition.node(node_id)?
+            else {
+                return Err(DomainError::NodeIsNotUserTask(node_id.clone()));
+            };
+            if decision.trim().is_empty() {
+                return Err(DomainError::InvalidUserTaskDecision(node_id.clone()));
+            }
+            let mut events = vec![DomainEvent::UserTaskCompleted {
+                node_id: node_id.clone(),
+                decision: decision.clone(),
+                result_variable: result_variable.clone(),
+                occurred_at_epoch_ms: *occurred_at_epoch_ms,
+            }];
+            let mut variables = state_variables_with_context(state, context.variables);
+            variables.insert(
+                result_variable.clone(),
+                WorkflowValue::String(decision.clone()),
+            );
+            let mut routing = RoutingState::from(state);
+            routing.complete_task(node_id)?;
+            disarm_boundary_events(node_id, &mut routing, *occurred_at_epoch_ms, &mut events);
+            events.extend(activation_events(
+                definition,
+                next,
+                &mut variables,
+                &mut routing,
+                context.configuration,
+                *occurred_at_epoch_ms,
+                definition.active_scope_for_node(state, node_id)?,
+            )?);
+            events
+        }
+        (
+            Command::CompleteScriptTask {
+                node_id,
+                occurred_at_epoch_ms,
+            },
+            Lifecycle::Active { .. },
+        ) if state
+            .active_tokens
+            .get(node_id)
+            .copied()
+            .unwrap_or_default()
+            > 0 =>
+        {
+            let Node::ScriptTask { next, .. } = definition.node(node_id)? else {
+                return Err(DomainError::NodeIsNotScriptTask(node_id.clone()));
+            };
+            let mut events = vec![DomainEvent::ScriptTaskCompleted {
+                node_id: node_id.clone(),
+                occurred_at_epoch_ms: *occurred_at_epoch_ms,
+            }];
+            let mut variables = state_variables_with_context(state, context.variables);
+            let mut routing = RoutingState::from(state);
+            routing.complete_task(node_id)?;
+            disarm_boundary_events(node_id, &mut routing, *occurred_at_epoch_ms, &mut events);
+            events.extend(activation_events(
+                definition,
+                next,
+                &mut variables,
+                &mut routing,
+                context.configuration,
+                *occurred_at_epoch_ms,
+                definition.active_scope_for_node(state, node_id)?,
+            )?);
+            events
+        }
+        (
+            Command::CompleteServiceTask { node_id, .. }
+            | Command::CompleteUserTask { node_id, .. }
+            | Command::CompleteScriptTask { node_id, .. },
+            Lifecycle::Active { .. },
+        ) => {
             return Err(DomainError::TaskNotActive(node_id.clone()));
         }
         (
@@ -1386,6 +1531,8 @@ pub fn decide(
         )?,
         (
             Command::CompleteServiceTask { .. }
+            | Command::CompleteUserTask { .. }
+            | Command::CompleteScriptTask { .. }
             | Command::CompleteMultiInstanceIteration { .. }
             | Command::TriggerBoundaryEvent { .. },
             Lifecycle::Initial,
@@ -1394,6 +1541,8 @@ pub fn decide(
         }
         (
             Command::CompleteServiceTask { .. }
+            | Command::CompleteUserTask { .. }
+            | Command::CompleteScriptTask { .. }
             | Command::CompleteMultiInstanceIteration { .. }
             | Command::TriggerBoundaryEvent { .. },
             Lifecycle::Completed,
@@ -1424,10 +1573,12 @@ fn complete_multi_instance_iteration(
     context: DecisionContext<'_>,
     occurred_at_epoch_ms: u64,
 ) -> Result<Vec<DomainEvent>, DomainError> {
-    let (Node::ServiceTask { next, .. } | Node::CallActivity { next, .. }) =
-        definition.node(node_id)?
+    let (Node::ServiceTask { next, .. }
+    | Node::UserTask { next, .. }
+    | Node::ScriptTask { next, .. }
+    | Node::CallActivity { next, .. }) = definition.node(node_id)?
     else {
-        return Err(DomainError::NodeIsNotServiceTask(node_id.clone()));
+        return Err(DomainError::NodeIsNotMultiInstanceActivity(node_id.clone()));
     };
     let active = state
         .active_multi_instances
@@ -1861,6 +2012,105 @@ fn activation_events(
                     events.push(DomainEvent::ServiceTaskActivated {
                         node_id: current.clone(),
                         task_type: task_type.clone(),
+                        occurred_at_epoch_ms,
+                    });
+                    arm_boundary_events(
+                        definition,
+                        &current,
+                        routing,
+                        occurred_at_epoch_ms,
+                        &mut events,
+                    )?;
+                }
+            }
+            Node::UserTask {
+                task_type,
+                assignment_policy_ref,
+                form_key,
+                result_variable: _,
+                next,
+            } => {
+                if let Some(spec) = definition
+                    .node_execution_metadata(&current)
+                    .and_then(|metadata| metadata.multi_instance.as_ref())
+                {
+                    let completed = start_multi_instance(
+                        &current,
+                        task_type,
+                        spec,
+                        variables,
+                        routing,
+                        configuration,
+                        occurred_at_epoch_ms,
+                        &mut events,
+                    )?;
+                    if completed {
+                        pending.push((next.clone(), current_scope_instance_id.clone()));
+                    } else {
+                        arm_boundary_events(
+                            definition,
+                            &current,
+                            routing,
+                            occurred_at_epoch_ms,
+                            &mut events,
+                        )?;
+                    }
+                } else {
+                    routing.activate_task(&current)?;
+                    events.push(DomainEvent::UserTaskActivated {
+                        node_id: current.clone(),
+                        task_type: task_type.clone(),
+                        assignment_policy_ref: assignment_policy_ref.clone(),
+                        form_key: form_key.clone(),
+                        occurred_at_epoch_ms,
+                    });
+                    arm_boundary_events(
+                        definition,
+                        &current,
+                        routing,
+                        occurred_at_epoch_ms,
+                        &mut events,
+                    )?;
+                }
+            }
+            Node::ScriptTask {
+                task_type,
+                implementation_ref,
+                implementation_version,
+                next,
+            } => {
+                if let Some(spec) = definition
+                    .node_execution_metadata(&current)
+                    .and_then(|metadata| metadata.multi_instance.as_ref())
+                {
+                    let completed = start_multi_instance(
+                        &current,
+                        task_type,
+                        spec,
+                        variables,
+                        routing,
+                        configuration,
+                        occurred_at_epoch_ms,
+                        &mut events,
+                    )?;
+                    if completed {
+                        pending.push((next.clone(), current_scope_instance_id.clone()));
+                    } else {
+                        arm_boundary_events(
+                            definition,
+                            &current,
+                            routing,
+                            occurred_at_epoch_ms,
+                            &mut events,
+                        )?;
+                    }
+                } else {
+                    routing.activate_task(&current)?;
+                    events.push(DomainEvent::ScriptTaskActivated {
+                        node_id: current.clone(),
+                        task_type: task_type.clone(),
+                        implementation_ref: implementation_ref.clone(),
+                        implementation_version: implementation_version.clone(),
                         occurred_at_epoch_ms,
                     });
                     arm_boundary_events(
@@ -2566,6 +2816,25 @@ impl WorkflowValueType {
     }
 }
 
+fn complete_active_token(
+    active_tokens: &mut BTreeMap<NodeId, u32>,
+    node_id: &NodeId,
+) -> Lifecycle {
+    if let Some(count) = active_tokens.get_mut(node_id) {
+        *count = count.saturating_sub(1);
+        if *count == 0 {
+            active_tokens.remove(node_id);
+        }
+    }
+    Lifecycle::Active {
+        active_node: active_tokens
+            .keys()
+            .next()
+            .cloned()
+            .unwrap_or_else(|| node_id.clone()),
+    }
+}
+
 #[allow(clippy::too_many_lines)]
 pub fn evolve(mut state: InstanceState, event: &DomainEvent) -> InstanceState {
     state.sequence = state.sequence.saturating_add(1);
@@ -2573,7 +2842,9 @@ pub fn evolve(mut state: InstanceState, event: &DomainEvent) -> InstanceState {
         DomainEvent::WorkflowStarted { start_node_id, .. } => Lifecycle::Active {
             active_node: start_node_id.clone(),
         },
-        DomainEvent::ServiceTaskActivated { node_id, .. } => {
+        DomainEvent::ServiceTaskActivated { node_id, .. }
+        | DomainEvent::UserTaskActivated { node_id, .. }
+        | DomainEvent::ScriptTaskActivated { node_id, .. } => {
             let count = state.active_tokens.entry(node_id.clone()).or_default();
             *count = count.saturating_add(1);
             Lifecycle::Active {
@@ -2585,21 +2856,21 @@ pub fn evolve(mut state: InstanceState, event: &DomainEvent) -> InstanceState {
                     .unwrap_or_else(|| node_id.clone()),
             }
         }
-        DomainEvent::ServiceTaskCompleted { node_id, .. } => {
-            if let Some(count) = state.active_tokens.get_mut(node_id) {
-                *count = count.saturating_sub(1);
-                if *count == 0 {
-                    state.active_tokens.remove(node_id);
-                }
-            }
-            Lifecycle::Active {
-                active_node: state
-                    .active_tokens
-                    .keys()
-                    .next()
-                    .cloned()
-                    .unwrap_or_else(|| node_id.clone()),
-            }
+        DomainEvent::ServiceTaskCompleted { node_id, .. }
+        | DomainEvent::ScriptTaskCompleted { node_id, .. } => {
+            complete_active_token(&mut state.active_tokens, node_id)
+        }
+        DomainEvent::UserTaskCompleted {
+            node_id,
+            decision,
+            result_variable,
+            ..
+        } => {
+            state.variables.insert(
+                result_variable.clone(),
+                WorkflowValue::String(decision.clone()),
+            );
+            complete_active_token(&mut state.active_tokens, node_id)
         }
         DomainEvent::DecisionTaskEvaluated { outputs, .. } => {
             state.variables.extend(outputs.clone());
@@ -2848,6 +3119,14 @@ pub enum DomainError {
     },
     #[error("node {0} is not a service task")]
     NodeIsNotServiceTask(NodeId),
+    #[error("node {0} is not a user task")]
+    NodeIsNotUserTask(NodeId),
+    #[error("user task {0} requires a non-empty approval decision")]
+    InvalidUserTaskDecision(NodeId),
+    #[error("node {0} is not a script task")]
+    NodeIsNotScriptTask(NodeId),
+    #[error("node {0} is not a supported multi-instance activity")]
+    NodeIsNotMultiInstanceActivity(NodeId),
     #[error("requested task {0} is not active")]
     TaskNotActive(NodeId),
     #[error("multi-instance activity {0} is already active")]
@@ -4191,6 +4470,118 @@ mod tests {
         ));
         state = apply(&state, &owner_completed);
         assert!(state.active_boundary_subscriptions.is_empty());
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn user_and_script_tasks_have_typed_durable_lifecycle_and_replay() {
+        let start = id(NodeId::new, "start");
+        let review = id(NodeId::new, "review");
+        let calculate = id(NodeId::new, "calculate");
+        let end = id(NodeId::new, "end");
+        let definition = WorkflowDefinition::new(
+            id(TenantId::new, "tenant-a"),
+            id(WorkflowType::new, "approval"),
+            id(WorkflowVersion::new, "1"),
+            start.clone(),
+            [
+                (
+                    start,
+                    Node::Start {
+                        next: review.clone(),
+                    },
+                ),
+                (
+                    review.clone(),
+                    Node::UserTask {
+                        task_type: id(TaskType::new, "review-request"),
+                        assignment_policy_ref: "approval-reviewers".into(),
+                        form_key: Some("approval-form-v2".into()),
+                        result_variable: "review_result".into(),
+                        next: calculate.clone(),
+                    },
+                ),
+                (
+                    calculate.clone(),
+                    Node::ScriptTask {
+                        task_type: id(TaskType::new, "calculate-risk"),
+                        implementation_ref: "wasm://risk/calculate".into(),
+                        implementation_version: "sha256:abc123".into(),
+                        next: end.clone(),
+                    },
+                ),
+                (end, Node::End),
+            ],
+        )
+        .unwrap();
+        let configuration = configuration(8);
+        let variables = BTreeMap::new();
+        let context = DecisionContext {
+            configuration: &configuration,
+            variables: &variables,
+        };
+
+        let started = decide(
+            &definition,
+            &InstanceState::default(),
+            &Command::StartWorkflow {
+                tenant_id: id(TenantId::new, "tenant-a"),
+                occurred_at_epoch_ms: 10,
+            },
+            context,
+        )
+        .unwrap();
+        assert!(matches!(
+            &started[1],
+            DomainEvent::UserTaskActivated {
+                assignment_policy_ref,
+                form_key: Some(form_key),
+                ..
+            } if assignment_policy_ref == "approval-reviewers" && form_key == "approval-form-v2"
+        ));
+        let user_state = rehydrate(None, &started);
+
+        let user_completed = decide(
+            &definition,
+            &user_state,
+            &Command::CompleteUserTask {
+                node_id: review,
+                decision: "approved".into(),
+                occurred_at_epoch_ms: 20,
+            },
+            context,
+        )
+        .unwrap();
+        assert!(matches!(
+            &user_completed[1],
+            DomainEvent::ScriptTaskActivated {
+                implementation_ref,
+                implementation_version,
+                ..
+            } if implementation_ref == "wasm://risk/calculate"
+                && implementation_version == "sha256:abc123"
+        ));
+        let script_state = rehydrate(Some(user_state), &user_completed);
+
+        let script_completed = decide(
+            &definition,
+            &script_state,
+            &Command::CompleteScriptTask {
+                node_id: calculate,
+                occurred_at_epoch_ms: 30,
+            },
+            context,
+        )
+        .unwrap();
+        assert!(matches!(
+            script_completed.last(),
+            Some(DomainEvent::WorkflowCompleted { .. })
+        ));
+
+        let once = rehydrate(Some(script_state.clone()), &script_completed);
+        let twice = script_completed.iter().fold(script_state, evolve);
+        assert_eq!(once, twice);
+        assert_eq!(once.lifecycle, Lifecycle::Completed);
     }
 
     fn configuration(max_events_per_decision: u32) -> ResolvedConfigSnapshot {

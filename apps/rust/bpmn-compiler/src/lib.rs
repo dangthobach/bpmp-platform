@@ -1,5 +1,6 @@
 //! Ahead-of-time BPMN compiler.
 
+mod bpmn_profile;
 mod codegen;
 mod compiler;
 mod diagnostic;

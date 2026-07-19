@@ -104,6 +104,14 @@ fn write_scope_nodes(
                 )?;
                 flows.push(flow(&encoded.id, &task.next_node_id, None, false));
             }
+            node::Kind::UserTask(task) => {
+                write_user_task(writer, encoded, task)?;
+                flows.push(flow(&encoded.id, &task.next_node_id, None, false));
+            }
+            node::Kind::ScriptTask(task) => {
+                write_script_task(writer, encoded, task)?;
+                flows.push(flow(&encoded.id, &task.next_node_id, None, false));
+            }
             node::Kind::DecisionTask(task) => {
                 write_node(
                     writer,
@@ -242,6 +250,38 @@ fn write_call_activity(
     if !call.called_version.is_empty() {
         element.push_attribute(("calledVersion", call.called_version.as_str()));
     }
+    write_activity_element(writer, element, node)
+}
+
+fn write_user_task(
+    writer: &mut Writer<Vec<u8>>,
+    node: &bpmp_contracts::wir::v1::Node,
+    task: &bpmp_contracts::wir::v1::UserTaskNode,
+) -> Result<(), PrintError> {
+    let mut element = BytesStart::new("bpmn:userTask");
+    element.push_attribute(("id", node.id.as_str()));
+    element.push_attribute(("name", task.task_type.as_str()));
+    element.push_attribute(("assignmentPolicyRef", task.assignment_policy_ref.as_str()));
+    if !task.form_key.is_empty() {
+        element.push_attribute(("formKey", task.form_key.as_str()));
+    }
+    element.push_attribute(("resultVariable", task.result_variable.as_str()));
+    write_activity_element(writer, element, node)
+}
+
+fn write_script_task(
+    writer: &mut Writer<Vec<u8>>,
+    node: &bpmp_contracts::wir::v1::Node,
+    task: &bpmp_contracts::wir::v1::ScriptTaskNode,
+) -> Result<(), PrintError> {
+    let mut element = BytesStart::new("bpmn:scriptTask");
+    element.push_attribute(("id", node.id.as_str()));
+    element.push_attribute(("name", task.task_type.as_str()));
+    element.push_attribute(("implementationRef", task.implementation_ref.as_str()));
+    element.push_attribute((
+        "implementationVersion",
+        task.implementation_version.as_str(),
+    ));
     write_activity_element(writer, element, node)
 }
 

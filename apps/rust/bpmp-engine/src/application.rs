@@ -301,6 +301,8 @@ fn transition_selector<'a>(
     match command {
         Command::StartWorkflow { .. } => (definition.start_node.as_str(), "START"),
         Command::CompleteServiceTask { node_id, .. } => (node_id.as_str(), "COMPLETE_SERVICE_TASK"),
+        Command::CompleteUserTask { node_id, .. } => (node_id.as_str(), "COMPLETE_USER_TASK"),
+        Command::CompleteScriptTask { node_id, .. } => (node_id.as_str(), "COMPLETE_SCRIPT_TASK"),
         Command::CompleteMultiInstanceIteration { node_id, .. } => {
             (node_id.as_str(), "COMPLETE_MULTI_INSTANCE_ITERATION")
         }
@@ -388,6 +390,22 @@ const fn event_time(event: &DomainEvent) -> u64 {
             ..
         }
         | DomainEvent::ServiceTaskCompleted {
+            occurred_at_epoch_ms,
+            ..
+        }
+        | DomainEvent::UserTaskActivated {
+            occurred_at_epoch_ms,
+            ..
+        }
+        | DomainEvent::UserTaskCompleted {
+            occurred_at_epoch_ms,
+            ..
+        }
+        | DomainEvent::ScriptTaskActivated {
+            occurred_at_epoch_ms,
+            ..
+        }
+        | DomainEvent::ScriptTaskCompleted {
             occurred_at_epoch_ms,
             ..
         }

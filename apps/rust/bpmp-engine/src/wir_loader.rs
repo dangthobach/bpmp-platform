@@ -106,6 +106,38 @@ fn map_definition(
                 })?,
                 next: node_id_value(task.next_node_id, "service_task.next_node_id")?,
             },
+            node::Kind::UserTask(task) => Node::UserTask {
+                task_type: TaskType::new(task.task_type).map_err(|source| {
+                    WirLoadError::Identifier {
+                        field: "user_task.task_type",
+                        source,
+                    }
+                })?,
+                assignment_policy_ref: non_empty(
+                    task.assignment_policy_ref,
+                    "user_task.assignment_policy_ref",
+                )?,
+                form_key: optional_non_empty(task.form_key, "user_task.form_key")?,
+                result_variable: non_empty(task.result_variable, "user_task.result_variable")?,
+                next: node_id_value(task.next_node_id, "user_task.next_node_id")?,
+            },
+            node::Kind::ScriptTask(task) => Node::ScriptTask {
+                task_type: TaskType::new(task.task_type).map_err(|source| {
+                    WirLoadError::Identifier {
+                        field: "script_task.task_type",
+                        source,
+                    }
+                })?,
+                implementation_ref: non_empty(
+                    task.implementation_ref,
+                    "script_task.implementation_ref",
+                )?,
+                implementation_version: non_empty(
+                    task.implementation_version,
+                    "script_task.implementation_version",
+                )?,
+                next: node_id_value(task.next_node_id, "script_task.next_node_id")?,
+            },
             node::Kind::DecisionTask(task) => Node::DecisionTask {
                 decision_table_id: non_empty(
                     task.decision_table_id,
@@ -605,6 +637,14 @@ fn non_empty(value: String, field: &'static str) -> Result<String, WirLoadError>
         Err(WirLoadError::EmptyField(field))
     } else {
         Ok(value)
+    }
+}
+
+fn optional_non_empty(value: String, field: &'static str) -> Result<Option<String>, WirLoadError> {
+    if value.is_empty() {
+        Ok(None)
+    } else {
+        non_empty(value, field).map(Some)
     }
 }
 

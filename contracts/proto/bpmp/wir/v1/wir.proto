@@ -28,6 +28,8 @@ message Node {
     InclusiveGatewayNode inclusive_gateway = 11;
     CallActivityNode call_activity = 15;
     SubProcessNode sub_process = 16;
+    UserTaskNode user_task = 18;
+    ScriptTaskNode script_task = 19;
   }
   DataContract data_contract = 6;
   uint64 sla_milliseconds = 7;
@@ -45,6 +47,21 @@ message StartNode {
 message ServiceTaskNode {
   string task_type = 1;
   string next_node_id = 2;
+}
+
+message UserTaskNode {
+  string task_type = 1;
+  string next_node_id = 2;
+  string assignment_policy_ref = 3;
+  string form_key = 4;
+  string result_variable = 5;
+}
+
+message ScriptTaskNode {
+  string task_type = 1;
+  string next_node_id = 2;
+  string implementation_ref = 3;
+  string implementation_version = 4;
 }
 
 message DecisionTaskNode {

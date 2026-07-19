@@ -22,7 +22,7 @@ Requirement 1 must therefore not be reported as 100% complete.
 
 | AC | Implementation and executable evidence | Profile | Full requirement | Residual gap |
 | --- | --- | --- | --- | --- |
-| 1 | Namespace-aware bounded parser, semantic graph, WIR lowering; `ac1_namespace_aware_bpmn_compiles_to_wir` | Pass | Partial | The accepted BPMN catalog is a deliberate subset. Every unsupported executable BPMN flow element must be rejected explicitly; the current parser only diagnoses selected unsupported elements. |
+| 1 | Namespace-aware bounded parser, centralized executable catalog, semantic graph, WIR lowering; AC1, `unsupported_bpmn`, and `human_script_tasks` corpora | Pass | Partial | User and pinned-WASM script tasks now have typed WIR, canonical printing, Rust codegen, signed loading, durable activation/completion, and replay. The remaining accepted BPMN catalog is still a deliberate subset; unsupported and unknown model elements fail closed with source spans. |
 | 2 | Typed DMN tables and CMMN case metadata; `ac2_dmn_and_cmmn_are_integrated_in_one_wir` | Pass | Partial | DMN supports boolean/integer/string decision-table IR. CMMN supports case/stage/milestone/sentry metadata, not the complete CMMN catalog or executable case semantics. |
 | 3 | Standalone Rust generation without XML; `ac3_generated_rust_has_no_runtime_xml_dependency_and_compiles` | Pass | Partial | Compilation is proven, but behavioral equivalence is not proven for multi-instance, boundary, retained scope, compensation, and child call orchestration. |
 | 4 | Static and bounded-symbolic coverage for boolean, enum/string and integer intervals; AC4 and gateway unit tests | Pass | Complete | Solver complexity is bounded by configuration and fails closed above the budget. |
@@ -40,8 +40,9 @@ Requirement 1 must therefore not be reported as 100% complete.
 The following work is required before claiming literal Requirement 1 completion,
 in dependency order:
 
-1. Reject every unsupported executable BPMN flow element explicitly with a
-   source span; no standard semantic element may be silently ignored.
+1. Add WIR, durable domain events, replay, snapshots, and adapter semantics for
+   each fail-closed BPMN family, starting with receive/catch/event-based gateway
+   subscriptions and send/throw outbox publication.
 2. Make generated Rust behavior equivalent to the authoritative WIR evaluator
    for retained scopes, multi-instance, boundary, compensation, and call
    activity semantics.
@@ -66,16 +67,19 @@ in dependency order:
 
 ## Standards Profile
 
-The executable compiler profile also supports inline embedded sub-processes,
-versioned call activities, typed multi-instance metadata, timer/error/message
-boundaries, namespaced typed extension properties, and bounded symbolic
-coverage for composed guards. The exact profile and runtime boundary are in
+The executable compiler profile also supports user tasks, version-pinned
+external-WASM script tasks, inline embedded sub-processes, versioned call
+activities, typed multi-instance metadata, timer/error/message boundaries,
+namespaced typed extension properties, and bounded symbolic coverage for
+composed guards. The exact profile and runtime boundary are in
 `docs/bpmn-enterprise-compiler-profile.md`.
 
 Passing all twelve Requirement 1 acceptance checks means acceptance coverage
 for the explicitly documented executable profile only. It does not mean literal
-or full-catalog Requirement 1 completion. User tasks remain owned by Human
-Runtime. Multi-instance fan-out/fan-in/replay and boundary subscription,
+or full-catalog Requirement 1 completion. User-task assignment, claim,
+delegation, form, and SLA projections remain owned by Human Runtime;
+script-artifact resolution and Wasmtime invocation remain adapter work.
+Multi-instance fan-out/fan-in/replay and boundary subscription,
 trigger, cancellation, and branch completion now execute through additive
 durable events and snapshots in `bpmp-domain-core`/`bpmp-engine`. The bounded
 timer scheduler and message/error correlation adapters persist projection,
@@ -88,3 +92,8 @@ and deterministic replay for a single active invocation. Concurrent retained
 scope tokens, interrupting cancellation of a retained scope, concrete deployment
 transport bindings, and call child-instance orchestration remain explicit
 follow-up work.
+
+The compiler now also rejects every unclassified element in the BPMN model
+namespace. Dedicated corpus tests cover the remaining unsupported task variants, complex/event-based
+gateways, intermediate events, scope variants, unsupported event definitions,
+event sub-process discrimination, and choreography/conversation constructs.

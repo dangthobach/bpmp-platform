@@ -56,6 +56,45 @@ fn to_wire(envelope: &EventEnvelope) -> wire::EventEnvelope {
                 node_id: node_id.to_string(),
             })
         }
+        DomainEvent::UserTaskActivated {
+            node_id,
+            task_type,
+            assignment_policy_ref,
+            form_key,
+            ..
+        } => wire::event_envelope::Event::UserTaskActivated(wire::UserTaskActivated {
+            node_id: node_id.to_string(),
+            task_type: task_type.to_string(),
+            assignment_policy_ref: assignment_policy_ref.clone(),
+            form_key: form_key.clone().unwrap_or_default(),
+        }),
+        DomainEvent::UserTaskCompleted {
+            node_id,
+            decision,
+            result_variable,
+            ..
+        } => wire::event_envelope::Event::UserTaskCompleted(wire::UserTaskCompleted {
+            node_id: node_id.to_string(),
+            decision: decision.clone(),
+            result_variable: result_variable.clone(),
+        }),
+        DomainEvent::ScriptTaskActivated {
+            node_id,
+            task_type,
+            implementation_ref,
+            implementation_version,
+            ..
+        } => wire::event_envelope::Event::ScriptTaskActivated(wire::ScriptTaskActivated {
+            node_id: node_id.to_string(),
+            task_type: task_type.to_string(),
+            implementation_ref: implementation_ref.clone(),
+            implementation_version: implementation_version.clone(),
+        }),
+        DomainEvent::ScriptTaskCompleted { node_id, .. } => {
+            wire::event_envelope::Event::ScriptTaskCompleted(wire::ScriptTaskCompleted {
+                node_id: node_id.to_string(),
+            })
+        }
         DomainEvent::DecisionTaskEvaluated {
             node_id,
             decision_table_id,
@@ -271,6 +310,44 @@ fn from_wire(envelope: wire::EventEnvelope) -> Result<EventEnvelope, EventCodecE
         }
         wire::event_envelope::Event::ServiceTaskCompleted(completed) => {
             DomainEvent::ServiceTaskCompleted {
+                node_id: identifier(NodeId::new, completed.node_id, "node_id")?,
+                occurred_at_epoch_ms,
+            }
+        }
+        wire::event_envelope::Event::UserTaskActivated(activated) => {
+            DomainEvent::UserTaskActivated {
+                node_id: identifier(NodeId::new, activated.node_id, "node_id")?,
+                task_type: identifier(TaskType::new, activated.task_type, "task_type")?,
+                assignment_policy_ref: non_empty(
+                    activated.assignment_policy_ref,
+                    "assignment_policy_ref",
+                )?,
+                form_key: optional_non_empty(activated.form_key),
+                occurred_at_epoch_ms,
+            }
+        }
+        wire::event_envelope::Event::UserTaskCompleted(completed) => {
+            DomainEvent::UserTaskCompleted {
+                node_id: identifier(NodeId::new, completed.node_id, "node_id")?,
+                decision: non_empty(completed.decision, "decision")?,
+                result_variable: non_empty(completed.result_variable, "result_variable")?,
+                occurred_at_epoch_ms,
+            }
+        }
+        wire::event_envelope::Event::ScriptTaskActivated(activated) => {
+            DomainEvent::ScriptTaskActivated {
+                node_id: identifier(NodeId::new, activated.node_id, "node_id")?,
+                task_type: identifier(TaskType::new, activated.task_type, "task_type")?,
+                implementation_ref: non_empty(activated.implementation_ref, "implementation_ref")?,
+                implementation_version: non_empty(
+                    activated.implementation_version,
+                    "implementation_version",
+                )?,
+                occurred_at_epoch_ms,
+            }
+        }
+        wire::event_envelope::Event::ScriptTaskCompleted(completed) => {
+            DomainEvent::ScriptTaskCompleted {
                 node_id: identifier(NodeId::new, completed.node_id, "node_id")?,
                 occurred_at_epoch_ms,
             }
@@ -758,6 +835,63 @@ mod tests {
 
         let encoded = EventCodec::encode(&expected);
         assert_eq!(EventCodec::decode(&encoded).unwrap(), expected);
+    }
+
+    #[test]
+    fn user_and_script_task_events_round_trip_typed_execution_contracts() {
+        let metadata = EventMetadata {
+            event_id: "event-task".into(),
+            tenant_id: TenantId::new("tenant-a").unwrap(),
+            instance_id: InstanceId::new("instance-1").unwrap(),
+            sequence: 2,
+            schema_version: EVENT_SCHEMA_VERSION,
+            correlation_id: CorrelationId::new("correlation-1").unwrap(),
+            causation_command_id: CommandId::new("command-1").unwrap(),
+            occurred_at_epoch_ms: 123,
+            config_version: ConfigVersion::new("config-7").unwrap(),
+            policy_version: PolicyVersion::new("policy-3").unwrap(),
+            actor_id: ActorId::new("actor-1").unwrap(),
+            encryption_key_scope: KeyScope::new("tenant-a/operational").unwrap(),
+            workflow_type: WorkflowType::new("approval").unwrap(),
+            workflow_version: WorkflowVersion::new("1").unwrap(),
+        };
+        let events = [
+            DomainEvent::UserTaskActivated {
+                node_id: NodeId::new("review").unwrap(),
+                task_type: TaskType::new("review-request").unwrap(),
+                assignment_policy_ref: "approval-reviewers".into(),
+                form_key: Some("approval-form-v2".into()),
+                occurred_at_epoch_ms: 123,
+            },
+            DomainEvent::UserTaskCompleted {
+                node_id: NodeId::new("review").unwrap(),
+                decision: "approved".into(),
+                result_variable: "review_result".into(),
+                occurred_at_epoch_ms: 123,
+            },
+            DomainEvent::ScriptTaskActivated {
+                node_id: NodeId::new("calculate").unwrap(),
+                task_type: TaskType::new("calculate-risk").unwrap(),
+                implementation_ref: "wasm://risk/calculate".into(),
+                implementation_version: "sha256:abc123".into(),
+                occurred_at_epoch_ms: 123,
+            },
+            DomainEvent::ScriptTaskCompleted {
+                node_id: NodeId::new("calculate").unwrap(),
+                occurred_at_epoch_ms: 123,
+            },
+        ];
+
+        for event in events {
+            let expected = EventEnvelope {
+                metadata: metadata.clone(),
+                event,
+            };
+            assert_eq!(
+                EventCodec::decode(&EventCodec::encode(&expected)).unwrap(),
+                expected
+            );
+        }
     }
 
     #[test]

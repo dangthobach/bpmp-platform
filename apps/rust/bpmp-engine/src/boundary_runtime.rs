@@ -651,6 +651,14 @@ fn projection_mutation(
             node_id: attached_node_id,
             ..
         }
+        | DomainEvent::UserTaskCompleted {
+            node_id: attached_node_id,
+            ..
+        }
+        | DomainEvent::ScriptTaskCompleted {
+            node_id: attached_node_id,
+            ..
+        }
         | DomainEvent::MultiInstanceCompleted {
             node_id: attached_node_id,
             ..

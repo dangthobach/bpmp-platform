@@ -51,6 +51,10 @@ pub enum DiagnosticKind {
     UnsupportedElement {
         element: String,
     },
+    InternalCompilerInvariant {
+        phase: &'static str,
+        detail: String,
+    },
     MissingProcess,
     MultipleProcesses,
     MissingStartEvent,
@@ -182,6 +186,9 @@ impl Display for DiagnosticKind {
                 formatter,
                 "BPMN element {element} is not supported by the current compiler phase"
             ),
+            Self::InternalCompilerInvariant { phase, detail } => {
+                write!(formatter, "compiler {phase} invariant failed: {detail}")
+            }
             Self::MissingProcess => formatter.write_str("no executable BPMN process was found"),
             Self::MultipleProcesses => {
                 formatter.write_str("one source document must contain exactly one BPMN process")

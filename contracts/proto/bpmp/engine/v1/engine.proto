@@ -19,6 +19,8 @@ message CommandEnvelope {
     CompleteServiceTask complete_service_task = 11;
     CompleteMultiInstanceIteration complete_multi_instance_iteration = 14;
     TriggerBoundaryEvent trigger_boundary_event = 15;
+    CompleteUserTask complete_user_task = 16;
+    CompleteScriptTask complete_script_task = 17;
   }
   string encryption_key_scope = 12;
   bpmp.authorization.v1.AuthorizationContext authorization_context = 13;
@@ -27,6 +29,15 @@ message CommandEnvelope {
 message StartWorkflow {}
 
 message CompleteServiceTask {
+  string node_id = 1;
+}
+
+message CompleteUserTask {
+  string node_id = 1;
+  string decision = 2;
+}
+
+message CompleteScriptTask {
   string node_id = 1;
 }
 
@@ -77,6 +88,10 @@ message EventEnvelope {
     BoundaryEventsDisarmed boundary_events_disarmed = 25;
     ScopeEntered scope_entered = 26;
     ScopeCompleted scope_completed = 27;
+    UserTaskActivated user_task_activated = 28;
+    UserTaskCompleted user_task_completed = 29;
+    ScriptTaskActivated script_task_activated = 30;
+    ScriptTaskCompleted script_task_completed = 31;
   }
 }
 
@@ -93,6 +108,40 @@ message ServiceTaskActivated {
 }
 
 message ServiceTaskCompleted {
+  string node_id = 1;
+}
+
+message UserTaskActivated {
+  string node_id = 1;
+  string task_type = 2;
+  string assignment_policy_ref = 3;
+  string form_key = 4;
+}
+
+message UserTaskCompleted {
+  string node_id = 1;
+  string decision = 2;
+  string result_variable = 3;
+}
+
+message CommandReceipt {
+  string command_id = 1;
+  uint64 committed_sequence = 2;
+  bool duplicate = 3;
+}
+
+service EngineCommandService {
+  rpc HandleCommand(CommandEnvelope) returns (CommandReceipt);
+}
+
+message ScriptTaskActivated {
+  string node_id = 1;
+  string task_type = 2;
+  string implementation_ref = 3;
+  string implementation_version = 4;
+}
+
+message ScriptTaskCompleted {
   string node_id = 1;
 }
 
