@@ -27,7 +27,7 @@ func (c *Consumer) Handle(ctx context.Context, payload []byte) error {
 		return fmt.Errorf("decode committed engine event: %w", err)
 	}
 	metadata := envelope.GetMetadata()
-	if metadata == nil || metadata.GetTenantId() == "" || metadata.GetEventId() == "" {
+	if metadata == nil || metadata.GetTenantId() == "" || metadata.GetEventId() == "" || metadata.GetSequence() == 0 {
 		return errors.New("committed event metadata is incomplete")
 	}
 	occurredAt := time.UnixMilli(int64(metadata.GetOccurredAtEpochMs())).UTC()
@@ -35,6 +35,7 @@ func (c *Consumer) Handle(ctx context.Context, payload []byte) error {
 	case *enginev1.EventEnvelope_UserTaskActivated:
 		_, _, err := c.service.ProjectActivation(ctx, domain.Activation{
 			TenantID: metadata.GetTenantId(), EventID: metadata.GetEventId(),
+			Sequence:   metadata.GetSequence(),
 			InstanceID: metadata.GetInstanceId(), WorkflowType: metadata.GetWorkflowType(),
 			WorkflowVersion: metadata.GetWorkflowVersion(), NodeID: event.UserTaskActivated.GetNodeId(),
 			TaskType:            event.UserTaskActivated.GetTaskType(),
@@ -43,10 +44,11 @@ func (c *Consumer) Handle(ctx context.Context, payload []byte) error {
 		})
 		return err
 	case *enginev1.EventEnvelope_UserTaskCompleted:
-		return c.service.ProjectCommittedCompletion(
-			ctx, metadata.GetTenantId(), metadata.GetInstanceId(),
-			event.UserTaskCompleted.GetNodeId(), event.UserTaskCompleted.GetDecision(), occurredAt,
-		)
+		return c.service.ProjectCommittedCompletion(ctx, application.CommittedCompletion{
+			TenantID: metadata.GetTenantId(), EventID: metadata.GetEventId(), Sequence: metadata.GetSequence(),
+			InstanceID: metadata.GetInstanceId(), NodeID: event.UserTaskCompleted.GetNodeId(),
+			Decision: event.UserTaskCompleted.GetDecision(), OccurredAt: occurredAt,
+		})
 	default:
 		return nil
 	}

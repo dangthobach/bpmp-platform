@@ -131,6 +131,8 @@ message CommandReceipt {
 }
 
 service EngineCommandService {
+  // buf:lint:ignore RPC_REQUEST_STANDARD_NAME
+  // buf:lint:ignore RPC_RESPONSE_STANDARD_NAME
   rpc HandleCommand(CommandEnvelope) returns (CommandReceipt);
 }
 

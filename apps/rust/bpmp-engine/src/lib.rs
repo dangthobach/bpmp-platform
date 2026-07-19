@@ -12,6 +12,7 @@ pub mod memory;
 mod outbox;
 mod ports;
 mod snapshot_codec;
+mod transport;
 mod wir_loader;
 
 pub use application::{
@@ -35,9 +36,13 @@ pub use outbox::{
     OutboxRecord, OutboxStorePort, PublishAcknowledgement, PublishBatchOutcome, RetryDelayPort,
 };
 pub use ports::{
-    AuthorizationError, AuthorizationProviderPort, AuthorizationRequest, AuthorizedPrincipal,
+    ActorProofKind, AuthorizationError, AuthorizationProviderPort, AuthorizationRequest, AuthorizedPrincipal,
     CommitOutcome, CommitRequest, ConfigurationLookup, ConfigurationProviderPort, LoadedInstance,
     StoreError, WorkflowStorePort,
 };
 pub use snapshot_codec::{SNAPSHOT_SCHEMA_VERSION, SnapshotCodec, SnapshotCodecError};
+pub use transport::{
+    AuthoritativeCommandHandler, CommandDefinitionProviderPort, EngineCommandHandlerPort,
+    GrpcEngineCommandService, TransportError,
+};
 pub use wir_loader::{WirLoadError, WirLoader};

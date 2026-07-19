@@ -10,9 +10,11 @@ import (
 )
 
 var (
-	ErrForbidden       = errors.New("actor is not assigned to the work item")
-	ErrActorProof      = errors.New("exactly one original token or signed actor context is required")
-	ErrVersionConflict = errors.New("work item version conflict")
+	ErrForbidden            = errors.New("actor is not assigned to the work item")
+	ErrActorProof           = errors.New("exactly one original token or signed actor context is required")
+	ErrVersionConflict      = errors.New("work item version conflict")
+	ErrIdempotencyConflict  = errors.New("command id was already used with different completion data")
+	ErrProjectionDependency = errors.New("committed event projection dependency is missing")
 )
 
 type ActorCredential struct {
@@ -67,6 +69,22 @@ type EngineCompleteCommand struct {
 	OccurredAt         time.Time
 }
 
+type CommittedCompletion struct {
+	TenantID   string
+	EventID    string
+	Sequence   uint64
+	InstanceID string
+	NodeID     string
+	Decision   string
+	OccurredAt time.Time
+}
+
+type CommittedCase struct {
+	EventID  string
+	Sequence uint64
+	Case     domain.Case
+}
+
 type EnginePort interface {
 	CompleteUserTask(context.Context, EngineCompleteCommand) error
 }
@@ -75,9 +93,9 @@ type Store interface {
 	GetWorkItem(context.Context, string, string) (domain.WorkItem, error)
 	ProjectActivation(context.Context, domain.Activation) (domain.WorkItem, bool, error)
 	RequestCompletion(context.Context, domain.WorkItem, string, string, string) error
-	CommitCompletion(context.Context, string, string, string, string, time.Time) error
+	CommitCompletion(context.Context, CommittedCompletion) error
 	Delegate(context.Context, domain.WorkItem, string, string, string) error
-	ProjectCase(context.Context, domain.Case, string) (bool, error)
+	ProjectCase(context.Context, CommittedCase) (bool, error)
 	TransitionCaseStage(context.Context, string, string, string, domain.PlanItemStatus, string, time.Time) error
 	AchieveCaseMilestone(context.Context, string, string, string, string, time.Time) error
 }
@@ -106,18 +124,28 @@ func (s *Service) Complete(ctx context.Context, request CompleteRequest) error {
 	if err != nil {
 		return err
 	}
-	if request.ExpectedVersion != item.Version {
-		return ErrVersionConflict
-	}
 	if !item.CanAct(request.Actor.ActorID, request.ActorGroups) {
 		return ErrForbidden
 	}
-	pending, err := domain.RequestCompletion(item, request.Actor.ActorID, request.Decision, request.OccurredAt)
-	if err != nil {
-		return err
+	if request.CommandID == "" {
+		return errors.New("command id must not be empty")
 	}
-	if err := s.store.RequestCompletion(ctx, pending, request.CommandID, request.CorrelationID, request.Actor.ActorID); err != nil {
-		return err
+	if item.Status == domain.WorkItemCompletionRequested {
+		if item.CompletionCommandID != request.CommandID || item.Decision != request.Decision {
+			return ErrIdempotencyConflict
+		}
+	} else {
+		if request.ExpectedVersion != item.Version {
+			return ErrVersionConflict
+		}
+		pending, completionErr := domain.RequestCompletion(item, request.Actor.ActorID, request.Decision, request.OccurredAt)
+		if completionErr != nil {
+			return completionErr
+		}
+		pending.CompletionCommandID = request.CommandID
+		if err := s.store.RequestCompletion(ctx, pending, request.CommandID, request.CorrelationID, request.Actor.ActorID); err != nil {
+			return err
+		}
 	}
 	command := EngineCompleteCommand{
 		TenantID: request.TenantID, InstanceID: item.InstanceID, NodeID: item.NodeID,
@@ -155,10 +183,6 @@ func (s *Service) Delegate(ctx context.Context, request DelegateRequest) error {
 	return s.store.Delegate(ctx, delegated, request.CommandID, request.CorrelationID, request.Actor.ActorID)
 }
 
-func (s *Service) ProjectCommittedCompletion(
-	ctx context.Context,
-	tenantID, instanceID, nodeID, decision string,
-	occurredAt time.Time,
-) error {
-	return s.store.CommitCompletion(ctx, tenantID, instanceID, nodeID, decision, occurredAt)
+func (s *Service) ProjectCommittedCompletion(ctx context.Context, event CommittedCompletion) error {
+	return s.store.CommitCompletion(ctx, event)
 }

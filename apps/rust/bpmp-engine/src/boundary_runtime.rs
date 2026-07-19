@@ -11,6 +11,7 @@ use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 use crate::application::{AuthorizedCommand, Engine};
+use crate::ports::ActorProofKind;
 use crate::ports::{AuthorizationProviderPort, ConfigurationProviderPort, WorkflowStorePort};
 use crate::{EventCodec, EventEnvelope, OutboxError, OutboxStorePort};
 
@@ -366,6 +367,7 @@ where
                     correlation_id: request.correlation_id.clone(),
                     evaluated_at_epoch_ms: request.occurred_at_epoch_ms,
                     actor_proof: credentials.actor_proof,
+                    actor_proof_kind: ActorProofKind::SignedInternalContext,
                     workload_proof: credentials.workload_proof,
                     encryption_key_scope: credentials.encryption_key_scope,
                     variables: BTreeMap::new(),

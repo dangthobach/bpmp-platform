@@ -31,7 +31,7 @@ func New(service *application.Service, query application.QueryPort, verifier app
 }
 
 func (s *Server) GetWorkItem(ctx context.Context, r *humanv1.GetWorkItemRequest) (*humanv1.GetWorkItemResponse, error) {
-	_, identity, err := s.verify(ctx, r.GetTenantId(), r.GetActorProof())
+	_, identity, err := s.verify(ctx, r.GetTenantId(), "", r.GetActorProof(), s.now())
 	if err != nil {
 		return nil, err
 	}
@@ -45,7 +45,7 @@ func (s *Server) GetWorkItem(ctx context.Context, r *humanv1.GetWorkItemRequest)
 	return &humanv1.GetWorkItemResponse{WorkItem: toProtoWorkItem(item)}, nil
 }
 func (s *Server) ListWorkItems(ctx context.Context, r *humanv1.ListWorkItemsRequest) (*humanv1.ListWorkItemsResponse, error) {
-	_, identity, err := s.verify(ctx, r.GetTenantId(), r.GetActorProof())
+	_, identity, err := s.verify(ctx, r.GetTenantId(), "", r.GetActorProof(), s.now())
 	if err != nil {
 		return nil, err
 	}
@@ -68,29 +68,31 @@ func (s *Server) ListWorkItems(ctx context.Context, r *humanv1.ListWorkItemsRequ
 	return &humanv1.ListWorkItemsResponse{WorkItems: out, NextPageToken: encodeCursor(next)}, nil
 }
 func (s *Server) CompleteWorkItem(ctx context.Context, r *humanv1.CompleteWorkItemRequest) (*humanv1.CompleteWorkItemResponse, error) {
-	credential, identity, err := s.verify(ctx, r.GetTenantId(), r.GetActorProof())
+	now := s.now()
+	credential, identity, err := s.verify(ctx, r.GetTenantId(), r.GetCommandId(), r.GetActorProof(), now)
 	if err != nil {
 		return nil, err
 	}
-	err = s.service.Complete(ctx, application.CompleteRequest{TenantID: r.GetTenantId(), WorkItemID: r.GetWorkItemId(), CommandID: r.GetCommandId(), CorrelationID: r.GetCorrelationId(), Decision: r.GetDecision(), ExpectedVersion: r.GetExpectedVersion(), Actor: credential, ActorGroups: identity.Groups, OccurredAt: s.now()})
+	err = s.service.Complete(ctx, application.CompleteRequest{TenantID: r.GetTenantId(), WorkItemID: r.GetWorkItemId(), CommandID: r.GetCommandId(), CorrelationID: r.GetCorrelationId(), Decision: r.GetDecision(), ExpectedVersion: r.GetExpectedVersion(), Actor: credential, ActorGroups: identity.Groups, OccurredAt: now})
 	if err != nil {
 		return nil, mapError(err)
 	}
 	return &humanv1.CompleteWorkItemResponse{CommandId: r.GetCommandId(), WorkItemVersion: r.GetExpectedVersion() + 1}, nil
 }
 func (s *Server) DelegateWorkItem(ctx context.Context, r *humanv1.DelegateWorkItemRequest) (*humanv1.DelegateWorkItemResponse, error) {
-	credential, identity, err := s.verify(ctx, r.GetTenantId(), r.GetActorProof())
+	now := s.now()
+	credential, identity, err := s.verify(ctx, r.GetTenantId(), r.GetCommandId(), r.GetActorProof(), now)
 	if err != nil {
 		return nil, err
 	}
-	err = s.service.Delegate(ctx, application.DelegateRequest{TenantID: r.GetTenantId(), WorkItemID: r.GetWorkItemId(), CommandID: r.GetCommandId(), CorrelationID: r.GetCorrelationId(), ExpectedVersion: r.GetExpectedVersion(), Actor: credential, ActorGroups: identity.Groups, Assignment: domain.Assignment{AssigneeID: r.GetAssigneeId(), CandidateGroup: r.GetCandidateGroup()}, OccurredAt: s.now()})
+	err = s.service.Delegate(ctx, application.DelegateRequest{TenantID: r.GetTenantId(), WorkItemID: r.GetWorkItemId(), CommandID: r.GetCommandId(), CorrelationID: r.GetCorrelationId(), ExpectedVersion: r.GetExpectedVersion(), Actor: credential, ActorGroups: identity.Groups, Assignment: domain.Assignment{AssigneeID: r.GetAssigneeId(), CandidateGroup: r.GetCandidateGroup()}, OccurredAt: now})
 	if err != nil {
 		return nil, mapError(err)
 	}
 	return &humanv1.DelegateWorkItemResponse{CommandId: r.GetCommandId(), WorkItemVersion: r.GetExpectedVersion() + 1}, nil
 }
 func (s *Server) GetCase(ctx context.Context, r *humanv1.GetCaseRequest) (*humanv1.GetCaseResponse, error) {
-	if _, _, err := s.verify(ctx, r.GetTenantId(), r.GetActorProof()); err != nil {
+	if _, _, err := s.verify(ctx, r.GetTenantId(), "", r.GetActorProof(), s.now()); err != nil {
 		return nil, err
 	}
 	view, err := s.query.GetCase(ctx, r.GetTenantId(), r.GetCaseId())
@@ -107,12 +109,12 @@ func (s *Server) GetCase(ctx context.Context, r *humanv1.GetCaseRequest) (*human
 	return &humanv1.GetCaseResponse{Case: &humanv1.CaseView{TenantId: view.Case.TenantID, CaseId: view.Case.ID, CaseType: view.Case.CaseType, Status: string(view.Case.Status), PlanItems: items, Version: view.Case.Version}}, nil
 }
 
-func (s *Server) verify(ctx context.Context, tenantID string, proof *authv1.ActorProof) (application.ActorCredential, application.ActorIdentity, error) {
+func (s *Server) verify(ctx context.Context, tenantID, commandID string, proof *authv1.ActorProof, evaluatedAt time.Time) (application.ActorCredential, application.ActorIdentity, error) {
 	credential, err := credentialFromProof(proof)
 	if err != nil {
 		return application.ActorCredential{}, application.ActorIdentity{}, status.Error(codes.Unauthenticated, err.Error())
 	}
-	identity, err := s.verifier.VerifyActor(ctx, tenantID, credential)
+	identity, err := s.verifier.VerifyActor(ctx, application.ActorVerificationRequest{TenantID: tenantID, CommandID: commandID, EvaluatedAt: evaluatedAt, Credential: credential})
 	if err != nil {
 		return application.ActorCredential{}, application.ActorIdentity{}, status.Error(codes.Unauthenticated, "actor proof verification failed")
 	}
@@ -148,6 +150,8 @@ func mapError(err error) error {
 		return status.Error(codes.PermissionDenied, err.Error())
 	case errors.Is(err, application.ErrVersionConflict):
 		return status.Error(codes.Aborted, err.Error())
+	case errors.Is(err, application.ErrIdempotencyConflict):
+		return status.Error(codes.AlreadyExists, err.Error())
 	default:
 		return status.Error(codes.FailedPrecondition, err.Error())
 	}

@@ -12,7 +12,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ".bpmp.authorization.v1",
         "::bpmp_authz_contracts::authorization::v1",
     );
-    config.compile_protos(&protos, &[root])?;
+    tonic_prost_build::configure()
+        .build_client(true)
+        .build_server(true)
+        .compile_with_config(config, &protos, &[root.to_owned()])?;
     for proto in protos {
         println!("cargo:rerun-if-changed={proto}");
     }

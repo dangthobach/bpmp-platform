@@ -19,7 +19,7 @@ use bpmp_domain_core::{
 };
 use bpmp_engine::memory::{InMemoryConfigurationProvider, InMemoryWorkflowStore};
 use bpmp_engine::{
-    AuthorizedCommand, BoundaryCommandDispatcherPort, BoundaryDispatchCredentials,
+    ActorProofKind, AuthorizedCommand, BoundaryCommandDispatcherPort, BoundaryDispatchCredentials,
     BoundaryDispatchCredentialsPort, BoundaryDispatchRequest, BoundaryDispatchSource,
     BoundaryRuntimeError, ConfigurationLookup, EmbeddedAuthorizationProvider, Engine,
     EngineBoundaryCommandDispatcher, HandleOutcome, OutboxStorePort,
@@ -339,6 +339,7 @@ fn start_request() -> AuthorizedCommand {
         correlation_id: CorrelationId::new("trace-1").unwrap(),
         evaluated_at_epoch_ms: 42,
         actor_proof,
+        actor_proof_kind: ActorProofKind::SignedInternalContext,
         workload_proof,
         encryption_key_scope: KeyScope::new("tenant-a/operational").unwrap(),
         variables: BTreeMap::default(),

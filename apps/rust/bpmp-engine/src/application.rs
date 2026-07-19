@@ -9,7 +9,7 @@ use bpmp_domain_core::{
 use thiserror::Error;
 
 use crate::ports::{
-    AuthorizationError, AuthorizationProviderPort, AuthorizationRequest, CommitOutcome,
+    ActorProofKind, AuthorizationError, AuthorizationProviderPort, AuthorizationRequest, CommitOutcome,
     CommitRequest, ConfigurationLookup, ConfigurationProviderPort, StoreError, WorkflowStorePort,
 };
 
@@ -25,6 +25,7 @@ pub struct AuthorizedCommand {
     pub correlation_id: CorrelationId,
     pub evaluated_at_epoch_ms: u64,
     pub actor_proof: Vec<u8>,
+    pub actor_proof_kind: ActorProofKind,
     pub workload_proof: Vec<u8>,
     pub encryption_key_scope: KeyScope,
     pub variables: BTreeMap<String, WorkflowValue>,
@@ -152,6 +153,7 @@ where
             command_id: &request.command_id,
             evaluated_at_epoch_ms: request.evaluated_at_epoch_ms,
             actor_proof: &request.actor_proof,
+            actor_proof_kind: request.actor_proof_kind,
             workload_proof: &request.workload_proof,
             workflow_type: &definition.workflow_type,
             workflow_version: &definition.workflow_version,

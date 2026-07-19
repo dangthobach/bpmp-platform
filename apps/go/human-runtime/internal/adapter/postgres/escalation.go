@@ -15,13 +15,18 @@ func (s *Store) ClaimDueEscalations(ctx context.Context, now, leaseUntil time.Ti
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	_, err = tx.Exec(ctx, `INSERT INTO escalation_outbox
+	_, err = tx.Exec(ctx, `WITH inserted AS (INSERT INTO escalation_outbox
         (tenant_id,escalation_id,work_item_id,escalation_policy_ref,payload,available_at,created_at)
         SELECT tenant_id,work_item_id||':'||escalation_policy_ref,work_item_id,escalation_policy_ref,
         jsonb_build_object('tenant_id',tenant_id,'work_item_id',work_item_id,'instance_id',instance_id,
         'node_id',node_id,'policy_ref',escalation_policy_ref,'sla_deadline',sla_deadline),$1,$1
         FROM work_items WHERE status='ACTIVE' AND NOT is_deleted AND sla_deadline<=$1
-        AND escalation_policy_ref IS NOT NULL ON CONFLICT DO NOTHING`, now)
+		AND escalation_policy_ref IS NOT NULL ON CONFLICT DO NOTHING
+		RETURNING tenant_id,escalation_id,work_item_id,payload)
+		INSERT INTO human_audit_log
+		(tenant_id,audit_id,work_item_id,actor_id,action,occurred_at,details)
+		SELECT tenant_id,'escalation-due:'||escalation_id,work_item_id,'system','SLA_ESCALATION_DUE',$1,payload
+		FROM inserted ON CONFLICT DO NOTHING`, now)
 	if err != nil {
 		return nil, err
 	}

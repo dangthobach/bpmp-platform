@@ -42,6 +42,7 @@ type WorkItem struct {
 	FormKey             string
 	Status              WorkItemStatus
 	Decision            string
+	CompletionCommandID string
 	SLADeadline         *time.Time
 	EscalationPolicyRef string
 	Version             int64
@@ -52,6 +53,7 @@ type WorkItem struct {
 type Activation struct {
 	TenantID            string
 	EventID             string
+	Sequence            uint64
 	InstanceID          string
 	WorkflowType        string
 	WorkflowVersion     string
@@ -85,6 +87,9 @@ func Activate(activation Activation, policy AssignmentPolicy) (WorkItem, error) 
 			return WorkItem{}, fmt.Errorf("%s must not be empty", field)
 		}
 	}
+	if activation.Sequence == 0 {
+		return WorkItem{}, errors.New("event sequence must be greater than zero")
+	}
 	if activation.TenantID != policy.TenantID || activation.AssignmentPolicyRef != policy.Reference {
 		return WorkItem{}, errors.New("activation and assignment policy scope do not match")
 	}
@@ -117,7 +122,7 @@ func (w WorkItem) CanAct(actorID string, actorGroups map[string]struct{}) bool {
 }
 
 func RequestCompletion(w WorkItem, actorID, decision string, now time.Time) (WorkItem, error) {
-	if w.Status != WorkItemActive && w.Status != WorkItemCompletionRequested {
+	if w.Status != WorkItemActive {
 		return WorkItem{}, fmt.Errorf("work item status %s cannot be completed", w.Status)
 	}
 	if actorID == "" || strings.TrimSpace(decision) == "" {

@@ -11,6 +11,7 @@ func TestActivationCreatesExactlyAssignedWorkItem(t *testing.T) {
 	now := time.Unix(100, 0).UTC()
 	item, err := Activate(Activation{
 		TenantID: "tenant-a", EventID: "event-1", InstanceID: "instance-1",
+		Sequence:     1,
 		WorkflowType: "approval", WorkflowVersion: "1", NodeID: "review",
 		TaskType: "review", AssignmentPolicyRef: "reviewers", OccurredAt: now,
 	}, AssignmentPolicy{
@@ -57,6 +58,9 @@ func TestCompletionIsPendingUntilCommittedEvent(t *testing.T) {
 	}
 	if pending.Status != WorkItemCompletionRequested {
 		t.Fatalf("expected pending completion, got %s", pending.Status)
+	}
+	if _, err = RequestCompletion(pending, "actor", "approved", now); err == nil {
+		t.Fatal("domain accepted a second pending transition outside the idempotency boundary")
 	}
 	completed, err := CommitCompletion(pending, "approved", now.Add(time.Second))
 	if err != nil {

@@ -14,6 +14,7 @@ import (
 type projectionStore struct {
 	activation         domain.Activation
 	completionDecision string
+	completion         application.CommittedCompletion
 }
 
 func (p *projectionStore) GetWorkItem(context.Context, string, string) (domain.WorkItem, error) {
@@ -26,14 +27,15 @@ func (p *projectionStore) ProjectActivation(_ context.Context, activation domain
 func (*projectionStore) RequestCompletion(context.Context, domain.WorkItem, string, string, string) error {
 	return nil
 }
-func (p *projectionStore) CommitCompletion(_ context.Context, _, _, _, decision string, _ time.Time) error {
-	p.completionDecision = decision
+func (p *projectionStore) CommitCompletion(_ context.Context, event application.CommittedCompletion) error {
+	p.completionDecision = event.Decision
+	p.completion = event
 	return nil
 }
 func (*projectionStore) Delegate(context.Context, domain.WorkItem, string, string, string) error {
 	return nil
 }
-func (*projectionStore) ProjectCase(context.Context, domain.Case, string) (bool, error) {
+func (*projectionStore) ProjectCase(context.Context, application.CommittedCase) (bool, error) {
 	return false, nil
 }
 func (*projectionStore) TransitionCaseStage(context.Context, string, string, string, domain.PlanItemStatus, string, time.Time) error {
@@ -53,12 +55,12 @@ func TestActivationUsesCommittedMetadata(t *testing.T) {
 	store := &projectionStore{}
 	service, _ := application.NewService(store, noEngine{})
 	consumer, _ := New(service)
-	envelope := &enginev1.EventEnvelope{Metadata: &enginev1.EventMetadata{EventId: "event-1", TenantId: "tenant-a", InstanceId: "instance-1", WorkflowType: "approval", WorkflowVersion: "1", OccurredAtEpochMs: 123}, Event: &enginev1.EventEnvelope_UserTaskActivated{UserTaskActivated: &enginev1.UserTaskActivated{NodeId: "review", TaskType: "review", AssignmentPolicyRef: "reviewers"}}}
+	envelope := &enginev1.EventEnvelope{Metadata: &enginev1.EventMetadata{EventId: "event-1", TenantId: "tenant-a", InstanceId: "instance-1", WorkflowType: "approval", WorkflowVersion: "1", Sequence: 7, OccurredAtEpochMs: 123}, Event: &enginev1.EventEnvelope_UserTaskActivated{UserTaskActivated: &enginev1.UserTaskActivated{NodeId: "review", TaskType: "review", AssignmentPolicyRef: "reviewers"}}}
 	payload, _ := proto.Marshal(envelope)
 	if err := consumer.Handle(context.Background(), payload); err != nil {
 		t.Fatal(err)
 	}
-	if store.activation.TenantID != "tenant-a" || store.activation.EventID != "event-1" {
+	if store.activation.TenantID != "tenant-a" || store.activation.EventID != "event-1" || store.activation.Sequence != 7 {
 		t.Fatalf("metadata lost: %#v", store.activation)
 	}
 }

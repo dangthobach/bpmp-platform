@@ -8,6 +8,7 @@ require github.com/jackc/pgx/v5 v5.7.6
 
 require (
 	github.com/dangthobach/bpmp-platform/go/contracts v0.0.0
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/twmb/franz-go v1.21.0
 	google.golang.org/grpc v1.76.0
 	google.golang.org/protobuf v1.36.10

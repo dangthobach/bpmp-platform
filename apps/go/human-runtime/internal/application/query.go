@@ -23,6 +23,12 @@ type ActorIdentity struct {
 	ActorID string
 	Groups  map[string]struct{}
 }
+type ActorVerificationRequest struct {
+	TenantID   string
+	CommandID  string
+	EvaluatedAt time.Time
+	Credential ActorCredential
+}
 type ActorVerifier interface {
-	VerifyActor(context.Context, string, ActorCredential) (ActorIdentity, error)
+	VerifyActor(context.Context, ActorVerificationRequest) (ActorIdentity, error)
 }

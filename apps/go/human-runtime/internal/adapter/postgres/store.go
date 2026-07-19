@@ -34,8 +34,8 @@ func (s *Store) ProjectActivation(ctx context.Context, activation domain.Activat
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	result, err := tx.Exec(ctx, `INSERT INTO human_event_inbox
-        (tenant_id,consumer_name,event_id,stream_id,sequence,processed_at) VALUES($1,'human-runtime',$2,$3,1,$4)
-        ON CONFLICT DO NOTHING`, activation.TenantID, activation.EventID, activation.InstanceID, activation.OccurredAt)
+        (tenant_id,consumer_name,event_id,stream_id,sequence,processed_at) VALUES($1,'human-runtime',$2,$3,$4,$5)
+        ON CONFLICT (tenant_id,consumer_name,event_id) DO NOTHING`, activation.TenantID, activation.EventID, activation.InstanceID, activation.Sequence, activation.OccurredAt)
 	if err != nil {
 		return domain.WorkItem{}, false, err
 	}
@@ -103,39 +103,66 @@ func (s *Store) updateWorkItem(ctx context.Context, item domain.WorkItem, comman
 	return tx.Commit(ctx)
 }
 
-func (s *Store) CommitCompletion(ctx context.Context, tenantID, instanceID, nodeID, decision string, occurredAt time.Time) error {
+func (s *Store) CommitCompletion(ctx context.Context, event application.CommittedCompletion) error {
+	if event.TenantID == "" || event.EventID == "" || event.InstanceID == "" || event.NodeID == "" || event.Sequence == 0 {
+		return errors.New("committed completion metadata is incomplete")
+	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	result, err := tx.Exec(ctx, `INSERT INTO human_event_inbox
+        (tenant_id,consumer_name,event_id,stream_id,sequence,processed_at) VALUES($1,'human-runtime',$2,$3,$4,$5)
+        ON CONFLICT (tenant_id,consumer_name,event_id) DO NOTHING`, event.TenantID, event.EventID, event.InstanceID, event.Sequence, event.OccurredAt)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return tx.Commit(ctx)
+	}
 	var id string
 	var version int64
 	err = tx.QueryRow(ctx, `UPDATE work_items SET status='COMPLETED',decision=COALESCE(NULLIF($4,''),decision),
         updated_at=$5,version=version+1 WHERE tenant_id=$1 AND instance_id=$2 AND node_id=$3
         AND status IN ('ACTIVE','COMPLETION_REQUESTED') AND NOT is_deleted RETURNING work_item_id,version`,
-		tenantID, instanceID, nodeID, decision, occurredAt).Scan(&id, &version)
+		event.TenantID, event.InstanceID, event.NodeID, event.Decision, event.OccurredAt).Scan(&id, &version)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
+		var status domain.WorkItemStatus
+		lookupErr := tx.QueryRow(ctx, `SELECT status FROM work_items WHERE tenant_id=$1 AND instance_id=$2 AND node_id=$3 AND NOT is_deleted`, event.TenantID, event.InstanceID, event.NodeID).Scan(&status)
+		if errors.Is(lookupErr, pgx.ErrNoRows) {
+			return application.ErrProjectionDependency
+		}
+		if lookupErr != nil {
+			return lookupErr
+		}
+		if status == domain.WorkItemCompleted {
+			return tx.Commit(ctx)
+		}
+		return fmt.Errorf("committed completion cannot transition work item in status %s", status)
 	}
 	if err != nil {
 		return err
 	}
-	auditID := fmt.Sprintf("completed:%s:%s:%d", instanceID, nodeID, occurredAt.UnixMilli())
-	if err = appendAudit(ctx, tx, tenantID, auditID, id, "", "engine", "COMPLETED", occurredAt, "", "", version-1, version, map[string]any{"decision": decision}); err != nil {
+	auditID := "completed:" + event.EventID
+	if err = appendAudit(ctx, tx, event.TenantID, auditID, id, "", "engine", "COMPLETED", event.OccurredAt, "", "", version-1, version, map[string]any{"decision": event.Decision, "event_id": event.EventID, "sequence": event.Sequence}); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
 }
 
-func (s *Store) ProjectCase(ctx context.Context, c domain.Case, eventID string) (bool, error) {
+func (s *Store) ProjectCase(ctx context.Context, event application.CommittedCase) (bool, error) {
+	c := event.Case
+	if event.EventID == "" || event.Sequence == 0 || c.TenantID == "" || c.ID == "" {
+		return false, errors.New("committed case metadata is incomplete")
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return false, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	result, err := tx.Exec(ctx, `INSERT INTO human_event_inbox(tenant_id,consumer_name,event_id,stream_id,sequence,processed_at)
-        VALUES($1,'human-runtime',$2,$3,1,$4) ON CONFLICT DO NOTHING`, c.TenantID, eventID, c.ID, c.UpdatedAt)
+		VALUES($1,'human-runtime',$2,$3,$4,$5) ON CONFLICT (tenant_id,consumer_name,event_id) DO NOTHING`, c.TenantID, event.EventID, c.ID, event.Sequence, c.UpdatedAt)
 	if err != nil {
 		return false, err
 	}
@@ -185,13 +212,13 @@ func (s *Store) transitionPlanItem(ctx context.Context, tenantID, caseID, itemID
 
 const workItemSelect = `SELECT tenant_id,work_item_id,activation_event_id,instance_id,workflow_type,workflow_version,node_id,task_type,
  assignment_policy_ref,COALESCE(assignee_id,''),COALESCE(candidate_group,''),COALESCE(form_key,''),status,COALESCE(decision,''),
- sla_deadline,COALESCE(escalation_policy_ref,''),version,created_at,updated_at FROM work_items`
+ COALESCE(completion_command_id,''),sla_deadline,COALESCE(escalation_policy_ref,''),version,created_at,updated_at FROM work_items`
 
 type rowScanner interface{ Scan(...any) error }
 
 func scanWorkItem(row rowScanner) (domain.WorkItem, error) {
 	var w domain.WorkItem
-	err := row.Scan(&w.TenantID, &w.ID, &w.ActivationEventID, &w.InstanceID, &w.WorkflowType, &w.WorkflowVersion, &w.NodeID, &w.TaskType, &w.AssignmentPolicyRef, &w.Assignment.AssigneeID, &w.Assignment.CandidateGroup, &w.FormKey, &w.Status, &w.Decision, &w.SLADeadline, &w.EscalationPolicyRef, &w.Version, &w.CreatedAt, &w.UpdatedAt)
+	err := row.Scan(&w.TenantID, &w.ID, &w.ActivationEventID, &w.InstanceID, &w.WorkflowType, &w.WorkflowVersion, &w.NodeID, &w.TaskType, &w.AssignmentPolicyRef, &w.Assignment.AssigneeID, &w.Assignment.CandidateGroup, &w.FormKey, &w.Status, &w.Decision, &w.CompletionCommandID, &w.SLADeadline, &w.EscalationPolicyRef, &w.Version, &w.CreatedAt, &w.UpdatedAt)
 	return w, err
 }
 

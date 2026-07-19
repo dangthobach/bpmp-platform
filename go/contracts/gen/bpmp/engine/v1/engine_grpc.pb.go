@@ -26,6 +26,8 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type EngineCommandServiceClient interface {
+	// buf:lint:ignore RPC_REQUEST_STANDARD_NAME
+	// buf:lint:ignore RPC_RESPONSE_STANDARD_NAME
 	HandleCommand(ctx context.Context, in *CommandEnvelope, opts ...grpc.CallOption) (*CommandReceipt, error)
 }
 
@@ -51,6 +53,8 @@ func (c *engineCommandServiceClient) HandleCommand(ctx context.Context, in *Comm
 // All implementations must embed UnimplementedEngineCommandServiceServer
 // for forward compatibility.
 type EngineCommandServiceServer interface {
+	// buf:lint:ignore RPC_REQUEST_STANDARD_NAME
+	// buf:lint:ignore RPC_RESPONSE_STANDARD_NAME
 	HandleCommand(context.Context, *CommandEnvelope) (*CommandReceipt, error)
 	mustEmbedUnimplementedEngineCommandServiceServer()
 }

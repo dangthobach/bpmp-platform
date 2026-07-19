@@ -2816,10 +2816,7 @@ impl WorkflowValueType {
     }
 }
 
-fn complete_active_token(
-    active_tokens: &mut BTreeMap<NodeId, u32>,
-    node_id: &NodeId,
-) -> Lifecycle {
+fn complete_active_token(active_tokens: &mut BTreeMap<NodeId, u32>, node_id: &NodeId) -> Lifecycle {
     if let Some(count) = active_tokens.get_mut(node_id) {
         *count = count.saturating_sub(1);
         if *count == 0 {
@@ -4562,6 +4559,10 @@ mod tests {
                 && implementation_version == "sha256:abc123"
         ));
         let script_state = rehydrate(Some(user_state), &user_completed);
+        assert_eq!(
+            script_state.variables.get("review_result"),
+            Some(&WorkflowValue::String("approved".into()))
+        );
 
         let script_completed = decide(
             &definition,

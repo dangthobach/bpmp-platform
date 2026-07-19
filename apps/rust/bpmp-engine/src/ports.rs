@@ -6,11 +6,18 @@ use thiserror::Error;
 
 use crate::{AuthorizationAudit, CommittedResult, EventEnvelope, SnapshotEnvelope};
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum ActorProofKind {
+    OriginalJwt,
+    SignedInternalContext,
+}
+
 pub struct AuthorizationRequest<'a> {
     pub tenant_id: &'a TenantId,
     pub command_id: &'a CommandId,
     pub evaluated_at_epoch_ms: u64,
     pub actor_proof: &'a [u8],
+    pub actor_proof_kind: ActorProofKind,
     pub workload_proof: &'a [u8],
     pub workflow_type: &'a WorkflowType,
     pub workflow_version: &'a WorkflowVersion,

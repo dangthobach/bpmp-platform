@@ -32,7 +32,7 @@ fn compile(
 #[test]
 fn user_and_versioned_script_tasks_survive_all_compiler_boundaries() {
     let source = format!(
-        r#"<b:definitions xmlns:b="{BPMN_NS}"><b:process id="approval"><b:startEvent id="start"/><b:userTask id="review" name="review-request" assignmentPolicyRef="approval-reviewers" formKey="approval-form-v2"/><b:scriptTask id="calculate" name="calculate-risk" implementationRef="wasm://risk/calculate" implementationVersion="sha256:abc123"/><b:endEvent id="end"/><b:sequenceFlow id="f1" sourceRef="start" targetRef="review"/><b:sequenceFlow id="f2" sourceRef="review" targetRef="calculate"/><b:sequenceFlow id="f3" sourceRef="calculate" targetRef="end"/></b:process></b:definitions>"#
+        r#"<b:definitions xmlns:b="{BPMN_NS}"><b:process id="approval"><b:startEvent id="start"/><b:userTask id="review" name="review-request" assignmentPolicyRef="approval-reviewers" formKey="approval-form-v2" resultVariable="review_result"/><b:scriptTask id="calculate" name="calculate-risk" implementationRef="wasm://risk/calculate" implementationVersion="sha256:abc123"/><b:endEvent id="end"/><b:sequenceFlow id="f1" sourceRef="start" targetRef="review"/><b:sequenceFlow id="f2" sourceRef="review" targetRef="calculate"/><b:sequenceFlow id="f3" sourceRef="calculate" targetRef="end"/></b:process></b:definitions>"#
     );
     let compiler = compiler();
     let wir = compile(&source).unwrap();
@@ -44,6 +44,7 @@ fn user_and_versioned_script_tasks_survive_all_compiler_boundaries() {
     assert_eq!(review.task_type, "review-request");
     assert_eq!(review.assignment_policy_ref, "approval-reviewers");
     assert_eq!(review.form_key, "approval-form-v2");
+    assert_eq!(review.result_variable, "review_result");
 
     let calculate = wir
         .nodes

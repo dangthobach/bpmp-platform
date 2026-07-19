@@ -5,6 +5,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -53,7 +55,7 @@ func TestPostgresProjectionAuditLockingAndLeaseRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	store, _ := NewStore(pool)
-	activation := domain.Activation{TenantID: "tenant-a", EventID: "event-1", InstanceID: "instance-1", WorkflowType: "approval", WorkflowVersion: "1", NodeID: "review", TaskType: "review", AssignmentPolicyRef: "reviewers", OccurredAt: now}
+	activation := domain.Activation{TenantID: "tenant-a", EventID: "event-1", Sequence: 3, InstanceID: "instance-1", WorkflowType: "approval", WorkflowVersion: "1", NodeID: "review", TaskType: "review", AssignmentPolicyRef: "reviewers", OccurredAt: now}
 	item, duplicate, err := store.ProjectActivation(ctx, activation)
 	if err != nil || duplicate {
 		t.Fatalf("activation failed: duplicate=%v err=%v", duplicate, err)
@@ -82,6 +84,85 @@ func TestPostgresProjectionAuditLockingAndLeaseRecovery(t *testing.T) {
 	claims2, err := store.ClaimDueEscalations(ctx, now.Add(3*time.Second), now.Add(time.Minute), "worker-2", 10)
 	if err != nil || len(claims2) != 0 {
 		t.Fatalf("lease isolation failed: %d %v", len(claims2), err)
+	}
+	var escalationAudits int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM human_audit_log WHERE tenant_id='tenant-a' AND action='SLA_ESCALATION_DUE'`).Scan(&escalationAudits); err != nil || escalationAudits != 1 {
+		t.Fatalf("escalation audit missing: count=%d err=%v", escalationAudits, err)
+	}
+	current, err := store.GetWorkItem(ctx, "tenant-a", item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending, err := domain.RequestCompletion(current, "bob", "approved", now.Add(4*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending.CompletionCommandID = "complete-command-1"
+	if err = store.RequestCompletion(ctx, pending, "complete-command-1", "correlation-2", "bob"); err != nil {
+		t.Fatal(err)
+	}
+	completion := application.CommittedCompletion{TenantID: "tenant-a", EventID: "event-2", Sequence: 4, InstanceID: "instance-1", NodeID: "review", Decision: "approved", OccurredAt: now.Add(5 * time.Second)}
+	if err = store.CommitCompletion(ctx, completion); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.CommitCompletion(ctx, completion); err != nil {
+		t.Fatalf("duplicate committed event was not idempotent: %v", err)
+	}
+	completed, err := store.GetWorkItem(ctx, "tenant-a", item.ID)
+	if err != nil || completed.Status != domain.WorkItemCompleted || completed.Decision != "approved" {
+		t.Fatalf("committed completion was not projected: %#v err=%v", completed, err)
+	}
+	conflictingSequence := completion
+	conflictingSequence.EventID = "event-3"
+	if err = store.CommitCompletion(ctx, conflictingSequence); err == nil {
+		t.Fatal("different event reused a committed stream sequence")
+	}
+	missing := application.CommittedCompletion{TenantID: "tenant-a", EventID: "event-missing", Sequence: 10, InstanceID: "missing", NodeID: "review", OccurredAt: now}
+	if err = store.CommitCompletion(ctx, missing); !errors.Is(err, application.ErrProjectionDependency) {
+		t.Fatalf("expected missing projection dependency, got %v", err)
+	}
+	var missingCheckpoint int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM human_event_inbox WHERE tenant_id='tenant-a' AND event_id='event-missing'`).Scan(&missingCheckpoint); err != nil || missingCheckpoint != 0 {
+		t.Fatalf("failed projection checkpoint was committed: count=%d err=%v", missingCheckpoint, err)
+	}
+	assertNormalLoadP95(t, store)
+}
+
+func assertNormalLoadP95(t *testing.T, store *Store) {
+	t.Helper()
+	const workers, operationsPerWorker = 8, 25
+	latencies := make(chan time.Duration, workers*operationsPerWorker)
+	errorsSeen := make(chan error, workers*operationsPerWorker)
+	var wait sync.WaitGroup
+	for range workers {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			for range operationsPerWorker {
+				started := time.Now()
+				_, err := store.GetWorkItem(context.Background(), "tenant-a", "event-1")
+				latencies <- time.Since(started)
+				if err != nil {
+					errorsSeen <- err
+				}
+			}
+		}()
+	}
+	wait.Wait()
+	close(latencies)
+	close(errorsSeen)
+	if err, ok := <-errorsSeen; ok {
+		t.Fatal(err)
+	}
+	values := make([]time.Duration, 0, workers*operationsPerWorker)
+	for latency := range latencies {
+		values = append(values, latency)
+	}
+	sort.Slice(values, func(i, j int) bool { return values[i] < values[j] })
+	p95 := values[(len(values)*95+99)/100-1]
+	t.Logf("normal-load operations=%d concurrency=%d p95=%s", len(values), workers, p95)
+	if p95 > 500*time.Millisecond {
+		t.Fatalf("normal-load P95 %s exceeds 500ms", p95)
 	}
 }
 
