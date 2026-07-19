@@ -34,6 +34,21 @@ message EnginePolicy {
   string authorization_audit_key_scope = 6;
   uint32 max_multi_instance_cardinality = 7;
   uint32 default_multi_instance_parallelism = 8;
+  BoundaryRuntimePolicy boundary_runtime = 9;
+}
+
+message BoundaryRuntimePolicy {
+  uint32 projection_batch_size = 1;
+  uint32 dispatch_batch_size = 2;
+  uint32 max_dispatch_attempts = 3;
+  uint64 retry_delay_ms = 4;
+  uint64 lease_duration_ms = 5;
+  uint64 max_timer_horizon_ms = 6;
+  uint32 max_expression_bytes = 7;
+  string worker_id = 8;
+  uint32 max_signal_id_bytes = 9;
+  uint32 max_reference_bytes = 10;
+  uint32 max_subscriptions_per_instance = 11;
 }
 
 message LocalWasmPolicy {

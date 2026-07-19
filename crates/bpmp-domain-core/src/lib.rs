@@ -8,8 +8,8 @@ mod identifiers;
 mod workflow;
 
 pub use configuration::{
-    ConfigError, ConfigurationScope, EnginePolicy, LocalWasmPolicy, ResolvedConfigSnapshot,
-    RetryPolicy, ScopeKind,
+    BoundaryRuntimePolicy, ConfigError, ConfigurationScope, EnginePolicy, LocalWasmPolicy,
+    ResolvedConfigSnapshot, RetryPolicy, ScopeKind,
 };
 pub use identifiers::{
     ActorId, CommandId, ConfigId, ConfigVersion, CorrelationId, IdempotencyKey, IdentifierError,

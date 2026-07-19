@@ -158,11 +158,16 @@ fn to_wire(envelope: &EventEnvelope) -> wire::EventEnvelope {
                 iteration: *iteration,
             },
         ),
-        DomainEvent::MultiInstanceCompleted { node_id, .. } => {
-            wire::event_envelope::Event::MultiInstanceCompleted(wire::MultiInstanceCompleted {
-                node_id: node_id.to_string(),
-            })
-        }
+        DomainEvent::MultiInstanceCompleted {
+            node_id,
+            completion_condition_satisfied,
+            cancelled_iterations,
+            ..
+        } => wire::event_envelope::Event::MultiInstanceCompleted(wire::MultiInstanceCompleted {
+            node_id: node_id.to_string(),
+            completion_condition_satisfied: *completion_condition_satisfied,
+            cancelled_iterations: cancelled_iterations.clone(),
+        }),
         DomainEvent::BoundaryEventTriggered {
             boundary_event_id,
             attached_node_id,
@@ -202,6 +207,8 @@ fn to_wire(envelope: &EventEnvelope) -> wire::EventEnvelope {
             policy_version: metadata.policy_version.to_string(),
             actor_id: metadata.actor_id.to_string(),
             encryption_key_scope: metadata.encryption_key_scope.to_string(),
+            workflow_type: metadata.workflow_type.to_string(),
+            workflow_version: metadata.workflow_version.to_string(),
         }),
         event: Some(event),
     }
@@ -347,6 +354,8 @@ fn from_wire(envelope: wire::EventEnvelope) -> Result<EventEnvelope, EventCodecE
         wire::event_envelope::Event::MultiInstanceCompleted(completed) => {
             DomainEvent::MultiInstanceCompleted {
                 node_id: identifier(NodeId::new, completed.node_id, "node_id")?,
+                completion_condition_satisfied: completed.completion_condition_satisfied,
+                cancelled_iterations: completed.cancelled_iterations,
                 occurred_at_epoch_ms,
             }
         }
@@ -421,6 +430,16 @@ fn from_wire(envelope: wire::EventEnvelope) -> Result<EventEnvelope, EventCodecE
                 KeyScope::new,
                 metadata.encryption_key_scope,
                 "encryption_key_scope",
+            )?,
+            workflow_type: identifier(
+                WorkflowType::new,
+                metadata.workflow_type,
+                "metadata.workflow_type",
+            )?,
+            workflow_version: identifier(
+                WorkflowVersion::new,
+                metadata.workflow_version,
+                "metadata.workflow_version",
             )?,
         },
         event,
@@ -636,6 +655,8 @@ mod tests {
                 policy_version: PolicyVersion::new("policy-3").unwrap(),
                 actor_id: ActorId::new("actor-1").unwrap(),
                 encryption_key_scope: KeyScope::new("tenant-a/operational").unwrap(),
+                workflow_type: WorkflowType::new("order").unwrap(),
+                workflow_version: WorkflowVersion::new("1").unwrap(),
             },
             event: DomainEvent::ServiceTaskActivated {
                 node_id: NodeId::new("charge").unwrap(),
@@ -666,6 +687,8 @@ mod tests {
                 policy_version: PolicyVersion::new("policy-3").unwrap(),
                 actor_id: ActorId::new("actor-1").unwrap(),
                 encryption_key_scope: KeyScope::new("tenant-a/operational").unwrap(),
+                workflow_type: WorkflowType::new("order").unwrap(),
+                workflow_version: WorkflowVersion::new("1").unwrap(),
             },
             event: DomainEvent::WorkflowStarted {
                 tenant_id: TenantId::new("tenant-a").unwrap(),
@@ -696,6 +719,8 @@ mod tests {
                 policy_version: PolicyVersion::new("policy-3").unwrap(),
                 actor_id: ActorId::new("actor-1").unwrap(),
                 encryption_key_scope: KeyScope::new("tenant-a/operational").unwrap(),
+                workflow_type: WorkflowType::new("order").unwrap(),
+                workflow_version: WorkflowVersion::new("1").unwrap(),
             },
             event: DomainEvent::DecisionTaskEvaluated {
                 node_id: NodeId::new("risk").unwrap(),
@@ -725,6 +750,8 @@ mod tests {
                 policy_version: PolicyVersion::new("policy-3").unwrap(),
                 actor_id: ActorId::new("actor-1").unwrap(),
                 encryption_key_scope: KeyScope::new("tenant-a/operational").unwrap(),
+                workflow_type: WorkflowType::new("order").unwrap(),
+                workflow_version: WorkflowVersion::new("1").unwrap(),
             },
             event: DomainEvent::GatewaySplitActivated {
                 gateway_id: NodeId::new("fork").unwrap(),
@@ -758,6 +785,8 @@ mod tests {
             policy_version: PolicyVersion::new("policy-3").unwrap(),
             actor_id: ActorId::new("actor-1").unwrap(),
             encryption_key_scope: KeyScope::new("tenant-a/operational").unwrap(),
+            workflow_type: WorkflowType::new("order").unwrap(),
+            workflow_version: WorkflowVersion::new("1").unwrap(),
         };
         let node_id = NodeId::new("notify").unwrap();
         let events = vec![
@@ -801,6 +830,8 @@ mod tests {
             },
             DomainEvent::MultiInstanceCompleted {
                 node_id: node_id.clone(),
+                completion_condition_satisfied: true,
+                cancelled_iterations: vec![1, 2],
                 occurred_at_epoch_ms: 123,
             },
             DomainEvent::BoundaryEventTriggered {

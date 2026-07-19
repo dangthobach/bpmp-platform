@@ -13,6 +13,7 @@ bpmp-contracts.workspace = true
 bpmp-domain-core.workspace = true
 prost.workspace = true
 thiserror.workspace = true
+time.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

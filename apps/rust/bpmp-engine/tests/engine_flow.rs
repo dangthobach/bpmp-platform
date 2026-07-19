@@ -11,15 +11,19 @@ use bpmp_authz_contracts::{
     AuthorizationProofLimits, AuthorizationRevokeCodec, Ed25519Signer, WorkloadProofCodec,
 };
 use bpmp_domain_core::{
-    Command, CommandId, ConfigId, ConfigVersion, ConfigurationScope, CorrelationId, EnginePolicy,
-    IdempotencyKey, InstanceId, KeyScope, LocalWasmPolicy, Node, NodeId, PolicyVersion,
-    ResolvedConfigSnapshot, RetryPolicy, ScopeKind, TaskType, TenantId, WorkflowDefinition,
+    BoundaryEventDefinition, BoundaryRuntimePolicy, BoundaryTrigger, Command, CommandId, ConfigId,
+    ConfigVersion, ConfigurationScope, CorrelationId, DomainEvent, EnginePolicy, IdempotencyKey,
+    InstanceId, KeyScope, LocalWasmPolicy, Node, NodeId, PolicyVersion, ResolvedConfigSnapshot,
+    RetryPolicy, ScopeKind, TaskType, TenantId, WorkflowDefinition, WorkflowExecutionContracts,
     WorkflowType, WorkflowVersion,
 };
 use bpmp_engine::memory::{InMemoryConfigurationProvider, InMemoryWorkflowStore};
 use bpmp_engine::{
-    AuthorizedCommand, ConfigurationLookup, EmbeddedAuthorizationProvider, Engine, HandleOutcome,
-    OutboxStorePort, WorkflowStorePort,
+    AuthorizedCommand, BoundaryCommandDispatcherPort, BoundaryDispatchCredentials,
+    BoundaryDispatchCredentialsPort, BoundaryDispatchRequest, BoundaryDispatchSource,
+    BoundaryRuntimeError, ConfigurationLookup, EmbeddedAuthorizationProvider, Engine,
+    EngineBoundaryCommandDispatcher, HandleOutcome, OutboxStorePort,
+    WorkflowDefinitionProviderPort, WorkflowStorePort,
 };
 
 const KEY_ID: &str = "test-key";
@@ -51,18 +55,32 @@ fn authorization() -> EmbeddedAuthorizationProvider {
         revoke_epoch: 1,
         valid_from_epoch_ms: 1,
         expires_at_epoch_ms: 1_000,
-        grants: vec![AuthorizationPolicyGrant {
-            grant_id: "allow-start".into(),
-            actor_ids: vec!["user-1".into()],
-            roles: Vec::new(),
-            required_capabilities: vec!["workflow.start".into()],
-            workflow_type: "order".into(),
-            workflow_version: "1".into(),
-            active_node_id: "start".into(),
-            action: "START".into(),
-            effect: AuthorizationPolicyEffect::Allow.into(),
-            priority: 10,
-        }],
+        grants: vec![
+            AuthorizationPolicyGrant {
+                grant_id: "allow-start".into(),
+                actor_ids: vec!["user-1".into()],
+                roles: Vec::new(),
+                required_capabilities: vec!["workflow.start".into()],
+                workflow_type: "order".into(),
+                workflow_version: "1".into(),
+                active_node_id: "start".into(),
+                action: "START".into(),
+                effect: AuthorizationPolicyEffect::Allow.into(),
+                priority: 10,
+            },
+            AuthorizationPolicyGrant {
+                grant_id: "allow-boundary-trigger".into(),
+                actor_ids: vec!["user-1".into()],
+                roles: Vec::new(),
+                required_capabilities: vec!["boundary.trigger".into()],
+                workflow_type: "order".into(),
+                workflow_version: "1".into(),
+                active_node_id: "cancel-message".into(),
+                action: "TRIGGER_BOUNDARY_EVENT".into(),
+                effect: AuthorizationPolicyEffect::Allow.into(),
+                priority: 10,
+            },
+        ],
         actor_revoke_epochs: Vec::new(),
         signing_key_id: String::new(),
         content_hash: Vec::new(),
@@ -97,6 +115,127 @@ fn definition() -> WorkflowDefinition {
     .unwrap()
 }
 
+fn boundary_definition() -> WorkflowDefinition {
+    let start = NodeId::new("start").unwrap();
+    let task = NodeId::new("charge-card").unwrap();
+    let normal_end = NodeId::new("end").unwrap();
+    let recovery = NodeId::new("cancel-order").unwrap();
+    let recovery_end = NodeId::new("cancelled").unwrap();
+    WorkflowDefinition::new_with_execution_contracts(
+        TenantId::new("tenant-a").unwrap(),
+        WorkflowType::new("order").unwrap(),
+        WorkflowVersion::new("1").unwrap(),
+        start.clone(),
+        [
+            (start, Node::Start { next: task.clone() }),
+            (
+                task.clone(),
+                Node::ServiceTask {
+                    task_type: TaskType::new("payment").unwrap(),
+                    next: normal_end.clone(),
+                },
+            ),
+            (normal_end, Node::End),
+            (
+                recovery.clone(),
+                Node::ServiceTask {
+                    task_type: TaskType::new("cancel-order").unwrap(),
+                    next: recovery_end.clone(),
+                },
+            ),
+            (recovery_end, Node::End),
+        ],
+        std::iter::empty(),
+        WorkflowExecutionContracts {
+            boundary_events: vec![(
+                task,
+                BoundaryEventDefinition {
+                    id: NodeId::new("cancel-message").unwrap(),
+                    cancel_activity: true,
+                    target: recovery,
+                    trigger: BoundaryTrigger::Message {
+                        message_ref: "order.cancelled".into(),
+                    },
+                },
+            )],
+            ..WorkflowExecutionContracts::default()
+        },
+    )
+    .unwrap()
+}
+
+struct StaticDefinitionProvider(WorkflowDefinition);
+
+impl WorkflowDefinitionProviderPort for StaticDefinitionProvider {
+    fn resolve(
+        &self,
+        _tenant_id: &TenantId,
+        _workflow_type: &WorkflowType,
+        _workflow_version: &WorkflowVersion,
+    ) -> Result<WorkflowDefinition, BoundaryRuntimeError> {
+        Ok(self.0.clone())
+    }
+}
+
+struct SignedBoundaryCredentials;
+
+impl BoundaryDispatchCredentialsPort for SignedBoundaryCredentials {
+    fn resolve(
+        &self,
+        request: &BoundaryDispatchRequest,
+    ) -> Result<BoundaryDispatchCredentials, BoundaryRuntimeError> {
+        if request.authorization_context_ref.as_deref() != Some("auth-context/message-1") {
+            return Err(BoundaryRuntimeError::Dispatch(
+                "unknown authorization context".into(),
+            ));
+        }
+        let signer = Ed25519Signer::from_bytes(&[11; 32]);
+        let actor_proof = ActorProofCodec::seal(
+            SignedActorContext {
+                schema_version: AUTHORIZATION_PROOF_SCHEMA_VERSION,
+                tenant_id: request.tenant_id.to_string(),
+                actor_id: "user-1".into(),
+                roles: vec!["operator".into()],
+                capabilities: vec!["boundary.trigger".into()],
+                revoke_epoch: 1,
+                issued_at_epoch_ms: 1,
+                expires_at_epoch_ms: 100,
+                audience_workload_id: "boundary-runtime".into(),
+                command_id: request.command_id.to_string(),
+                signing_key_id: String::new(),
+                content_hash: Vec::new(),
+                signature: Vec::new(),
+            },
+            KEY_ID,
+            &signer,
+            proof_limits(),
+        )
+        .map_err(|error| BoundaryRuntimeError::Dispatch(error.to_string()))?;
+        let workload_proof = WorkloadProofCodec::seal(
+            SignedWorkloadContext {
+                schema_version: AUTHORIZATION_PROOF_SCHEMA_VERSION,
+                tenant_id: request.tenant_id.to_string(),
+                workload_id: "boundary-runtime".into(),
+                command_id: request.command_id.to_string(),
+                issued_at_epoch_ms: 1,
+                expires_at_epoch_ms: 100,
+                signing_key_id: String::new(),
+                content_hash: Vec::new(),
+                signature: Vec::new(),
+            },
+            KEY_ID,
+            &signer,
+            proof_limits(),
+        )
+        .map_err(|error| BoundaryRuntimeError::Dispatch(error.to_string()))?;
+        Ok(BoundaryDispatchCredentials {
+            actor_proof,
+            workload_proof,
+            encryption_key_scope: KeyScope::new("tenant-a/operational").unwrap(),
+        })
+    }
+}
+
 fn configuration(snapshot_interval_events: u32) -> ResolvedConfigSnapshot {
     ResolvedConfigSnapshot::new(
         ConfigId::new("engine").unwrap(),
@@ -107,9 +246,22 @@ fn configuration(snapshot_interval_events: u32) -> ResolvedConfigSnapshot {
         [9; 32],
         EnginePolicy {
             snapshot_interval_events,
-            max_events_per_decision: 2,
+            max_events_per_decision: 8,
             max_multi_instance_cardinality: 10_000,
             default_multi_instance_parallelism: 32,
+            boundary_runtime: BoundaryRuntimePolicy {
+                projection_batch_size: 128,
+                dispatch_batch_size: 32,
+                max_dispatch_attempts: 5,
+                retry_delay_ms: 1_000,
+                lease_duration_ms: 30_000,
+                max_timer_horizon_ms: 365 * 24 * 60 * 60 * 1_000,
+                max_expression_bytes: 1_024,
+                worker_id: "test-boundary-worker".into(),
+                max_signal_id_bytes: 256,
+                max_reference_bytes: 1_024,
+                max_subscriptions_per_instance: 256,
+            },
             command_timeout_ms: 1_000,
             optimistic_conflict_retry: RetryPolicy {
                 max_attempts: 3,
@@ -367,4 +519,70 @@ fn valid_workload_cannot_replace_missing_actor_proof() {
         )
         .unwrap();
     assert_eq!(loaded.version, 0, "identity denial must not mutate state");
+}
+
+#[test]
+fn boundary_dispatcher_reauthorizes_and_commits_idempotently_through_engine() {
+    let definition = boundary_definition();
+    let tenant_id = TenantId::new("tenant-a").unwrap();
+    let instance_id = InstanceId::new("instance-1").unwrap();
+    let mut provider = InMemoryConfigurationProvider::default();
+    provider.insert(
+        ConfigurationLookup {
+            tenant_id: tenant_id.clone(),
+            workflow_type: definition.workflow_type.clone(),
+            workflow_version: definition.workflow_version.clone(),
+        },
+        configuration(100),
+    );
+    let engine = Engine::new(provider, InMemoryWorkflowStore::default(), authorization());
+    engine.handle(&definition, start_request()).unwrap();
+    let dispatcher = EngineBoundaryCommandDispatcher::new(
+        engine,
+        StaticDefinitionProvider(definition.clone()),
+        SignedBoundaryCredentials,
+    );
+    let request = BoundaryDispatchRequest {
+        tenant_id: tenant_id.clone(),
+        instance_id: instance_id.clone(),
+        command_id: CommandId::new("message-1:boundary:cancel-message").unwrap(),
+        idempotency_key: IdempotencyKey::new("message-1:boundary:cancel-message").unwrap(),
+        correlation_id: CorrelationId::new("message-1:boundary:cancel-message").unwrap(),
+        command: Command::TriggerBoundaryEvent {
+            boundary_event_id: NodeId::new("cancel-message").unwrap(),
+            occurred_at_epoch_ms: 50,
+        },
+        source: BoundaryDispatchSource::Message,
+        occurred_at_epoch_ms: 50,
+        workflow_type: definition.workflow_type.clone(),
+        workflow_version: definition.workflow_version.clone(),
+        authorization_context_ref: Some("auth-context/message-1".into()),
+    };
+
+    dispatcher.dispatch(&request).unwrap();
+    dispatcher.dispatch(&request).unwrap();
+
+    let loaded = dispatcher
+        .engine()
+        .store()
+        .load(&tenant_id, &instance_id)
+        .unwrap();
+    assert_eq!(
+        loaded
+            .events
+            .iter()
+            .filter(|event| matches!(event.event, DomainEvent::BoundaryEventTriggered { .. }))
+            .count(),
+        1,
+        "the deterministic command identity must suppress retry duplicates"
+    );
+    let audit = dispatcher
+        .engine()
+        .store()
+        .authorization_audit(&tenant_id, &request.command_id)
+        .unwrap()
+        .expect("boundary dispatch must commit an authorization audit");
+    assert_eq!(audit.actor_id.as_str(), "user-1");
+    assert_eq!(audit.workload_id, "boundary-runtime");
+    assert_eq!(audit.action, "TRIGGER_BOUNDARY_EVENT");
 }

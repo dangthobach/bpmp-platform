@@ -17,6 +17,10 @@ signed WIR artifact.
 - Sequential/parallel multi-instance definitions retain collection, item,
   cardinality, and bounded parallelism metadata. Runtime cardinality and default
   parallelism ceilings come from the pinned resolved configuration, not constants.
+- Multi-instance `completionCondition` is compiled into typed boolean IR. The
+  deterministic evaluator injects BPMN instance counters, persists whether the
+  condition completed the activity and records active iterations cancelled by
+  early completion.
 - Interrupting/non-interrupting timer, error, and message boundary events retain
   typed triggers and participate in compiler and engine reachability checks.
 - Arbitrary namespaced extension elements are flattened into a typed
@@ -49,14 +53,23 @@ signed WIR artifact.
   multi-instance iteration indexes before routing to the boundary target.
   Non-interrupting branches retain the owner subscription and emit a branch-end
   audit event without completing the workflow while other work remains.
+- A bounded boundary runtime projects committed subscription events into
+  RocksDB, schedules due timers with reclaimable leases, and persists
+  message/error signals before acknowledging ingress. Projection checkpoints,
+  retry state, timer generations, and dead-letter state survive restart.
+- Correlation is tenant/instance scoped and exact for messages. Errors support
+  exact references and an explicitly modeled wildcard subscription; ambiguous
+  matches fail closed. Dispatch re-enters `Engine::handle`, preserving authz,
+  audit, optimistic version checks, and write-side idempotency.
+- Timer expressions support RFC 3339 dates, bounded ISO 8601 duration values,
+  and finite/infinite repeat cycles. Expression bytes and scheduling horizon are
+  resolved from the pinned engine configuration.
 
 ## Explicit Runtime Work
 
-- Timer due-date scheduling and message/error correlation adapters must consume
-  durable boundary subscription events and submit `TriggerBoundaryEvent`; they
-  remain I/O concerns outside the deterministic domain.
-- BPMN multi-instance completion-condition expressions are not yet represented
-  in WIR. The implemented fan-in completes all materialized iterations.
+- Deployment hosts must bind their concrete transport consumer and secure
+  authorization-context vault to the boundary signal ingress and credentials
+  ports. The engine does not trust actor claims supplied by a workload.
 - A multi-instance, compensation, or boundary scope attached directly to a
   sub-process requires retaining the scope node; the current inline normalizer
   rejects this combination with `InvalidSubProcess`.

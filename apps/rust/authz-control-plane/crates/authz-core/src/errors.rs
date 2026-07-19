@@ -22,6 +22,10 @@ pub enum AuthzError {
     #[error("tenant is inactive: {tenant_id}")]
     TenantInactive { tenant_id: Uuid },
 
+    /// Tenant business code is already assigned to another active record.
+    #[error("tenant code already exists: {code}")]
+    TenantCodeConflict { code: String },
+
     /// User was not found within the given tenant.
     #[error("user not found: {user_id} in tenant {tenant_id}")]
     UserNotFound { user_id: Uuid, tenant_id: Uuid },
@@ -181,6 +185,7 @@ impl AuthzError {
         match self {
             AuthzError::TenantNotFound { .. } => "TENANT_NOT_FOUND",
             AuthzError::TenantInactive { .. } => "TENANT_INACTIVE",
+            AuthzError::TenantCodeConflict { .. } => "TENANT_CODE_CONFLICT",
             AuthzError::UserNotFound { .. } => "USER_NOT_FOUND",
             AuthzError::UserDeactivated { .. } => "USER_DEACTIVATED",
             AuthzError::VersionConflict { .. } => "VERSION_CONFLICT",

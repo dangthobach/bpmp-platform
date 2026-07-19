@@ -217,6 +217,7 @@ pub struct MultiInstanceDefinition {
     pub item_variable: Option<String>,
     pub cardinality_expression: Option<String>,
     pub max_parallelism: Option<u32>,
+    pub completion_condition: Option<BooleanExpression>,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -1087,6 +1088,8 @@ pub enum DomainEvent {
     },
     MultiInstanceCompleted {
         node_id: NodeId,
+        completion_condition_satisfied: bool,
+        cancelled_iterations: Vec<u32>,
         occurred_at_epoch_ms: u64,
     },
     BoundaryEventTriggered {
@@ -1331,18 +1334,27 @@ fn complete_multi_instance_iteration(
     }];
     let mut routing = RoutingState::from(state);
     let progress = routing.complete_multi_instance_iteration(node_id, iteration)?;
-    if let Some((next_iteration, task_type, item)) = progress.activated {
-        events.push(DomainEvent::MultiInstanceIterationActivated {
-            node_id: node_id.clone(),
-            task_type,
-            iteration: next_iteration,
-            item,
-            occurred_at_epoch_ms,
-        });
-    }
-    if progress.completed {
+    let spec = definition
+        .node_execution_metadata(node_id)
+        .and_then(|metadata| metadata.multi_instance.as_ref())
+        .ok_or_else(|| DomainError::MultiInstanceNotActive(node_id.clone()))?;
+    let completion_condition_satisfied = !progress.completed
+        && evaluate_multi_instance_completion(node_id, spec, &routing, state, context.variables)?;
+    if progress.completed || completion_condition_satisfied {
+        let cancelled_iterations = if completion_condition_satisfied {
+            routing
+                .active_multi_instances
+                .get(node_id)
+                .map(|active| active.active_iterations.iter().copied().collect())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        routing.finish_multi_instance(node_id);
         events.push(DomainEvent::MultiInstanceCompleted {
             node_id: node_id.clone(),
+            completion_condition_satisfied,
+            cancelled_iterations,
             occurred_at_epoch_ms,
         });
         disarm_boundary_events(node_id, &mut routing, occurred_at_epoch_ms, &mut events);
@@ -1355,8 +1367,61 @@ fn complete_multi_instance_iteration(
             context.configuration,
             occurred_at_epoch_ms,
         )?);
+    } else {
+        let active = routing
+            .active_multi_instances
+            .get(node_id)
+            .ok_or_else(|| DomainError::MultiInstanceNotActive(node_id.clone()))?;
+        if active.next_iteration < active.total_instances {
+            let (next_iteration, task_type, item) =
+                routing.activate_next_multi_instance(node_id)?;
+            events.push(DomainEvent::MultiInstanceIterationActivated {
+                node_id: node_id.clone(),
+                task_type,
+                iteration: next_iteration,
+                item,
+                occurred_at_epoch_ms,
+            });
+        }
     }
     Ok(events)
+}
+
+fn evaluate_multi_instance_completion(
+    node_id: &NodeId,
+    spec: &MultiInstanceDefinition,
+    routing: &RoutingState,
+    state: &InstanceState,
+    context_variables: &BTreeMap<String, WorkflowValue>,
+) -> Result<bool, DomainError> {
+    let Some(condition) = spec.completion_condition.as_ref() else {
+        return Ok(false);
+    };
+    let active = routing
+        .active_multi_instances
+        .get(node_id)
+        .ok_or_else(|| DomainError::MultiInstanceNotActive(node_id.clone()))?;
+    let mut variables = state_variables_with_context(state, context_variables);
+    variables.insert(
+        "nrOfInstances".into(),
+        WorkflowValue::Integer(i64::from(active.total_instances)),
+    );
+    variables.insert(
+        "nrOfActiveInstances".into(),
+        WorkflowValue::Integer(
+            i64::try_from(active.active_iterations.len())
+                .map_err(|_| DomainError::TokenCountOverflow(node_id.clone()))?,
+        ),
+    );
+    variables.insert(
+        "nrOfCompletedInstances".into(),
+        WorkflowValue::Integer(
+            i64::try_from(active.completed_iterations.len())
+                .map_err(|_| DomainError::TokenCountOverflow(node_id.clone()))?,
+        ),
+    );
+    variables.insert("nrOfTerminatedInstances".into(), WorkflowValue::Integer(0));
+    condition.evaluate(&variables)
 }
 
 fn trigger_boundary_event(
@@ -1475,6 +1540,8 @@ fn start_multi_instance(
         routing.finish_multi_instance(node_id);
         events.push(DomainEvent::MultiInstanceCompleted {
             node_id: node_id.clone(),
+            completion_condition_satisfied: false,
+            cancelled_iterations: Vec::new(),
             occurred_at_epoch_ms,
         });
         return Ok(true);
@@ -1834,7 +1901,6 @@ impl From<&InstanceState> for RoutingState {
 }
 
 struct MultiInstanceProgress {
-    activated: Option<(u32, TaskType, Option<WorkflowValue>)>,
     completed: bool,
 }
 
@@ -1921,21 +1987,9 @@ impl RoutingState {
         active.completed_iterations.insert(iteration);
         let completed = active.completed_iterations.len() == active.total_instances as usize;
         if completed {
-            self.active_multi_instances.remove(node_id);
-            return Ok(MultiInstanceProgress {
-                activated: None,
-                completed: true,
-            });
+            return Ok(MultiInstanceProgress { completed: true });
         }
-        let activated = if active.next_iteration < active.total_instances {
-            Some(self.activate_next_multi_instance(node_id)?)
-        } else {
-            None
-        };
-        Ok(MultiInstanceProgress {
-            activated,
-            completed: false,
-        })
+        Ok(MultiInstanceProgress { completed: false })
     }
 
     fn finish_multi_instance(&mut self, node_id: &NodeId) {
@@ -2614,8 +2668,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        ConfigId, ConfigVersion, ConfigurationScope, EnginePolicy, KeyScope, LocalWasmPolicy,
-        PolicyVersion, RetryPolicy, ScopeKind,
+        BoundaryRuntimePolicy, ConfigId, ConfigVersion, ConfigurationScope, EnginePolicy, KeyScope,
+        LocalWasmPolicy, PolicyVersion, RetryPolicy, ScopeKind,
     };
 
     fn id<T>(
@@ -3210,6 +3264,7 @@ mod tests {
                             item_variable: Some("recipient".into()),
                             cardinality_expression: None,
                             max_parallelism: (mode == MultiInstanceMode::Parallel).then_some(2),
+                            completion_condition: None,
                         }),
                         properties: Vec::new(),
                     },
@@ -3223,6 +3278,7 @@ mod tests {
     fn cardinality_multi_instance_definition(
         cardinality: u32,
         max_parallelism: u32,
+        completion_after: Option<u32>,
     ) -> WorkflowDefinition {
         let start = id(NodeId::new, "start");
         let task = id(NodeId::new, "batch-item");
@@ -3254,6 +3310,13 @@ mod tests {
                             item_variable: None,
                             cardinality_expression: Some(cardinality.to_string()),
                             max_parallelism: Some(max_parallelism),
+                            completion_condition: completion_after.map(|count| {
+                                BooleanExpression::Comparison(GuardExpression {
+                                    variable: "nrOfCompletedInstances".into(),
+                                    operator: ComparisonOperator::GreaterThanOrEqual,
+                                    literal: WorkflowValue::Integer(i64::from(count)),
+                                })
+                            }),
                         }),
                         properties: Vec::new(),
                     },
@@ -3320,6 +3383,7 @@ mod tests {
                                     item_variable: None,
                                     cardinality_expression: Some("3".into()),
                                     max_parallelism: Some(2),
+                                    completion_condition: None,
                                 }),
                                 properties: Vec::new(),
                             },
@@ -3461,7 +3525,7 @@ mod tests {
             requested_parallelism in 1_u32..8,
         ) {
             let max_parallelism = requested_parallelism.min(cardinality);
-            let definition = cardinality_multi_instance_definition(cardinality, max_parallelism);
+            let definition = cardinality_multi_instance_definition(cardinality, max_parallelism, None);
             let configuration = configuration(64);
             let empty = BTreeMap::new();
             let mut all_events = decide(
@@ -3509,6 +3573,60 @@ mod tests {
                 cardinality as usize,
             );
         }
+    }
+
+    #[test]
+    fn completion_condition_finishes_parallel_multi_instance_and_records_cancellation() {
+        let definition = cardinality_multi_instance_definition(5, 2, Some(2));
+        let configuration = configuration(16);
+        let empty = BTreeMap::new();
+        let started = decide(
+            &definition,
+            &InstanceState::default(),
+            &Command::StartWorkflow {
+                tenant_id: id(TenantId::new, "tenant-a"),
+                occurred_at_epoch_ms: 1,
+            },
+            DecisionContext {
+                configuration: &configuration,
+                variables: &empty,
+            },
+        )
+        .unwrap();
+        let mut state = rehydrate(None, &started);
+        for iteration in [0, 1] {
+            let events = decide(
+                &definition,
+                &state,
+                &Command::CompleteMultiInstanceIteration {
+                    node_id: id(NodeId::new, "batch-item"),
+                    iteration,
+                    occurred_at_epoch_ms: u64::from(iteration) + 2,
+                },
+                DecisionContext {
+                    configuration: &configuration,
+                    variables: &empty,
+                },
+            )
+            .unwrap();
+            if iteration == 1 {
+                assert!(events.iter().any(|event| matches!(
+                    event,
+                    DomainEvent::MultiInstanceCompleted {
+                        completion_condition_satisfied: true,
+                        cancelled_iterations,
+                        ..
+                    } if cancelled_iterations == &[2]
+                )));
+                assert!(!events.iter().any(|event| matches!(
+                    event,
+                    DomainEvent::MultiInstanceIterationActivated { iteration: 3, .. }
+                )));
+            }
+            state = apply(&state, &events);
+        }
+        assert_eq!(state.lifecycle, Lifecycle::Completed);
+        assert!(state.active_multi_instances.is_empty());
     }
 
     #[test]
@@ -3656,6 +3774,19 @@ mod tests {
                 max_events_per_decision,
                 max_multi_instance_cardinality: 10_000,
                 default_multi_instance_parallelism: 32,
+                boundary_runtime: BoundaryRuntimePolicy {
+                    projection_batch_size: 128,
+                    dispatch_batch_size: 32,
+                    max_dispatch_attempts: 5,
+                    retry_delay_ms: 1_000,
+                    lease_duration_ms: 30_000,
+                    max_timer_horizon_ms: 365 * 24 * 60 * 60 * 1_000,
+                    max_expression_bytes: 1_024,
+                    worker_id: "test-boundary-worker".into(),
+                    max_signal_id_bytes: 256,
+                    max_reference_bytes: 1_024,
+                    max_subscriptions_per_instance: 256,
+                },
                 command_timeout_ms: 1_000,
                 optimistic_conflict_retry: RetryPolicy {
                     max_attempts: 3,

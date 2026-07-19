@@ -54,7 +54,7 @@ pub(crate) fn generate_rust(
          #[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
          pub enum MultiMode { Sequential, Parallel }\n\
          #[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
-         pub struct MultiInstance { pub mode: MultiMode, pub collection: &'static str, pub item_variable: &'static str, pub cardinality: &'static str, pub max_parallelism: Option<u32> }\n\
+         pub struct MultiInstance { pub mode: MultiMode, pub collection: &'static str, pub item_variable: &'static str, pub cardinality: &'static str, pub max_parallelism: Option<u32>, pub completion_condition: Option<BooleanExpr> }\n\
          #[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
          pub enum BoundaryTrigger { TimerDate(&'static str), TimerDuration(&'static str), TimerCycle(&'static str), Error(Option<&'static str>), Message(&'static str) }\n\
          #[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
@@ -204,8 +204,17 @@ fn render_multi_instance(node: &bpmp_contracts::wir::v1::Node) -> Result<String,
     } else {
         format!("Some({})", spec.max_parallelism)
     };
+    let completion_condition = spec
+        .completion_condition
+        .as_ref()
+        .map(render_boolean_expression)
+        .transpose()?
+        .map_or_else(
+            || "None".to_owned(),
+            |expression| format!("Some({expression})"),
+        );
     Ok(format!(
-        "Some(MultiInstance {{ mode: {mode}, collection: {:?}, item_variable: {:?}, cardinality: {:?}, max_parallelism: {max_parallelism} }})",
+        "Some(MultiInstance {{ mode: {mode}, collection: {:?}, item_variable: {:?}, cardinality: {:?}, max_parallelism: {max_parallelism}, completion_condition: {completion_condition} }})",
         spec.collection_expression, spec.item_variable, spec.cardinality_expression
     ))
 }

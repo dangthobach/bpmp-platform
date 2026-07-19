@@ -68,6 +68,8 @@ pub struct EventMetadata {
     pub policy_version: PolicyVersion,
     pub actor_id: ActorId,
     pub encryption_key_scope: KeyScope,
+    pub workflow_type: WorkflowType,
+    pub workflow_version: WorkflowVersion,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -204,6 +206,7 @@ where
             },
         )?;
         let envelopes = attach_metadata(
+            definition,
             &request,
             &principal.actor_id,
             &configuration,
@@ -335,6 +338,7 @@ fn snapshot_at_latest_boundary(
 }
 
 fn attach_metadata(
+    definition: &WorkflowDefinition,
     request: &AuthorizedCommand,
     actor_id: &ActorId,
     configuration: &ResolvedConfigSnapshot,
@@ -364,6 +368,8 @@ fn attach_metadata(
                     policy_version: configuration.policy_version.clone(),
                     actor_id: actor_id.clone(),
                     encryption_key_scope: request.encryption_key_scope.clone(),
+                    workflow_type: definition.workflow_type.clone(),
+                    workflow_version: definition.workflow_version.clone(),
                 },
                 event,
             })

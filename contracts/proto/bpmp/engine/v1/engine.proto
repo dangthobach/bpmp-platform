@@ -17,6 +17,8 @@ message CommandEnvelope {
   oneof command {
     StartWorkflow start_workflow = 10;
     CompleteServiceTask complete_service_task = 11;
+    CompleteMultiInstanceIteration complete_multi_instance_iteration = 14;
+    TriggerBoundaryEvent trigger_boundary_event = 15;
   }
   string encryption_key_scope = 12;
   bpmp.authorization.v1.AuthorizationContext authorization_context = 13;
@@ -26,6 +28,15 @@ message StartWorkflow {}
 
 message CompleteServiceTask {
   string node_id = 1;
+}
+
+message CompleteMultiInstanceIteration {
+  string node_id = 1;
+  uint32 iteration = 2;
+}
+
+message TriggerBoundaryEvent {
+  string boundary_event_id = 1;
 }
 
 message EventMetadata {
@@ -41,6 +52,8 @@ message EventMetadata {
   string policy_version = 10;
   string actor_id = 11;
   string encryption_key_scope = 12;
+  string workflow_type = 13;
+  string workflow_version = 14;
 }
 
 message EventEnvelope {
@@ -156,6 +169,8 @@ message MultiInstanceIterationCompleted {
 
 message MultiInstanceCompleted {
   string node_id = 1;
+  bool completion_condition_satisfied = 2;
+  repeated uint32 cancelled_iterations = 3;
 }
 
 message BoundaryEventTriggered {

@@ -53,7 +53,7 @@ fn nested_subprocess_is_inlined_and_round_trips_as_canonical_graph() {
 #[test]
 fn call_multi_instance_timer_and_typed_extensions_survive_artifact_round_trip() {
     let source = format!(
-        r#"<b:definitions xmlns:b="{BPMN_NS}" xmlns:ext="urn:example:worker"><b:process id="enterprise-call"><b:startEvent id="start"/><b:callActivity id="call" calledElement="child-workflow" calledVersion="7"><b:extensionElements><ext:property name="timeout" type="durationMilliseconds" value="5000"/><ext:worker retries="5"/></b:extensionElements><b:multiInstanceLoopCharacteristics isSequential="false" collection="orders" elementVariable="order" maxParallelism="8"/></b:callActivity><b:boundaryEvent id="timeout" attachedToRef="call" cancelActivity="false"><b:timerEventDefinition><b:timeDuration>PT5M</b:timeDuration></b:timerEventDefinition></b:boundaryEvent><b:endEvent id="done"/><b:endEvent id="timed-out"/><b:sequenceFlow id="f1" sourceRef="start" targetRef="call"/><b:sequenceFlow id="f2" sourceRef="call" targetRef="done"/><b:sequenceFlow id="timeout-flow" sourceRef="timeout" targetRef="timed-out"/></b:process></b:definitions>"#
+        r#"<b:definitions xmlns:b="{BPMN_NS}" xmlns:ext="urn:example:worker"><b:process id="enterprise-call"><b:startEvent id="start"/><b:callActivity id="call" calledElement="child-workflow" calledVersion="7"><b:extensionElements><ext:property name="timeout" type="durationMilliseconds" value="5000"/><ext:worker retries="5"/></b:extensionElements><b:multiInstanceLoopCharacteristics isSequential="false" collection="orders" elementVariable="order" maxParallelism="8"><b:completionCondition>nrOfCompletedInstances &gt;= 2</b:completionCondition></b:multiInstanceLoopCharacteristics></b:callActivity><b:boundaryEvent id="timeout" attachedToRef="call" cancelActivity="false"><b:timerEventDefinition><b:timeDuration>PT5M</b:timeDuration></b:timerEventDefinition></b:boundaryEvent><b:endEvent id="done"/><b:endEvent id="timed-out"/><b:sequenceFlow id="f1" sourceRef="start" targetRef="call"/><b:sequenceFlow id="f2" sourceRef="call" targetRef="done"/><b:sequenceFlow id="timeout-flow" sourceRef="timeout" targetRef="timed-out"/></b:process></b:definitions>"#
     );
     let compiler = compiler();
     let wir = compiler
@@ -78,6 +78,7 @@ fn call_multi_instance_timer_and_typed_extensions_survive_artifact_round_trip() 
         MultiInstanceMode::Parallel
     );
     assert_eq!(multi.max_parallelism, 8);
+    assert!(multi.completion_condition.is_some());
     assert_eq!(call.properties.len(), 2);
     assert!(call.properties.iter().any(|property| {
         property.name == "timeout"
@@ -125,6 +126,14 @@ fn call_multi_instance_timer_and_typed_extensions_survive_artifact_round_trip() 
     assert_eq!(
         metadata.multi_instance.as_ref().unwrap().mode,
         DomainMultiInstanceMode::Parallel
+    );
+    assert!(
+        metadata
+            .multi_instance
+            .as_ref()
+            .unwrap()
+            .completion_condition
+            .is_some()
     );
     assert!(metadata.properties.iter().any(|property| {
         property.name == "timeout"

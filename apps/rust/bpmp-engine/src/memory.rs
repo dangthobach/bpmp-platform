@@ -12,8 +12,10 @@ use crate::ports::{
     StoreError, WorkflowStorePort,
 };
 use crate::{
-    AuthorizationAudit, CommittedResult, EventCodec, EventEnvelope, OutboxError, OutboxRecord,
-    OutboxStorePort, SnapshotEnvelope,
+    AuthorizationAudit, BoundaryProjectionMutation, BoundaryRuntimeError, BoundaryRuntimeStorePort,
+    BoundarySignal, BoundarySignalKind, BoundarySubscriptionKey, ClaimedCorrelation, ClaimedTimer,
+    CommittedResult, EventCodec, EventEnvelope, OutboxError, OutboxRecord, OutboxStorePort,
+    ProjectedBoundarySubscription, SignalEnqueueOutcome, SnapshotEnvelope, TimerDispatchCompletion,
 };
 
 #[derive(Default)]
@@ -307,6 +309,472 @@ impl OutboxStorePort for InMemoryWorkflowStore {
         state.outbox_checkpoint = committed;
         Ok(())
     }
+}
+
+#[derive(Debug, Clone)]
+struct MemoryTimerRecord {
+    subscription: ProjectedBoundarySubscription,
+    generation: u64,
+    attempts: u32,
+    available_at_epoch_ms: u64,
+    lease_until_epoch_ms: u64,
+    lease_version: u64,
+    worker_id: String,
+    dead_lettered: bool,
+}
+
+#[derive(Debug, Clone)]
+struct MemorySignalRecord {
+    signal: BoundarySignal,
+    attempts: u32,
+    available_at_epoch_ms: u64,
+    lease_until_epoch_ms: u64,
+    lease_version: u64,
+    worker_id: String,
+    completed: bool,
+    dead_lettered: bool,
+}
+
+#[derive(Default)]
+struct MemoryBoundaryRuntimeState {
+    projection_checkpoint: u64,
+    subscriptions: BTreeMap<BoundarySubscriptionKey, ProjectedBoundarySubscription>,
+    timers: BTreeMap<BoundarySubscriptionKey, MemoryTimerRecord>,
+    signals: BTreeMap<(TenantId, String), MemorySignalRecord>,
+}
+
+#[derive(Default)]
+pub struct InMemoryBoundaryRuntimeStore {
+    state: Mutex<MemoryBoundaryRuntimeState>,
+}
+
+#[allow(clippy::missing_errors_doc)]
+impl InMemoryBoundaryRuntimeStore {
+    /// Returns one projected subscription for development assertions and diagnostics.
+    pub fn subscription(
+        &self,
+        key: &BoundarySubscriptionKey,
+    ) -> Result<Option<ProjectedBoundarySubscription>, BoundaryRuntimeError> {
+        Ok(self
+            .state
+            .lock()
+            .map_err(boundary_lock_error)?
+            .subscriptions
+            .get(key)
+            .cloned())
+    }
+
+    pub fn pending_timer_count(&self) -> Result<usize, BoundaryRuntimeError> {
+        Ok(self
+            .state
+            .lock()
+            .map_err(boundary_lock_error)?
+            .timers
+            .values()
+            .filter(|timer| !timer.dead_lettered)
+            .count())
+    }
+
+    pub fn dead_letter_count(&self) -> Result<usize, BoundaryRuntimeError> {
+        let state = self.state.lock().map_err(boundary_lock_error)?;
+        Ok(state
+            .timers
+            .values()
+            .filter(|timer| timer.dead_lettered)
+            .count()
+            + state
+                .signals
+                .values()
+                .filter(|signal| signal.dead_lettered)
+                .count())
+    }
+}
+
+impl BoundaryRuntimeStorePort for InMemoryBoundaryRuntimeStore {
+    fn projection_checkpoint(&self) -> Result<u64, BoundaryRuntimeError> {
+        Ok(self
+            .state
+            .lock()
+            .map_err(boundary_lock_error)?
+            .projection_checkpoint)
+    }
+
+    fn apply_projection(
+        &self,
+        expected_checkpoint: u64,
+        committed_checkpoint: u64,
+        mutations: &[BoundaryProjectionMutation],
+    ) -> Result<(), BoundaryRuntimeError> {
+        let mut state = self.state.lock().map_err(boundary_lock_error)?;
+        if state.projection_checkpoint != expected_checkpoint {
+            return Err(BoundaryRuntimeError::ProjectionCheckpointConflict);
+        }
+        if committed_checkpoint <= expected_checkpoint {
+            return Err(BoundaryRuntimeError::NonContiguousProjection);
+        }
+        for mutation in mutations {
+            apply_memory_projection(&mut state, mutation);
+        }
+        state.projection_checkpoint = committed_checkpoint;
+        Ok(())
+    }
+
+    fn claim_due_timers(
+        &self,
+        now_epoch_ms: u64,
+        lease_until_epoch_ms: u64,
+        worker_id: &str,
+        limit: usize,
+    ) -> Result<Vec<ClaimedTimer>, BoundaryRuntimeError> {
+        let mut state = self.state.lock().map_err(boundary_lock_error)?;
+        let keys = state
+            .timers
+            .iter()
+            .filter(|(_, timer)| {
+                !timer.dead_lettered
+                    && timer.available_at_epoch_ms <= now_epoch_ms
+                    && timer.lease_until_epoch_ms <= now_epoch_ms
+            })
+            .map(|(key, _)| key.clone())
+            .take(limit)
+            .collect::<Vec<_>>();
+        keys.into_iter()
+            .map(|key| {
+                let timer = state
+                    .timers
+                    .get_mut(&key)
+                    .ok_or_else(|| BoundaryRuntimeError::Store("timer disappeared".into()))?;
+                timer.attempts = timer.attempts.saturating_add(1);
+                timer.lease_version = timer.lease_version.saturating_add(1);
+                timer.lease_until_epoch_ms = lease_until_epoch_ms;
+                worker_id.clone_into(&mut timer.worker_id);
+                Ok(ClaimedTimer {
+                    subscription: timer.subscription.clone(),
+                    generation: timer.generation,
+                    attempts: timer.attempts,
+                    lease_version: timer.lease_version,
+                })
+            })
+            .collect()
+    }
+
+    fn complete_timer(
+        &self,
+        claim: &ClaimedTimer,
+        completion: TimerDispatchCompletion,
+    ) -> Result<(), BoundaryRuntimeError> {
+        let mut state = self.state.lock().map_err(boundary_lock_error)?;
+        let key = &claim.subscription.key;
+        validate_timer_lease(&state, claim)?;
+        if let Some(schedule) = completion.next_schedule {
+            let timer = state
+                .timers
+                .get_mut(key)
+                .ok_or(BoundaryRuntimeError::LeaseConflict)?;
+            timer.subscription.timer_schedule = Some(schedule);
+            timer.generation = timer.generation.saturating_add(1);
+            timer.attempts = 0;
+            timer.available_at_epoch_ms = schedule.due_at_epoch_ms;
+            timer.lease_until_epoch_ms = 0;
+            timer.worker_id.clear();
+            if let Some(subscription) = state.subscriptions.get_mut(key) {
+                subscription.timer_schedule = Some(schedule);
+            }
+        } else {
+            state.timers.remove(key);
+            if let Some(subscription) = state.subscriptions.get_mut(key) {
+                subscription.timer_schedule = None;
+            }
+        }
+        Ok(())
+    }
+
+    fn fail_timer(
+        &self,
+        claim: &ClaimedTimer,
+        retry_at_epoch_ms: u64,
+        dead_letter: bool,
+    ) -> Result<(), BoundaryRuntimeError> {
+        let mut state = self.state.lock().map_err(boundary_lock_error)?;
+        validate_timer_lease(&state, claim)?;
+        let timer = state
+            .timers
+            .get_mut(&claim.subscription.key)
+            .ok_or(BoundaryRuntimeError::LeaseConflict)?;
+        timer.available_at_epoch_ms = retry_at_epoch_ms;
+        timer.lease_until_epoch_ms = 0;
+        timer.worker_id.clear();
+        timer.dead_lettered = dead_letter;
+        Ok(())
+    }
+
+    fn enqueue_signal(
+        &self,
+        signal: &BoundarySignal,
+    ) -> Result<SignalEnqueueOutcome, BoundaryRuntimeError> {
+        let mut state = self.state.lock().map_err(boundary_lock_error)?;
+        let key = (signal.tenant_id.clone(), signal.signal_id.clone());
+        match state.signals.get(&key) {
+            Some(existing) if existing.signal == *signal => Ok(SignalEnqueueOutcome::Duplicate),
+            Some(_) => Err(BoundaryRuntimeError::SignalConflict),
+            None => {
+                state.signals.insert(
+                    key,
+                    MemorySignalRecord {
+                        signal: signal.clone(),
+                        attempts: 0,
+                        available_at_epoch_ms: signal.occurred_at_epoch_ms,
+                        lease_until_epoch_ms: 0,
+                        lease_version: 0,
+                        worker_id: String::new(),
+                        completed: false,
+                        dead_lettered: false,
+                    },
+                );
+                Ok(SignalEnqueueOutcome::Enqueued)
+            }
+        }
+    }
+
+    fn claim_correlations(
+        &self,
+        now_epoch_ms: u64,
+        lease_until_epoch_ms: u64,
+        worker_id: &str,
+        limit: usize,
+        max_subscriptions_per_instance: usize,
+    ) -> Result<Vec<ClaimedCorrelation>, BoundaryRuntimeError> {
+        let mut state = self.state.lock().map_err(boundary_lock_error)?;
+        let keys = state
+            .signals
+            .iter()
+            .filter(|(_, signal)| {
+                !signal.completed
+                    && !signal.dead_lettered
+                    && signal.available_at_epoch_ms <= now_epoch_ms
+                    && signal.lease_until_epoch_ms <= now_epoch_ms
+            })
+            .map(|(key, _)| key.clone())
+            .take(limit)
+            .collect::<Vec<_>>();
+        let mut claims = Vec::with_capacity(keys.len());
+        for key in keys {
+            let signal = state
+                .signals
+                .get(&key)
+                .ok_or_else(|| BoundaryRuntimeError::Store("signal disappeared".into()))?
+                .signal
+                .clone();
+            let matches = matching_subscriptions(&state.subscriptions, &signal);
+            if matches.scanned > max_subscriptions_per_instance {
+                return Err(BoundaryRuntimeError::CorrelationScanLimitExceeded);
+            }
+            if matches.matches.len() > 1 {
+                return Err(BoundaryRuntimeError::AmbiguousCorrelation);
+            }
+            let record = state
+                .signals
+                .get_mut(&key)
+                .ok_or_else(|| BoundaryRuntimeError::Store("signal disappeared".into()))?;
+            record.attempts = record.attempts.saturating_add(1);
+            record.lease_version = record.lease_version.saturating_add(1);
+            record.lease_until_epoch_ms = lease_until_epoch_ms;
+            worker_id.clone_into(&mut record.worker_id);
+            claims.push(ClaimedCorrelation {
+                signal,
+                subscription: matches.matches.into_iter().next(),
+                attempts: record.attempts,
+                lease_version: record.lease_version,
+            });
+        }
+        Ok(claims)
+    }
+
+    fn complete_correlation(&self, claim: &ClaimedCorrelation) -> Result<(), BoundaryRuntimeError> {
+        let mut state = self.state.lock().map_err(boundary_lock_error)?;
+        validate_signal_lease(&state, claim)?;
+        let signal = state
+            .signals
+            .get_mut(&(
+                claim.signal.tenant_id.clone(),
+                claim.signal.signal_id.clone(),
+            ))
+            .ok_or(BoundaryRuntimeError::LeaseConflict)?;
+        signal.completed = true;
+        signal.lease_until_epoch_ms = 0;
+        signal.worker_id.clear();
+        Ok(())
+    }
+
+    fn fail_correlation(
+        &self,
+        claim: &ClaimedCorrelation,
+        retry_at_epoch_ms: u64,
+        dead_letter: bool,
+    ) -> Result<(), BoundaryRuntimeError> {
+        let mut state = self.state.lock().map_err(boundary_lock_error)?;
+        validate_signal_lease(&state, claim)?;
+        let signal = state
+            .signals
+            .get_mut(&(
+                claim.signal.tenant_id.clone(),
+                claim.signal.signal_id.clone(),
+            ))
+            .ok_or(BoundaryRuntimeError::LeaseConflict)?;
+        signal.available_at_epoch_ms = retry_at_epoch_ms;
+        signal.lease_until_epoch_ms = 0;
+        signal.worker_id.clear();
+        signal.dead_lettered = dead_letter;
+        Ok(())
+    }
+}
+
+fn apply_memory_projection(
+    state: &mut MemoryBoundaryRuntimeState,
+    mutation: &BoundaryProjectionMutation,
+) {
+    match mutation {
+        BoundaryProjectionMutation::Upsert(subscription) => {
+            state
+                .subscriptions
+                .insert(subscription.key.clone(), subscription.clone());
+            if let Some(schedule) = subscription.timer_schedule {
+                state.timers.insert(
+                    subscription.key.clone(),
+                    MemoryTimerRecord {
+                        subscription: subscription.clone(),
+                        generation: 0,
+                        attempts: 0,
+                        available_at_epoch_ms: schedule.due_at_epoch_ms,
+                        lease_until_epoch_ms: 0,
+                        lease_version: 0,
+                        worker_id: String::new(),
+                        dead_lettered: false,
+                    },
+                );
+            }
+        }
+        BoundaryProjectionMutation::DisarmBoundary(key) => remove_memory_subscription(state, key),
+        BoundaryProjectionMutation::DisarmAttached {
+            tenant_id,
+            instance_id,
+            attached_node_id,
+        } => {
+            let keys = state
+                .subscriptions
+                .iter()
+                .filter(|(key, subscription)| {
+                    &key.tenant_id == tenant_id
+                        && &key.instance_id == instance_id
+                        && &subscription.attached_node_id == attached_node_id
+                })
+                .map(|(key, _)| key.clone())
+                .collect::<Vec<_>>();
+            for key in keys {
+                remove_memory_subscription(state, &key);
+            }
+        }
+        BoundaryProjectionMutation::RemoveInstance {
+            tenant_id,
+            instance_id,
+        } => {
+            let keys = state
+                .subscriptions
+                .keys()
+                .filter(|key| &key.tenant_id == tenant_id && &key.instance_id == instance_id)
+                .cloned()
+                .collect::<Vec<_>>();
+            for key in keys {
+                remove_memory_subscription(state, &key);
+            }
+        }
+    }
+}
+
+fn remove_memory_subscription(
+    state: &mut MemoryBoundaryRuntimeState,
+    key: &BoundarySubscriptionKey,
+) {
+    state.subscriptions.remove(key);
+    state.timers.remove(key);
+}
+
+struct SubscriptionMatches {
+    scanned: usize,
+    matches: Vec<ProjectedBoundarySubscription>,
+}
+
+fn matching_subscriptions(
+    subscriptions: &BTreeMap<BoundarySubscriptionKey, ProjectedBoundarySubscription>,
+    signal: &BoundarySignal,
+) -> SubscriptionMatches {
+    let scoped = subscriptions.values().filter(|subscription| {
+        subscription.key.tenant_id == signal.tenant_id
+            && subscription.key.instance_id == signal.instance_id
+    });
+    let mut scanned = 0;
+    let mut matches = Vec::new();
+    for subscription in scoped {
+        scanned += 1;
+        if trigger_matches_signal(&subscription.trigger, signal) {
+            matches.push(subscription.clone());
+        }
+    }
+    SubscriptionMatches { scanned, matches }
+}
+
+fn trigger_matches_signal(
+    trigger: &bpmp_domain_core::BoundaryTrigger,
+    signal: &BoundarySignal,
+) -> bool {
+    match (trigger, signal.kind) {
+        (
+            bpmp_domain_core::BoundaryTrigger::Message { message_ref },
+            BoundarySignalKind::Message,
+        ) => signal.reference.as_ref() == Some(message_ref),
+        (bpmp_domain_core::BoundaryTrigger::Error { error_ref }, BoundarySignalKind::Error) => {
+            error_ref.is_none() || error_ref.as_ref() == signal.reference.as_ref()
+        }
+        _ => false,
+    }
+}
+
+fn validate_timer_lease(
+    state: &MemoryBoundaryRuntimeState,
+    claim: &ClaimedTimer,
+) -> Result<(), BoundaryRuntimeError> {
+    match state.timers.get(&claim.subscription.key) {
+        Some(timer)
+            if timer.lease_version == claim.lease_version
+                && timer.generation == claim.generation
+                && !timer.worker_id.is_empty() =>
+        {
+            Ok(())
+        }
+        _ => Err(BoundaryRuntimeError::LeaseConflict),
+    }
+}
+
+fn validate_signal_lease(
+    state: &MemoryBoundaryRuntimeState,
+    claim: &ClaimedCorrelation,
+) -> Result<(), BoundaryRuntimeError> {
+    match state.signals.get(&(
+        claim.signal.tenant_id.clone(),
+        claim.signal.signal_id.clone(),
+    )) {
+        Some(signal)
+            if signal.lease_version == claim.lease_version && !signal.worker_id.is_empty() =>
+        {
+            Ok(())
+        }
+        _ => Err(BoundaryRuntimeError::LeaseConflict),
+    }
+}
+
+#[allow(clippy::needless_pass_by_value)]
+fn boundary_lock_error<T>(error: std::sync::PoisonError<T>) -> BoundaryRuntimeError {
+    BoundaryRuntimeError::Store(error.to_string())
 }
 
 #[cfg(test)]

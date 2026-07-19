@@ -5,14 +5,23 @@ pub mod tenant;
 
 use crate::state::AppState;
 use axum::{
-    routing::{delete, post, put},
+    routing::{delete, get, post, put},
     Router,
 };
 
 pub fn admin_routes() -> Router<AppState> {
     Router::new()
         // Tenant endpoints
-        .route("/tenants", post(tenant::create_tenant))
+        .route(
+            "/tenants",
+            post(tenant::create_tenant).get(tenant::list_tenants),
+        )
+        .route(
+            "/tenants/:id",
+            get(tenant::get_tenant)
+                .put(tenant::update_tenant)
+                .delete(tenant::delete_tenant),
+        )
         .route("/tenants/:id/status", put(tenant::update_tenant_status))
         // Policy endpoints
         .route("/policies", post(policy::upload_policy))

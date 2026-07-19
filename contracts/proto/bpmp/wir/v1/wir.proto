@@ -211,6 +211,7 @@ message MultiInstanceSpec {
   string item_variable = 3;
   string cardinality_expression = 4;
   uint32 max_parallelism = 5;
+  BooleanExpression completion_condition = 6;
 }
 
 message BoundaryEvent {

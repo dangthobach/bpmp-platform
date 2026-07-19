@@ -16,13 +16,14 @@ pub struct Tenant {
     pub id: TenantId,
     pub code: String,
     pub name: String,
+    pub is_active: bool,
     /// Tenant-specific configuration (fail_mode, rate limits, etc.)
     pub config: TenantConfig,
     pub metadata: super::metadata::EntityMetadata,
 }
 
 /// Per-tenant configuration that drives AuthZ engine behavior.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TenantConfig {
     /// What to do when policy bundle is unavailable.
     /// "DENY" (default, banking) or "OPEN" (internal tools).

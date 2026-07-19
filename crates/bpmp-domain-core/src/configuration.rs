@@ -78,6 +78,7 @@ pub struct EnginePolicy {
     pub max_events_per_decision: u32,
     pub max_multi_instance_cardinality: u32,
     pub default_multi_instance_parallelism: u32,
+    pub boundary_runtime: BoundaryRuntimePolicy,
     pub command_timeout_ms: u64,
     pub optimistic_conflict_retry: RetryPolicy,
     pub local_wasm: LocalWasmPolicy,
@@ -105,11 +106,61 @@ impl EnginePolicy {
         if self.default_multi_instance_parallelism > self.max_multi_instance_cardinality {
             return Err(ConfigError::MultiInstanceParallelismExceedsCardinality);
         }
+        self.boundary_runtime.validate()?;
         if self.command_timeout_ms == 0 {
             return Err(ConfigError::NonPositiveValue("command_timeout_ms"));
         }
         self.optimistic_conflict_retry.validate()?;
         self.local_wasm.validate()
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct BoundaryRuntimePolicy {
+    pub projection_batch_size: u32,
+    pub dispatch_batch_size: u32,
+    pub max_dispatch_attempts: u32,
+    pub retry_delay_ms: u64,
+    pub lease_duration_ms: u64,
+    pub max_timer_horizon_ms: u64,
+    pub max_expression_bytes: u32,
+    pub worker_id: String,
+    pub max_signal_id_bytes: u32,
+    pub max_reference_bytes: u32,
+    pub max_subscriptions_per_instance: u32,
+}
+
+impl BoundaryRuntimePolicy {
+    fn validate(&self) -> Result<(), ConfigError> {
+        for (field, value) in [
+            ("projection_batch_size", self.projection_batch_size),
+            ("dispatch_batch_size", self.dispatch_batch_size),
+            ("max_dispatch_attempts", self.max_dispatch_attempts),
+            ("max_expression_bytes", self.max_expression_bytes),
+            ("max_signal_id_bytes", self.max_signal_id_bytes),
+            ("max_reference_bytes", self.max_reference_bytes),
+            (
+                "max_subscriptions_per_instance",
+                self.max_subscriptions_per_instance,
+            ),
+        ] {
+            if value == 0 {
+                return Err(ConfigError::NonPositiveValue(field));
+            }
+        }
+        for (field, value) in [
+            ("boundary_retry_delay_ms", self.retry_delay_ms),
+            ("boundary_lease_duration_ms", self.lease_duration_ms),
+            ("max_timer_horizon_ms", self.max_timer_horizon_ms),
+        ] {
+            if value == 0 {
+                return Err(ConfigError::NonPositiveValue(field));
+            }
+        }
+        if self.worker_id.trim().is_empty() {
+            return Err(ConfigError::EmptyBoundaryWorkerId);
+        }
+        Ok(())
     }
 }
 
@@ -232,4 +283,6 @@ pub enum ConfigError {
     WasmAbiLengthExceeded(&'static str),
     #[error("default multi-instance parallelism exceeds maximum cardinality")]
     MultiInstanceParallelismExceedsCardinality,
+    #[error("boundary runtime worker id must not be empty")]
+    EmptyBoundaryWorkerId,
 }

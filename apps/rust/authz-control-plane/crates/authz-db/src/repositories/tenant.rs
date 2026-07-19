@@ -5,7 +5,7 @@
 
 use authz_core::{
     ids::{TenantId, UserId},
-    models::tenant::{Tenant, TenantConfig, UserAccount},
+    models::tenant::{Tenant, UserAccount},
     AuthzError,
 };
 use chrono::Utc;
@@ -26,6 +26,22 @@ struct TenantRow {
     config: Option<JsonValue>,
     #[sqlx(flatten)]
     metadata: MetadataRow,
+}
+
+impl TryFrom<TenantRow> for Tenant {
+    type Error = AuthzError;
+
+    fn try_from(row: TenantRow) -> Result<Self, Self::Error> {
+        let config = serde_json::from_value(row.config.unwrap_or_default()).unwrap_or_default();
+        Ok(Self {
+            id: TenantId::from_uuid(row.id),
+            code: row.code,
+            name: row.name,
+            is_active: row.is_active,
+            config,
+            metadata: row.metadata.into(),
+        })
+    }
 }
 
 #[derive(sqlx::FromRow)]
@@ -66,16 +82,7 @@ pub async fn find_tenant_by_code(pool: &PgPool, code: &str) -> Result<Tenant, Au
         return Err(AuthzError::TenantInactive { tenant_id: row.id });
     }
 
-    let config: TenantConfig =
-        serde_json::from_value(row.config.unwrap_or_default()).unwrap_or_default();
-
-    Ok(Tenant {
-        id: TenantId::from_uuid(row.id),
-        code: row.code,
-        name: row.name,
-        config,
-        metadata: row.metadata.into(),
-    })
+    row.try_into()
 }
 
 /// Retrieves a tenant by its UUID.
@@ -101,16 +108,55 @@ pub async fn find_tenant_by_id(pool: &PgPool, tenant_id: TenantId) -> Result<Ten
         return Err(AuthzError::TenantInactive { tenant_id: row.id });
     }
 
-    let config: TenantConfig =
-        serde_json::from_value(row.config.unwrap_or_default()).unwrap_or_default();
+    row.try_into()
+}
 
-    Ok(Tenant {
-        id: TenantId::from_uuid(row.id),
-        code: row.code,
-        name: row.name,
-        config,
-        metadata: row.metadata.into(),
-    })
+/// Reads one tenant for control-plane administration, including suspended rows.
+pub async fn get_tenant_for_admin(
+    pool: &PgPool,
+    tenant_id: TenantId,
+) -> Result<Tenant, AuthzError> {
+    let row: Option<TenantRow> = sqlx::query_as(
+        r#"
+        SELECT id, code, name, is_active, config,
+               version, is_deleted, deleted_at, deleted_by,
+               created_at, created_by, updated_at, updated_by
+        FROM tenant
+        WHERE id = $1 AND is_deleted = false
+        "#,
+    )
+    .bind(tenant_id.into_uuid())
+    .fetch_optional(pool)
+    .await?;
+    row.ok_or(AuthzError::TenantNotFound {
+        tenant_id: tenant_id.into_uuid(),
+    })?
+    .try_into()
+}
+
+/// Lists tenants using stable code-based keyset pagination.
+pub async fn list_tenants_for_admin(
+    pool: &PgPool,
+    after_code: Option<&str>,
+    limit: i64,
+) -> Result<Vec<Tenant>, AuthzError> {
+    let rows: Vec<TenantRow> = sqlx::query_as(
+        r#"
+        SELECT id, code, name, is_active, config,
+               version, is_deleted, deleted_at, deleted_by,
+               created_at, created_by, updated_at, updated_by
+        FROM tenant
+        WHERE is_deleted = false
+          AND ($1::text IS NULL OR code > $1)
+        ORDER BY code, id
+        LIMIT $2
+        "#,
+    )
+    .bind(after_code)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+    rows.into_iter().map(TryInto::try_into).collect()
 }
 
 // ─── User Account Repository ─────────────────────────────────────────────────

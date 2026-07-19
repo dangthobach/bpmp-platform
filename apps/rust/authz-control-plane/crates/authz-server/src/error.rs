@@ -71,6 +71,7 @@ fn status_code_for(err: &AuthzError) -> StatusCode {
     match err {
         AuthzError::TenantNotFound { .. } => StatusCode::NOT_FOUND,
         AuthzError::TenantInactive { .. } => StatusCode::FORBIDDEN,
+        AuthzError::TenantCodeConflict { .. } => StatusCode::CONFLICT,
         AuthzError::UserNotFound { .. } => StatusCode::NOT_FOUND,
         AuthzError::UserDeactivated { .. } => StatusCode::FORBIDDEN,
         AuthzError::VersionConflict { .. } => StatusCode::CONFLICT,

@@ -45,7 +45,10 @@ coverage for this executable profile. It does not claim implementation of every
 element in the full OMG BPMN/DMN/CMMN catalogs. User tasks remain owned by Human
 Runtime. Multi-instance fan-out/fan-in/replay and boundary subscription,
 trigger, cancellation, and branch completion now execute through additive
-durable events and snapshots in `bpmp-domain-core`/`bpmp-engine`. Retained
-sub-process scopes, multi-instance completion-condition expressions, external
-timer/message/error correlation adapters, and call child-instance orchestration
-remain explicit follow-up work.
+durable events and snapshots in `bpmp-domain-core`/`bpmp-engine`. The bounded
+timer scheduler and message/error correlation adapters persist projection,
+lease, retry, checkpoint, signal, and dead-letter state in RocksDB and dispatch
+through the authorized engine command path. Typed multi-instance completion
+conditions now execute durably and record early-cancelled iterations. Retained
+sub-process scopes, concrete deployment transport bindings, and call
+child-instance orchestration remain explicit follow-up work.

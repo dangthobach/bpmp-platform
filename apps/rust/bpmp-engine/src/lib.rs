@@ -6,6 +6,7 @@
 
 mod application;
 mod authorization;
+mod boundary_runtime;
 mod event_codec;
 pub mod memory;
 mod outbox;
@@ -18,6 +19,16 @@ pub use application::{
     EngineError, EventEnvelope, EventMetadata, HandleOutcome, SnapshotEnvelope,
 };
 pub use authorization::EmbeddedAuthorizationProvider;
+pub use boundary_runtime::{
+    BoundaryCommandDispatcherPort, BoundaryDispatchCredentials, BoundaryDispatchCredentialsPort,
+    BoundaryDispatchRequest, BoundaryDispatchSource, BoundaryEventSourcePort,
+    BoundaryProjectionMutation, BoundaryProjectionRecord, BoundaryRuntime, BoundaryRuntimeError,
+    BoundaryRuntimeStorePort, BoundarySignal, BoundarySignalKind, BoundarySubscriptionKey,
+    ClaimedCorrelation, ClaimedTimer, ClockPort, DispatchOutcome, EngineBoundaryCommandDispatcher,
+    OutboxBoundaryEventSource, ProjectedBoundarySubscription, ProjectionOutcome,
+    SignalEnqueueOutcome, SystemClock, TimerDispatchCompletion, TimerSchedule,
+    WorkflowDefinitionProviderPort,
+};
 pub use event_codec::{EventCodec, EventCodecError};
 pub use outbox::{
     IntegrationEventPublisherPort, OutboxError, OutboxPublisher, OutboxPublisherConfig,

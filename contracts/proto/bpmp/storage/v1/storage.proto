@@ -48,3 +48,53 @@ message OutboxEntry {
   string event_id = 4;
   uint64 outbox_sequence = 5;
 }
+
+message BoundarySubscriptionRecord {
+  uint32 storage_schema_version = 1;
+  string tenant_id = 2;
+  string instance_id = 3;
+  string boundary_event_id = 4;
+  string attached_node_id = 5;
+  string target_node_id = 6;
+  bool cancel_activity = 7;
+  int32 trigger_kind = 8;
+  string trigger_reference = 9;
+  uint64 armed_at_epoch_ms = 10;
+  string armed_event_id = 11;
+  BoundaryTimerScheduleRecord timer_schedule = 12;
+  reserved 13 to 17;
+  uint64 generation = 18;
+  uint32 attempts = 19;
+  uint64 available_at_epoch_ms = 20;
+  uint64 lease_until_epoch_ms = 21;
+  uint64 lease_version = 22;
+  string worker_id = 23;
+  bool dead_lettered = 24;
+  string workflow_type = 25;
+  string workflow_version = 26;
+}
+
+message BoundaryTimerScheduleRecord {
+  uint64 due_at_epoch_ms = 1;
+  optional uint64 interval_ms = 2;
+  optional uint32 remaining_firings = 3;
+}
+
+message BoundarySignalRecord {
+  uint32 storage_schema_version = 1;
+  string signal_id = 2;
+  string tenant_id = 3;
+  string instance_id = 4;
+  int32 signal_kind = 5;
+  reserved 6;
+  optional string reference = 7;
+  uint64 occurred_at_epoch_ms = 8;
+  uint32 attempts = 9;
+  uint64 available_at_epoch_ms = 10;
+  uint64 lease_until_epoch_ms = 11;
+  uint64 lease_version = 12;
+  string worker_id = 13;
+  bool completed = 14;
+  bool dead_lettered = 15;
+  string authorization_context_ref = 16;
+}

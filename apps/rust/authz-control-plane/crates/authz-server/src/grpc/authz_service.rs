@@ -30,6 +30,7 @@ impl AuthzServiceImpl {
 
         crate::middleware::service_auth::verify_jwt(token, &self.jwt_jwks_url, &self.jwt_audience)
             .await
+            .map(|_| ())
             .map_err(Status::unauthenticated)
     }
 }

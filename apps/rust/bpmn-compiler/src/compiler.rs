@@ -302,6 +302,7 @@ struct RawMultiInstance {
     item_variable: Option<String>,
     cardinality_expression: Option<String>,
     max_parallelism: Option<u32>,
+    completion_condition: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -357,6 +358,9 @@ enum RawBoundaryTrigger {
 #[derive(Debug, Clone)]
 enum TextCapture {
     LoopCardinality {
+        owner_id: String,
+    },
+    CompletionCondition {
         owner_id: String,
     },
     TimerExpression {
@@ -895,6 +899,7 @@ fn inspect_element(
             insert_multi_instance(element, decoder, offset, parsed, locations);
         }
         "loopCardinality" => start_loop_cardinality_capture(parsed),
+        "completionCondition" => start_completion_condition_capture(parsed),
         "boundaryEvent" => insert_boundary_event(element, decoder, offset, parsed, locations),
         "compensateEventDefinition" => mark_compensation_boundary(parsed),
         "timerEventDefinition" => mark_timer_boundary(parsed),
@@ -969,7 +974,11 @@ fn close_element(local_name: &[u8], parsed: &mut ParsedProcess) {
     match local_name {
         b"boundaryEvent" => parsed.open_boundary_event = None,
         b"extensionElements" => parsed.extension_owner = None,
-        b"loopCardinality" | b"timeDate" | b"timeDuration" | b"timeCycle" => {
+        b"loopCardinality"
+        | b"completionCondition"
+        | b"timeDate"
+        | b"timeDuration"
+        | b"timeCycle" => {
             parsed.text_capture = None;
         }
         b"conditionExpression" => parsed.text_capture = None,
@@ -1004,6 +1013,17 @@ fn capture_bpmn_text(text: &quick_xml::events::BytesText<'_>, parsed: &mut Parse
                 .and_then(|node| node.multi_instance.as_mut())
             {
                 spec.cardinality_expression
+                    .get_or_insert_with(String::new)
+                    .push_str(&value);
+            }
+        }
+        TextCapture::CompletionCondition { owner_id } => {
+            if let Some(spec) = parsed
+                .nodes
+                .get_mut(&owner_id)
+                .and_then(|node| node.multi_instance.as_mut())
+            {
+                spec.completion_condition
                     .get_or_insert_with(String::new)
                     .push_str(&value);
             }
@@ -1080,6 +1100,17 @@ fn capture_bpmn_reference(reference: &[u8], parsed: &mut ParsedProcess) {
                 .and_then(|node| node.multi_instance.as_mut())
             {
                 spec.cardinality_expression
+                    .get_or_insert_with(String::new)
+                    .push_str(&value);
+            }
+        }
+        Some(TextCapture::CompletionCondition { owner_id }) => {
+            if let Some(spec) = parsed
+                .nodes
+                .get_mut(&owner_id)
+                .and_then(|node| node.multi_instance.as_mut())
+            {
+                spec.completion_condition
                     .get_or_insert_with(String::new)
                     .push_str(&value);
             }
@@ -1391,12 +1422,23 @@ fn insert_multi_instance(
             .or_else(|| optional_non_empty_attribute(element, decoder, b"itemVariable")),
         cardinality_expression: optional_non_empty_attribute(element, decoder, b"loopCardinality"),
         max_parallelism,
+        completion_condition: optional_non_empty_attribute(
+            element,
+            decoder,
+            b"completionCondition",
+        ),
     });
 }
 
 fn start_loop_cardinality_capture(parsed: &mut ParsedProcess) {
     if let Some(owner_id) = parsed.open_nodes.last().map(|(_, id)| id.clone()) {
         parsed.text_capture = Some(TextCapture::LoopCardinality { owner_id });
+    }
+}
+
+fn start_completion_condition_capture(parsed: &mut ParsedProcess) {
+    if let Some(owner_id) = parsed.open_nodes.last().map(|(_, id)| id.clone()) {
+        parsed.text_capture = Some(TextCapture::CompletionCondition { owner_id });
     }
 }
 
@@ -1988,6 +2030,17 @@ fn validate_multi_instance(
             DiagnosticKind::InvalidMultiInstance {
                 activity_id: node_id.to_owned(),
                 detail: "maxParallelism must be greater than zero".into(),
+            },
+        ));
+    }
+    if let Some(condition) = spec.completion_condition.as_deref()
+        && let Err(detail) = parse_boolean_expression(condition)
+    {
+        diagnostics.push(locations.diagnostic(
+            node.offset,
+            DiagnosticKind::InvalidMultiInstance {
+                activity_id: node_id.to_owned(),
+                detail: format!("invalid completionCondition: {detail}"),
             },
         ));
     }
@@ -3368,6 +3421,11 @@ fn multi_instance_to_wire(spec: RawMultiInstance) -> MultiInstanceSpec {
         item_variable: spec.item_variable.unwrap_or_default(),
         cardinality_expression: spec.cardinality_expression.unwrap_or_default(),
         max_parallelism: spec.max_parallelism.unwrap_or_default(),
+        completion_condition: spec
+            .completion_condition
+            .as_deref()
+            .and_then(|condition| parse_boolean_expression(condition).ok())
+            .map(boolean_expression_to_wire),
     }
 }
 

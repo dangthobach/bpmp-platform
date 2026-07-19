@@ -243,6 +243,10 @@ fn map_multi_instance(
         cardinality_expression: (!spec.cardinality_expression.is_empty())
             .then_some(spec.cardinality_expression),
         max_parallelism: (spec.max_parallelism > 0).then_some(spec.max_parallelism),
+        completion_condition: spec
+            .completion_condition
+            .map(map_boolean_expression)
+            .transpose()?,
     })
 }
 

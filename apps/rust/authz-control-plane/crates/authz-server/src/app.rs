@@ -3,11 +3,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use axum::{
-    middleware,
-    routing::get,
-    Router,
-};
+use axum::{middleware, routing::get, Router};
 use tower_http::trace::TraceLayer;
 
 use authz_core::models::tenant::FailMode;

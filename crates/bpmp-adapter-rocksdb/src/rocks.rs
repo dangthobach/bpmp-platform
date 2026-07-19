@@ -5,16 +5,20 @@ use bpmp_authz_contracts::authorization::v1::{
     AuthorizationAuditRecord as ContractAuthorizationAuditRecord, AuthorizationDecisionType,
 };
 use bpmp_contracts::storage::v1::{
+    BoundarySignalRecord, BoundarySubscriptionRecord, BoundaryTimerScheduleRecord,
     EncryptedAuthorizationAuditRecord, EncryptedEventRecord, EncryptedSnapshotRecord, OutboxEntry,
     StoredCommandResult,
 };
 use bpmp_domain_core::{
-    ActorId, CommandId, ConfigVersion, IdempotencyKey, InstanceId, KeyScope, PolicyVersion,
-    TenantId,
+    ActorId, BoundaryTimerKind, BoundaryTrigger, CommandId, ConfigVersion, IdempotencyKey,
+    InstanceId, KeyScope, NodeId, PolicyVersion, TenantId, WorkflowType, WorkflowVersion,
 };
 use bpmp_engine::{
-    CommitOutcome, CommitRequest, CommittedResult, EventCodec, EventEnvelope, LoadedInstance,
-    OutboxError, OutboxRecord, OutboxStorePort, SnapshotCodec, SnapshotEnvelope, StoreError,
+    BoundaryProjectionMutation, BoundaryRuntimeError, BoundaryRuntimeStorePort, BoundarySignal,
+    BoundarySignalKind, BoundarySubscriptionKey, ClaimedCorrelation, ClaimedTimer, CommitOutcome,
+    CommitRequest, CommittedResult, EventCodec, EventEnvelope, LoadedInstance, OutboxError,
+    OutboxRecord, OutboxStorePort, ProjectedBoundarySubscription, SignalEnqueueOutcome,
+    SnapshotCodec, SnapshotEnvelope, StoreError, TimerDispatchCompletion, TimerSchedule,
     WorkflowStorePort,
 };
 use bpmp_payload_crypto::{EncryptedPayload, EncryptionContext, PayloadCryptoPort};
@@ -32,9 +36,15 @@ const OUTBOX_CF: &str = "outbox";
 const IDEMPOTENCY_CF: &str = "idempotency";
 const AUTHORIZATION_AUDIT_CF: &str = "authorization_audit";
 const OUTBOX_META_CF: &str = "outbox_meta";
+const BOUNDARY_SUBSCRIPTIONS_CF: &str = "boundary_subscriptions";
+const BOUNDARY_TIMER_INDEX_CF: &str = "boundary_timer_index";
+const BOUNDARY_SIGNALS_CF: &str = "boundary_signals";
+const BOUNDARY_SIGNAL_INDEX_CF: &str = "boundary_signal_index";
+const BOUNDARY_META_CF: &str = "boundary_meta";
 const STORAGE_SCHEMA_VERSION: u32 = 1;
 const OUTBOX_TAIL_KEY: &[u8] = b"tail";
 const OUTBOX_CHECKPOINT_KEY: &[u8] = b"publisher-checkpoint";
+const BOUNDARY_PROJECTION_CHECKPOINT_KEY: &[u8] = b"projection-checkpoint";
 
 #[derive(Debug, Clone)]
 pub struct RocksDbConfig {
@@ -46,7 +56,7 @@ pub struct RocksDbConfig {
 }
 
 impl RocksDbConfig {
-    /// Validates operational RocksDB settings supplied by configuration.
+    /// Validates operational `RocksDB` settings supplied by configuration.
     ///
     /// # Errors
     ///
@@ -80,11 +90,12 @@ pub struct RocksDbWorkflowStore<C> {
 }
 
 impl<C: PayloadCryptoPort> RocksDbWorkflowStore<C> {
-    /// Opens the authoritative local RocksDB with all required column families.
+    /// Opens the authoritative local `RocksDB` with all required column families.
     ///
     /// # Errors
     ///
-    /// Returns [`RocksDbOpenError`] when configuration is invalid or RocksDB cannot open.
+    /// Returns [`RocksDbOpenError`] when configuration is invalid or `RocksDB` cannot open.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn open(config: RocksDbConfig, crypto: C) -> Result<Self, RocksDbOpenError> {
         config.validate()?;
         let mut options = Options::default();
@@ -102,6 +113,11 @@ impl<C: PayloadCryptoPort> RocksDbWorkflowStore<C> {
             IDEMPOTENCY_CF,
             AUTHORIZATION_AUDIT_CF,
             OUTBOX_META_CF,
+            BOUNDARY_SUBSCRIPTIONS_CF,
+            BOUNDARY_TIMER_INDEX_CF,
+            BOUNDARY_SIGNALS_CF,
+            BOUNDARY_SIGNAL_INDEX_CF,
+            BOUNDARY_META_CF,
         ]
         .into_iter()
         .map(|name| ColumnFamilyDescriptor::new(name, Options::default()));
@@ -332,6 +348,816 @@ impl<C: PayloadCryptoPort> OutboxStorePort for RocksDbWorkflowStore<C> {
     }
 }
 
+impl<C: PayloadCryptoPort> BoundaryRuntimeStorePort for RocksDbWorkflowStore<C> {
+    fn projection_checkpoint(&self) -> Result<u64, BoundaryRuntimeError> {
+        read_boundary_u64(&self.db, BOUNDARY_PROJECTION_CHECKPOINT_KEY)
+    }
+
+    fn apply_projection(
+        &self,
+        expected_checkpoint: u64,
+        committed_checkpoint: u64,
+        mutations: &[BoundaryProjectionMutation],
+    ) -> Result<(), BoundaryRuntimeError> {
+        let _guard = self.commit_lock.lock().map_err(boundary_lock_error)?;
+        let current = read_boundary_u64(&self.db, BOUNDARY_PROJECTION_CHECKPOINT_KEY)?;
+        if current != expected_checkpoint {
+            return Err(BoundaryRuntimeError::ProjectionCheckpointConflict);
+        }
+        if committed_checkpoint <= expected_checkpoint {
+            return Err(BoundaryRuntimeError::NonContiguousProjection);
+        }
+        let mut batch = WriteBatch::default();
+        for mutation in mutations {
+            apply_boundary_projection_mutation(&self.db, &mut batch, mutation)?;
+        }
+        batch.put_cf(
+            boundary_meta_cf(&self.db)?,
+            BOUNDARY_PROJECTION_CHECKPOINT_KEY,
+            committed_checkpoint.to_be_bytes(),
+        );
+        write_boundary_batch(&self.db, batch)
+    }
+
+    fn claim_due_timers(
+        &self,
+        now_epoch_ms: u64,
+        lease_until_epoch_ms: u64,
+        worker_id: &str,
+        limit: usize,
+    ) -> Result<Vec<ClaimedTimer>, BoundaryRuntimeError> {
+        let _guard = self.commit_lock.lock().map_err(boundary_lock_error)?;
+        let mut batch = WriteBatch::default();
+        let mut claims = Vec::with_capacity(limit);
+        for item in self
+            .db
+            .iterator_cf(boundary_timer_index_cf(&self.db)?, IteratorMode::Start)
+        {
+            if claims.len() == limit {
+                break;
+            }
+            let (index_key, _) = item.map_err(boundary_unavailable)?;
+            let (available_at, subscription_key) = split_due_index_key(index_key.as_ref())?;
+            if available_at > now_epoch_ms {
+                break;
+            }
+            let Some(bytes) = self
+                .db
+                .get_cf(boundary_subscriptions_cf(&self.db)?, subscription_key)
+                .map_err(boundary_unavailable)?
+            else {
+                return Err(BoundaryRuntimeError::Store(
+                    "timer index references a missing subscription".into(),
+                ));
+            };
+            let mut record = decode_boundary_subscription(&bytes)?;
+            if record.timer_schedule.is_none() || record.available_at_epoch_ms != available_at {
+                return Err(BoundaryRuntimeError::Store(
+                    "timer index and subscription disagree".into(),
+                ));
+            }
+            if record.dead_lettered || record.lease_until_epoch_ms > now_epoch_ms {
+                continue;
+            }
+            record.attempts = record.attempts.saturating_add(1);
+            record.lease_version = record.lease_version.saturating_add(1);
+            record.lease_until_epoch_ms = lease_until_epoch_ms;
+            worker_id.clone_into(&mut record.worker_id);
+            let subscription = subscription_from_record(&record)?;
+            claims.push(ClaimedTimer {
+                subscription,
+                generation: record.generation,
+                attempts: record.attempts,
+                lease_version: record.lease_version,
+            });
+            batch.put_cf(
+                boundary_subscriptions_cf(&self.db)?,
+                subscription_key,
+                record.encode_to_vec(),
+            );
+        }
+        if !claims.is_empty() {
+            write_boundary_batch(&self.db, batch)?;
+        }
+        Ok(claims)
+    }
+
+    fn complete_timer(
+        &self,
+        claim: &ClaimedTimer,
+        completion: TimerDispatchCompletion,
+    ) -> Result<(), BoundaryRuntimeError> {
+        let _guard = self.commit_lock.lock().map_err(boundary_lock_error)?;
+        let key = boundary_subscription_storage_key(&claim.subscription.key);
+        let mut record = load_boundary_subscription_record(&self.db, &key)?;
+        validate_boundary_timer_claim(&record, claim)?;
+        let old_index = boundary_due_index_key(record.available_at_epoch_ms, &key);
+        let mut batch = WriteBatch::default();
+        batch.delete_cf(boundary_timer_index_cf(&self.db)?, old_index);
+        if let Some(schedule) = completion.next_schedule {
+            set_record_schedule(&mut record, Some(schedule));
+            record.generation = record.generation.saturating_add(1);
+            record.attempts = 0;
+            record.available_at_epoch_ms = schedule.due_at_epoch_ms;
+            record.lease_until_epoch_ms = 0;
+            record.worker_id.clear();
+            batch.put_cf(
+                boundary_timer_index_cf(&self.db)?,
+                boundary_due_index_key(schedule.due_at_epoch_ms, &key),
+                [],
+            );
+        } else {
+            set_record_schedule(&mut record, None);
+            record.lease_until_epoch_ms = 0;
+            record.worker_id.clear();
+        }
+        batch.put_cf(
+            boundary_subscriptions_cf(&self.db)?,
+            key,
+            record.encode_to_vec(),
+        );
+        write_boundary_batch(&self.db, batch)
+    }
+
+    fn fail_timer(
+        &self,
+        claim: &ClaimedTimer,
+        retry_at_epoch_ms: u64,
+        dead_letter: bool,
+    ) -> Result<(), BoundaryRuntimeError> {
+        let _guard = self.commit_lock.lock().map_err(boundary_lock_error)?;
+        let key = boundary_subscription_storage_key(&claim.subscription.key);
+        let mut record = load_boundary_subscription_record(&self.db, &key)?;
+        validate_boundary_timer_claim(&record, claim)?;
+        let mut batch = WriteBatch::default();
+        batch.delete_cf(
+            boundary_timer_index_cf(&self.db)?,
+            boundary_due_index_key(record.available_at_epoch_ms, &key),
+        );
+        record.available_at_epoch_ms = retry_at_epoch_ms;
+        record.lease_until_epoch_ms = 0;
+        record.worker_id.clear();
+        record.dead_lettered = dead_letter;
+        if !dead_letter {
+            batch.put_cf(
+                boundary_timer_index_cf(&self.db)?,
+                boundary_due_index_key(retry_at_epoch_ms, &key),
+                [],
+            );
+        }
+        batch.put_cf(
+            boundary_subscriptions_cf(&self.db)?,
+            key,
+            record.encode_to_vec(),
+        );
+        write_boundary_batch(&self.db, batch)
+    }
+
+    fn enqueue_signal(
+        &self,
+        signal: &BoundarySignal,
+    ) -> Result<SignalEnqueueOutcome, BoundaryRuntimeError> {
+        let _guard = self.commit_lock.lock().map_err(boundary_lock_error)?;
+        let key = boundary_signal_storage_key(&signal.tenant_id, &signal.signal_id);
+        if let Some(bytes) = self
+            .db
+            .get_cf(boundary_signals_cf(&self.db)?, &key)
+            .map_err(boundary_unavailable)?
+        {
+            let existing = decode_boundary_signal(&bytes)?;
+            return if signal_from_record(&existing)? == *signal {
+                Ok(SignalEnqueueOutcome::Duplicate)
+            } else {
+                Err(BoundaryRuntimeError::SignalConflict)
+            };
+        }
+        let record = signal_to_record(signal);
+        let mut batch = WriteBatch::default();
+        batch.put_cf(boundary_signals_cf(&self.db)?, &key, record.encode_to_vec());
+        batch.put_cf(
+            boundary_signal_index_cf(&self.db)?,
+            boundary_due_index_key(record.available_at_epoch_ms, &key),
+            [],
+        );
+        write_boundary_batch(&self.db, batch)?;
+        Ok(SignalEnqueueOutcome::Enqueued)
+    }
+
+    fn claim_correlations(
+        &self,
+        now_epoch_ms: u64,
+        lease_until_epoch_ms: u64,
+        worker_id: &str,
+        limit: usize,
+        max_subscriptions_per_instance: usize,
+    ) -> Result<Vec<ClaimedCorrelation>, BoundaryRuntimeError> {
+        let _guard = self.commit_lock.lock().map_err(boundary_lock_error)?;
+        let mut batch = WriteBatch::default();
+        let mut claims = Vec::with_capacity(limit);
+        for item in self
+            .db
+            .iterator_cf(boundary_signal_index_cf(&self.db)?, IteratorMode::Start)
+        {
+            if claims.len() == limit {
+                break;
+            }
+            let (index_key, _) = item.map_err(boundary_unavailable)?;
+            let (available_at, signal_key) = split_due_index_key(index_key.as_ref())?;
+            if available_at > now_epoch_ms {
+                break;
+            }
+            let Some(bytes) = self
+                .db
+                .get_cf(boundary_signals_cf(&self.db)?, signal_key)
+                .map_err(boundary_unavailable)?
+            else {
+                return Err(BoundaryRuntimeError::Store(
+                    "signal index references a missing record".into(),
+                ));
+            };
+            let mut record = decode_boundary_signal(&bytes)?;
+            if record.available_at_epoch_ms != available_at {
+                return Err(BoundaryRuntimeError::Store(
+                    "signal index and record disagree".into(),
+                ));
+            }
+            if record.completed
+                || record.dead_lettered
+                || record.lease_until_epoch_ms > now_epoch_ms
+            {
+                continue;
+            }
+            let signal = signal_from_record(&record)?;
+            let subscription =
+                correlate_boundary_subscription(&self.db, &signal, max_subscriptions_per_instance)?;
+            record.attempts = record.attempts.saturating_add(1);
+            record.lease_version = record.lease_version.saturating_add(1);
+            record.lease_until_epoch_ms = lease_until_epoch_ms;
+            worker_id.clone_into(&mut record.worker_id);
+            claims.push(ClaimedCorrelation {
+                signal,
+                subscription,
+                attempts: record.attempts,
+                lease_version: record.lease_version,
+            });
+            batch.put_cf(
+                boundary_signals_cf(&self.db)?,
+                signal_key,
+                record.encode_to_vec(),
+            );
+        }
+        if !claims.is_empty() {
+            write_boundary_batch(&self.db, batch)?;
+        }
+        Ok(claims)
+    }
+
+    fn complete_correlation(&self, claim: &ClaimedCorrelation) -> Result<(), BoundaryRuntimeError> {
+        let _guard = self.commit_lock.lock().map_err(boundary_lock_error)?;
+        update_boundary_signal_claim(&self.db, claim, 0, false, true)
+    }
+
+    fn fail_correlation(
+        &self,
+        claim: &ClaimedCorrelation,
+        retry_at_epoch_ms: u64,
+        dead_letter: bool,
+    ) -> Result<(), BoundaryRuntimeError> {
+        let _guard = self.commit_lock.lock().map_err(boundary_lock_error)?;
+        update_boundary_signal_claim(&self.db, claim, retry_at_epoch_ms, dead_letter, false)
+    }
+}
+
+fn apply_boundary_projection_mutation(
+    db: &DB,
+    batch: &mut WriteBatch,
+    mutation: &BoundaryProjectionMutation,
+) -> Result<(), BoundaryRuntimeError> {
+    match mutation {
+        BoundaryProjectionMutation::Upsert(subscription) => {
+            let key = boundary_subscription_storage_key(&subscription.key);
+            if let Some(bytes) = db
+                .get_cf(boundary_subscriptions_cf(db)?, &key)
+                .map_err(boundary_unavailable)?
+            {
+                let existing = decode_boundary_subscription(&bytes)?;
+                if existing.timer_schedule.is_some() {
+                    batch.delete_cf(
+                        boundary_timer_index_cf(db)?,
+                        boundary_due_index_key(existing.available_at_epoch_ms, &key),
+                    );
+                }
+            }
+            let record = subscription_to_record(subscription);
+            if record.timer_schedule.is_some() {
+                batch.put_cf(
+                    boundary_timer_index_cf(db)?,
+                    boundary_due_index_key(record.available_at_epoch_ms, &key),
+                    [],
+                );
+            }
+            batch.put_cf(boundary_subscriptions_cf(db)?, key, record.encode_to_vec());
+        }
+        BoundaryProjectionMutation::DisarmBoundary(key) => {
+            delete_boundary_subscription(db, batch, key)?;
+        }
+        BoundaryProjectionMutation::DisarmAttached {
+            tenant_id,
+            instance_id,
+            attached_node_id,
+        } => {
+            for (key, record) in scan_boundary_subscriptions(db, tenant_id, instance_id)? {
+                if record.attached_node_id == attached_node_id.as_str() {
+                    delete_boundary_subscription_record(db, batch, &key, &record)?;
+                }
+            }
+        }
+        BoundaryProjectionMutation::RemoveInstance {
+            tenant_id,
+            instance_id,
+        } => {
+            for (key, record) in scan_boundary_subscriptions(db, tenant_id, instance_id)? {
+                delete_boundary_subscription_record(db, batch, &key, &record)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn delete_boundary_subscription(
+    db: &DB,
+    batch: &mut WriteBatch,
+    key: &BoundarySubscriptionKey,
+) -> Result<(), BoundaryRuntimeError> {
+    let storage_key = boundary_subscription_storage_key(key);
+    let Some(bytes) = db
+        .get_cf(boundary_subscriptions_cf(db)?, &storage_key)
+        .map_err(boundary_unavailable)?
+    else {
+        return Ok(());
+    };
+    let record = decode_boundary_subscription(&bytes)?;
+    delete_boundary_subscription_record(db, batch, &storage_key, &record)
+}
+
+fn delete_boundary_subscription_record(
+    db: &DB,
+    batch: &mut WriteBatch,
+    storage_key: &[u8],
+    record: &BoundarySubscriptionRecord,
+) -> Result<(), BoundaryRuntimeError> {
+    if record.timer_schedule.is_some() {
+        batch.delete_cf(
+            boundary_timer_index_cf(db)?,
+            boundary_due_index_key(record.available_at_epoch_ms, storage_key),
+        );
+    }
+    batch.delete_cf(boundary_subscriptions_cf(db)?, storage_key);
+    Ok(())
+}
+
+fn scan_boundary_subscriptions(
+    db: &DB,
+    tenant_id: &TenantId,
+    instance_id: &InstanceId,
+) -> Result<Vec<(Vec<u8>, BoundarySubscriptionRecord)>, BoundaryRuntimeError> {
+    let prefix = boundary_subscription_prefix(tenant_id, instance_id);
+    let mut records = Vec::new();
+    for item in db.iterator_cf(
+        boundary_subscriptions_cf(db)?,
+        IteratorMode::From(&prefix, Direction::Forward),
+    ) {
+        let (key, value) = item.map_err(boundary_unavailable)?;
+        if !key.starts_with(&prefix) {
+            break;
+        }
+        records.push((key.to_vec(), decode_boundary_subscription(value.as_ref())?));
+    }
+    Ok(records)
+}
+
+fn correlate_boundary_subscription(
+    db: &DB,
+    signal: &BoundarySignal,
+    max_subscriptions_per_instance: usize,
+) -> Result<Option<ProjectedBoundarySubscription>, BoundaryRuntimeError> {
+    let records = scan_boundary_subscriptions(db, &signal.tenant_id, &signal.instance_id)?;
+    if records.len() > max_subscriptions_per_instance {
+        return Err(BoundaryRuntimeError::CorrelationScanLimitExceeded);
+    }
+    let mut matched = None;
+    for (_, record) in records {
+        let subscription = subscription_from_record(&record)?;
+        if rocks_trigger_matches_signal(&subscription.trigger, signal) {
+            if matched.is_some() {
+                return Err(BoundaryRuntimeError::AmbiguousCorrelation);
+            }
+            matched = Some(subscription);
+        }
+    }
+    Ok(matched)
+}
+
+fn rocks_trigger_matches_signal(trigger: &BoundaryTrigger, signal: &BoundarySignal) -> bool {
+    match (trigger, signal.kind) {
+        (BoundaryTrigger::Message { message_ref }, BoundarySignalKind::Message) => {
+            signal.reference.as_ref() == Some(message_ref)
+        }
+        (BoundaryTrigger::Error { error_ref }, BoundarySignalKind::Error) => {
+            error_ref.is_none() || error_ref.as_ref() == signal.reference.as_ref()
+        }
+        _ => false,
+    }
+}
+
+fn update_boundary_signal_claim(
+    db: &DB,
+    claim: &ClaimedCorrelation,
+    retry_at_epoch_ms: u64,
+    dead_letter: bool,
+    completed: bool,
+) -> Result<(), BoundaryRuntimeError> {
+    let key = boundary_signal_storage_key(&claim.signal.tenant_id, &claim.signal.signal_id);
+    let mut record = load_boundary_signal_record(db, &key)?;
+    if record.lease_version != claim.lease_version || record.worker_id.is_empty() {
+        return Err(BoundaryRuntimeError::LeaseConflict);
+    }
+    let mut batch = WriteBatch::default();
+    batch.delete_cf(
+        boundary_signal_index_cf(db)?,
+        boundary_due_index_key(record.available_at_epoch_ms, &key),
+    );
+    record.available_at_epoch_ms = retry_at_epoch_ms;
+    record.lease_until_epoch_ms = 0;
+    record.worker_id.clear();
+    record.dead_lettered = dead_letter;
+    record.completed = completed;
+    if !dead_letter && !completed {
+        batch.put_cf(
+            boundary_signal_index_cf(db)?,
+            boundary_due_index_key(retry_at_epoch_ms, &key),
+            [],
+        );
+    }
+    batch.put_cf(boundary_signals_cf(db)?, key, record.encode_to_vec());
+    write_boundary_batch(db, batch)
+}
+
+fn validate_boundary_timer_claim(
+    record: &BoundarySubscriptionRecord,
+    claim: &ClaimedTimer,
+) -> Result<(), BoundaryRuntimeError> {
+    if record.lease_version != claim.lease_version
+        || record.generation != claim.generation
+        || record.worker_id.is_empty()
+    {
+        Err(BoundaryRuntimeError::LeaseConflict)
+    } else {
+        Ok(())
+    }
+}
+
+fn subscription_to_record(
+    subscription: &ProjectedBoundarySubscription,
+) -> BoundarySubscriptionRecord {
+    let (trigger_kind, trigger_reference) = boundary_trigger_to_storage(&subscription.trigger);
+    let mut record = BoundarySubscriptionRecord {
+        storage_schema_version: STORAGE_SCHEMA_VERSION,
+        tenant_id: subscription.key.tenant_id.to_string(),
+        instance_id: subscription.key.instance_id.to_string(),
+        boundary_event_id: subscription.key.boundary_event_id.to_string(),
+        attached_node_id: subscription.attached_node_id.to_string(),
+        target_node_id: subscription.target_node_id.to_string(),
+        cancel_activity: subscription.cancel_activity,
+        trigger_kind,
+        trigger_reference,
+        armed_at_epoch_ms: subscription.armed_at_epoch_ms,
+        armed_event_id: subscription.armed_event_id.clone(),
+        timer_schedule: None,
+        generation: 0,
+        attempts: 0,
+        available_at_epoch_ms: 0,
+        lease_until_epoch_ms: 0,
+        lease_version: 0,
+        worker_id: String::new(),
+        dead_lettered: false,
+        workflow_type: subscription.workflow_type.to_string(),
+        workflow_version: subscription.workflow_version.to_string(),
+    };
+    set_record_schedule(&mut record, subscription.timer_schedule);
+    if let Some(schedule) = subscription.timer_schedule {
+        record.available_at_epoch_ms = schedule.due_at_epoch_ms;
+    }
+    record
+}
+
+fn subscription_from_record(
+    record: &BoundarySubscriptionRecord,
+) -> Result<ProjectedBoundarySubscription, BoundaryRuntimeError> {
+    validate_boundary_storage_schema(record.storage_schema_version)?;
+    Ok(ProjectedBoundarySubscription {
+        key: BoundarySubscriptionKey {
+            tenant_id: TenantId::new(record.tenant_id.clone())
+                .map_err(boundary_identifier_error)?,
+            instance_id: InstanceId::new(record.instance_id.clone())
+                .map_err(boundary_identifier_error)?,
+            boundary_event_id: NodeId::new(record.boundary_event_id.clone())
+                .map_err(boundary_identifier_error)?,
+        },
+        attached_node_id: NodeId::new(record.attached_node_id.clone())
+            .map_err(boundary_identifier_error)?,
+        target_node_id: NodeId::new(record.target_node_id.clone())
+            .map_err(boundary_identifier_error)?,
+        cancel_activity: record.cancel_activity,
+        trigger: boundary_trigger_from_storage(record.trigger_kind, &record.trigger_reference)?,
+        armed_at_epoch_ms: record.armed_at_epoch_ms,
+        armed_event_id: non_empty_boundary(&record.armed_event_id, "armed_event_id")?.to_owned(),
+        timer_schedule: record_schedule(record)?,
+        workflow_type: WorkflowType::new(record.workflow_type.clone())
+            .map_err(boundary_identifier_error)?,
+        workflow_version: WorkflowVersion::new(record.workflow_version.clone())
+            .map_err(boundary_identifier_error)?,
+    })
+}
+
+fn set_record_schedule(record: &mut BoundarySubscriptionRecord, schedule: Option<TimerSchedule>) {
+    record.timer_schedule = schedule.map(|schedule| BoundaryTimerScheduleRecord {
+        due_at_epoch_ms: schedule.due_at_epoch_ms,
+        interval_ms: schedule.interval_ms,
+        remaining_firings: schedule.remaining_firings,
+    });
+}
+
+fn record_schedule(
+    record: &BoundarySubscriptionRecord,
+) -> Result<Option<TimerSchedule>, BoundaryRuntimeError> {
+    let Some(schedule) = &record.timer_schedule else {
+        return Ok(None);
+    };
+    if schedule.due_at_epoch_ms == 0
+        || schedule.interval_ms == Some(0)
+        || schedule.remaining_firings == Some(0)
+    {
+        return Err(BoundaryRuntimeError::Store(
+            "invalid persisted timer schedule".into(),
+        ));
+    }
+    Ok(Some(TimerSchedule {
+        due_at_epoch_ms: schedule.due_at_epoch_ms,
+        interval_ms: schedule.interval_ms,
+        remaining_firings: schedule.remaining_firings,
+    }))
+}
+
+fn signal_to_record(signal: &BoundarySignal) -> BoundarySignalRecord {
+    BoundarySignalRecord {
+        storage_schema_version: STORAGE_SCHEMA_VERSION,
+        signal_id: signal.signal_id.clone(),
+        tenant_id: signal.tenant_id.to_string(),
+        instance_id: signal.instance_id.to_string(),
+        signal_kind: match signal.kind {
+            BoundarySignalKind::Message => 1,
+            BoundarySignalKind::Error => 2,
+        },
+        reference: signal.reference.clone(),
+        occurred_at_epoch_ms: signal.occurred_at_epoch_ms,
+        authorization_context_ref: signal.authorization_context_ref.clone(),
+        attempts: 0,
+        available_at_epoch_ms: signal.occurred_at_epoch_ms,
+        lease_until_epoch_ms: 0,
+        lease_version: 0,
+        worker_id: String::new(),
+        completed: false,
+        dead_lettered: false,
+    }
+}
+
+fn signal_from_record(
+    record: &BoundarySignalRecord,
+) -> Result<BoundarySignal, BoundaryRuntimeError> {
+    validate_boundary_storage_schema(record.storage_schema_version)?;
+    let kind = match record.signal_kind {
+        1 => BoundarySignalKind::Message,
+        2 => BoundarySignalKind::Error,
+        _ => {
+            return Err(BoundaryRuntimeError::Store(
+                "invalid persisted boundary signal kind".into(),
+            ));
+        }
+    };
+    Ok(BoundarySignal {
+        signal_id: non_empty_boundary(&record.signal_id, "signal_id")?.to_owned(),
+        tenant_id: TenantId::new(record.tenant_id.clone()).map_err(boundary_identifier_error)?,
+        instance_id: InstanceId::new(record.instance_id.clone())
+            .map_err(boundary_identifier_error)?,
+        kind,
+        reference: record.reference.clone(),
+        occurred_at_epoch_ms: record.occurred_at_epoch_ms,
+        authorization_context_ref: non_empty_boundary(
+            &record.authorization_context_ref,
+            "authorization_context_ref",
+        )?
+        .to_owned(),
+    })
+}
+
+fn boundary_trigger_to_storage(trigger: &BoundaryTrigger) -> (i32, String) {
+    match trigger {
+        BoundaryTrigger::Timer { kind, expression } => (
+            match kind {
+                BoundaryTimerKind::Date => 1,
+                BoundaryTimerKind::Duration => 2,
+                BoundaryTimerKind::Cycle => 3,
+            },
+            expression.clone(),
+        ),
+        BoundaryTrigger::Error { error_ref } => (4, error_ref.clone().unwrap_or_default()),
+        BoundaryTrigger::Message { message_ref } => (5, message_ref.clone()),
+    }
+}
+
+fn boundary_trigger_from_storage(
+    kind: i32,
+    reference: &str,
+) -> Result<BoundaryTrigger, BoundaryRuntimeError> {
+    match kind {
+        1 => Ok(BoundaryTrigger::Timer {
+            kind: BoundaryTimerKind::Date,
+            expression: non_empty_boundary(reference, "timer_expression")?.to_owned(),
+        }),
+        2 => Ok(BoundaryTrigger::Timer {
+            kind: BoundaryTimerKind::Duration,
+            expression: non_empty_boundary(reference, "timer_expression")?.to_owned(),
+        }),
+        3 => Ok(BoundaryTrigger::Timer {
+            kind: BoundaryTimerKind::Cycle,
+            expression: non_empty_boundary(reference, "timer_expression")?.to_owned(),
+        }),
+        4 => Ok(BoundaryTrigger::Error {
+            error_ref: (!reference.is_empty()).then(|| reference.to_owned()),
+        }),
+        5 => Ok(BoundaryTrigger::Message {
+            message_ref: non_empty_boundary(reference, "message_ref")?.to_owned(),
+        }),
+        _ => Err(BoundaryRuntimeError::Store(
+            "invalid persisted boundary trigger kind".into(),
+        )),
+    }
+}
+
+fn load_boundary_subscription_record(
+    db: &DB,
+    key: &[u8],
+) -> Result<BoundarySubscriptionRecord, BoundaryRuntimeError> {
+    let bytes = db
+        .get_cf(boundary_subscriptions_cf(db)?, key)
+        .map_err(boundary_unavailable)?
+        .ok_or(BoundaryRuntimeError::LeaseConflict)?;
+    decode_boundary_subscription(&bytes)
+}
+
+fn load_boundary_signal_record(
+    db: &DB,
+    key: &[u8],
+) -> Result<BoundarySignalRecord, BoundaryRuntimeError> {
+    let bytes = db
+        .get_cf(boundary_signals_cf(db)?, key)
+        .map_err(boundary_unavailable)?
+        .ok_or(BoundaryRuntimeError::LeaseConflict)?;
+    decode_boundary_signal(&bytes)
+}
+
+fn decode_boundary_subscription(
+    bytes: &[u8],
+) -> Result<BoundarySubscriptionRecord, BoundaryRuntimeError> {
+    let record = BoundarySubscriptionRecord::decode(bytes)
+        .map_err(|error| BoundaryRuntimeError::Store(error.to_string()))?;
+    validate_boundary_storage_schema(record.storage_schema_version)?;
+    Ok(record)
+}
+
+fn decode_boundary_signal(bytes: &[u8]) -> Result<BoundarySignalRecord, BoundaryRuntimeError> {
+    let record = BoundarySignalRecord::decode(bytes)
+        .map_err(|error| BoundaryRuntimeError::Store(error.to_string()))?;
+    validate_boundary_storage_schema(record.storage_schema_version)?;
+    Ok(record)
+}
+
+fn validate_boundary_storage_schema(version: u32) -> Result<(), BoundaryRuntimeError> {
+    if version == STORAGE_SCHEMA_VERSION {
+        Ok(())
+    } else {
+        Err(BoundaryRuntimeError::Store(format!(
+            "unsupported boundary storage schema {version}"
+        )))
+    }
+}
+
+fn read_boundary_u64(db: &DB, key: &[u8]) -> Result<u64, BoundaryRuntimeError> {
+    let value = db
+        .get_cf(boundary_meta_cf(db)?, key)
+        .map_err(boundary_unavailable)?;
+    decode_u64_value(value.as_deref()).map_err(BoundaryRuntimeError::Store)
+}
+
+fn write_boundary_batch(db: &DB, batch: WriteBatch) -> Result<(), BoundaryRuntimeError> {
+    let mut options = WriteOptions::default();
+    options.set_sync(true);
+    db.write_opt(batch, &options).map_err(boundary_unavailable)
+}
+
+fn split_due_index_key(key: &[u8]) -> Result<(u64, &[u8]), BoundaryRuntimeError> {
+    let (due, suffix) = key
+        .split_at_checked(8)
+        .ok_or_else(|| BoundaryRuntimeError::Store("invalid boundary due-index key".into()))?;
+    let due: [u8; 8] = due
+        .try_into()
+        .map_err(|_| BoundaryRuntimeError::Store("invalid boundary due-index key".into()))?;
+    if suffix.is_empty() {
+        return Err(BoundaryRuntimeError::Store(
+            "empty boundary due-index suffix".into(),
+        ));
+    }
+    Ok((u64::from_be_bytes(due), suffix))
+}
+
+fn boundary_due_index_key(available_at_epoch_ms: u64, storage_key: &[u8]) -> Vec<u8> {
+    let mut key = available_at_epoch_ms.to_be_bytes().to_vec();
+    key.extend_from_slice(storage_key);
+    key
+}
+
+fn boundary_subscription_prefix(tenant: &TenantId, instance: &InstanceId) -> Vec<u8> {
+    let mut key = Vec::new();
+    push_component(&mut key, tenant.as_str());
+    push_component(&mut key, instance.as_str());
+    key
+}
+
+fn boundary_subscription_storage_key(key: &BoundarySubscriptionKey) -> Vec<u8> {
+    let mut storage_key = boundary_subscription_prefix(&key.tenant_id, &key.instance_id);
+    push_component(&mut storage_key, key.boundary_event_id.as_str());
+    storage_key
+}
+
+fn boundary_signal_storage_key(tenant: &TenantId, signal_id: &str) -> Vec<u8> {
+    let mut key = Vec::new();
+    push_component(&mut key, tenant.as_str());
+    push_component(&mut key, signal_id);
+    key
+}
+
+fn non_empty_boundary<'a>(value: &'a str, field: &str) -> Result<&'a str, BoundaryRuntimeError> {
+    if value.trim().is_empty() {
+        Err(BoundaryRuntimeError::Store(format!(
+            "persisted boundary field {field} is empty"
+        )))
+    } else {
+        Ok(value)
+    }
+}
+
+fn boundary_identifier_error(error: impl std::fmt::Display) -> BoundaryRuntimeError {
+    BoundaryRuntimeError::Store(error.to_string())
+}
+
+fn boundary_lock_error(error: impl std::fmt::Display) -> BoundaryRuntimeError {
+    BoundaryRuntimeError::Store(error.to_string())
+}
+
+#[allow(clippy::needless_pass_by_value)]
+fn boundary_unavailable(error: rocksdb::Error) -> BoundaryRuntimeError {
+    BoundaryRuntimeError::Store(error.to_string())
+}
+
+fn boundary_subscriptions_cf(db: &DB) -> Result<&rocksdb::ColumnFamily, BoundaryRuntimeError> {
+    boundary_named_cf(db, BOUNDARY_SUBSCRIPTIONS_CF)
+}
+
+fn boundary_timer_index_cf(db: &DB) -> Result<&rocksdb::ColumnFamily, BoundaryRuntimeError> {
+    boundary_named_cf(db, BOUNDARY_TIMER_INDEX_CF)
+}
+
+fn boundary_signals_cf(db: &DB) -> Result<&rocksdb::ColumnFamily, BoundaryRuntimeError> {
+    boundary_named_cf(db, BOUNDARY_SIGNALS_CF)
+}
+
+fn boundary_signal_index_cf(db: &DB) -> Result<&rocksdb::ColumnFamily, BoundaryRuntimeError> {
+    boundary_named_cf(db, BOUNDARY_SIGNAL_INDEX_CF)
+}
+
+fn boundary_meta_cf(db: &DB) -> Result<&rocksdb::ColumnFamily, BoundaryRuntimeError> {
+    boundary_named_cf(db, BOUNDARY_META_CF)
+}
+
+fn boundary_named_cf<'a>(
+    db: &'a DB,
+    name: &str,
+) -> Result<&'a rocksdb::ColumnFamily, BoundaryRuntimeError> {
+    db.cf_handle(name)
+        .ok_or_else(|| BoundaryRuntimeError::Store(format!("missing RocksDB column family {name}")))
+}
+
 fn build_commit_batch(
     db: &DB,
     request: &CommitRequest,
@@ -536,6 +1362,7 @@ fn outbox_named_cf<'a>(db: &'a DB, name: &str) -> Result<&'a rocksdb::ColumnFami
     })
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn outbox_unavailable(error: rocksdb::Error) -> OutboxError {
     OutboxError::StoreUnavailable(error.to_string())
 }
@@ -805,6 +1632,7 @@ fn push_component(key: &mut Vec<u8>, value: &str) {
     key.extend_from_slice(value.as_bytes());
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn unavailable(error: rocksdb::Error) -> StoreError {
     StoreError::Unavailable(error.to_string())
 }
@@ -827,6 +1655,7 @@ pub enum RocksDbOpenError {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::path::Path;
 
     use bpmp_domain_core::{
@@ -900,6 +1729,8 @@ mod tests {
                 policy_version: PolicyVersion::new("policy-1").unwrap(),
                 actor_id: ActorId::new("actor-1").unwrap(),
                 encryption_key_scope: KeyScope::new("tenant-a/operational").unwrap(),
+                workflow_type: WorkflowType::new("order").unwrap(),
+                workflow_version: WorkflowVersion::new("1").unwrap(),
             },
             event: DomainEvent::WorkflowStarted {
                 tenant_id: TenantId::new("tenant-a").unwrap(),
@@ -908,6 +1739,29 @@ mod tests {
                 start_node_id: NodeId::new("start").unwrap(),
                 occurred_at_epoch_ms: 42,
             },
+        }
+    }
+
+    fn boundary_subscription(
+        boundary_event_id: &str,
+        trigger: BoundaryTrigger,
+        timer_schedule: Option<TimerSchedule>,
+    ) -> ProjectedBoundarySubscription {
+        ProjectedBoundarySubscription {
+            key: BoundarySubscriptionKey {
+                tenant_id: TenantId::new("tenant-a").unwrap(),
+                instance_id: InstanceId::new("instance-1").unwrap(),
+                boundary_event_id: NodeId::new(boundary_event_id).unwrap(),
+            },
+            attached_node_id: NodeId::new("work").unwrap(),
+            target_node_id: NodeId::new("recovery").unwrap(),
+            cancel_activity: false,
+            trigger,
+            armed_at_epoch_ms: 100,
+            armed_event_id: format!("armed-{boundary_event_id}"),
+            timer_schedule,
+            workflow_type: WorkflowType::new("boundary-workflow").unwrap(),
+            workflow_version: WorkflowVersion::new("1").unwrap(),
         }
     }
 
@@ -930,11 +1784,11 @@ mod tests {
                         active_node: NodeId::new("start").unwrap(),
                     },
                     sequence: 1,
-                    variables: Default::default(),
-                    active_tokens: Default::default(),
-                    pending_gateway_joins: Default::default(),
-                    active_multi_instances: Default::default(),
-                    active_boundary_subscriptions: Default::default(),
+                    variables: BTreeMap::default(),
+                    active_tokens: BTreeMap::default(),
+                    pending_gateway_joins: BTreeMap::default(),
+                    active_multi_instances: BTreeMap::default(),
+                    active_boundary_subscriptions: BTreeMap::default(),
                 },
                 config_version: ConfigVersion::new("config-1").unwrap(),
                 policy_version: PolicyVersion::new("policy-1").unwrap(),
@@ -971,6 +1825,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn commit_is_encrypted_atomic_and_replays_after_reopen() {
         let directory = tempfile::tempdir().unwrap();
         let expected_event = event();
@@ -1084,6 +1939,111 @@ mod tests {
             reopened.commit(request()).unwrap(),
             CommitOutcome::Duplicate(_)
         ));
+    }
+
+    #[test]
+    fn boundary_runtime_projection_leases_and_correlation_survive_reopen() {
+        let directory = tempfile::tempdir().unwrap();
+        let timer = boundary_subscription(
+            "timeout",
+            BoundaryTrigger::Timer {
+                kind: BoundaryTimerKind::Duration,
+                expression: "PT1S".into(),
+            },
+            Some(TimerSchedule {
+                due_at_epoch_ms: 1_100,
+                interval_ms: None,
+                remaining_firings: Some(1),
+            }),
+        );
+        {
+            let store =
+                RocksDbWorkflowStore::open(config(directory.path()), TestCrypto { fail: false })
+                    .unwrap();
+            store
+                .apply_projection(0, 1, &[BoundaryProjectionMutation::Upsert(timer.clone())])
+                .unwrap();
+            let claims = store.claim_due_timers(1_100, 1_200, "worker-a", 8).unwrap();
+            assert_eq!(claims.len(), 1);
+            assert_eq!(claims[0].generation, 0);
+            assert_eq!(claims[0].attempts, 1);
+        }
+
+        let message = boundary_subscription(
+            "message-boundary",
+            BoundaryTrigger::Message {
+                message_ref: "order.cancelled".into(),
+            },
+            None,
+        );
+        let signal = BoundarySignal {
+            signal_id: "message-1".into(),
+            tenant_id: TenantId::new("tenant-a").unwrap(),
+            instance_id: InstanceId::new("instance-1").unwrap(),
+            kind: BoundarySignalKind::Message,
+            reference: Some("order.cancelled".into()),
+            occurred_at_epoch_ms: 1_150,
+            authorization_context_ref: "auth-context/message-1".into(),
+        };
+        {
+            let store =
+                RocksDbWorkflowStore::open(config(directory.path()), TestCrypto { fail: false })
+                    .unwrap();
+            assert!(
+                store
+                    .claim_due_timers(1_199, 1_300, "worker-b", 8)
+                    .unwrap()
+                    .is_empty()
+            );
+            let reclaimed = store.claim_due_timers(1_200, 1_300, "worker-b", 8).unwrap();
+            assert_eq!(reclaimed.len(), 1);
+            assert_eq!(reclaimed[0].generation, 0);
+            assert_eq!(reclaimed[0].attempts, 2);
+            store
+                .complete_timer(
+                    &reclaimed[0],
+                    TimerDispatchCompletion {
+                        next_schedule: None,
+                    },
+                )
+                .unwrap();
+            store
+                .apply_projection(1, 2, &[BoundaryProjectionMutation::Upsert(message)])
+                .unwrap();
+            assert_eq!(
+                store.enqueue_signal(&signal).unwrap(),
+                SignalEnqueueOutcome::Enqueued
+            );
+            let correlations = store
+                .claim_correlations(1_150, 1_250, "worker-a", 8, 64)
+                .unwrap();
+            assert_eq!(correlations.len(), 1);
+            assert_eq!(
+                correlations[0]
+                    .subscription
+                    .as_ref()
+                    .unwrap()
+                    .key
+                    .boundary_event_id
+                    .as_str(),
+                "message-boundary"
+            );
+            store.complete_correlation(&correlations[0]).unwrap();
+        }
+        let reopened =
+            RocksDbWorkflowStore::open(config(directory.path()), TestCrypto { fail: false })
+                .unwrap();
+        assert_eq!(reopened.projection_checkpoint().unwrap(), 2);
+        assert_eq!(
+            reopened.enqueue_signal(&signal).unwrap(),
+            SignalEnqueueOutcome::Duplicate
+        );
+        assert!(
+            reopened
+                .claim_correlations(2_000, 2_100, "worker-c", 8, 64)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

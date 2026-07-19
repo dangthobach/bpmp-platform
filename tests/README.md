@@ -30,6 +30,13 @@ Requirement 1 has a dedicated AC1-AC12 acceptance suite and compliance matrix:
   boundary semantics, durable subscription state, and branch completion.
 - `apps/rust/bpmp-engine/src/event_codec.rs` and `snapshot_codec.rs` cover wire
   round trips and crash-recovery state for those runtime constructs.
+- `apps/rust/bpmp-engine/src/boundary_runtime.rs` covers bounded projection,
+  due-time and cycle scheduling, exact correlation, retry/dead-letter behavior,
+  actor-context propagation, and malformed timer fail-closed behavior.
+- `crates/bpmp-adapter-rocksdb/src/rocks.rs` verifies projection checkpoints,
+  timer lease reclamation, persisted signals, deduplication, and correlation
+  survive database reopen. `apps/rust/bpmp-engine/tests/engine_flow.rs` verifies
+  boundary dispatch reauthorization, audit commit, and idempotent retries.
 
 Run all currently implemented workspace tests with:
 

@@ -170,7 +170,7 @@ fn write_call_activity(
     writer: &mut Writer<Vec<u8>>,
     node: &bpmp_contracts::wir::v1::Node,
     call: &bpmp_contracts::wir::v1::CallActivityNode,
-) -> Result<(), std::io::Error> {
+) -> Result<(), PrintError> {
     let mut element = BytesStart::new("bpmn:callActivity");
     element.push_attribute(("id", node.id.as_str()));
     element.push_attribute(("calledElement", call.called_element.as_str()));
@@ -306,7 +306,7 @@ fn write_node(
     task_type: Option<&str>,
     decision_ref: Option<&str>,
     enum_values: Option<&[String]>,
-) -> Result<(), std::io::Error> {
+) -> Result<(), PrintError> {
     let mut element = BytesStart::new(element_name);
     element.push_attribute(("id", node.id.as_str()));
     if let Some(task_type) = task_type {
@@ -342,9 +342,10 @@ fn write_activity_element(
     writer: &mut Writer<Vec<u8>>,
     element: BytesStart<'_>,
     node: &bpmp_contracts::wir::v1::Node,
-) -> Result<(), std::io::Error> {
+) -> Result<(), PrintError> {
     if node.properties.is_empty() && node.multi_instance.is_none() {
-        return writer.write_event(Event::Empty(element));
+        writer.write_event(Event::Empty(element))?;
+        return Ok(());
     }
     let name = String::from_utf8_lossy(element.name().as_ref()).into_owned();
     writer.write_event(Event::Start(element))?;
@@ -352,7 +353,8 @@ fn write_activity_element(
     if let Some(spec) = &node.multi_instance {
         write_multi_instance(writer, spec)?;
     }
-    writer.write_event(Event::End(BytesEnd::new(name)))
+    writer.write_event(Event::End(BytesEnd::new(name)))?;
+    Ok(())
 }
 
 fn write_properties(
@@ -391,7 +393,7 @@ fn render_property_value(value: Option<&PropertyValue>) -> (&'static str, String
 fn write_multi_instance(
     writer: &mut Writer<Vec<u8>>,
     spec: &MultiInstanceSpec,
-) -> Result<(), std::io::Error> {
+) -> Result<(), PrintError> {
     let mut element = BytesStart::new("bpmn:multiInstanceLoopCharacteristics");
     match MultiInstanceMode::try_from(spec.mode) {
         Ok(MultiInstanceMode::Sequential) => element.push_attribute(("isSequential", "true")),
@@ -408,18 +410,28 @@ fn write_multi_instance(
     if spec.max_parallelism > 0 {
         element.push_attribute(("maxParallelism", max_parallelism.as_str()));
     }
-    if spec.cardinality_expression.is_empty() {
-        return writer.write_event(Event::Empty(element));
+    if spec.cardinality_expression.is_empty() && spec.completion_condition.is_none() {
+        writer.write_event(Event::Empty(element))?;
+        return Ok(());
     }
     writer.write_event(Event::Start(element))?;
-    writer.write_event(Event::Start(BytesStart::new("bpmn:loopCardinality")))?;
-    writer.write_event(Event::Text(quick_xml::events::BytesText::new(
-        &spec.cardinality_expression,
-    )))?;
-    writer.write_event(Event::End(BytesEnd::new("bpmn:loopCardinality")))?;
+    if !spec.cardinality_expression.is_empty() {
+        writer.write_event(Event::Start(BytesStart::new("bpmn:loopCardinality")))?;
+        writer.write_event(Event::Text(quick_xml::events::BytesText::new(
+            &spec.cardinality_expression,
+        )))?;
+        writer.write_event(Event::End(BytesEnd::new("bpmn:loopCardinality")))?;
+    }
+    if let Some(condition) = spec.completion_condition.as_ref() {
+        let condition = render_boolean_expression(condition)?;
+        writer.write_event(Event::Start(BytesStart::new("bpmn:completionCondition")))?;
+        writer.write_event(Event::Text(quick_xml::events::BytesText::new(&condition)))?;
+        writer.write_event(Event::End(BytesEnd::new("bpmn:completionCondition")))?;
+    }
     writer.write_event(Event::End(BytesEnd::new(
         "bpmn:multiInstanceLoopCharacteristics",
-    )))
+    )))?;
+    Ok(())
 }
 
 fn enum_values(coverage: Option<&GatewayCoverage>) -> Option<&[String]> {

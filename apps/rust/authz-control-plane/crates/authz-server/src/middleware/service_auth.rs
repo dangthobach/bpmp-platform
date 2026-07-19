@@ -14,10 +14,14 @@ use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
 struct ServiceClaims {
-    #[allow(dead_code)]
     sub: String,
     #[allow(dead_code)]
     exp: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct ServicePrincipal {
+    pub subject: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -28,7 +32,7 @@ struct UnauthorizedBody {
 
 pub async fn require_service_jwt(
     State(state): State<AppState>,
-    req: Request,
+    mut req: Request,
     next: Next,
 ) -> Response {
     let Some(token) = req
@@ -40,14 +44,20 @@ pub async fn require_service_jwt(
         return unauthorized("missing bearer token");
     };
 
-    if let Err(reason) = verify_jwt(token, &state.jwt_jwks_url, &state.jwt_audience).await {
-        return unauthorized(&reason);
-    }
+    let principal = match verify_jwt(token, &state.jwt_jwks_url, &state.jwt_audience).await {
+        Ok(principal) => principal,
+        Err(reason) => return unauthorized(&reason),
+    };
+    req.extensions_mut().insert(principal);
 
     next.run(req).await
 }
 
-pub async fn verify_jwt(token: &str, jwks_url: &str, audience: &str) -> Result<(), String> {
+pub async fn verify_jwt(
+    token: &str,
+    jwks_url: &str,
+    audience: &str,
+) -> Result<ServicePrincipal, String> {
     if jwks_url.trim().is_empty() {
         return Err("JWT_JWKS_URL is required".to_owned());
     }
@@ -77,10 +87,14 @@ pub async fn verify_jwt(token: &str, jwks_url: &str, audience: &str) -> Result<(
 
     let mut validation = Validation::new(header.alg);
     validation.set_audience(&[audience]);
-    jsonwebtoken::decode::<ServiceClaims>(token, &key, &validation)
+    let token = jsonwebtoken::decode::<ServiceClaims>(token, &key, &validation)
         .map_err(|e| format!("invalid token: {e}"))?;
-
-    Ok(())
+    if token.claims.sub.trim().is_empty() {
+        return Err("missing JWT sub claim".to_owned());
+    }
+    Ok(ServicePrincipal {
+        subject: token.claims.sub,
+    })
 }
 
 fn unauthorized(message: &str) -> Response {

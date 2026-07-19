@@ -12,7 +12,10 @@ const ALL_MIGRATIONS: &str = concat!(
     include_str!("../migrations/009_indexes.sql"),
     include_str!("../migrations/010_user_last_active.sql"),
     include_str!("../migrations/011_entity_metadata.sql"),
+    include_str!("../migrations/012_tenant_registry.sql"),
 );
+
+const TENANT_REGISTRY: &str = include_str!("../migrations/012_tenant_registry.sql");
 
 #[test]
 fn sqlx_and_flyway_use_one_canonical_migration_directory() {
@@ -61,4 +64,13 @@ fn mutable_entities_have_required_metadata_and_immutable_logs_are_excluded() {
             "immutable/derived table {immutable} must not receive soft-delete metadata"
         );
     }
+}
+
+#[test]
+fn tenant_registry_has_immutable_audit_and_stable_code_uniqueness() {
+    assert!(TENANT_REGISTRY.contains("CREATE TABLE tenant_audit_log"));
+    assert!(TENANT_REGISTRY.contains("entity_version"));
+    assert!(TENANT_REGISTRY.contains("actor_ref"));
+    assert!(TENANT_REGISTRY.contains("request_id"));
+    assert!(TENANT_REGISTRY.contains("ON tenant(lower(code))"));
 }
