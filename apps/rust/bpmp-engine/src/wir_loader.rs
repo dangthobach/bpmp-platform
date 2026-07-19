@@ -75,8 +75,19 @@ fn map_definition(
         let metadata = NodeExecutionMetadata {
             multi_instance: encoded.multi_instance.map(map_multi_instance).transpose()?,
             properties: map_properties(encoded.properties)?,
+            owner_scope_id: if encoded.owner_scope_id.is_empty() {
+                None
+            } else {
+                Some(node_id_value(
+                    encoded.owner_scope_id,
+                    "node.owner_scope_id",
+                )?)
+            },
         };
-        if metadata.multi_instance.is_some() || !metadata.properties.is_empty() {
+        if metadata.multi_instance.is_some()
+            || !metadata.properties.is_empty()
+            || metadata.owner_scope_id.is_some()
+        {
             node_metadata.push((node_id.clone(), metadata));
         }
         let kind = match encoded
@@ -120,6 +131,11 @@ fn map_definition(
                     })?)
                 },
                 next: node_id_value(call.next_node_id, "call_activity.next_node_id")?,
+            },
+            node::Kind::SubProcess(scope) => Node::SubProcess {
+                start: node_id_value(scope.start_node_id, "sub_process.start_node_id")?,
+                end: node_id_value(scope.end_node_id, "sub_process.end_node_id")?,
+                next: node_id_value(scope.next_node_id, "sub_process.next_node_id")?,
             },
             node::Kind::End(_) => Node::End,
             node::Kind::ExclusiveGateway(gateway) => Node::ExclusiveGateway {

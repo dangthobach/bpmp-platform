@@ -75,6 +75,8 @@ message EventEnvelope {
     WorkflowBranchCompleted workflow_branch_completed = 23;
     BoundaryEventArmed boundary_event_armed = 24;
     BoundaryEventsDisarmed boundary_events_disarmed = 25;
+    ScopeEntered scope_entered = 26;
+    ScopeCompleted scope_completed = 27;
   }
 }
 
@@ -209,6 +211,20 @@ message WorkflowBranchCompleted {
   string end_node_id = 1;
 }
 
+message ScopeEntered {
+  string scope_instance_id = 1;
+  string scope_node_id = 2;
+  string start_node_id = 3;
+  optional string parent_scope_instance_id = 4;
+  uint64 invocation = 5;
+}
+
+message ScopeCompleted {
+  string scope_instance_id = 1;
+  string scope_node_id = 2;
+  string end_node_id = 3;
+}
+
 enum WorkflowLifecycle {
   WORKFLOW_LIFECYCLE_UNSPECIFIED = 0;
   WORKFLOW_LIFECYCLE_INITIAL = 1;
@@ -233,6 +249,8 @@ message WorkflowSnapshot {
   repeated PendingGatewayJoin pending_gateway_joins = 14;
   repeated ActiveMultiInstance active_multi_instances = 15;
   repeated ActiveBoundarySubscription active_boundary_subscriptions = 16;
+  repeated ActiveExecutionScope active_scopes = 17;
+  repeated ScopeInvocationCounter scope_invocation_counters = 18;
 }
 
 message ActiveToken {
@@ -267,4 +285,17 @@ message ActiveBoundarySubscription {
   BoundaryTriggerKind trigger_kind = 5;
   string trigger_reference = 6;
   uint64 armed_at_epoch_ms = 7;
+}
+
+message ActiveExecutionScope {
+  string scope_instance_id = 1;
+  string scope_node_id = 2;
+  string start_node_id = 3;
+  optional string parent_scope_instance_id = 4;
+  uint64 invocation = 5;
+}
+
+message ScopeInvocationCounter {
+  string scope_node_id = 1;
+  uint64 invocations = 2;
 }

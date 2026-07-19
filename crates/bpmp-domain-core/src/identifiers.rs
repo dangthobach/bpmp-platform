@@ -52,6 +52,7 @@ identifier!(InstanceId);
 identifier!(KeyScope);
 identifier!(NodeId);
 identifier!(PolicyVersion);
+identifier!(ScopeInstanceId);
 identifier!(TaskType);
 identifier!(TenantId);
 identifier!(WorkflowType);

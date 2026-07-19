@@ -27,6 +27,7 @@ message Node {
     ParallelGatewayNode parallel_gateway = 10;
     InclusiveGatewayNode inclusive_gateway = 11;
     CallActivityNode call_activity = 15;
+    SubProcessNode sub_process = 16;
   }
   DataContract data_contract = 6;
   uint64 sla_milliseconds = 7;
@@ -34,6 +35,7 @@ message Node {
   repeated ExtensionProperty properties = 12;
   MultiInstanceSpec multi_instance = 13;
   repeated BoundaryEvent boundary_events = 14;
+  string owner_scope_id = 17;
 }
 
 message StartNode {
@@ -53,6 +55,12 @@ message DecisionTaskNode {
 message CallActivityNode {
   string called_element = 1;
   string called_version = 2;
+  string next_node_id = 3;
+}
+
+message SubProcessNode {
+  string start_node_id = 1;
+  string end_node_id = 2;
   string next_node_id = 3;
 }
 

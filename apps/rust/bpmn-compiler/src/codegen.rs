@@ -38,7 +38,7 @@ pub(crate) fn generate_rust(
         "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
          pub enum GatewayKind { Exclusive, Inclusive, Parallel }\n\
          #[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
-         pub enum NodeKind { Start, ServiceTask, DecisionTask, CallActivity, Split(GatewayKind), Join(GatewayKind), End }\n\
+         pub enum NodeKind { Start, ServiceTask, DecisionTask, CallActivity, SubProcess, Split(GatewayKind), Join(GatewayKind), End }\n\
          #[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
          pub enum Operator { Equal, NotEqual, LessThan, LessThanOrEqual, GreaterThan, GreaterThanOrEqual }\n\
          #[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
@@ -437,6 +437,7 @@ fn render_transitions(encoded: &bpmp_contracts::wir::v1::Node) -> Result<String,
         node::Kind::ServiceTask(node) => vec![unconditional(&node.next_node_id)],
         node::Kind::DecisionTask(node) => vec![unconditional(&node.next_node_id)],
         node::Kind::CallActivity(node) => vec![unconditional(&node.next_node_id)],
+        node::Kind::SubProcess(node) => vec![unconditional(&node.start_node_id)],
         node::Kind::ExclusiveGateway(node) => node
             .transitions
             .iter()
@@ -584,6 +585,11 @@ fn render_node(
             "NodeKind::CallActivity".into(),
             format!("[{:?}]", call.next_node_id),
             "None".into(),
+        ),
+        node::Kind::SubProcess(scope) => (
+            "NodeKind::SubProcess".into(),
+            format!("[{:?}]", scope.start_node_id),
+            format!("Some({:?})", scope.end_node_id),
         ),
         node::Kind::ExclusiveGateway(gateway) => {
             validate_guards(&encoded.id, &gateway.transitions)?;

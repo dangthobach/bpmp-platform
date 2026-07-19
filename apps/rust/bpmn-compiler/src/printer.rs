@@ -29,128 +29,18 @@ pub(crate) fn print_canonical(
     write_properties(&mut writer, &wir.properties)?;
 
     let mut flows = Vec::new();
-    for node in &wir.nodes {
-        let kind = node
-            .kind
-            .as_ref()
-            .ok_or_else(|| PrintError::MissingNodeKind(node.id.clone()))?;
-        match kind {
-            node::Kind::Start(start) => {
-                write_node(&mut writer, "bpmn:startEvent", node, None, None, None)?;
-                flows.push((node.id.as_str(), start.next_node_id.as_str(), None, false));
-            }
-            node::Kind::ServiceTask(task) => {
-                write_node(
-                    &mut writer,
-                    "bpmn:serviceTask",
-                    node,
-                    Some(&task.task_type),
-                    None,
-                    None,
-                )?;
-                flows.push((node.id.as_str(), task.next_node_id.as_str(), None, false));
-            }
-            node::Kind::DecisionTask(task) => {
-                write_node(
-                    &mut writer,
-                    "bpmn:businessRuleTask",
-                    node,
-                    None,
-                    Some(&task.decision_table_id),
-                    None,
-                )?;
-                flows.push((node.id.as_str(), task.next_node_id.as_str(), None, false));
-            }
-            node::Kind::CallActivity(call) => {
-                write_call_activity(&mut writer, node, call)?;
-                flows.push((node.id.as_str(), call.next_node_id.as_str(), None, false));
-            }
-            node::Kind::ExclusiveGateway(gateway) => {
-                write_node(
-                    &mut writer,
-                    "bpmn:exclusiveGateway",
-                    node,
-                    None,
-                    None,
-                    enum_values(gateway.coverage.as_ref()),
-                )?;
-                for transition in &gateway.transitions {
-                    let condition = render_transition_condition(transition)?;
-                    flows.push((
-                        node.id.as_str(),
-                        transition.target_node_id.as_str(),
-                        condition,
-                        transition.is_default,
-                    ));
-                }
-            }
-            node::Kind::ParallelGateway(gateway) => {
-                write_node(&mut writer, "bpmn:parallelGateway", node, None, None, None)?;
-                match GatewayDirection::try_from(gateway.direction) {
-                    Ok(GatewayDirection::Split | GatewayDirection::Join) => {
-                        for target in &gateway.target_node_ids {
-                            flows.push((node.id.as_str(), target.as_str(), None, false));
-                        }
-                    }
-                    Ok(GatewayDirection::Unspecified) | Err(_) => {
-                        return Err(PrintError::InvalidGatewayDirection(gateway.direction));
-                    }
-                }
-            }
-            node::Kind::InclusiveGateway(gateway) => {
-                write_node(
-                    &mut writer,
-                    "bpmn:inclusiveGateway",
-                    node,
-                    None,
-                    None,
-                    enum_values(gateway.coverage.as_ref()),
-                )?;
-                match GatewayDirection::try_from(gateway.direction) {
-                    Ok(GatewayDirection::Split) => {
-                        for transition in &gateway.transitions {
-                            let condition = render_transition_condition(transition)?;
-                            flows.push((
-                                node.id.as_str(),
-                                transition.target_node_id.as_str(),
-                                condition,
-                                transition.is_default,
-                            ));
-                        }
-                    }
-                    Ok(GatewayDirection::Join) => {
-                        flows.push((node.id.as_str(), gateway.next_node_id.as_str(), None, false));
-                    }
-                    Ok(GatewayDirection::Unspecified) | Err(_) => {
-                        return Err(PrintError::InvalidGatewayDirection(gateway.direction));
-                    }
-                }
-            }
-            node::Kind::End(_) => {
-                write_node(&mut writer, "bpmn:endEvent", node, None, None, None)?;
-            }
-        }
-        for boundary in &node.boundary_events {
-            write_boundary_event(&mut writer, &node.id, boundary)?;
-            flows.push((
-                boundary.id.as_str(),
-                boundary.target_node_id.as_str(),
-                None,
-                false,
-            ));
-        }
-    }
+    write_scope_nodes(&mut writer, wir, "", &mut flows)?;
 
-    for (ordinal, (source, target, condition, is_default)) in flows.into_iter().enumerate() {
+    for (ordinal, flow_data) in flows.into_iter().enumerate() {
         let mut flow = BytesStart::new("bpmn:sequenceFlow");
         let flow_id = format!("canonical-flow-{ordinal}");
         flow.push_attribute(("id", flow_id.as_str()));
-        flow.push_attribute(("sourceRef", source));
-        flow.push_attribute(("targetRef", target));
-        if is_default {
+        flow.push_attribute(("sourceRef", flow_data.source.as_str()));
+        flow.push_attribute(("targetRef", flow_data.target.as_str()));
+        if flow_data.is_default {
             flow.push_attribute(("isDefault", "true"));
         }
-        if let Some(condition) = &condition {
+        if let Some(condition) = &flow_data.condition {
             writer.write_event(Event::Start(flow))?;
             writer.write_event(Event::Start(BytesStart::new("bpmn:conditionExpression")))?;
             writer.write_event(Event::Text(quick_xml::events::BytesText::new(condition)))?;
@@ -164,6 +54,181 @@ pub(crate) fn print_canonical(
     writer.write_event(Event::End(BytesEnd::new("bpmn:process")))?;
     writer.write_event(Event::End(BytesEnd::new("bpmn:definitions")))?;
     String::from_utf8(writer.into_inner()).map_err(PrintError::Utf8)
+}
+
+struct CanonicalFlow {
+    source: String,
+    target: String,
+    condition: Option<String>,
+    is_default: bool,
+}
+
+fn flow(source: &str, target: &str, condition: Option<String>, is_default: bool) -> CanonicalFlow {
+    CanonicalFlow {
+        source: source.to_owned(),
+        target: target.to_owned(),
+        condition,
+        is_default,
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn write_scope_nodes(
+    writer: &mut Writer<Vec<u8>>,
+    wir: &WorkflowIntermediateRepresentation,
+    owner_scope_id: &str,
+    flows: &mut Vec<CanonicalFlow>,
+) -> Result<(), PrintError> {
+    for encoded in wir
+        .nodes
+        .iter()
+        .filter(|node| node.owner_scope_id == owner_scope_id)
+    {
+        let kind = encoded
+            .kind
+            .as_ref()
+            .ok_or_else(|| PrintError::MissingNodeKind(encoded.id.clone()))?;
+        match kind {
+            node::Kind::Start(start) => {
+                write_node(writer, "bpmn:startEvent", encoded, None, None, None)?;
+                flows.push(flow(&encoded.id, &start.next_node_id, None, false));
+            }
+            node::Kind::ServiceTask(task) => {
+                write_node(
+                    writer,
+                    "bpmn:serviceTask",
+                    encoded,
+                    Some(&task.task_type),
+                    None,
+                    None,
+                )?;
+                flows.push(flow(&encoded.id, &task.next_node_id, None, false));
+            }
+            node::Kind::DecisionTask(task) => {
+                write_node(
+                    writer,
+                    "bpmn:businessRuleTask",
+                    encoded,
+                    None,
+                    Some(&task.decision_table_id),
+                    None,
+                )?;
+                flows.push(flow(&encoded.id, &task.next_node_id, None, false));
+            }
+            node::Kind::CallActivity(call) => {
+                write_call_activity(writer, encoded, call)?;
+                flows.push(flow(&encoded.id, &call.next_node_id, None, false));
+            }
+            node::Kind::SubProcess(scope) => {
+                let mut element = BytesStart::new("bpmn:subProcess");
+                element.push_attribute(("id", encoded.id.as_str()));
+                writer.write_event(Event::Start(element))?;
+                write_properties(writer, &encoded.properties)?;
+                if let Some(spec) = &encoded.multi_instance {
+                    write_multi_instance(writer, spec)?;
+                }
+                let mut child_flows = Vec::new();
+                write_scope_nodes(writer, wir, &encoded.id, &mut child_flows)?;
+                write_flow_elements(writer, &encoded.id, child_flows)?;
+                writer.write_event(Event::End(BytesEnd::new("bpmn:subProcess")))?;
+                flows.push(flow(&encoded.id, &scope.next_node_id, None, false));
+            }
+            node::Kind::ExclusiveGateway(gateway) => {
+                write_node(
+                    writer,
+                    "bpmn:exclusiveGateway",
+                    encoded,
+                    None,
+                    None,
+                    enum_values(gateway.coverage.as_ref()),
+                )?;
+                for transition in &gateway.transitions {
+                    flows.push(flow(
+                        &encoded.id,
+                        &transition.target_node_id,
+                        render_transition_condition(transition)?,
+                        transition.is_default,
+                    ));
+                }
+            }
+            node::Kind::ParallelGateway(gateway) => {
+                write_node(writer, "bpmn:parallelGateway", encoded, None, None, None)?;
+                match GatewayDirection::try_from(gateway.direction) {
+                    Ok(GatewayDirection::Split | GatewayDirection::Join) => {
+                        for target in &gateway.target_node_ids {
+                            flows.push(flow(&encoded.id, target, None, false));
+                        }
+                    }
+                    Ok(GatewayDirection::Unspecified) | Err(_) => {
+                        return Err(PrintError::InvalidGatewayDirection(gateway.direction));
+                    }
+                }
+            }
+            node::Kind::InclusiveGateway(gateway) => {
+                write_node(
+                    writer,
+                    "bpmn:inclusiveGateway",
+                    encoded,
+                    None,
+                    None,
+                    enum_values(gateway.coverage.as_ref()),
+                )?;
+                match GatewayDirection::try_from(gateway.direction) {
+                    Ok(GatewayDirection::Split) => {
+                        for transition in &gateway.transitions {
+                            flows.push(flow(
+                                &encoded.id,
+                                &transition.target_node_id,
+                                render_transition_condition(transition)?,
+                                transition.is_default,
+                            ));
+                        }
+                    }
+                    Ok(GatewayDirection::Join) => {
+                        flows.push(flow(&encoded.id, &gateway.next_node_id, None, false));
+                    }
+                    Ok(GatewayDirection::Unspecified) | Err(_) => {
+                        return Err(PrintError::InvalidGatewayDirection(gateway.direction));
+                    }
+                }
+            }
+            node::Kind::End(_) => {
+                write_node(writer, "bpmn:endEvent", encoded, None, None, None)?;
+            }
+        }
+        for boundary in &encoded.boundary_events {
+            write_boundary_event(writer, &encoded.id, boundary)?;
+            flows.push(flow(&boundary.id, &boundary.target_node_id, None, false));
+        }
+    }
+    Ok(())
+}
+
+fn write_flow_elements(
+    writer: &mut Writer<Vec<u8>>,
+    scope_id: &str,
+    flows: Vec<CanonicalFlow>,
+) -> Result<(), PrintError> {
+    for (ordinal, flow_data) in flows.into_iter().enumerate() {
+        let mut element = BytesStart::new("bpmn:sequenceFlow");
+        let flow_id = format!("canonical-{scope_id}-flow-{ordinal}");
+        element.push_attribute(("id", flow_id.as_str()));
+        element.push_attribute(("sourceRef", flow_data.source.as_str()));
+        element.push_attribute(("targetRef", flow_data.target.as_str()));
+        if flow_data.is_default {
+            element.push_attribute(("isDefault", "true"));
+        }
+        if let Some(condition) = flow_data.condition {
+            writer.write_event(Event::Start(element))?;
+            writer.write_event(Event::Start(BytesStart::new("bpmn:conditionExpression")))?;
+            writer.write_event(Event::Text(quick_xml::events::BytesText::new(&condition)))?;
+            writer.write_event(Event::End(BytesEnd::new("bpmn:conditionExpression")))?;
+            writer.write_event(Event::End(BytesEnd::new("bpmn:sequenceFlow")))?;
+        } else {
+            writer.write_event(Event::Empty(element))?;
+        }
+    }
+    Ok(())
 }
 
 fn write_call_activity(

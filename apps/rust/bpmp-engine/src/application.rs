@@ -435,6 +435,14 @@ const fn event_time(event: &DomainEvent) -> u64 {
             occurred_at_epoch_ms,
             ..
         }
+        | DomainEvent::ScopeEntered {
+            occurred_at_epoch_ms,
+            ..
+        }
+        | DomainEvent::ScopeCompleted {
+            occurred_at_epoch_ms,
+            ..
+        }
         | DomainEvent::WorkflowBranchCompleted {
             occurred_at_epoch_ms,
             ..

@@ -7,9 +7,11 @@ signed WIR artifact.
 
 ## Implemented
 
-- Embedded sub-processes with one outer entry/exit and one inner start/end are
-  normalized into a flat canonical graph. Nested sub-processes are normalized
-  from the innermost scope outward.
+- Plain embedded sub-processes with one outer entry/exit and one inner start/end
+  are normalized into a flat canonical graph. Sub-processes that own boundary
+  or compensation semantics are retained as explicit WIR scope nodes, and child
+  nodes carry their owning scope identity through canonical printing and engine
+  loading.
 - Call activities retain `calledElement` and optional `calledVersion` in a
   dedicated WIR node. The deterministic core exposes them through the external
   task completion protocol while child-instance orchestration remains an
@@ -64,15 +66,22 @@ signed WIR artifact.
 - Timer expressions support RFC 3339 dates, bounded ISO 8601 duration values,
   and finite/infinite repeat cycles. Expression bytes and scheduling horizon are
   resolved from the pinned engine configuration.
+- Retained sub-process entry and completion use deterministic scope instance
+  identifiers. Scope invocation counters and active parent/child relationships
+  are durable event and snapshot state, so replay does not derive identity from
+  wall-clock or storage order.
 
 ## Explicit Runtime Work
 
 - Deployment hosts must bind their concrete transport consumer and secure
   authorization-context vault to the boundary signal ingress and credentials
   ports. The engine does not trust actor claims supplied by a workload.
-- A multi-instance, compensation, or boundary scope attached directly to a
-  sub-process requires retaining the scope node; the current inline normalizer
-  rejects this combination with `InvalidSubProcess`.
+- Retained sub-process execution currently permits one active invocation per
+  scope node. Concurrent or multi-instance retained scopes fail closed until
+  tokens carry a scope-instance key through split/join and completion.
+- Non-interrupting boundaries owned by a retained sub-process can be armed and
+  routed. Interrupting scope cancellation and compensation-handler execution
+  fail closed until scoped token cancellation is implemented.
 - Call activity child-instance start/completion correlation is not yet wired to
   the application layer. The compiler, WIR, loader, and generated state machine
   retain the required call contract.

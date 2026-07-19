@@ -1,9 +1,9 @@
 use bpmp_contracts::engine::v1 as wire;
 use bpmp_domain_core::{
-    ActiveBoundarySubscription, ActiveMultiInstance, BoundaryTimerKind, BoundaryTrigger,
-    ConfigVersion, IdentifierError, InstanceId, InstanceState, KeyScope, Lifecycle,
-    MultiInstanceMode, NodeId, PendingGatewayJoin, PolicyVersion, TaskType, TenantId, WorkflowType,
-    WorkflowValue, WorkflowVersion,
+    ActiveBoundarySubscription, ActiveExecutionScope, ActiveMultiInstance, BoundaryTimerKind,
+    BoundaryTrigger, ConfigVersion, IdentifierError, InstanceId, InstanceState, KeyScope,
+    Lifecycle, MultiInstanceMode, NodeId, PendingGatewayJoin, PolicyVersion, ScopeInstanceId,
+    TaskType, TenantId, WorkflowType, WorkflowValue, WorkflowVersion,
 };
 use prost::Message;
 use thiserror::Error;
@@ -119,6 +119,42 @@ fn to_wire(snapshot: &SnapshotEnvelope) -> wire::WorkflowSnapshot {
                 }
             })
             .collect(),
+        active_scopes: snapshot
+            .state
+            .active_scopes
+            .iter()
+            .map(active_execution_scope_to_wire)
+            .collect(),
+        scope_invocation_counters: snapshot
+            .state
+            .scope_invocation_counts
+            .iter()
+            .map(scope_invocation_counter_to_wire)
+            .collect(),
+    }
+}
+
+fn active_execution_scope_to_wire(
+    (scope_instance_id, scope): (&ScopeInstanceId, &ActiveExecutionScope),
+) -> wire::ActiveExecutionScope {
+    wire::ActiveExecutionScope {
+        scope_instance_id: scope_instance_id.to_string(),
+        scope_node_id: scope.scope_node_id.to_string(),
+        start_node_id: scope.start_node_id.to_string(),
+        parent_scope_instance_id: scope
+            .parent_scope_instance_id
+            .as_ref()
+            .map(ToString::to_string),
+        invocation: scope.invocation,
+    }
+}
+
+fn scope_invocation_counter_to_wire(
+    (scope_node_id, invocations): (&NodeId, &u64),
+) -> wire::ScopeInvocationCounter {
+    wire::ScopeInvocationCounter {
+        scope_node_id: scope_node_id.to_string(),
+        invocations: *invocations,
     }
 }
 
@@ -128,22 +164,7 @@ fn from_wire(snapshot: wire::WorkflowSnapshot) -> Result<SnapshotEnvelope, Snaps
             snapshot.schema_version,
         ));
     }
-    let lifecycle = match wire::WorkflowLifecycle::try_from(snapshot.lifecycle)
-        .map_err(|_| SnapshotCodecError::InvalidLifecycle(snapshot.lifecycle))?
-    {
-        wire::WorkflowLifecycle::Initial if snapshot.active_node_id.is_empty() => {
-            Lifecycle::Initial
-        }
-        wire::WorkflowLifecycle::Active if !snapshot.active_node_id.is_empty() => {
-            Lifecycle::Active {
-                active_node: identifier(NodeId::new, snapshot.active_node_id, "active_node_id")?,
-            }
-        }
-        wire::WorkflowLifecycle::Completed if snapshot.active_node_id.is_empty() => {
-            Lifecycle::Completed
-        }
-        lifecycle => return Err(SnapshotCodecError::InconsistentLifecycle(lifecycle)),
-    };
+    let lifecycle = lifecycle_from_wire(snapshot.lifecycle, snapshot.active_node_id)?;
     let active_tokens = snapshot
         .active_tokens
         .into_iter()
@@ -183,6 +204,8 @@ fn from_wire(snapshot: wire::WorkflowSnapshot) -> Result<SnapshotEnvelope, Snaps
         .into_iter()
         .map(active_boundary_subscription_from_wire)
         .collect::<Result<_, _>>()?;
+    let scope_state =
+        scope_state_from_wire(snapshot.active_scopes, snapshot.scope_invocation_counters)?;
     Ok(SnapshotEnvelope {
         tenant_id: identifier(TenantId::new, snapshot.tenant_id, "tenant_id")?,
         instance_id: identifier(InstanceId::new, snapshot.instance_id, "instance_id")?,
@@ -204,6 +227,8 @@ fn from_wire(snapshot: wire::WorkflowSnapshot) -> Result<SnapshotEnvelope, Snaps
             pending_gateway_joins,
             active_multi_instances,
             active_boundary_subscriptions,
+            active_scopes: scope_state.active_scopes,
+            scope_invocation_counts: scope_state.invocation_counts,
         },
         config_version: identifier(
             ConfigVersion::new,
@@ -221,6 +246,95 @@ fn from_wire(snapshot: wire::WorkflowSnapshot) -> Result<SnapshotEnvelope, Snaps
             "encryption_key_scope",
         )?,
     })
+}
+
+fn lifecycle_from_wire(
+    lifecycle: i32,
+    active_node_id: String,
+) -> Result<Lifecycle, SnapshotCodecError> {
+    match wire::WorkflowLifecycle::try_from(lifecycle)
+        .map_err(|_| SnapshotCodecError::InvalidLifecycle(lifecycle))?
+    {
+        wire::WorkflowLifecycle::Initial if active_node_id.is_empty() => Ok(Lifecycle::Initial),
+        wire::WorkflowLifecycle::Active if !active_node_id.is_empty() => Ok(Lifecycle::Active {
+            active_node: identifier(NodeId::new, active_node_id, "active_node_id")?,
+        }),
+        wire::WorkflowLifecycle::Completed if active_node_id.is_empty() => Ok(Lifecycle::Completed),
+        lifecycle => Err(SnapshotCodecError::InconsistentLifecycle(lifecycle)),
+    }
+}
+
+struct DecodedScopeState {
+    active_scopes: std::collections::BTreeMap<ScopeInstanceId, ActiveExecutionScope>,
+    invocation_counts: std::collections::BTreeMap<NodeId, u64>,
+}
+
+fn scope_state_from_wire(
+    active_scopes: Vec<wire::ActiveExecutionScope>,
+    counters: Vec<wire::ScopeInvocationCounter>,
+) -> Result<DecodedScopeState, SnapshotCodecError> {
+    let active_scopes = active_scopes
+        .into_iter()
+        .map(active_execution_scope_from_wire)
+        .collect::<Result<_, _>>()?;
+    let counters = counters
+        .into_iter()
+        .map(|counter| {
+            if counter.invocations == 0 {
+                return Err(SnapshotCodecError::InvalidScopeState);
+            }
+            Ok((
+                identifier(
+                    NodeId::new,
+                    counter.scope_node_id,
+                    "scope_counter.scope_node_id",
+                )?,
+                counter.invocations,
+            ))
+        })
+        .collect::<Result<_, _>>()?;
+    Ok(DecodedScopeState {
+        active_scopes,
+        invocation_counts: counters,
+    })
+}
+
+fn active_execution_scope_from_wire(
+    scope: wire::ActiveExecutionScope,
+) -> Result<(ScopeInstanceId, ActiveExecutionScope), SnapshotCodecError> {
+    if scope.invocation == 0 {
+        return Err(SnapshotCodecError::InvalidScopeState);
+    }
+    Ok((
+        identifier(
+            ScopeInstanceId::new,
+            scope.scope_instance_id,
+            "active_scope.scope_instance_id",
+        )?,
+        ActiveExecutionScope {
+            scope_node_id: identifier(
+                NodeId::new,
+                scope.scope_node_id,
+                "active_scope.scope_node_id",
+            )?,
+            start_node_id: identifier(
+                NodeId::new,
+                scope.start_node_id,
+                "active_scope.start_node_id",
+            )?,
+            parent_scope_instance_id: scope
+                .parent_scope_instance_id
+                .map(|value| {
+                    identifier(
+                        ScopeInstanceId::new,
+                        value,
+                        "active_scope.parent_scope_instance_id",
+                    )
+                })
+                .transpose()?,
+            invocation: scope.invocation,
+        },
+    ))
 }
 
 fn workflow_value_to_wire(value: &WorkflowValue) -> wire::workflow_variable::Value {
@@ -477,6 +591,8 @@ pub enum SnapshotCodecError {
     InvalidMultiInstanceMode(i32),
     #[error("snapshot multi-instance state is invalid")]
     InvalidMultiInstanceState,
+    #[error("snapshot retained scope state is invalid")]
+    InvalidScopeState,
     #[error("snapshot contains unknown boundary trigger kind {0}")]
     InvalidBoundaryTriggerKind(i32),
     #[error("invalid snapshot identifier in field {field}: {source}")]
@@ -542,6 +658,17 @@ mod tests {
                     },
                 )]
                 .into(),
+                active_scopes: [(
+                    ScopeInstanceId::new("review#1").unwrap(),
+                    ActiveExecutionScope {
+                        scope_node_id: NodeId::new("review").unwrap(),
+                        start_node_id: NodeId::new("review-start").unwrap(),
+                        parent_scope_instance_id: None,
+                        invocation: 1,
+                    },
+                )]
+                .into(),
+                scope_invocation_counts: [(NodeId::new("review").unwrap(), 1)].into(),
             },
             config_version: ConfigVersion::new("config-7").unwrap(),
             policy_version: PolicyVersion::new("policy-3").unwrap(),

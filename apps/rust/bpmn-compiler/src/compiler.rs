@@ -8,7 +8,7 @@ use bpmp_contracts::wir::v1::{
     EventTrigger, ExclusiveGatewayNode, ExtensionProperty, GatewayCoverage, GatewayDirection,
     GuardExpression, HitPolicy, InclusiveGatewayNode, IntegerInterval, MessageTrigger,
     MultiInstanceMode, MultiInstanceSpec, Node, ParallelGatewayNode, PropertyValue,
-    ServiceTaskNode, StartNode, TimerKind, TimerTrigger, UnaryTest, ValueType,
+    ServiceTaskNode, StartNode, SubProcessNode, TimerKind, TimerTrigger, UnaryTest, ValueType,
     WorkflowIntermediateRepresentation, WorkflowLiteral, boolean_expression, event_trigger,
     guard_expression, node, property_value, unary_test, workflow_literal,
 };
@@ -499,23 +499,13 @@ fn normalize_sub_processes(parsed: &mut ParsedProcess, locations: &SourceLocatio
         let Some(subprocess) = parsed.nodes.get(&subprocess_id).cloned() else {
             continue;
         };
-        if subprocess.multi_instance.is_some()
+        let retained = subprocess.multi_instance.is_some()
             || subprocess.requires_compensation
             || subprocess.compensation_handler_id.is_some()
             || parsed
                 .boundary_events
                 .iter()
-                .any(|event| event.attached_to == subprocess_id)
-        {
-            parsed.diagnostics.push(locations.diagnostic(
-                offset,
-                DiagnosticKind::InvalidSubProcess {
-                    subprocess_id,
-                    detail: "scoped multi-instance, compensation, and boundary semantics require a retained sub-process node".into(),
-                },
-            ));
-            continue;
-        }
+                .any(|event| event.attached_to == subprocess_id);
         let children = parsed
             .nodes
             .iter()
@@ -575,6 +565,9 @@ fn normalize_sub_processes(parsed: &mut ParsedProcess, locations: &SourceLocatio
                     ),
                 },
             ));
+            continue;
+        }
+        if retained {
             continue;
         }
         let start_id = &starts[0];
@@ -1687,7 +1680,7 @@ fn validate_graph(
     let starts: Vec<_> = parsed
         .nodes
         .iter()
-        .filter(|(_, node)| node.kind == RawNodeKind::Start)
+        .filter(|(_, node)| node.kind == RawNodeKind::Start && node.scope_id.is_none())
         .map(|(id, node)| (id.clone(), node.offset))
         .collect();
     if starts.is_empty() {
@@ -1702,7 +1695,7 @@ fn validate_graph(
     if !parsed
         .nodes
         .values()
-        .any(|node| node.kind == RawNodeKind::End)
+        .any(|node| node.kind == RawNodeKind::End && node.scope_id.is_none())
     {
         parsed
             .diagnostics
@@ -1775,8 +1768,8 @@ fn validate_graph(
             RawNodeKind::Start
             | RawNodeKind::ServiceTask
             | RawNodeKind::DecisionTask
-            | RawNodeKind::CallActivity => outgoing_count != 1,
-            RawNodeKind::SubProcess => true,
+            | RawNodeKind::CallActivity
+            | RawNodeKind::SubProcess => outgoing_count != 1,
         };
         if invalid_outgoing {
             parsed.diagnostics.push(locations.diagnostic(
@@ -1828,15 +1821,6 @@ fn validate_graph(
                 DiagnosticKind::MissingAttribute {
                     element: "callActivity".to_owned(),
                     attribute: "calledElement",
-                },
-            ));
-        }
-        if node.kind == RawNodeKind::SubProcess {
-            parsed.diagnostics.push(locations.diagnostic(
-                node.offset,
-                DiagnosticKind::InvalidSubProcess {
-                    subprocess_id: id.clone(),
-                    detail: "sub-process could not be normalized".into(),
                 },
             ));
         }
@@ -1936,6 +1920,47 @@ fn validate_graph(
 
     if let Some((start, _)) = starts.first() {
         let mut reachability_outgoing = outgoing.clone();
+        let mut reachability_incoming = incoming.clone();
+        for (scope_id, scope) in parsed
+            .nodes
+            .iter()
+            .filter(|(_, node)| node.kind == RawNodeKind::SubProcess)
+        {
+            let child_start = parsed.nodes.iter().find_map(|(id, node)| {
+                (node.scope_id.as_ref() == Some(scope_id) && node.kind == RawNodeKind::Start)
+                    .then_some(id.as_str())
+            });
+            let child_end = parsed.nodes.iter().find_map(|(id, node)| {
+                (node.scope_id.as_ref() == Some(scope_id) && node.kind == RawNodeKind::End)
+                    .then_some(id.as_str())
+            });
+            let outer_next = parsed
+                .flows
+                .iter()
+                .find(|flow| flow.source == *scope_id)
+                .map(|flow| flow.target.as_str());
+            if let Some(child_start) = child_start {
+                reachability_outgoing
+                    .entry(scope_id.as_str())
+                    .or_default()
+                    .push(child_start);
+                reachability_incoming
+                    .entry(child_start)
+                    .or_default()
+                    .push(scope_id.as_str());
+            }
+            if let (Some(child_end), Some(outer_next)) = (child_end, outer_next) {
+                reachability_outgoing
+                    .entry(child_end)
+                    .or_default()
+                    .push(outer_next);
+                reachability_incoming
+                    .entry(outer_next)
+                    .or_default()
+                    .push(child_end);
+            }
+            let _ = scope;
+        }
         for boundary in parsed
             .boundary_events
             .iter()
@@ -1952,10 +1977,10 @@ fn validate_graph(
         let ends: Vec<_> = parsed
             .nodes
             .iter()
-            .filter(|(_, node)| node.kind == RawNodeKind::End)
+            .filter(|(_, node)| node.kind == RawNodeKind::End && node.scope_id.is_none())
             .map(|(id, _)| id.as_str())
             .collect();
-        let can_reach_end = traverse_many(&ends, &incoming);
+        let can_reach_end = traverse_many(&ends, &reachability_incoming);
         for (id, node) in &parsed.nodes {
             if node.is_compensation_handler {
                 continue;
@@ -3229,6 +3254,25 @@ fn lower(
     tenant_id: &str,
     workflow_version: &str,
 ) -> WorkflowIntermediateRepresentation {
+    let scope_shapes = parsed
+        .nodes
+        .iter()
+        .filter(|(_, node)| node.kind == RawNodeKind::SubProcess)
+        .map(|(scope_id, _)| {
+            let child = |kind| {
+                parsed
+                    .nodes
+                    .iter()
+                    .find(|(_, node)| node.scope_id.as_ref() == Some(scope_id) && node.kind == kind)
+                    .map(|(id, _)| id.clone())
+                    .expect("retained sub-process shape is validated before lowering")
+            };
+            (
+                scope_id.clone(),
+                (child(RawNodeKind::Start), child(RawNodeKind::End)),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
     let next_by_source: BTreeMap<_, _> = parsed
         .flows
         .iter()
@@ -3237,7 +3281,7 @@ fn lower(
     let start_node_id = parsed
         .nodes
         .iter()
-        .find(|(_, node)| node.kind == RawNodeKind::Start)
+        .find(|(_, node)| node.kind == RawNodeKind::Start && node.scope_id.is_none())
         .map_or_else(String::new, |(id, _)| id.clone());
     let nodes = parsed
         .nodes
@@ -3365,7 +3409,12 @@ fn lower(
                 }
                 RawNodeKind::End => node::Kind::End(EndNode {}),
                 RawNodeKind::SubProcess => {
-                    unreachable!("sub-processes are normalized before lowering")
+                    let (start_node_id, end_node_id) = &scope_shapes[&id];
+                    node::Kind::SubProcess(SubProcessNode {
+                        start_node_id: start_node_id.clone(),
+                        end_node_id: end_node_id.clone(),
+                        next_node_id: next_by_source[&id.as_str()].to_owned(),
+                    })
                 }
             };
             let boundary_events = parsed
@@ -3392,6 +3441,7 @@ fn lower(
                 properties: raw.properties,
                 multi_instance: raw.multi_instance.map(multi_instance_to_wire),
                 boundary_events,
+                owner_scope_id: raw.scope_id.unwrap_or_default(),
             }
         })
         .collect();

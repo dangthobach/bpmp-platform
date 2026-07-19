@@ -224,6 +224,7 @@ mod tests {
                 properties: Vec::new(),
                 multi_instance: None,
                 boundary_events: Vec::new(),
+                owner_scope_id: String::new(),
             }],
             content_hash: Vec::new(),
             signature: Vec::new(),

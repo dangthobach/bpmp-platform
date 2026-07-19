@@ -2,7 +2,10 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use thiserror::Error;
 
-use crate::{NodeId, ResolvedConfigSnapshot, TaskType, TenantId, WorkflowType, WorkflowVersion};
+use crate::{
+    NodeId, ResolvedConfigSnapshot, ScopeInstanceId, TaskType, TenantId, WorkflowType,
+    WorkflowVersion,
+};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Node {
@@ -20,6 +23,11 @@ pub enum Node {
     CallActivity {
         called_workflow: WorkflowType,
         called_version: Option<WorkflowVersion>,
+        next: NodeId,
+    },
+    SubProcess {
+        start: NodeId,
+        end: NodeId,
         next: NodeId,
     },
     ExclusiveGateway {
@@ -208,6 +216,7 @@ pub struct WorkflowExecutionContracts {
 pub struct NodeExecutionMetadata {
     pub multi_instance: Option<MultiInstanceDefinition>,
     pub properties: Vec<ExtensionProperty>,
+    pub owner_scope_id: Option<NodeId>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -246,6 +255,14 @@ pub struct ActiveBoundarySubscription {
     pub cancel_activity: bool,
     pub trigger: BoundaryTrigger,
     pub armed_at_epoch_ms: u64,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct ActiveExecutionScope {
+    pub scope_node_id: NodeId,
+    pub start_node_id: NodeId,
+    pub parent_scope_instance_id: Option<ScopeInstanceId>,
+    pub invocation: u64,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -360,7 +377,11 @@ impl WorkflowDefinition {
                         target: next.clone(),
                     });
                 }
-                if matches!(indexed.get(next), Some(Node::Start { .. })) {
+                let enters_owned_start = matches!(
+                    node,
+                    Node::SubProcess { start, .. } if start == next
+                );
+                if matches!(indexed.get(next), Some(Node::Start { .. })) && !enters_owned_start {
                     return Err(DomainError::TransitionToStartNode(next.clone()));
                 }
             }
@@ -404,6 +425,7 @@ impl WorkflowDefinition {
                 return Err(DomainError::DuplicateNodeMetadata(owner));
             }
         }
+        validate_scope_ownership(&indexed, &indexed_metadata)?;
         validate_extension_properties(&contracts.properties)?;
         let definition = Self {
             tenant_id,
@@ -448,6 +470,41 @@ impl WorkflowDefinition {
 
     pub fn node_execution_metadata(&self, node_id: &NodeId) -> Option<&NodeExecutionMetadata> {
         self.node_metadata.get(node_id)
+    }
+
+    fn owner_scope_id(&self, node_id: &NodeId) -> Option<&NodeId> {
+        self.node_metadata
+            .get(node_id)
+            .and_then(|metadata| metadata.owner_scope_id.as_ref())
+    }
+
+    fn sub_process_exit(&self, scope_node_id: &NodeId) -> Result<&NodeId, DomainError> {
+        match self.node(scope_node_id)? {
+            Node::SubProcess { next, .. } => Ok(next),
+            _ => Err(DomainError::InvalidScopeOwner(scope_node_id.clone())),
+        }
+    }
+
+    fn active_scope_for_node(
+        &self,
+        state: &InstanceState,
+        node_id: &NodeId,
+    ) -> Result<Option<ScopeInstanceId>, DomainError> {
+        let Some(owner_scope_id) = self.owner_scope_id(node_id) else {
+            return Ok(None);
+        };
+        let mut matches = state
+            .active_scopes
+            .iter()
+            .filter(|(_, scope)| &scope.scope_node_id == owner_scope_id)
+            .map(|(scope_instance_id, _)| scope_instance_id.clone());
+        let found = matches.next();
+        if found.is_some() && matches.next().is_some() {
+            return Err(DomainError::AmbiguousActiveScope(owner_scope_id.clone()));
+        }
+        found
+            .map(Some)
+            .ok_or_else(|| DomainError::ScopeNotActive(owner_scope_id.clone()))
     }
 
     pub fn properties(&self) -> &[ExtensionProperty] {
@@ -496,6 +553,40 @@ fn validate_node_metadata(
             node: owner.clone(),
             detail: "max parallelism must be greater than zero".into(),
         });
+    }
+    Ok(())
+}
+
+fn validate_scope_ownership(
+    nodes: &BTreeMap<NodeId, Node>,
+    metadata: &BTreeMap<NodeId, NodeExecutionMetadata>,
+) -> Result<(), DomainError> {
+    for (node_id, node_metadata) in metadata {
+        if let Some(owner) = &node_metadata.owner_scope_id
+            && !matches!(nodes.get(owner), Some(Node::SubProcess { .. }))
+        {
+            return Err(DomainError::InvalidScopeOwner(owner.clone()));
+        }
+        if node_metadata.owner_scope_id.as_ref() == Some(node_id) {
+            return Err(DomainError::RecursiveScopeOwnership(node_id.clone()));
+        }
+    }
+    for (scope_node_id, node) in nodes {
+        let Node::SubProcess { start, end, .. } = node else {
+            continue;
+        };
+        for child in [start, end] {
+            if metadata
+                .get(child)
+                .and_then(|item| item.owner_scope_id.as_ref())
+                != Some(scope_node_id)
+            {
+                return Err(DomainError::ScopeBoundaryOwnershipMismatch {
+                    scope: scope_node_id.clone(),
+                    child: child.clone(),
+                });
+            }
+        }
     }
     Ok(())
 }
@@ -568,6 +659,7 @@ fn validate_gateway_node(
         | Node::ServiceTask { .. }
         | Node::DecisionTask { .. }
         | Node::CallActivity { .. }
+        | Node::SubProcess { .. }
         | Node::End => Ok(()),
     }
 }
@@ -931,6 +1023,7 @@ impl Node {
             | Self::CallActivity { next, .. }
             | Self::ParallelJoin { next, .. }
             | Self::InclusiveJoin { next, .. } => Box::new(std::iter::once(next)),
+            Self::SubProcess { start, next, .. } => Box::new([start, next].into_iter()),
             Self::ExclusiveGateway { transitions, .. }
             | Self::InclusiveSplit { transitions, .. } => {
                 Box::new(transitions.iter().map(|transition| &transition.target))
@@ -1101,6 +1194,20 @@ pub enum DomainEvent {
         cancelled_task_tokens: u32,
         occurred_at_epoch_ms: u64,
     },
+    ScopeEntered {
+        scope_instance_id: ScopeInstanceId,
+        scope_node_id: NodeId,
+        start_node_id: NodeId,
+        parent_scope_instance_id: Option<ScopeInstanceId>,
+        invocation: u64,
+        occurred_at_epoch_ms: u64,
+    },
+    ScopeCompleted {
+        scope_instance_id: ScopeInstanceId,
+        scope_node_id: NodeId,
+        end_node_id: NodeId,
+        occurred_at_epoch_ms: u64,
+    },
     WorkflowBranchCompleted {
         end_node_id: NodeId,
         occurred_at_epoch_ms: u64,
@@ -1126,6 +1233,8 @@ pub struct InstanceState {
     pub pending_gateway_joins: BTreeMap<NodeId, PendingGatewayJoin>,
     pub active_multi_instances: BTreeMap<NodeId, ActiveMultiInstance>,
     pub active_boundary_subscriptions: BTreeMap<NodeId, ActiveBoundarySubscription>,
+    pub active_scopes: BTreeMap<ScopeInstanceId, ActiveExecutionScope>,
+    pub scope_invocation_counts: BTreeMap<NodeId, u64>,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -1144,6 +1253,8 @@ impl Default for InstanceState {
             pending_gateway_joins: BTreeMap::new(),
             active_multi_instances: BTreeMap::new(),
             active_boundary_subscriptions: BTreeMap::new(),
+            active_scopes: BTreeMap::new(),
+            scope_invocation_counts: BTreeMap::new(),
         }
     }
 }
@@ -1200,6 +1311,7 @@ pub fn decide(
                 &mut routing,
                 context.configuration,
                 *occurred_at_epoch_ms,
+                None,
             )?);
             events
         }
@@ -1237,6 +1349,7 @@ pub fn decide(
                 &mut routing,
                 context.configuration,
                 *occurred_at_epoch_ms,
+                definition.active_scope_for_node(state, node_id)?,
             )?);
             events
         }
@@ -1366,6 +1479,7 @@ fn complete_multi_instance_iteration(
             &mut routing,
             context.configuration,
             occurred_at_epoch_ms,
+            definition.active_scope_for_node(state, node_id)?,
         )?);
     } else {
         let active = routing
@@ -1450,8 +1564,17 @@ fn trigger_boundary_event(
     }
     let normal_tokens = state.active_tokens.get(owner).copied().unwrap_or_default();
     let multi_instance = state.active_multi_instances.get(owner);
-    if normal_tokens == 0 && multi_instance.is_none() {
+    let active_scope = state
+        .active_scopes
+        .values()
+        .find(|scope| &scope.scope_node_id == owner);
+    if normal_tokens == 0 && multi_instance.is_none() && active_scope.is_none() {
         return Err(DomainError::BoundaryOwnerNotActive(owner.clone()));
+    }
+    if boundary.cancel_activity && active_scope.is_some() {
+        return Err(DomainError::InterruptingScopeBoundaryUnsupported(
+            owner.clone(),
+        ));
     }
 
     let cancelled_iterations = if boundary.cancel_activity {
@@ -1483,6 +1606,7 @@ fn trigger_boundary_event(
         &mut routing,
         context.configuration,
         occurred_at_epoch_ms,
+        definition.active_scope_for_node(state, owner)?,
     )?);
     Ok(events)
 }
@@ -1692,12 +1816,13 @@ fn activation_events(
     routing: &mut RoutingState,
     configuration: &ResolvedConfigSnapshot,
     occurred_at_epoch_ms: u64,
+    initial_scope_instance_id: Option<ScopeInstanceId>,
 ) -> Result<Vec<DomainEvent>, DomainError> {
-    let mut pending = vec![node_id.clone()];
+    let mut pending = vec![(node_id.clone(), initial_scope_instance_id)];
     let mut events = Vec::new();
     let max_steps = definition.nodes.len().saturating_mul(4).max(1);
     let mut steps = 0_usize;
-    while let Some(current) = pending.pop() {
+    while let Some((current, current_scope_instance_id)) = pending.pop() {
         steps = steps.saturating_add(1);
         if steps > max_steps {
             return Err(DomainError::AutomaticTransitionLimitExceeded(
@@ -1721,7 +1846,7 @@ fn activation_events(
                         &mut events,
                     )?;
                     if completed {
-                        pending.push(next.clone());
+                        pending.push((next.clone(), current_scope_instance_id.clone()));
                     } else {
                         arm_boundary_events(
                             definition,
@@ -1772,7 +1897,7 @@ fn activation_events(
                         &mut events,
                     )?;
                     if completed {
-                        pending.push(next.clone());
+                        pending.push((next.clone(), current_scope_instance_id.clone()));
                     } else {
                         arm_boundary_events(
                             definition,
@@ -1818,10 +1943,31 @@ fn activation_events(
                     outputs,
                     occurred_at_epoch_ms,
                 });
-                pending.push(next.clone());
+                pending.push((next.clone(), current_scope_instance_id.clone()));
             }
             Node::End => {
-                if routing.has_outstanding_work() {
+                if let Some(owner_scope_id) = definition.owner_scope_id(&current) {
+                    let scope_instance_id = current_scope_instance_id
+                        .ok_or_else(|| DomainError::ScopeContextMissing(current.clone()))?;
+                    let completed_scope =
+                        routing.complete_scope(&scope_instance_id, owner_scope_id)?;
+                    events.push(DomainEvent::ScopeCompleted {
+                        scope_instance_id,
+                        scope_node_id: owner_scope_id.clone(),
+                        end_node_id: current,
+                        occurred_at_epoch_ms,
+                    });
+                    disarm_boundary_events(
+                        owner_scope_id,
+                        routing,
+                        occurred_at_epoch_ms,
+                        &mut events,
+                    );
+                    pending.push((
+                        definition.sub_process_exit(owner_scope_id)?.clone(),
+                        completed_scope.parent_scope_instance_id,
+                    ));
+                } else if routing.has_outstanding_work() {
                     events.push(DomainEvent::WorkflowBranchCompleted {
                         end_node_id: current,
                         occurred_at_epoch_ms,
@@ -1832,11 +1978,19 @@ fn activation_events(
                     });
                 }
             }
-            Node::Start { .. } => {
-                return Err(DomainError::TransitionToStartNode(current));
+            Node::Start { next } => {
+                if definition.owner_scope_id(&current).is_none()
+                    || current_scope_instance_id.is_none()
+                {
+                    return Err(DomainError::TransitionToStartNode(current));
+                }
+                pending.push((next.clone(), current_scope_instance_id));
             }
             Node::ExclusiveGateway { transitions, .. } => {
-                pending.push(select_transition(&current, transitions, variables)?.clone());
+                pending.push((
+                    select_transition(&current, transitions, variables)?.clone(),
+                    current_scope_instance_id,
+                ));
             }
             Node::ParallelSplit { targets, join } => {
                 routing.open_join(join, targets.len())?;
@@ -1846,7 +2000,13 @@ fn activation_events(
                     selected_targets: targets.clone(),
                     occurred_at_epoch_ms,
                 });
-                pending.extend(targets.iter().rev().cloned());
+                pending.extend(
+                    targets
+                        .iter()
+                        .rev()
+                        .cloned()
+                        .map(|target| (target, current_scope_instance_id.clone())),
+                );
             }
             Node::InclusiveSplit {
                 transitions, join, ..
@@ -1859,7 +2019,12 @@ fn activation_events(
                     selected_targets: selected.clone(),
                     occurred_at_epoch_ms,
                 });
-                pending.extend(selected.into_iter().rev());
+                pending.extend(
+                    selected
+                        .into_iter()
+                        .rev()
+                        .map(|target| (target, current_scope_instance_id.clone())),
+                );
             }
             Node::ParallelJoin { next, .. } | Node::InclusiveJoin { next, .. } => {
                 let complete = routing.arrive(&current)?;
@@ -1873,8 +2038,28 @@ fn activation_events(
                         gateway_id: current,
                         occurred_at_epoch_ms,
                     });
-                    pending.push(next.clone());
+                    pending.push((next.clone(), current_scope_instance_id));
                 }
+            }
+            Node::SubProcess { start, .. } => {
+                let (scope_instance_id, invocation) =
+                    routing.enter_scope(&current, start, current_scope_instance_id.clone())?;
+                events.push(DomainEvent::ScopeEntered {
+                    scope_instance_id: scope_instance_id.clone(),
+                    scope_node_id: current.clone(),
+                    start_node_id: start.clone(),
+                    parent_scope_instance_id: current_scope_instance_id,
+                    invocation,
+                    occurred_at_epoch_ms,
+                });
+                arm_boundary_events(
+                    definition,
+                    &current,
+                    routing,
+                    occurred_at_epoch_ms,
+                    &mut events,
+                )?;
+                pending.push((start.clone(), Some(scope_instance_id)));
             }
         }
     }
@@ -1887,6 +2072,8 @@ struct RoutingState {
     pending_joins: BTreeMap<NodeId, PendingGatewayJoin>,
     active_multi_instances: BTreeMap<NodeId, ActiveMultiInstance>,
     active_boundary_subscriptions: BTreeMap<NodeId, ActiveBoundarySubscription>,
+    active_scopes: BTreeMap<ScopeInstanceId, ActiveExecutionScope>,
+    scope_invocation_counts: BTreeMap<NodeId, u64>,
 }
 
 impl From<&InstanceState> for RoutingState {
@@ -1896,6 +2083,8 @@ impl From<&InstanceState> for RoutingState {
             pending_joins: state.pending_gateway_joins.clone(),
             active_multi_instances: state.active_multi_instances.clone(),
             active_boundary_subscriptions: state.active_boundary_subscriptions.clone(),
+            active_scopes: state.active_scopes.clone(),
+            scope_invocation_counts: state.scope_invocation_counts.clone(),
         }
     }
 }
@@ -1910,6 +2099,66 @@ impl RoutingState {
             || !self.pending_joins.is_empty()
             || !self.active_multi_instances.is_empty()
             || !self.active_boundary_subscriptions.is_empty()
+            || !self.active_scopes.is_empty()
+    }
+
+    fn enter_scope(
+        &mut self,
+        scope_node_id: &NodeId,
+        start_node_id: &NodeId,
+        parent_scope_instance_id: Option<ScopeInstanceId>,
+    ) -> Result<(ScopeInstanceId, u64), DomainError> {
+        if self
+            .active_scopes
+            .values()
+            .any(|scope| &scope.scope_node_id == scope_node_id)
+        {
+            return Err(DomainError::ScopeAlreadyActive(scope_node_id.clone()));
+        }
+        let invocation = self
+            .scope_invocation_counts
+            .get(scope_node_id)
+            .copied()
+            .unwrap_or_default()
+            .checked_add(1)
+            .ok_or_else(|| DomainError::ScopeInvocationOverflow(scope_node_id.clone()))?;
+        let identity = parent_scope_instance_id.as_ref().map_or_else(
+            || format!("{scope_node_id}#{invocation}"),
+            |parent| format!("{parent}/{scope_node_id}#{invocation}"),
+        );
+        let scope_instance_id = ScopeInstanceId::new(identity)
+            .map_err(|_| DomainError::InvalidScopeInstanceIdentity(scope_node_id.clone()))?;
+        self.scope_invocation_counts
+            .insert(scope_node_id.clone(), invocation);
+        self.active_scopes.insert(
+            scope_instance_id.clone(),
+            ActiveExecutionScope {
+                scope_node_id: scope_node_id.clone(),
+                start_node_id: start_node_id.clone(),
+                parent_scope_instance_id,
+                invocation,
+            },
+        );
+        Ok((scope_instance_id, invocation))
+    }
+
+    fn complete_scope(
+        &mut self,
+        scope_instance_id: &ScopeInstanceId,
+        expected_scope_node_id: &NodeId,
+    ) -> Result<ActiveExecutionScope, DomainError> {
+        let scope = self
+            .active_scopes
+            .remove(scope_instance_id)
+            .ok_or_else(|| DomainError::ScopeInstanceNotActive(scope_instance_id.clone()))?;
+        if &scope.scope_node_id != expected_scope_node_id {
+            return Err(DomainError::ScopeInstanceOwnerMismatch {
+                scope_instance_id: scope_instance_id.clone(),
+                expected: expected_scope_node_id.clone(),
+                actual: scope.scope_node_id,
+            });
+        }
+        Ok(scope)
     }
 
     fn activate_task(&mut self, node_id: &NodeId) -> Result<(), DomainError> {
@@ -2493,6 +2742,46 @@ pub fn evolve(mut state: InstanceState, event: &DomainEvent) -> InstanceState {
                 active_node: target_node_id.clone(),
             }
         }
+        DomainEvent::ScopeEntered {
+            scope_instance_id,
+            scope_node_id,
+            start_node_id,
+            parent_scope_instance_id,
+            invocation,
+            ..
+        } => {
+            state.scope_invocation_counts.insert(
+                scope_node_id.clone(),
+                state
+                    .scope_invocation_counts
+                    .get(scope_node_id)
+                    .copied()
+                    .unwrap_or_default()
+                    .max(*invocation),
+            );
+            state.active_scopes.insert(
+                scope_instance_id.clone(),
+                ActiveExecutionScope {
+                    scope_node_id: scope_node_id.clone(),
+                    start_node_id: start_node_id.clone(),
+                    parent_scope_instance_id: parent_scope_instance_id.clone(),
+                    invocation: *invocation,
+                },
+            );
+            Lifecycle::Active {
+                active_node: start_node_id.clone(),
+            }
+        }
+        DomainEvent::ScopeCompleted {
+            scope_instance_id,
+            scope_node_id,
+            ..
+        } => {
+            state.active_scopes.remove(scope_instance_id);
+            Lifecycle::Active {
+                active_node: scope_node_id.clone(),
+            }
+        }
         DomainEvent::WorkflowBranchCompleted { end_node_id, .. } => Lifecycle::Active {
             active_node: end_node_id.clone(),
         },
@@ -2501,6 +2790,7 @@ pub fn evolve(mut state: InstanceState, event: &DomainEvent) -> InstanceState {
             state.pending_gateway_joins.clear();
             state.active_multi_instances.clear();
             state.active_boundary_subscriptions.clear();
+            state.active_scopes.clear();
             Lifecycle::Completed
         }
     };
@@ -2529,6 +2819,12 @@ pub enum DomainError {
     DuplicateBoundaryEvent(NodeId),
     #[error("node metadata owner {0} does not exist")]
     UnknownNodeMetadataOwner(NodeId),
+    #[error("scope owner {0} does not exist or is not a retained sub-process")]
+    InvalidScopeOwner(NodeId),
+    #[error("node {0} cannot own itself as an execution scope")]
+    RecursiveScopeOwnership(NodeId),
+    #[error("scope {scope} start/end node {child} is not owned by that scope")]
+    ScopeBoundaryOwnershipMismatch { scope: NodeId, child: NodeId },
     #[error("workflow contains duplicate metadata for node {0}")]
     DuplicateNodeMetadata(NodeId),
     #[error("multi-instance definition on {node} is invalid: {detail}")]
@@ -2598,6 +2894,28 @@ pub enum DomainError {
     BoundarySubscriptionDefinitionMismatch(NodeId),
     #[error("boundary event owner {0} is not active")]
     BoundaryOwnerNotActive(NodeId),
+    #[error("interrupting boundary cancellation for retained scope {0} is not enabled yet")]
+    InterruptingScopeBoundaryUnsupported(NodeId),
+    #[error("retained scope {0} is already active")]
+    ScopeAlreadyActive(NodeId),
+    #[error("retained scope {0} is not active")]
+    ScopeNotActive(NodeId),
+    #[error("more than one active invocation exists for retained scope {0}")]
+    AmbiguousActiveScope(NodeId),
+    #[error("scope context is missing while executing node {0}")]
+    ScopeContextMissing(NodeId),
+    #[error("scope invocation counter overflowed for {0}")]
+    ScopeInvocationOverflow(NodeId),
+    #[error("could not build a deterministic scope instance identity for {0}")]
+    InvalidScopeInstanceIdentity(NodeId),
+    #[error("scope instance {0} is not active")]
+    ScopeInstanceNotActive(ScopeInstanceId),
+    #[error("scope instance {scope_instance_id} belongs to {actual}, expected {expected}")]
+    ScopeInstanceOwnerMismatch {
+        scope_instance_id: ScopeInstanceId,
+        expected: NodeId,
+        actual: NodeId,
+    },
     #[error("exclusive gateway {0} matched more than one branch")]
     AmbiguousGateway(NodeId),
     #[error("exclusive gateway {0} has no matching branch and no default")]
@@ -3267,6 +3585,7 @@ mod tests {
                             completion_condition: None,
                         }),
                         properties: Vec::new(),
+                        owner_scope_id: None,
                     },
                 )],
                 ..WorkflowExecutionContracts::default()
@@ -3319,6 +3638,7 @@ mod tests {
                             }),
                         }),
                         properties: Vec::new(),
+                        owner_scope_id: None,
                     },
                 )],
                 ..WorkflowExecutionContracts::default()
@@ -3386,6 +3706,7 @@ mod tests {
                                     completion_condition: None,
                                 }),
                                 properties: Vec::new(),
+                                owner_scope_id: None,
                             },
                         )
                     })
@@ -3627,6 +3948,120 @@ mod tests {
         }
         assert_eq!(state.lifecycle, Lifecycle::Completed);
         assert!(state.active_multi_instances.is_empty());
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn retained_subprocess_scope_lifecycle_is_durable_and_replay_deterministic() {
+        let start = id(NodeId::new, "start");
+        let scope = id(NodeId::new, "review");
+        let inner_start = id(NodeId::new, "review-start");
+        let task = id(NodeId::new, "review-task");
+        let inner_end = id(NodeId::new, "review-end");
+        let end = id(NodeId::new, "end");
+        let child_metadata = |owner_scope_id: NodeId| NodeExecutionMetadata {
+            multi_instance: None,
+            properties: Vec::new(),
+            owner_scope_id: Some(owner_scope_id),
+        };
+        let definition = WorkflowDefinition::new_with_execution_contracts(
+            id(TenantId::new, "tenant-a"),
+            id(WorkflowType::new, "retained-scope"),
+            id(WorkflowVersion::new, "1"),
+            start.clone(),
+            [
+                (
+                    start,
+                    Node::Start {
+                        next: scope.clone(),
+                    },
+                ),
+                (
+                    scope.clone(),
+                    Node::SubProcess {
+                        start: inner_start.clone(),
+                        end: inner_end.clone(),
+                        next: end.clone(),
+                    },
+                ),
+                (inner_start.clone(), Node::Start { next: task.clone() }),
+                (
+                    task.clone(),
+                    Node::ServiceTask {
+                        task_type: id(TaskType::new, "review"),
+                        next: inner_end.clone(),
+                    },
+                ),
+                (inner_end.clone(), Node::End),
+                (end, Node::End),
+            ],
+            std::iter::empty(),
+            WorkflowExecutionContracts {
+                boundary_events: Vec::new(),
+                node_metadata: vec![
+                    (inner_start, child_metadata(scope.clone())),
+                    (task.clone(), child_metadata(scope.clone())),
+                    (inner_end, child_metadata(scope.clone())),
+                ],
+                properties: Vec::new(),
+            },
+        )
+        .unwrap();
+        let configuration = configuration(16);
+        let empty = BTreeMap::new();
+        let started = decide(
+            &definition,
+            &InstanceState::default(),
+            &Command::StartWorkflow {
+                tenant_id: id(TenantId::new, "tenant-a"),
+                occurred_at_epoch_ms: 1,
+            },
+            DecisionContext {
+                configuration: &configuration,
+                variables: &empty,
+            },
+        )
+        .unwrap();
+        assert!(matches!(
+            &started[1],
+            DomainEvent::ScopeEntered {
+                scope_instance_id,
+                scope_node_id,
+                invocation: 1,
+                ..
+            } if scope_instance_id.as_str() == "review#1" && scope_node_id == &scope
+        ));
+        let active = rehydrate(None, &started);
+        assert_eq!(active.active_scopes.len(), 1);
+        assert_eq!(active.scope_invocation_counts.get(&scope), Some(&1));
+
+        let completed = decide(
+            &definition,
+            &active,
+            &Command::CompleteServiceTask {
+                node_id: task,
+                occurred_at_epoch_ms: 2,
+            },
+            DecisionContext {
+                configuration: &configuration,
+                variables: &empty,
+            },
+        )
+        .unwrap();
+        assert!(completed.iter().any(|event| matches!(
+            event,
+            DomainEvent::ScopeCompleted {
+                scope_instance_id,
+                scope_node_id,
+                ..
+            } if scope_instance_id.as_str() == "review#1" && scope_node_id == &scope
+        )));
+        let all_events = [started, completed].concat();
+        let final_state = rehydrate(None, &all_events);
+        assert_eq!(final_state.lifecycle, Lifecycle::Completed);
+        assert!(final_state.active_scopes.is_empty());
+        assert_eq!(final_state.scope_invocation_counts.get(&scope), Some(&1));
+        assert_eq!(final_state, rehydrate(None, &all_events));
     }
 
     #[test]

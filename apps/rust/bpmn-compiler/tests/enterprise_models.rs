@@ -51,6 +51,66 @@ fn nested_subprocess_is_inlined_and_round_trips_as_canonical_graph() {
 }
 
 #[test]
+fn boundary_owned_subprocess_is_retained_and_round_trips_with_scope_ownership() {
+    let source = format!(
+        r#"<b:definitions xmlns:b="{BPMN_NS}"><b:process id="retained-scope"><b:startEvent id="start"/><b:subProcess id="review"><b:startEvent id="review-start"/><b:serviceTask id="review-task" name="review"/><b:endEvent id="review-end"/><b:sequenceFlow id="inner-1" sourceRef="review-start" targetRef="review-task"/><b:sequenceFlow id="inner-2" sourceRef="review-task" targetRef="review-end"/></b:subProcess><b:boundaryEvent id="review-message" attachedToRef="review" cancelActivity="false"><b:messageEventDefinition messageRef="review-updated"/></b:boundaryEvent><b:endEvent id="done"/><b:endEvent id="notified"/><b:sequenceFlow id="outer-1" sourceRef="start" targetRef="review"/><b:sequenceFlow id="outer-2" sourceRef="review" targetRef="done"/><b:sequenceFlow id="outer-3" sourceRef="review-message" targetRef="notified"/></b:process></b:definitions>"#
+    );
+    let compiler = compiler();
+    let wir = compiler
+        .compile(
+            SourceDocument {
+                name: "retained-subprocess.bpmn",
+                bytes: source.as_bytes(),
+            },
+            TENANT,
+            "1",
+        )
+        .unwrap();
+    let scope = wir.nodes.iter().find(|node| node.id == "review").unwrap();
+    let Some(node::Kind::SubProcess(scope_kind)) = scope.kind.as_ref() else {
+        panic!("boundary owner must lower to a retained sub-process")
+    };
+    assert_eq!(scope_kind.start_node_id, "review-start");
+    assert_eq!(scope_kind.end_node_id, "review-end");
+    assert_eq!(scope.boundary_events.len(), 1);
+    assert!(
+        wir.nodes
+            .iter()
+            .filter(|node| node.owner_scope_id == "review")
+            .count()
+            == 3
+    );
+
+    let canonical = compiler.print(&wir).unwrap();
+    let recompiled = compiler
+        .compile(
+            SourceDocument {
+                name: "canonical-retained-subprocess.bpmn",
+                bytes: canonical.as_bytes(),
+            },
+            TENANT,
+            "1",
+        )
+        .unwrap();
+    assert_eq!(wir, recompiled);
+
+    let signer = Ed25519Signer::from_bytes(&[41; 32]);
+    let verifier = Ed25519Verifier::from_bytes(&signer.verifying_key_bytes()).unwrap();
+    let artifact = WirCodec::seal(wir, &signer).unwrap();
+    let definition = WirLoader::load(&artifact, &verifier).unwrap();
+    assert_eq!(
+        definition
+            .node_execution_metadata(&NodeId::new("review-task").unwrap())
+            .unwrap()
+            .owner_scope_id
+            .as_ref()
+            .unwrap()
+            .as_str(),
+        "review"
+    );
+}
+
+#[test]
 fn call_multi_instance_timer_and_typed_extensions_survive_artifact_round_trip() {
     let source = format!(
         r#"<b:definitions xmlns:b="{BPMN_NS}" xmlns:ext="urn:example:worker"><b:process id="enterprise-call"><b:startEvent id="start"/><b:callActivity id="call" calledElement="child-workflow" calledVersion="7"><b:extensionElements><ext:property name="timeout" type="durationMilliseconds" value="5000"/><ext:worker retries="5"/></b:extensionElements><b:multiInstanceLoopCharacteristics isSequential="false" collection="orders" elementVariable="order" maxParallelism="8"><b:completionCondition>nrOfCompletedInstances &gt;= 2</b:completionCondition></b:multiInstanceLoopCharacteristics></b:callActivity><b:boundaryEvent id="timeout" attachedToRef="call" cancelActivity="false"><b:timerEventDefinition><b:timeDuration>PT5M</b:timeDuration></b:timerEventDefinition></b:boundaryEvent><b:endEvent id="done"/><b:endEvent id="timed-out"/><b:sequenceFlow id="f1" sourceRef="start" targetRef="call"/><b:sequenceFlow id="f2" sourceRef="call" targetRef="done"/><b:sequenceFlow id="timeout-flow" sourceRef="timeout" targetRef="timed-out"/></b:process></b:definitions>"#

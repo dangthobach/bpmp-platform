@@ -2,7 +2,7 @@ use bpmp_contracts::engine::v1 as wire;
 use bpmp_domain_core::{
     ActorId, BoundaryTimerKind, BoundaryTrigger, CommandId, ConfigVersion, CorrelationId,
     DomainEvent, IdentifierError, InstanceId, KeyScope, MultiInstanceMode, NodeId, PolicyVersion,
-    TaskType, TenantId, WorkflowType, WorkflowValue, WorkflowVersion,
+    ScopeInstanceId, TaskType, TenantId, WorkflowType, WorkflowValue, WorkflowVersion,
 };
 use prost::Message;
 use thiserror::Error;
@@ -183,6 +183,30 @@ fn to_wire(envelope: &EventEnvelope) -> wire::EventEnvelope {
             cancel_activity: *cancel_activity,
             cancelled_iterations: cancelled_iterations.clone(),
             cancelled_task_tokens: *cancelled_task_tokens,
+        }),
+        DomainEvent::ScopeEntered {
+            scope_instance_id,
+            scope_node_id,
+            start_node_id,
+            parent_scope_instance_id,
+            invocation,
+            ..
+        } => wire::event_envelope::Event::ScopeEntered(wire::ScopeEntered {
+            scope_instance_id: scope_instance_id.to_string(),
+            scope_node_id: scope_node_id.to_string(),
+            start_node_id: start_node_id.to_string(),
+            parent_scope_instance_id: parent_scope_instance_id.as_ref().map(ToString::to_string),
+            invocation: *invocation,
+        }),
+        DomainEvent::ScopeCompleted {
+            scope_instance_id,
+            scope_node_id,
+            end_node_id,
+            ..
+        } => wire::event_envelope::Event::ScopeCompleted(wire::ScopeCompleted {
+            scope_instance_id: scope_instance_id.to_string(),
+            scope_node_id: scope_node_id.to_string(),
+            end_node_id: end_node_id.to_string(),
         }),
         DomainEvent::WorkflowBranchCompleted { end_node_id, .. } => {
             wire::event_envelope::Event::WorkflowBranchCompleted(wire::WorkflowBranchCompleted {
@@ -382,6 +406,31 @@ fn from_wire(envelope: wire::EventEnvelope) -> Result<EventEnvelope, EventCodecE
                 occurred_at_epoch_ms,
             }
         }
+        wire::event_envelope::Event::ScopeEntered(entered) => DomainEvent::ScopeEntered {
+            scope_instance_id: identifier(
+                ScopeInstanceId::new,
+                entered.scope_instance_id,
+                "scope_instance_id",
+            )?,
+            scope_node_id: identifier(NodeId::new, entered.scope_node_id, "scope_node_id")?,
+            start_node_id: identifier(NodeId::new, entered.start_node_id, "start_node_id")?,
+            parent_scope_instance_id: entered
+                .parent_scope_instance_id
+                .map(|value| identifier(ScopeInstanceId::new, value, "parent_scope_instance_id"))
+                .transpose()?,
+            invocation: positive_u64(entered.invocation, "scope_invocation")?,
+            occurred_at_epoch_ms,
+        },
+        wire::event_envelope::Event::ScopeCompleted(completed) => DomainEvent::ScopeCompleted {
+            scope_instance_id: identifier(
+                ScopeInstanceId::new,
+                completed.scope_instance_id,
+                "scope_instance_id",
+            )?,
+            scope_node_id: identifier(NodeId::new, completed.scope_node_id, "scope_node_id")?,
+            end_node_id: identifier(NodeId::new, completed.end_node_id, "end_node_id")?,
+            occurred_at_epoch_ms,
+        },
         wire::event_envelope::Event::WorkflowBranchCompleted(completed) => {
             DomainEvent::WorkflowBranchCompleted {
                 end_node_id: identifier(NodeId::new, completed.end_node_id, "end_node_id")?,
@@ -583,6 +632,14 @@ fn optional_non_empty(value: String) -> Option<String> {
 }
 
 fn positive(value: u32, field: &'static str) -> Result<u32, EventCodecError> {
+    if value == 0 {
+        Err(EventCodecError::InvalidPositiveField(field))
+    } else {
+        Ok(value)
+    }
+}
+
+fn positive_u64(value: u64, field: &'static str) -> Result<u64, EventCodecError> {
     if value == 0 {
         Err(EventCodecError::InvalidPositiveField(field))
     } else {
@@ -845,6 +902,20 @@ mod tests {
             },
             DomainEvent::WorkflowBranchCompleted {
                 end_node_id: NodeId::new("boundary-end").unwrap(),
+                occurred_at_epoch_ms: 123,
+            },
+            DomainEvent::ScopeEntered {
+                scope_instance_id: ScopeInstanceId::new("review#1").unwrap(),
+                scope_node_id: NodeId::new("review").unwrap(),
+                start_node_id: NodeId::new("review-start").unwrap(),
+                parent_scope_instance_id: None,
+                invocation: 1,
+                occurred_at_epoch_ms: 123,
+            },
+            DomainEvent::ScopeCompleted {
+                scope_instance_id: ScopeInstanceId::new("review#1").unwrap(),
+                scope_node_id: NodeId::new("review").unwrap(),
+                end_node_id: NodeId::new("review-end").unwrap(),
                 occurred_at_epoch_ms: 123,
             },
         ];
