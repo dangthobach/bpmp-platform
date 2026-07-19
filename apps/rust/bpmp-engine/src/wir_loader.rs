@@ -1,14 +1,18 @@
 use bpmp_contracts::wir::v1::{
     ComparisonOperator as WireComparisonOperator, GatewayDirection as WireGatewayDirection,
-    HitPolicy as WireHitPolicy, ValueType as WireValueType, WorkflowIntermediateRepresentation,
-    guard_expression, node, unary_test, workflow_literal,
+    HitPolicy as WireHitPolicy, TimerKind as WireTimerKind, ValueType as WireValueType,
+    WorkflowIntermediateRepresentation, event_trigger, guard_expression, node, unary_test,
+    workflow_literal,
 };
 use bpmp_contracts::{ArtifactError, WirArtifactVerifier, WirCodec};
 use bpmp_domain_core::{
+    BooleanExpression, BoundaryEventDefinition, BoundaryTimerKind, BoundaryTrigger,
     ComparisonOperator, DecisionInput, DecisionOutput, DecisionRule, DecisionTable, DomainError,
-    GatewayCoverage, GatewayCoverageDomain, GuardExpression, GuardedTransition, HitPolicy,
-    IdentifierError, IntegerInterval, Node, NodeId, TaskType, TenantId, UnaryTest,
-    WorkflowDefinition, WorkflowType, WorkflowValue, WorkflowValueType, WorkflowVersion,
+    ExtensionProperty, ExtensionPropertyValue, GatewayCoverage, GatewayCoverageDomain,
+    GuardExpression, GuardedTransition, HitPolicy, IdentifierError, IntegerInterval,
+    MultiInstanceDefinition, MultiInstanceMode, Node, NodeExecutionMetadata, NodeId, TaskType,
+    TenantId, UnaryTest, WorkflowDefinition, WorkflowExecutionContracts, WorkflowType,
+    WorkflowValue, WorkflowValueType, WorkflowVersion,
 };
 use thiserror::Error;
 
@@ -53,11 +57,28 @@ fn map_definition(
         source,
     })?;
     let mut nodes = Vec::with_capacity(wir.nodes.len());
+    let mut boundary_events = Vec::new();
+    let workflow_properties = map_properties(wir.properties)?;
+    let mut node_metadata = Vec::new();
     for encoded in wir.nodes {
         let node_id = NodeId::new(encoded.id).map_err(|source| WirLoadError::Identifier {
             field: "node.id",
             source,
         })?;
+        boundary_events.extend(
+            encoded
+                .boundary_events
+                .into_iter()
+                .map(|boundary| map_boundary_event(node_id.clone(), boundary))
+                .collect::<Result<Vec<_>, _>>()?,
+        );
+        let metadata = NodeExecutionMetadata {
+            multi_instance: encoded.multi_instance.map(map_multi_instance).transpose()?,
+            properties: map_properties(encoded.properties)?,
+        };
+        if metadata.multi_instance.is_some() || !metadata.properties.is_empty() {
+            node_metadata.push((node_id.clone(), metadata));
+        }
         let kind = match encoded
             .kind
             .ok_or_else(|| WirLoadError::MissingNodeKind(node_id.clone()))?
@@ -80,6 +101,25 @@ fn map_definition(
                     "decision_task.decision_table_id",
                 )?,
                 next: node_id_value(task.next_node_id, "decision_task.next_node_id")?,
+            },
+            node::Kind::CallActivity(call) => Node::CallActivity {
+                called_workflow: WorkflowType::new(call.called_element).map_err(|source| {
+                    WirLoadError::Identifier {
+                        field: "call_activity.called_element",
+                        source,
+                    }
+                })?,
+                called_version: if call.called_version.is_empty() {
+                    None
+                } else {
+                    Some(WorkflowVersion::new(call.called_version).map_err(|source| {
+                        WirLoadError::Identifier {
+                            field: "call_activity.called_version",
+                            source,
+                        }
+                    })?)
+                },
+                next: node_id_value(call.next_node_id, "call_activity.next_node_id")?,
             },
             node::Kind::End(_) => Node::End,
             node::Kind::ExclusiveGateway(gateway) => Node::ExclusiveGateway {
@@ -169,15 +209,116 @@ fn map_definition(
         .into_iter()
         .map(map_decision_table)
         .collect::<Result<Vec<_>, _>>()?;
-    WorkflowDefinition::new_with_decisions(
+    WorkflowDefinition::new_with_execution_contracts(
         tenant_id,
         workflow_type,
         workflow_version,
         start_node,
         nodes,
         decision_tables,
+        WorkflowExecutionContracts {
+            boundary_events,
+            node_metadata,
+            properties: workflow_properties,
+        },
     )
     .map_err(WirLoadError::Domain)
+}
+
+fn map_multi_instance(
+    spec: bpmp_contracts::wir::v1::MultiInstanceSpec,
+) -> Result<MultiInstanceDefinition, WirLoadError> {
+    let mode = match bpmp_contracts::wir::v1::MultiInstanceMode::try_from(spec.mode) {
+        Ok(bpmp_contracts::wir::v1::MultiInstanceMode::Sequential) => MultiInstanceMode::Sequential,
+        Ok(bpmp_contracts::wir::v1::MultiInstanceMode::Parallel) => MultiInstanceMode::Parallel,
+        Ok(bpmp_contracts::wir::v1::MultiInstanceMode::Unspecified) | Err(_) => {
+            return Err(WirLoadError::InvalidMultiInstanceMode(spec.mode));
+        }
+    };
+    Ok(MultiInstanceDefinition {
+        mode,
+        collection_expression: (!spec.collection_expression.is_empty())
+            .then_some(spec.collection_expression),
+        item_variable: (!spec.item_variable.is_empty()).then_some(spec.item_variable),
+        cardinality_expression: (!spec.cardinality_expression.is_empty())
+            .then_some(spec.cardinality_expression),
+        max_parallelism: (spec.max_parallelism > 0).then_some(spec.max_parallelism),
+    })
+}
+
+fn map_properties(
+    properties: Vec<bpmp_contracts::wir::v1::ExtensionProperty>,
+) -> Result<Vec<ExtensionProperty>, WirLoadError> {
+    properties
+        .into_iter()
+        .map(|property| {
+            let value = match property
+                .value
+                .and_then(|property| property.value)
+                .ok_or(WirLoadError::MissingPropertyValue)?
+            {
+                bpmp_contracts::wir::v1::property_value::Value::StringValue(value) => {
+                    ExtensionPropertyValue::String(value)
+                }
+                bpmp_contracts::wir::v1::property_value::Value::IntegerValue(value) => {
+                    ExtensionPropertyValue::Integer(value)
+                }
+                bpmp_contracts::wir::v1::property_value::Value::BooleanValue(value) => {
+                    ExtensionPropertyValue::Boolean(value)
+                }
+                bpmp_contracts::wir::v1::property_value::Value::DurationMilliseconds(value) => {
+                    ExtensionPropertyValue::DurationMilliseconds(value)
+                }
+            };
+            Ok(ExtensionProperty {
+                namespace_uri: non_empty(property.namespace_uri, "property.namespace_uri")?,
+                element_name: non_empty(property.element_name, "property.element_name")?,
+                name: non_empty(property.name, "property.name")?,
+                value,
+            })
+        })
+        .collect()
+}
+
+fn map_boundary_event(
+    owner: NodeId,
+    boundary: bpmp_contracts::wir::v1::BoundaryEvent,
+) -> Result<(NodeId, BoundaryEventDefinition), WirLoadError> {
+    let trigger = boundary
+        .trigger
+        .and_then(|trigger| trigger.trigger)
+        .ok_or(WirLoadError::MissingBoundaryTrigger)?;
+    let trigger = match trigger {
+        event_trigger::Trigger::Timer(timer) => {
+            let kind = match WireTimerKind::try_from(timer.kind) {
+                Ok(WireTimerKind::Date) => BoundaryTimerKind::Date,
+                Ok(WireTimerKind::Duration) => BoundaryTimerKind::Duration,
+                Ok(WireTimerKind::Cycle) => BoundaryTimerKind::Cycle,
+                Ok(WireTimerKind::Unspecified) | Err(_) => {
+                    return Err(WirLoadError::InvalidTimerKind(timer.kind));
+                }
+            };
+            BoundaryTrigger::Timer {
+                kind,
+                expression: non_empty(timer.expression, "boundary.timer.expression")?,
+            }
+        }
+        event_trigger::Trigger::Error(error) => BoundaryTrigger::Error {
+            error_ref: (!error.error_ref.is_empty()).then_some(error.error_ref),
+        },
+        event_trigger::Trigger::Message(message) => BoundaryTrigger::Message {
+            message_ref: non_empty(message.message_ref, "boundary.message_ref")?,
+        },
+    };
+    Ok((
+        owner,
+        BoundaryEventDefinition {
+            id: node_id_value(boundary.id, "boundary.id")?,
+            cancel_activity: boundary.cancel_activity,
+            target: node_id_value(boundary.target_node_id, "boundary.target_node_id")?,
+            trigger,
+        },
+    ))
 }
 
 fn map_decision_table(
@@ -263,6 +404,21 @@ fn map_workflow_literal(
 fn map_coverage(
     coverage: bpmp_contracts::wir::v1::GatewayCoverage,
 ) -> Result<GatewayCoverage, WirLoadError> {
+    if coverage.solver_verified {
+        if !coverage.variable.is_empty()
+            || coverage.value_type != 0
+            || !coverage.enum_values.is_empty()
+            || !coverage.integer_intervals.is_empty()
+        {
+            return Err(WirLoadError::InvalidCoverage(
+                "symbolic coverage must not include a simple domain proof",
+            ));
+        }
+        return Ok(GatewayCoverage {
+            variable: String::new(),
+            domain: GatewayCoverageDomain::Symbolic,
+        });
+    }
     if coverage.variable.trim().is_empty() {
         return Err(WirLoadError::EmptyCoverageVariable);
     }
@@ -313,17 +469,66 @@ fn map_transition(
     transition: bpmp_contracts::wir::v1::ConditionalTransition,
 ) -> Result<GuardedTransition, WirLoadError> {
     let target = node_id_value(transition.target_node_id, "gateway.target_node_id")?;
-    let guard = if transition.is_default {
-        if transition.guard.is_some() {
+    let (guard, expression) = if transition.is_default {
+        if transition.guard.is_some() || transition.expression.is_some() {
             return Err(WirLoadError::DefaultTransitionHasGuard(target));
         }
-        None
+        (None, None)
     } else {
-        Some(map_guard(transition.guard.ok_or_else(|| {
-            WirLoadError::MissingTransitionGuard(target.clone())
-        })?)?)
+        match (transition.guard, transition.expression) {
+            (Some(guard), None) => (Some(map_guard(guard)?), None),
+            (None, Some(expression)) => (None, Some(map_boolean_expression(expression)?)),
+            (None, None) => return Err(WirLoadError::MissingTransitionGuard(target)),
+            (Some(_), Some(_)) => {
+                return Err(WirLoadError::ConflictingGuardRepresentations(target));
+            }
+        }
     };
-    Ok(GuardedTransition { target, guard })
+    Ok(GuardedTransition {
+        target,
+        guard,
+        expression,
+    })
+}
+
+fn map_boolean_expression(
+    expression: bpmp_contracts::wir::v1::BooleanExpression,
+) -> Result<BooleanExpression, WirLoadError> {
+    use bpmp_contracts::wir::v1::boolean_expression::Expression;
+    match expression
+        .expression
+        .ok_or(WirLoadError::MissingBooleanExpression)?
+    {
+        Expression::Comparison(guard) => Ok(BooleanExpression::Comparison(map_guard(guard)?)),
+        Expression::Conjunction(junction) => {
+            if junction.operands.len() < 2 {
+                return Err(WirLoadError::InvalidBooleanJunction);
+            }
+            Ok(BooleanExpression::Conjunction(
+                junction
+                    .operands
+                    .into_iter()
+                    .map(map_boolean_expression)
+                    .collect::<Result<_, _>>()?,
+            ))
+        }
+        Expression::Disjunction(junction) => {
+            if junction.operands.len() < 2 {
+                return Err(WirLoadError::InvalidBooleanJunction);
+            }
+            Ok(BooleanExpression::Disjunction(
+                junction
+                    .operands
+                    .into_iter()
+                    .map(map_boolean_expression)
+                    .collect::<Result<_, _>>()?,
+            ))
+        }
+        Expression::Negation(operand) => Ok(BooleanExpression::Negation(Box::new(
+            map_boolean_expression(*operand)?,
+        ))),
+        Expression::Constant(value) => Ok(BooleanExpression::Constant(value)),
+    }
 }
 
 fn map_guard(
@@ -398,6 +603,12 @@ pub enum WirLoadError {
     DefaultTransitionHasGuard(NodeId),
     #[error("non-default gateway transition to {0} is missing a guard")]
     MissingTransitionGuard(NodeId),
+    #[error("gateway transition to {0} contains both guard representations")]
+    ConflictingGuardRepresentations(NodeId),
+    #[error("gateway boolean expression has no expression")]
+    MissingBooleanExpression,
+    #[error("gateway boolean junction must contain at least two operands")]
+    InvalidBooleanJunction,
     #[error("gateway guard has unsupported comparison operator tag {0}")]
     InvalidComparisonOperator(i32),
     #[error("gateway guard has no literal")]
@@ -426,6 +637,14 @@ pub enum WirLoadError {
     MissingUnaryTest,
     #[error("decision literal has no typed value")]
     MissingWorkflowLiteral,
+    #[error("boundary event has no trigger")]
+    MissingBoundaryTrigger,
+    #[error("boundary timer kind tag {0} is invalid")]
+    InvalidTimerKind(i32),
+    #[error("multi-instance mode tag {0} is invalid")]
+    InvalidMultiInstanceMode(i32),
+    #[error("extension property has no typed value")]
+    MissingPropertyValue,
     #[error(transparent)]
     Domain(DomainError),
 }

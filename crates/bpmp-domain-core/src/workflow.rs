@@ -17,6 +17,11 @@ pub enum Node {
         decision_table_id: String,
         next: NodeId,
     },
+    CallActivity {
+        called_workflow: WorkflowType,
+        called_version: Option<WorkflowVersion>,
+        next: NodeId,
+    },
     ExclusiveGateway {
         transitions: Vec<GuardedTransition>,
         coverage: Option<GatewayCoverage>,
@@ -45,6 +50,16 @@ pub enum Node {
 pub struct GuardedTransition {
     pub target: NodeId,
     pub guard: Option<GuardExpression>,
+    pub expression: Option<BooleanExpression>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum BooleanExpression {
+    Comparison(GuardExpression),
+    Conjunction(Vec<Self>),
+    Disjunction(Vec<Self>),
+    Negation(Box<Self>),
+    Constant(bool),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -69,6 +84,7 @@ pub enum WorkflowValue {
     Boolean(bool),
     Integer(i64),
     String(String),
+    List(Vec<Self>),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -82,6 +98,7 @@ pub enum GatewayCoverageDomain {
     Boolean,
     Enum { values: Vec<String> },
     Integer { intervals: Vec<IntegerInterval> },
+    Symbolic,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -98,6 +115,9 @@ pub struct WorkflowDefinition {
     pub start_node: NodeId,
     nodes: BTreeMap<NodeId, Node>,
     decision_tables: BTreeMap<String, DecisionTable>,
+    boundary_events: BTreeMap<NodeId, Vec<BoundaryEventDefinition>>,
+    node_metadata: BTreeMap<NodeId, NodeExecutionMetadata>,
+    properties: Vec<ExtensionProperty>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -148,6 +168,101 @@ pub enum WorkflowValueType {
     String,
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct BoundaryEventDefinition {
+    pub id: NodeId,
+    pub cancel_activity: bool,
+    pub target: NodeId,
+    pub trigger: BoundaryTrigger,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum BoundaryTrigger {
+    Timer {
+        kind: BoundaryTimerKind,
+        expression: String,
+    },
+    Error {
+        error_ref: Option<String>,
+    },
+    Message {
+        message_ref: String,
+    },
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum BoundaryTimerKind {
+    Date,
+    Duration,
+    Cycle,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Default)]
+pub struct WorkflowExecutionContracts {
+    pub boundary_events: Vec<(NodeId, BoundaryEventDefinition)>,
+    pub node_metadata: Vec<(NodeId, NodeExecutionMetadata)>,
+    pub properties: Vec<ExtensionProperty>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Default)]
+pub struct NodeExecutionMetadata {
+    pub multi_instance: Option<MultiInstanceDefinition>,
+    pub properties: Vec<ExtensionProperty>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct MultiInstanceDefinition {
+    pub mode: MultiInstanceMode,
+    pub collection_expression: Option<String>,
+    pub item_variable: Option<String>,
+    pub cardinality_expression: Option<String>,
+    pub max_parallelism: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum MultiInstanceMode {
+    Sequential,
+    Parallel,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct ActiveMultiInstance {
+    pub task_type: TaskType,
+    pub mode: MultiInstanceMode,
+    pub total_instances: u32,
+    pub next_iteration: u32,
+    pub max_parallelism: u32,
+    pub item_variable: Option<String>,
+    pub items: Vec<WorkflowValue>,
+    pub active_iterations: BTreeSet<u32>,
+    pub completed_iterations: BTreeSet<u32>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct ActiveBoundarySubscription {
+    pub attached_node_id: NodeId,
+    pub target_node_id: NodeId,
+    pub cancel_activity: bool,
+    pub trigger: BoundaryTrigger,
+    pub armed_at_epoch_ms: u64,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct ExtensionProperty {
+    pub namespace_uri: String,
+    pub element_name: String,
+    pub name: String,
+    pub value: ExtensionPropertyValue,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum ExtensionPropertyValue {
+    String(String),
+    Integer(i64),
+    Boolean(bool),
+    DurationMilliseconds(u64),
+}
+
 impl WorkflowDefinition {
     /// Builds a workflow definition after structural and reachability validation.
     ///
@@ -183,6 +298,32 @@ impl WorkflowDefinition {
         start_node: NodeId,
         nodes: impl IntoIterator<Item = (NodeId, Node)>,
         decision_tables: impl IntoIterator<Item = DecisionTable>,
+    ) -> Result<Self, DomainError> {
+        Self::new_with_execution_contracts(
+            tenant_id,
+            workflow_type,
+            workflow_version,
+            start_node,
+            nodes,
+            decision_tables,
+            WorkflowExecutionContracts::default(),
+        )
+    }
+
+    /// Builds a workflow definition with embedded decisions and boundary events.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`DomainError`] for invalid graph, decision, owner, or target data.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_execution_contracts(
+        tenant_id: TenantId,
+        workflow_type: WorkflowType,
+        workflow_version: WorkflowVersion,
+        start_node: NodeId,
+        nodes: impl IntoIterator<Item = (NodeId, Node)>,
+        decision_tables: impl IntoIterator<Item = DecisionTable>,
+        contracts: WorkflowExecutionContracts,
     ) -> Result<Self, DomainError> {
         let mut indexed = BTreeMap::new();
         for (node_id, node) in nodes {
@@ -224,6 +365,45 @@ impl WorkflowDefinition {
             }
         }
 
+        let mut indexed_boundaries = BTreeMap::<NodeId, Vec<BoundaryEventDefinition>>::new();
+        let mut boundary_ids = BTreeSet::new();
+        for (owner, boundary) in contracts.boundary_events {
+            if !indexed.contains_key(&owner) {
+                return Err(DomainError::UnknownBoundaryOwner(owner));
+            }
+            if !indexed.contains_key(&boundary.target) {
+                return Err(DomainError::MissingTransitionTarget {
+                    source_node: owner,
+                    target: boundary.target,
+                });
+            }
+            if !boundary_ids.insert(boundary.id.clone()) {
+                return Err(DomainError::DuplicateBoundaryEvent(boundary.id));
+            }
+            indexed_boundaries.entry(owner).or_default().push(boundary);
+        }
+        let mut indexed_metadata = BTreeMap::new();
+        for (owner, metadata) in contracts.node_metadata {
+            if !indexed.contains_key(&owner) {
+                return Err(DomainError::UnknownNodeMetadataOwner(owner));
+            }
+            if metadata.multi_instance.is_some()
+                && !matches!(
+                    indexed.get(&owner),
+                    Some(Node::ServiceTask { .. } | Node::CallActivity { .. })
+                )
+            {
+                return Err(DomainError::InvalidMultiInstance {
+                    node: owner,
+                    detail: "runtime multi-instance is supported only for service tasks and call activities".into(),
+                });
+            }
+            validate_node_metadata(&owner, &metadata)?;
+            if indexed_metadata.insert(owner.clone(), metadata).is_some() {
+                return Err(DomainError::DuplicateNodeMetadata(owner));
+            }
+        }
+        validate_extension_properties(&contracts.properties)?;
         let definition = Self {
             tenant_id,
             workflow_type,
@@ -231,6 +411,9 @@ impl WorkflowDefinition {
             start_node,
             nodes: indexed,
             decision_tables: indexed_tables,
+            boundary_events: indexed_boundaries,
+            node_metadata: indexed_metadata,
+            properties: contracts.properties,
         };
         definition.validate_reachability()?;
         Ok(definition)
@@ -246,6 +429,9 @@ impl WorkflowDefinition {
             if let Some(node) = self.nodes.get(&node_id) {
                 pending.extend(node.targets().cloned());
             }
+            if let Some(boundaries) = self.boundary_events.get(&node_id) {
+                pending.extend(boundaries.iter().map(|boundary| boundary.target.clone()));
+            }
         }
         if let Some(unreachable) = self.nodes.keys().find(|id| !visited.contains(*id)) {
             return Err(DomainError::UnreachableNode(unreachable.clone()));
@@ -258,6 +444,79 @@ impl WorkflowDefinition {
             .get(node_id)
             .ok_or_else(|| DomainError::UnknownNode(node_id.clone()))
     }
+
+    pub fn node_execution_metadata(&self, node_id: &NodeId) -> Option<&NodeExecutionMetadata> {
+        self.node_metadata.get(node_id)
+    }
+
+    pub fn properties(&self) -> &[ExtensionProperty] {
+        &self.properties
+    }
+
+    pub fn boundary_events(&self, node_id: &NodeId) -> &[BoundaryEventDefinition] {
+        self.boundary_events.get(node_id).map_or(&[], Vec::as_slice)
+    }
+
+    fn boundary_event(
+        &self,
+        boundary_event_id: &NodeId,
+    ) -> Option<(&NodeId, &BoundaryEventDefinition)> {
+        self.boundary_events.iter().find_map(|(owner, boundaries)| {
+            boundaries
+                .iter()
+                .find(|boundary| &boundary.id == boundary_event_id)
+                .map(|boundary| (owner, boundary))
+        })
+    }
+}
+
+fn validate_node_metadata(
+    owner: &NodeId,
+    metadata: &NodeExecutionMetadata,
+) -> Result<(), DomainError> {
+    validate_extension_properties(&metadata.properties)?;
+    let Some(spec) = &metadata.multi_instance else {
+        return Ok(());
+    };
+    if spec.collection_expression.is_none() && spec.cardinality_expression.is_none() {
+        return Err(DomainError::InvalidMultiInstance {
+            node: owner.clone(),
+            detail: "collection or cardinality expression is required".into(),
+        });
+    }
+    if spec.collection_expression.is_some() && spec.item_variable.is_none() {
+        return Err(DomainError::InvalidMultiInstance {
+            node: owner.clone(),
+            detail: "collection iteration requires an item variable".into(),
+        });
+    }
+    if spec.max_parallelism == Some(0) {
+        return Err(DomainError::InvalidMultiInstance {
+            node: owner.clone(),
+            detail: "max parallelism must be greater than zero".into(),
+        });
+    }
+    Ok(())
+}
+
+fn validate_extension_properties(properties: &[ExtensionProperty]) -> Result<(), DomainError> {
+    let mut keys = BTreeSet::new();
+    for property in properties {
+        if property.namespace_uri.trim().is_empty()
+            || property.element_name.trim().is_empty()
+            || property.name.trim().is_empty()
+        {
+            return Err(DomainError::InvalidExtensionProperty);
+        }
+        if !keys.insert((
+            property.namespace_uri.as_str(),
+            property.element_name.as_str(),
+            property.name.as_str(),
+        )) {
+            return Err(DomainError::DuplicateExtensionProperty);
+        }
+    }
+    Ok(())
 }
 
 fn validate_gateway_node(
@@ -304,9 +563,11 @@ fn validate_gateway_node(
             node_id,
             split,
         ),
-        Node::Start { .. } | Node::ServiceTask { .. } | Node::DecisionTask { .. } | Node::End => {
-            Ok(())
-        }
+        Node::Start { .. }
+        | Node::ServiceTask { .. }
+        | Node::DecisionTask { .. }
+        | Node::CallActivity { .. }
+        | Node::End => Ok(()),
     }
 }
 
@@ -336,7 +597,7 @@ fn validate_gateway(
     }
     let defaults = transitions
         .iter()
-        .filter(|transition| transition.guard.is_none())
+        .filter(|transition| transition.is_default())
         .count();
     match defaults {
         0 => validate_gateway_coverage(
@@ -414,16 +675,31 @@ fn validate_gateway_coverage(
     transitions: &[GuardedTransition],
     coverage: &GatewayCoverage,
 ) -> Result<(), DomainError> {
+    if matches!(coverage.domain, GatewayCoverageDomain::Symbolic) {
+        if transitions.iter().any(GuardedTransition::is_default) {
+            return Err(DomainError::InvalidGatewayCoverage {
+                gateway: node_id.clone(),
+                detail: "symbolic coverage cannot be combined with default branches".into(),
+            });
+        }
+        if transitions
+            .iter()
+            .any(|transition| transition.guard.is_some() == transition.expression.is_some())
+        {
+            return Err(DomainError::InvalidGatewayCoverage {
+                gateway: node_id.clone(),
+                detail: "each symbolic branch must contain exactly one guard representation".into(),
+            });
+        }
+        return Ok(());
+    }
     if coverage.variable.trim().is_empty() {
         return Err(DomainError::InvalidGatewayCoverage {
             gateway: node_id.clone(),
             detail: "coverage variable is empty".into(),
         });
     }
-    if transitions
-        .iter()
-        .any(|transition| transition.guard.is_none())
-    {
+    if transitions.iter().any(GuardedTransition::is_default) {
         return Err(DomainError::InvalidGatewayCoverage {
             gateway: node_id.clone(),
             detail: "coverage proof cannot be combined with default branches".into(),
@@ -448,6 +724,7 @@ fn validate_gateway_coverage(
         GatewayCoverageDomain::Integer { intervals } => {
             validate_integer_coverage(node_id, &guards, intervals)
         }
+        GatewayCoverageDomain::Symbolic => unreachable!("handled above"),
     }
 }
 
@@ -650,6 +927,7 @@ impl Node {
             Self::Start { next }
             | Self::ServiceTask { next, .. }
             | Self::DecisionTask { next, .. }
+            | Self::CallActivity { next, .. }
             | Self::ParallelJoin { next, .. }
             | Self::InclusiveJoin { next, .. } => Box::new(std::iter::once(next)),
             Self::ExclusiveGateway { transitions, .. }
@@ -688,10 +966,7 @@ fn validate_inclusive_gateway(
     if transitions.len() < 2 {
         return Err(DomainError::GatewayRequiresBranches(node_id.clone()));
     }
-    let default_count = transitions
-        .iter()
-        .filter(|item| item.guard.is_none())
-        .count();
+    let default_count = transitions.iter().filter(|item| item.is_default()).count();
     if default_count > 1 {
         return Err(DomainError::GatewayRequiresOneDefault {
             gateway: node_id.clone(),
@@ -724,6 +999,15 @@ pub enum Command {
     },
     CompleteServiceTask {
         node_id: NodeId,
+        occurred_at_epoch_ms: u64,
+    },
+    CompleteMultiInstanceIteration {
+        node_id: NodeId,
+        iteration: u32,
+        occurred_at_epoch_ms: u64,
+    },
+    TriggerBoundaryEvent {
+        boundary_event_id: NodeId,
         occurred_at_epoch_ms: u64,
     },
 }
@@ -766,6 +1050,58 @@ pub enum DomainEvent {
         gateway_id: NodeId,
         occurred_at_epoch_ms: u64,
     },
+    BoundaryEventArmed {
+        boundary_event_id: NodeId,
+        attached_node_id: NodeId,
+        target_node_id: NodeId,
+        cancel_activity: bool,
+        trigger: BoundaryTrigger,
+        occurred_at_epoch_ms: u64,
+    },
+    BoundaryEventsDisarmed {
+        attached_node_id: NodeId,
+        boundary_event_ids: Vec<NodeId>,
+        occurred_at_epoch_ms: u64,
+    },
+    MultiInstanceStarted {
+        node_id: NodeId,
+        task_type: TaskType,
+        mode: MultiInstanceMode,
+        total_instances: u32,
+        max_parallelism: u32,
+        item_variable: Option<String>,
+        items: Vec<WorkflowValue>,
+        occurred_at_epoch_ms: u64,
+    },
+    MultiInstanceIterationActivated {
+        node_id: NodeId,
+        task_type: TaskType,
+        iteration: u32,
+        item: Option<WorkflowValue>,
+        occurred_at_epoch_ms: u64,
+    },
+    MultiInstanceIterationCompleted {
+        node_id: NodeId,
+        iteration: u32,
+        occurred_at_epoch_ms: u64,
+    },
+    MultiInstanceCompleted {
+        node_id: NodeId,
+        occurred_at_epoch_ms: u64,
+    },
+    BoundaryEventTriggered {
+        boundary_event_id: NodeId,
+        attached_node_id: NodeId,
+        target_node_id: NodeId,
+        cancel_activity: bool,
+        cancelled_iterations: Vec<u32>,
+        cancelled_task_tokens: u32,
+        occurred_at_epoch_ms: u64,
+    },
+    WorkflowBranchCompleted {
+        end_node_id: NodeId,
+        occurred_at_epoch_ms: u64,
+    },
     WorkflowCompleted {
         occurred_at_epoch_ms: u64,
     },
@@ -785,6 +1121,8 @@ pub struct InstanceState {
     pub variables: BTreeMap<String, WorkflowValue>,
     pub active_tokens: BTreeMap<NodeId, u32>,
     pub pending_gateway_joins: BTreeMap<NodeId, PendingGatewayJoin>,
+    pub active_multi_instances: BTreeMap<NodeId, ActiveMultiInstance>,
+    pub active_boundary_subscriptions: BTreeMap<NodeId, ActiveBoundarySubscription>,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -801,6 +1139,8 @@ impl Default for InstanceState {
             variables: BTreeMap::new(),
             active_tokens: BTreeMap::new(),
             pending_gateway_joins: BTreeMap::new(),
+            active_multi_instances: BTreeMap::new(),
+            active_boundary_subscriptions: BTreeMap::new(),
         }
     }
 }
@@ -817,6 +1157,7 @@ pub struct DecisionContext<'a> {
 ///
 /// Returns a [`DomainError`] when the command is invalid for the current lifecycle,
 /// the workflow is inconsistent, or the configured event limit would be exceeded.
+#[allow(clippy::too_many_lines)]
 pub fn decide(
     definition: &WorkflowDefinition,
     state: &InstanceState,
@@ -854,6 +1195,7 @@ pub fn decide(
                 next,
                 &mut variables,
                 &mut routing,
+                context.configuration,
                 *occurred_at_epoch_ms,
             )?);
             events
@@ -872,7 +1214,9 @@ pub fn decide(
             .unwrap_or_default()
             > 0 =>
         {
-            let Node::ServiceTask { next, .. } = definition.node(node_id)? else {
+            let (Node::ServiceTask { next, .. } | Node::CallActivity { next, .. }) =
+                definition.node(node_id)?
+            else {
                 return Err(DomainError::NodeIsNotServiceTask(node_id.clone()));
             };
             let mut events = vec![DomainEvent::ServiceTaskCompleted {
@@ -882,11 +1226,13 @@ pub fn decide(
             let mut variables = state_variables_with_context(state, context.variables);
             let mut routing = RoutingState::from(state);
             routing.complete_task(node_id)?;
+            disarm_boundary_events(node_id, &mut routing, *occurred_at_epoch_ms, &mut events);
             events.extend(activation_events(
                 definition,
                 next,
                 &mut variables,
                 &mut routing,
+                context.configuration,
                 *occurred_at_epoch_ms,
             )?);
             events
@@ -894,10 +1240,48 @@ pub fn decide(
         (Command::CompleteServiceTask { node_id, .. }, Lifecycle::Active { .. }) => {
             return Err(DomainError::TaskNotActive(node_id.clone()));
         }
-        (Command::CompleteServiceTask { .. }, Lifecycle::Initial) => {
+        (
+            Command::CompleteMultiInstanceIteration {
+                node_id,
+                iteration,
+                occurred_at_epoch_ms,
+            },
+            Lifecycle::Active { .. },
+        ) => complete_multi_instance_iteration(
+            definition,
+            state,
+            node_id,
+            *iteration,
+            context,
+            *occurred_at_epoch_ms,
+        )?,
+        (
+            Command::TriggerBoundaryEvent {
+                boundary_event_id,
+                occurred_at_epoch_ms,
+            },
+            Lifecycle::Active { .. },
+        ) => trigger_boundary_event(
+            definition,
+            state,
+            boundary_event_id,
+            context,
+            *occurred_at_epoch_ms,
+        )?,
+        (
+            Command::CompleteServiceTask { .. }
+            | Command::CompleteMultiInstanceIteration { .. }
+            | Command::TriggerBoundaryEvent { .. },
+            Lifecycle::Initial,
+        ) => {
             return Err(DomainError::NotStarted);
         }
-        (Command::CompleteServiceTask { .. }, Lifecycle::Completed) => {
+        (
+            Command::CompleteServiceTask { .. }
+            | Command::CompleteMultiInstanceIteration { .. }
+            | Command::TriggerBoundaryEvent { .. },
+            Lifecycle::Completed,
+        ) => {
             return Err(DomainError::AlreadyCompleted);
         }
     };
@@ -916,11 +1300,330 @@ pub fn decide(
     Ok(events)
 }
 
+fn complete_multi_instance_iteration(
+    definition: &WorkflowDefinition,
+    state: &InstanceState,
+    node_id: &NodeId,
+    iteration: u32,
+    context: DecisionContext<'_>,
+    occurred_at_epoch_ms: u64,
+) -> Result<Vec<DomainEvent>, DomainError> {
+    let (Node::ServiceTask { next, .. } | Node::CallActivity { next, .. }) =
+        definition.node(node_id)?
+    else {
+        return Err(DomainError::NodeIsNotServiceTask(node_id.clone()));
+    };
+    let active = state
+        .active_multi_instances
+        .get(node_id)
+        .ok_or_else(|| DomainError::MultiInstanceNotActive(node_id.clone()))?;
+    if !active.active_iterations.contains(&iteration) {
+        return Err(DomainError::MultiInstanceIterationNotActive {
+            node: node_id.clone(),
+            iteration,
+        });
+    }
+
+    let mut events = vec![DomainEvent::MultiInstanceIterationCompleted {
+        node_id: node_id.clone(),
+        iteration,
+        occurred_at_epoch_ms,
+    }];
+    let mut routing = RoutingState::from(state);
+    let progress = routing.complete_multi_instance_iteration(node_id, iteration)?;
+    if let Some((next_iteration, task_type, item)) = progress.activated {
+        events.push(DomainEvent::MultiInstanceIterationActivated {
+            node_id: node_id.clone(),
+            task_type,
+            iteration: next_iteration,
+            item,
+            occurred_at_epoch_ms,
+        });
+    }
+    if progress.completed {
+        events.push(DomainEvent::MultiInstanceCompleted {
+            node_id: node_id.clone(),
+            occurred_at_epoch_ms,
+        });
+        disarm_boundary_events(node_id, &mut routing, occurred_at_epoch_ms, &mut events);
+        let mut variables = state_variables_with_context(state, context.variables);
+        events.extend(activation_events(
+            definition,
+            next,
+            &mut variables,
+            &mut routing,
+            context.configuration,
+            occurred_at_epoch_ms,
+        )?);
+    }
+    Ok(events)
+}
+
+fn trigger_boundary_event(
+    definition: &WorkflowDefinition,
+    state: &InstanceState,
+    boundary_event_id: &NodeId,
+    context: DecisionContext<'_>,
+    occurred_at_epoch_ms: u64,
+) -> Result<Vec<DomainEvent>, DomainError> {
+    let subscription = state
+        .active_boundary_subscriptions
+        .get(boundary_event_id)
+        .ok_or_else(|| DomainError::BoundaryEventNotArmed(boundary_event_id.clone()))?;
+    let owner = &subscription.attached_node_id;
+    let boundary = definition
+        .boundary_event(boundary_event_id)
+        .map(|(_, boundary)| boundary)
+        .ok_or_else(|| DomainError::UnknownBoundaryEvent(boundary_event_id.clone()))?;
+    if boundary.target != subscription.target_node_id
+        || boundary.cancel_activity != subscription.cancel_activity
+        || boundary.trigger != subscription.trigger
+    {
+        return Err(DomainError::BoundarySubscriptionDefinitionMismatch(
+            boundary_event_id.clone(),
+        ));
+    }
+    let normal_tokens = state.active_tokens.get(owner).copied().unwrap_or_default();
+    let multi_instance = state.active_multi_instances.get(owner);
+    if normal_tokens == 0 && multi_instance.is_none() {
+        return Err(DomainError::BoundaryOwnerNotActive(owner.clone()));
+    }
+
+    let cancelled_iterations = if boundary.cancel_activity {
+        multi_instance
+            .map(|active| active.active_iterations.iter().copied().collect())
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let cancelled_task_tokens = u32::from(boundary.cancel_activity && normal_tokens > 0);
+    let mut events = vec![DomainEvent::BoundaryEventTriggered {
+        boundary_event_id: boundary.id.clone(),
+        attached_node_id: owner.clone(),
+        target_node_id: boundary.target.clone(),
+        cancel_activity: boundary.cancel_activity,
+        cancelled_iterations,
+        cancelled_task_tokens,
+        occurred_at_epoch_ms,
+    }];
+    let mut routing = RoutingState::from(state);
+    if boundary.cancel_activity {
+        routing.cancel_activity(owner, cancelled_task_tokens)?;
+    }
+    let mut variables = state_variables_with_context(state, context.variables);
+    events.extend(activation_events(
+        definition,
+        &boundary.target,
+        &mut variables,
+        &mut routing,
+        context.configuration,
+        occurred_at_epoch_ms,
+    )?);
+    Ok(events)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn start_multi_instance(
+    node_id: &NodeId,
+    task_type: &TaskType,
+    spec: &MultiInstanceDefinition,
+    variables: &BTreeMap<String, WorkflowValue>,
+    routing: &mut RoutingState,
+    configuration: &ResolvedConfigSnapshot,
+    occurred_at_epoch_ms: u64,
+    events: &mut Vec<DomainEvent>,
+) -> Result<bool, DomainError> {
+    let (total_instances, items) = materialize_multi_instance(node_id, spec, variables)?;
+    if total_instances > configuration.engine.max_multi_instance_cardinality {
+        return Err(DomainError::MultiInstanceCardinalityExceeded {
+            node: node_id.clone(),
+            actual: total_instances,
+            configured_limit: configuration.engine.max_multi_instance_cardinality,
+        });
+    }
+    let max_parallelism = match spec.mode {
+        MultiInstanceMode::Sequential => 1,
+        MultiInstanceMode::Parallel => spec
+            .max_parallelism
+            .unwrap_or(configuration.engine.default_multi_instance_parallelism),
+    }
+    .min(total_instances.max(1));
+    let active = ActiveMultiInstance {
+        task_type: task_type.clone(),
+        mode: spec.mode,
+        total_instances,
+        next_iteration: 0,
+        max_parallelism,
+        item_variable: spec.item_variable.clone(),
+        items: items.clone(),
+        active_iterations: BTreeSet::new(),
+        completed_iterations: BTreeSet::new(),
+    };
+    routing.start_multi_instance(node_id, active)?;
+    events.push(DomainEvent::MultiInstanceStarted {
+        node_id: node_id.clone(),
+        task_type: task_type.clone(),
+        mode: spec.mode,
+        total_instances,
+        max_parallelism,
+        item_variable: spec.item_variable.clone(),
+        items,
+        occurred_at_epoch_ms,
+    });
+
+    if total_instances == 0 {
+        routing.finish_multi_instance(node_id);
+        events.push(DomainEvent::MultiInstanceCompleted {
+            node_id: node_id.clone(),
+            occurred_at_epoch_ms,
+        });
+        return Ok(true);
+    }
+    for _ in 0..max_parallelism {
+        let (iteration, task_type, item) = routing.activate_next_multi_instance(node_id)?;
+        events.push(DomainEvent::MultiInstanceIterationActivated {
+            node_id: node_id.clone(),
+            task_type,
+            iteration,
+            item,
+            occurred_at_epoch_ms,
+        });
+    }
+    Ok(false)
+}
+
+fn materialize_multi_instance(
+    node_id: &NodeId,
+    spec: &MultiInstanceDefinition,
+    variables: &BTreeMap<String, WorkflowValue>,
+) -> Result<(u32, Vec<WorkflowValue>), DomainError> {
+    let items = if let Some(expression) = &spec.collection_expression {
+        let variable = expression_variable(expression);
+        match variables.get(variable) {
+            Some(WorkflowValue::List(items)) if items.iter().all(WorkflowValue::is_scalar) => {
+                items.clone()
+            }
+            Some(value) => {
+                return Err(DomainError::MultiInstanceCollectionTypeMismatch {
+                    node: node_id.clone(),
+                    actual: value.type_name(),
+                });
+            }
+            None => {
+                return Err(DomainError::MultiInstanceInputMissing {
+                    node: node_id.clone(),
+                    expression: expression.clone(),
+                });
+            }
+        }
+    } else {
+        Vec::new()
+    };
+    let collection_count =
+        u32::try_from(items.len()).map_err(|_| DomainError::TokenCountOverflow(node_id.clone()))?;
+    let cardinality = spec
+        .cardinality_expression
+        .as_deref()
+        .map(|expression| resolve_cardinality(node_id, expression, variables))
+        .transpose()?;
+    if spec.collection_expression.is_some()
+        && let Some(cardinality) = cardinality
+        && cardinality != collection_count
+    {
+        return Err(DomainError::MultiInstanceCardinalityMismatch {
+            node: node_id.clone(),
+            collection_count,
+            cardinality,
+        });
+    }
+    Ok((cardinality.unwrap_or(collection_count), items))
+}
+
+fn resolve_cardinality(
+    node_id: &NodeId,
+    expression: &str,
+    variables: &BTreeMap<String, WorkflowValue>,
+) -> Result<u32, DomainError> {
+    let value = expression
+        .trim()
+        .parse::<i64>()
+        .ok()
+        .or_else(|| match variables.get(expression_variable(expression)) {
+            Some(WorkflowValue::Integer(value)) => Some(*value),
+            _ => None,
+        })
+        .ok_or_else(|| DomainError::InvalidMultiInstanceCardinality {
+            node: node_id.clone(),
+            expression: expression.to_owned(),
+        })?;
+    u32::try_from(value).map_err(|_| DomainError::InvalidMultiInstanceCardinality {
+        node: node_id.clone(),
+        expression: expression.to_owned(),
+    })
+}
+
+fn expression_variable(expression: &str) -> &str {
+    let trimmed = expression.trim();
+    trimmed
+        .strip_prefix("${")
+        .and_then(|value| value.strip_suffix('}'))
+        .unwrap_or(trimmed)
+        .trim()
+}
+
+fn arm_boundary_events(
+    definition: &WorkflowDefinition,
+    node_id: &NodeId,
+    routing: &mut RoutingState,
+    occurred_at_epoch_ms: u64,
+    events: &mut Vec<DomainEvent>,
+) -> Result<(), DomainError> {
+    for boundary in definition.boundary_events(node_id) {
+        routing.arm_boundary(
+            boundary.id.clone(),
+            ActiveBoundarySubscription {
+                attached_node_id: node_id.clone(),
+                target_node_id: boundary.target.clone(),
+                cancel_activity: boundary.cancel_activity,
+                trigger: boundary.trigger.clone(),
+                armed_at_epoch_ms: occurred_at_epoch_ms,
+            },
+        )?;
+        events.push(DomainEvent::BoundaryEventArmed {
+            boundary_event_id: boundary.id.clone(),
+            attached_node_id: node_id.clone(),
+            target_node_id: boundary.target.clone(),
+            cancel_activity: boundary.cancel_activity,
+            trigger: boundary.trigger.clone(),
+            occurred_at_epoch_ms,
+        });
+    }
+    Ok(())
+}
+
+fn disarm_boundary_events(
+    node_id: &NodeId,
+    routing: &mut RoutingState,
+    occurred_at_epoch_ms: u64,
+    events: &mut Vec<DomainEvent>,
+) {
+    let boundary_event_ids = routing.disarm_boundaries(node_id);
+    if !boundary_event_ids.is_empty() {
+        events.push(DomainEvent::BoundaryEventsDisarmed {
+            attached_node_id: node_id.clone(),
+            boundary_event_ids,
+            occurred_at_epoch_ms,
+        });
+    }
+}
+
+#[allow(clippy::too_many_lines)]
 fn activation_events(
     definition: &WorkflowDefinition,
     node_id: &NodeId,
     variables: &mut BTreeMap<String, WorkflowValue>,
     routing: &mut RoutingState,
+    configuration: &ResolvedConfigSnapshot,
     occurred_at_epoch_ms: u64,
 ) -> Result<Vec<DomainEvent>, DomainError> {
     let mut pending = vec![node_id.clone()];
@@ -935,13 +1638,98 @@ fn activation_events(
             ));
         }
         match definition.node(&current)? {
-            Node::ServiceTask { task_type, .. } => {
-                routing.activate_task(&current)?;
-                events.push(DomainEvent::ServiceTaskActivated {
-                    node_id: current,
-                    task_type: task_type.clone(),
-                    occurred_at_epoch_ms,
-                });
+            Node::ServiceTask { task_type, next } => {
+                if let Some(spec) = definition
+                    .node_execution_metadata(&current)
+                    .and_then(|metadata| metadata.multi_instance.as_ref())
+                {
+                    let completed = start_multi_instance(
+                        &current,
+                        task_type,
+                        spec,
+                        variables,
+                        routing,
+                        configuration,
+                        occurred_at_epoch_ms,
+                        &mut events,
+                    )?;
+                    if completed {
+                        pending.push(next.clone());
+                    } else {
+                        arm_boundary_events(
+                            definition,
+                            &current,
+                            routing,
+                            occurred_at_epoch_ms,
+                            &mut events,
+                        )?;
+                    }
+                } else {
+                    routing.activate_task(&current)?;
+                    events.push(DomainEvent::ServiceTaskActivated {
+                        node_id: current.clone(),
+                        task_type: task_type.clone(),
+                        occurred_at_epoch_ms,
+                    });
+                    arm_boundary_events(
+                        definition,
+                        &current,
+                        routing,
+                        occurred_at_epoch_ms,
+                        &mut events,
+                    )?;
+                }
+            }
+            Node::CallActivity {
+                called_workflow,
+                called_version,
+                next,
+            } => {
+                let task_type = TaskType::new(match called_version {
+                    Some(version) => format!("call:{called_workflow}@{version}"),
+                    None => format!("call:{called_workflow}"),
+                })
+                .expect("validated call activity produces a non-empty task type");
+                if let Some(spec) = definition
+                    .node_execution_metadata(&current)
+                    .and_then(|metadata| metadata.multi_instance.as_ref())
+                {
+                    let completed = start_multi_instance(
+                        &current,
+                        &task_type,
+                        spec,
+                        variables,
+                        routing,
+                        configuration,
+                        occurred_at_epoch_ms,
+                        &mut events,
+                    )?;
+                    if completed {
+                        pending.push(next.clone());
+                    } else {
+                        arm_boundary_events(
+                            definition,
+                            &current,
+                            routing,
+                            occurred_at_epoch_ms,
+                            &mut events,
+                        )?;
+                    }
+                } else {
+                    routing.activate_task(&current)?;
+                    events.push(DomainEvent::ServiceTaskActivated {
+                        node_id: current.clone(),
+                        task_type,
+                        occurred_at_epoch_ms,
+                    });
+                    arm_boundary_events(
+                        definition,
+                        &current,
+                        routing,
+                        occurred_at_epoch_ms,
+                        &mut events,
+                    )?;
+                }
             }
             Node::DecisionTask {
                 decision_table_id,
@@ -966,12 +1754,16 @@ fn activation_events(
                 pending.push(next.clone());
             }
             Node::End => {
-                if !routing.active_tokens.is_empty() || !routing.pending_joins.is_empty() {
-                    return Err(DomainError::EndReachedWithOutstandingTokens(current));
+                if routing.has_outstanding_work() {
+                    events.push(DomainEvent::WorkflowBranchCompleted {
+                        end_node_id: current,
+                        occurred_at_epoch_ms,
+                    });
+                } else {
+                    events.push(DomainEvent::WorkflowCompleted {
+                        occurred_at_epoch_ms,
+                    });
                 }
-                events.push(DomainEvent::WorkflowCompleted {
-                    occurred_at_epoch_ms,
-                });
             }
             Node::Start { .. } => {
                 return Err(DomainError::TransitionToStartNode(current));
@@ -1026,6 +1818,8 @@ fn activation_events(
 struct RoutingState {
     active_tokens: BTreeMap<NodeId, u32>,
     pending_joins: BTreeMap<NodeId, PendingGatewayJoin>,
+    active_multi_instances: BTreeMap<NodeId, ActiveMultiInstance>,
+    active_boundary_subscriptions: BTreeMap<NodeId, ActiveBoundarySubscription>,
 }
 
 impl From<&InstanceState> for RoutingState {
@@ -1033,11 +1827,25 @@ impl From<&InstanceState> for RoutingState {
         Self {
             active_tokens: state.active_tokens.clone(),
             pending_joins: state.pending_gateway_joins.clone(),
+            active_multi_instances: state.active_multi_instances.clone(),
+            active_boundary_subscriptions: state.active_boundary_subscriptions.clone(),
         }
     }
 }
 
+struct MultiInstanceProgress {
+    activated: Option<(u32, TaskType, Option<WorkflowValue>)>,
+    completed: bool,
+}
+
 impl RoutingState {
+    fn has_outstanding_work(&self) -> bool {
+        !self.active_tokens.is_empty()
+            || !self.pending_joins.is_empty()
+            || !self.active_multi_instances.is_empty()
+            || !self.active_boundary_subscriptions.is_empty()
+    }
+
     fn activate_task(&mut self, node_id: &NodeId) -> Result<(), DomainError> {
         let count = self.active_tokens.entry(node_id.clone()).or_default();
         *count = count
@@ -1055,6 +1863,124 @@ impl RoutingState {
             self.active_tokens.remove(node_id);
         }
         Ok(())
+    }
+
+    fn start_multi_instance(
+        &mut self,
+        node_id: &NodeId,
+        state: ActiveMultiInstance,
+    ) -> Result<(), DomainError> {
+        if self
+            .active_multi_instances
+            .insert(node_id.clone(), state)
+            .is_some()
+        {
+            return Err(DomainError::MultiInstanceAlreadyActive(node_id.clone()));
+        }
+        Ok(())
+    }
+
+    fn activate_next_multi_instance(
+        &mut self,
+        node_id: &NodeId,
+    ) -> Result<(u32, TaskType, Option<WorkflowValue>), DomainError> {
+        let active = self
+            .active_multi_instances
+            .get_mut(node_id)
+            .ok_or_else(|| DomainError::MultiInstanceNotActive(node_id.clone()))?;
+        if active.next_iteration >= active.total_instances
+            || active.active_iterations.len() >= active.max_parallelism as usize
+        {
+            return Err(DomainError::MultiInstanceActivationLimit(node_id.clone()));
+        }
+        let iteration = active.next_iteration;
+        active.next_iteration = active
+            .next_iteration
+            .checked_add(1)
+            .ok_or_else(|| DomainError::TokenCountOverflow(node_id.clone()))?;
+        active.active_iterations.insert(iteration);
+        let item = active.items.get(iteration as usize).cloned();
+        Ok((iteration, active.task_type.clone(), item))
+    }
+
+    fn complete_multi_instance_iteration(
+        &mut self,
+        node_id: &NodeId,
+        iteration: u32,
+    ) -> Result<MultiInstanceProgress, DomainError> {
+        let active = self
+            .active_multi_instances
+            .get_mut(node_id)
+            .ok_or_else(|| DomainError::MultiInstanceNotActive(node_id.clone()))?;
+        if !active.active_iterations.remove(&iteration) {
+            return Err(DomainError::MultiInstanceIterationNotActive {
+                node: node_id.clone(),
+                iteration,
+            });
+        }
+        active.completed_iterations.insert(iteration);
+        let completed = active.completed_iterations.len() == active.total_instances as usize;
+        if completed {
+            self.active_multi_instances.remove(node_id);
+            return Ok(MultiInstanceProgress {
+                activated: None,
+                completed: true,
+            });
+        }
+        let activated = if active.next_iteration < active.total_instances {
+            Some(self.activate_next_multi_instance(node_id)?)
+        } else {
+            None
+        };
+        Ok(MultiInstanceProgress {
+            activated,
+            completed: false,
+        })
+    }
+
+    fn finish_multi_instance(&mut self, node_id: &NodeId) {
+        self.active_multi_instances.remove(node_id);
+    }
+
+    fn cancel_activity(
+        &mut self,
+        node_id: &NodeId,
+        cancelled_task_tokens: u32,
+    ) -> Result<(), DomainError> {
+        self.active_multi_instances.remove(node_id);
+        self.disarm_boundaries(node_id);
+        for _ in 0..cancelled_task_tokens {
+            self.complete_task(node_id)?;
+        }
+        Ok(())
+    }
+
+    fn arm_boundary(
+        &mut self,
+        boundary_event_id: NodeId,
+        subscription: ActiveBoundarySubscription,
+    ) -> Result<(), DomainError> {
+        if self
+            .active_boundary_subscriptions
+            .insert(boundary_event_id.clone(), subscription)
+            .is_some()
+        {
+            return Err(DomainError::BoundaryEventAlreadyArmed(boundary_event_id));
+        }
+        Ok(())
+    }
+
+    fn disarm_boundaries(&mut self, node_id: &NodeId) -> Vec<NodeId> {
+        let boundary_event_ids = self
+            .active_boundary_subscriptions
+            .iter()
+            .filter(|(_, subscription)| &subscription.attached_node_id == node_id)
+            .map(|(boundary_event_id, _)| boundary_event_id.clone())
+            .collect::<Vec<_>>();
+        for boundary_event_id in &boundary_event_ids {
+            self.active_boundary_subscriptions.remove(boundary_event_id);
+        }
+        boundary_event_ids
     }
 
     fn open_join(&mut self, join: &NodeId, target_count: usize) -> Result<(), DomainError> {
@@ -1112,10 +2038,10 @@ fn select_transition<'a>(
 ) -> Result<&'a NodeId, DomainError> {
     let mut selected = None;
     for transition in transitions {
-        let Some(guard) = &transition.guard else {
+        if transition.is_default() {
             continue;
-        };
-        if guard.evaluate(variables)? {
+        }
+        if transition.evaluate(variables)? {
             if selected.is_some() {
                 return Err(DomainError::AmbiguousGateway(gateway_id.clone()));
             }
@@ -1126,7 +2052,7 @@ fn select_transition<'a>(
         .or_else(|| {
             transitions
                 .iter()
-                .find(|transition| transition.guard.is_none())
+                .find(|transition| transition.is_default())
                 .map(|transition| &transition.target)
         })
         .ok_or_else(|| DomainError::NoGatewayBranch(gateway_id.clone()))
@@ -1139,16 +2065,14 @@ fn select_transitions(
 ) -> Result<Vec<NodeId>, DomainError> {
     let mut selected = Vec::new();
     for transition in transitions {
-        if let Some(guard) = &transition.guard
-            && guard.evaluate(variables)?
-        {
+        if !transition.is_default() && transition.evaluate(variables)? {
             selected.push(transition.target.clone());
         }
     }
     if selected.is_empty()
         && let Some(default) = transitions
             .iter()
-            .find(|transition| transition.guard.is_none())
+            .find(|transition| transition.is_default())
     {
         selected.push(default.target.clone());
     }
@@ -1255,7 +2179,52 @@ impl GuardExpression {
     }
 }
 
+impl GuardedTransition {
+    fn is_default(&self) -> bool {
+        self.guard.is_none() && self.expression.is_none()
+    }
+
+    fn evaluate(&self, variables: &BTreeMap<String, WorkflowValue>) -> Result<bool, DomainError> {
+        match (&self.guard, &self.expression) {
+            (Some(guard), None) => guard.evaluate(variables),
+            (None, Some(expression)) => expression.evaluate(variables),
+            (None, None) => Ok(true),
+            (Some(_), Some(_)) => Err(DomainError::ConflictingGuardRepresentations),
+        }
+    }
+}
+
+impl BooleanExpression {
+    fn evaluate(&self, variables: &BTreeMap<String, WorkflowValue>) -> Result<bool, DomainError> {
+        match self {
+            Self::Comparison(guard) => guard.evaluate(variables),
+            Self::Conjunction(operands) => {
+                for operand in operands {
+                    if !operand.evaluate(variables)? {
+                        return Ok(false);
+                    }
+                }
+                Ok(true)
+            }
+            Self::Disjunction(operands) => {
+                for operand in operands {
+                    if operand.evaluate(variables)? {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            }
+            Self::Negation(operand) => Ok(!operand.evaluate(variables)?),
+            Self::Constant(value) => Ok(*value),
+        }
+    }
+}
+
 impl WorkflowValue {
+    const fn is_scalar(&self) -> bool {
+        !matches!(self, Self::List(_))
+    }
+
     fn same_type_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         match (self, other) {
             (Self::Integer(left), Self::Integer(right)) => Some(left.cmp(right)),
@@ -1270,6 +2239,7 @@ impl WorkflowValue {
             Self::Boolean(_) => "boolean",
             Self::Integer(_) => "integer",
             Self::String(_) => "string",
+            Self::List(_) => "list",
         }
     }
 }
@@ -1293,6 +2263,7 @@ impl WorkflowValueType {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 pub fn evolve(mut state: InstanceState, event: &DomainEvent) -> InstanceState {
     state.sequence = state.sequence.saturating_add(1);
     state.lifecycle = match event {
@@ -1359,9 +2330,123 @@ pub fn evolve(mut state: InstanceState, event: &DomainEvent) -> InstanceState {
                 active_node: gateway_id.clone(),
             }
         }
+        DomainEvent::BoundaryEventArmed {
+            boundary_event_id,
+            attached_node_id,
+            target_node_id,
+            cancel_activity,
+            trigger,
+            occurred_at_epoch_ms,
+        } => {
+            state.active_boundary_subscriptions.insert(
+                boundary_event_id.clone(),
+                ActiveBoundarySubscription {
+                    attached_node_id: attached_node_id.clone(),
+                    target_node_id: target_node_id.clone(),
+                    cancel_activity: *cancel_activity,
+                    trigger: trigger.clone(),
+                    armed_at_epoch_ms: *occurred_at_epoch_ms,
+                },
+            );
+            state.lifecycle.clone()
+        }
+        DomainEvent::BoundaryEventsDisarmed {
+            boundary_event_ids, ..
+        } => {
+            for boundary_event_id in boundary_event_ids {
+                state
+                    .active_boundary_subscriptions
+                    .remove(boundary_event_id);
+            }
+            state.lifecycle.clone()
+        }
+        DomainEvent::MultiInstanceStarted {
+            node_id,
+            task_type,
+            mode,
+            total_instances,
+            max_parallelism,
+            item_variable,
+            items,
+            ..
+        } => {
+            state.active_multi_instances.insert(
+                node_id.clone(),
+                ActiveMultiInstance {
+                    task_type: task_type.clone(),
+                    mode: *mode,
+                    total_instances: *total_instances,
+                    next_iteration: 0,
+                    max_parallelism: *max_parallelism,
+                    item_variable: item_variable.clone(),
+                    items: items.clone(),
+                    active_iterations: BTreeSet::new(),
+                    completed_iterations: BTreeSet::new(),
+                },
+            );
+            Lifecycle::Active {
+                active_node: node_id.clone(),
+            }
+        }
+        DomainEvent::MultiInstanceIterationActivated {
+            node_id, iteration, ..
+        } => {
+            if let Some(active) = state.active_multi_instances.get_mut(node_id) {
+                active.active_iterations.insert(*iteration);
+                active.next_iteration = active.next_iteration.max(iteration.saturating_add(1));
+            }
+            Lifecycle::Active {
+                active_node: node_id.clone(),
+            }
+        }
+        DomainEvent::MultiInstanceIterationCompleted {
+            node_id, iteration, ..
+        } => {
+            if let Some(active) = state.active_multi_instances.get_mut(node_id) {
+                active.active_iterations.remove(iteration);
+                active.completed_iterations.insert(*iteration);
+            }
+            Lifecycle::Active {
+                active_node: node_id.clone(),
+            }
+        }
+        DomainEvent::MultiInstanceCompleted { node_id, .. } => {
+            state.active_multi_instances.remove(node_id);
+            Lifecycle::Active {
+                active_node: node_id.clone(),
+            }
+        }
+        DomainEvent::BoundaryEventTriggered {
+            attached_node_id,
+            target_node_id,
+            cancel_activity,
+            cancelled_task_tokens,
+            ..
+        } => {
+            if *cancel_activity {
+                state.active_multi_instances.remove(attached_node_id);
+                state
+                    .active_boundary_subscriptions
+                    .retain(|_, subscription| &subscription.attached_node_id != attached_node_id);
+                if let Some(count) = state.active_tokens.get_mut(attached_node_id) {
+                    *count = count.saturating_sub(*cancelled_task_tokens);
+                    if *count == 0 {
+                        state.active_tokens.remove(attached_node_id);
+                    }
+                }
+            }
+            Lifecycle::Active {
+                active_node: target_node_id.clone(),
+            }
+        }
+        DomainEvent::WorkflowBranchCompleted { end_node_id, .. } => Lifecycle::Active {
+            active_node: end_node_id.clone(),
+        },
         DomainEvent::WorkflowCompleted { .. } => {
             state.active_tokens.clear();
             state.pending_gateway_joins.clear();
+            state.active_multi_instances.clear();
+            state.active_boundary_subscriptions.clear();
             Lifecycle::Completed
         }
     };
@@ -1384,6 +2469,20 @@ pub enum DomainError {
     TransitionToStartNode(NodeId),
     #[error("workflow node {0} is unreachable")]
     UnreachableNode(NodeId),
+    #[error("boundary event owner {0} does not exist")]
+    UnknownBoundaryOwner(NodeId),
+    #[error("workflow contains duplicate boundary event {0}")]
+    DuplicateBoundaryEvent(NodeId),
+    #[error("node metadata owner {0} does not exist")]
+    UnknownNodeMetadataOwner(NodeId),
+    #[error("workflow contains duplicate metadata for node {0}")]
+    DuplicateNodeMetadata(NodeId),
+    #[error("multi-instance definition on {node} is invalid: {detail}")]
+    InvalidMultiInstance { node: NodeId, detail: String },
+    #[error("extension property namespace, element, and name must not be empty")]
+    InvalidExtensionProperty,
+    #[error("extension property keys must be unique within their owner")]
+    DuplicateExtensionProperty,
     #[error("workflow node {0} does not exist")]
     UnknownNode(NodeId),
     #[error("workflow instance has already started")]
@@ -1401,10 +2500,56 @@ pub enum DomainError {
     NodeIsNotServiceTask(NodeId),
     #[error("requested task {0} is not active")]
     TaskNotActive(NodeId),
+    #[error("multi-instance activity {0} is already active")]
+    MultiInstanceAlreadyActive(NodeId),
+    #[error("multi-instance activity {0} is not active")]
+    MultiInstanceNotActive(NodeId),
+    #[error("multi-instance iteration {iteration} on {node} is not active")]
+    MultiInstanceIterationNotActive { node: NodeId, iteration: u32 },
+    #[error("multi-instance activity {0} cannot activate another iteration")]
+    MultiInstanceActivationLimit(NodeId),
+    #[error("multi-instance input {expression} on {node} is missing")]
+    MultiInstanceInputMissing { node: NodeId, expression: String },
+    #[error(
+        "multi-instance collection on {node} has type {actual}, expected list of scalar values"
+    )]
+    MultiInstanceCollectionTypeMismatch { node: NodeId, actual: &'static str },
+    #[error(
+        "multi-instance cardinality expression {expression} on {node} is not a non-negative integer"
+    )]
+    InvalidMultiInstanceCardinality { node: NodeId, expression: String },
+    #[error(
+        "multi-instance collection count {collection_count} on {node} differs from cardinality {cardinality}"
+    )]
+    MultiInstanceCardinalityMismatch {
+        node: NodeId,
+        collection_count: u32,
+        cardinality: u32,
+    },
+    #[error(
+        "multi-instance cardinality {actual} on {node} exceeds configured limit {configured_limit}"
+    )]
+    MultiInstanceCardinalityExceeded {
+        node: NodeId,
+        actual: u32,
+        configured_limit: u32,
+    },
+    #[error("boundary event {0} does not exist")]
+    UnknownBoundaryEvent(NodeId),
+    #[error("boundary event {0} is not armed")]
+    BoundaryEventNotArmed(NodeId),
+    #[error("boundary event {0} is already armed")]
+    BoundaryEventAlreadyArmed(NodeId),
+    #[error("boundary event {0} subscription does not match the pinned workflow definition")]
+    BoundarySubscriptionDefinitionMismatch(NodeId),
+    #[error("boundary event owner {0} is not active")]
+    BoundaryOwnerNotActive(NodeId),
     #[error("exclusive gateway {0} matched more than one branch")]
     AmbiguousGateway(NodeId),
     #[error("exclusive gateway {0} has no matching branch and no default")]
     NoGatewayBranch(NodeId),
+    #[error("gateway transition contains both legacy and complex guard representations")]
+    ConflictingGuardRepresentations,
     #[error("decision table {0} is missing from workflow definition")]
     MissingDecisionTable(String),
     #[error("workflow contains duplicate decision table")]
@@ -1532,10 +2677,12 @@ mod tests {
                                     operator: ComparisonOperator::Equal,
                                     literal: WorkflowValue::Boolean(true),
                                 }),
+                                expression: None,
                             },
                             GuardedTransition {
                                 target: rejected.clone(),
                                 guard: None,
+                                expression: None,
                             },
                         ],
                         coverage: None,
@@ -1660,6 +2807,7 @@ mod tests {
                                     operator: ComparisonOperator::Equal,
                                     literal: WorkflowValue::Boolean(true),
                                 }),
+                                expression: None,
                             },
                             GuardedTransition {
                                 target: rejected.clone(),
@@ -1668,6 +2816,7 @@ mod tests {
                                     operator: ComparisonOperator::Equal,
                                     literal: WorkflowValue::Boolean(false),
                                 }),
+                                expression: None,
                             },
                         ],
                         coverage: Some(GatewayCoverage {
@@ -1746,10 +2895,12 @@ mod tests {
                                     operator: ComparisonOperator::Equal,
                                     literal: WorkflowValue::Boolean(true),
                                 }),
+                                expression: None,
                             },
                             GuardedTransition {
                                 target: rejected.clone(),
                                 guard: None,
+                                expression: None,
                             },
                         ],
                         coverage: None,
@@ -1965,6 +3116,7 @@ mod tests {
                                     operator: ComparisonOperator::Equal,
                                     literal: WorkflowValue::Boolean(true),
                                 }),
+                                expression: None,
                             },
                             GuardedTransition {
                                 target: right.clone(),
@@ -1973,10 +3125,12 @@ mod tests {
                                     operator: ComparisonOperator::Equal,
                                     literal: WorkflowValue::Boolean(true),
                                 }),
+                                expression: None,
                             },
                             GuardedTransition {
                                 target: fallback.clone(),
                                 guard: None,
+                                expression: None,
                             },
                         ],
                         coverage: None,
@@ -2025,6 +3179,467 @@ mod tests {
         assert!(!state.active_tokens.contains_key(&fallback));
     }
 
+    fn multi_instance_definition(mode: MultiInstanceMode) -> WorkflowDefinition {
+        let start = id(NodeId::new, "start");
+        let task = id(NodeId::new, "notify");
+        let end = id(NodeId::new, "end");
+        WorkflowDefinition::new_with_execution_contracts(
+            id(TenantId::new, "tenant-a"),
+            id(WorkflowType::new, "notifications"),
+            id(WorkflowVersion::new, "1"),
+            start.clone(),
+            [
+                (start, Node::Start { next: task.clone() }),
+                (
+                    task.clone(),
+                    Node::ServiceTask {
+                        task_type: id(TaskType::new, "notify-recipient"),
+                        next: end.clone(),
+                    },
+                ),
+                (end, Node::End),
+            ],
+            std::iter::empty(),
+            WorkflowExecutionContracts {
+                node_metadata: vec![(
+                    task,
+                    NodeExecutionMetadata {
+                        multi_instance: Some(MultiInstanceDefinition {
+                            mode,
+                            collection_expression: Some("${recipients}".into()),
+                            item_variable: Some("recipient".into()),
+                            cardinality_expression: None,
+                            max_parallelism: (mode == MultiInstanceMode::Parallel).then_some(2),
+                        }),
+                        properties: Vec::new(),
+                    },
+                )],
+                ..WorkflowExecutionContracts::default()
+            },
+        )
+        .unwrap()
+    }
+
+    fn cardinality_multi_instance_definition(
+        cardinality: u32,
+        max_parallelism: u32,
+    ) -> WorkflowDefinition {
+        let start = id(NodeId::new, "start");
+        let task = id(NodeId::new, "batch-item");
+        let end = id(NodeId::new, "end");
+        WorkflowDefinition::new_with_execution_contracts(
+            id(TenantId::new, "tenant-a"),
+            id(WorkflowType::new, "batch"),
+            id(WorkflowVersion::new, "1"),
+            start.clone(),
+            [
+                (start, Node::Start { next: task.clone() }),
+                (
+                    task.clone(),
+                    Node::ServiceTask {
+                        task_type: id(TaskType::new, "batch-item"),
+                        next: end.clone(),
+                    },
+                ),
+                (end, Node::End),
+            ],
+            std::iter::empty(),
+            WorkflowExecutionContracts {
+                node_metadata: vec![(
+                    task,
+                    NodeExecutionMetadata {
+                        multi_instance: Some(MultiInstanceDefinition {
+                            mode: MultiInstanceMode::Parallel,
+                            collection_expression: None,
+                            item_variable: None,
+                            cardinality_expression: Some(cardinality.to_string()),
+                            max_parallelism: Some(max_parallelism),
+                        }),
+                        properties: Vec::new(),
+                    },
+                )],
+                ..WorkflowExecutionContracts::default()
+            },
+        )
+        .unwrap()
+    }
+
+    fn boundary_definition(multi_instance: bool, cancel_activity: bool) -> WorkflowDefinition {
+        let start = id(NodeId::new, "start");
+        let task = id(NodeId::new, "work");
+        let normal_end = id(NodeId::new, "normal-end");
+        let recovery = id(NodeId::new, "recovery");
+        let recovery_end = id(NodeId::new, "recovery-end");
+        let boundary = id(NodeId::new, "timeout");
+        WorkflowDefinition::new_with_execution_contracts(
+            id(TenantId::new, "tenant-a"),
+            id(WorkflowType::new, "boundary"),
+            id(WorkflowVersion::new, "1"),
+            start.clone(),
+            [
+                (start, Node::Start { next: task.clone() }),
+                (
+                    task.clone(),
+                    Node::ServiceTask {
+                        task_type: id(TaskType::new, "work"),
+                        next: normal_end.clone(),
+                    },
+                ),
+                (normal_end, Node::End),
+                (
+                    recovery.clone(),
+                    Node::ServiceTask {
+                        task_type: id(TaskType::new, "recover"),
+                        next: recovery_end.clone(),
+                    },
+                ),
+                (recovery_end, Node::End),
+            ],
+            std::iter::empty(),
+            WorkflowExecutionContracts {
+                boundary_events: vec![(
+                    task.clone(),
+                    BoundaryEventDefinition {
+                        id: boundary,
+                        cancel_activity,
+                        target: recovery,
+                        trigger: BoundaryTrigger::Timer {
+                            kind: BoundaryTimerKind::Duration,
+                            expression: "PT5M".into(),
+                        },
+                    },
+                )],
+                node_metadata: multi_instance
+                    .then(|| {
+                        (
+                            task,
+                            NodeExecutionMetadata {
+                                multi_instance: Some(MultiInstanceDefinition {
+                                    mode: MultiInstanceMode::Parallel,
+                                    collection_expression: None,
+                                    item_variable: None,
+                                    cardinality_expression: Some("3".into()),
+                                    max_parallelism: Some(2),
+                                }),
+                                properties: Vec::new(),
+                            },
+                        )
+                    })
+                    .into_iter()
+                    .collect(),
+                properties: Vec::new(),
+            },
+        )
+        .unwrap()
+    }
+
+    fn apply(state: &InstanceState, events: &[DomainEvent]) -> InstanceState {
+        rehydrate(Some(state.clone()), events)
+    }
+
+    #[test]
+    fn parallel_multi_instance_replenishes_bounded_slots_and_fans_in_durably() {
+        let definition = multi_instance_definition(MultiInstanceMode::Parallel);
+        let configuration = configuration(16);
+        let variables = BTreeMap::from([(
+            "recipients".into(),
+            WorkflowValue::List(vec![
+                WorkflowValue::String("a".into()),
+                WorkflowValue::String("b".into()),
+                WorkflowValue::String("c".into()),
+            ]),
+        )]);
+        let start = decide(
+            &definition,
+            &InstanceState::default(),
+            &Command::StartWorkflow {
+                tenant_id: id(TenantId::new, "tenant-a"),
+                occurred_at_epoch_ms: 10,
+            },
+            DecisionContext {
+                configuration: &configuration,
+                variables: &variables,
+            },
+        )
+        .unwrap();
+        assert_eq!(start.len(), 4);
+        assert!(matches!(
+            &start[1],
+            DomainEvent::MultiInstanceStarted {
+                total_instances: 3,
+                max_parallelism: 2,
+                items,
+                ..
+            } if items.len() == 3
+        ));
+        let mut state = rehydrate(None, &start);
+        let active = &state.active_multi_instances[&id(NodeId::new, "notify")];
+        assert_eq!(active.active_iterations, BTreeSet::from([0, 1]));
+        assert_eq!(active.next_iteration, 2);
+
+        let complete = |state: &InstanceState, iteration| {
+            decide(
+                &definition,
+                state,
+                &Command::CompleteMultiInstanceIteration {
+                    node_id: id(NodeId::new, "notify"),
+                    iteration,
+                    occurred_at_epoch_ms: 20 + u64::from(iteration),
+                },
+                DecisionContext {
+                    configuration: &configuration,
+                    variables: &BTreeMap::new(),
+                },
+            )
+            .unwrap()
+        };
+        let completed_zero = complete(&state, 0);
+        assert!(matches!(
+            &completed_zero[1],
+            DomainEvent::MultiInstanceIterationActivated {
+                iteration: 2,
+                item: Some(WorkflowValue::String(value)),
+                ..
+            } if value == "c"
+        ));
+        state = apply(&state, &completed_zero);
+        state = apply(&state, &complete(&state, 1));
+        let final_events = complete(&state, 2);
+        assert!(matches!(
+            final_events.as_slice(),
+            [
+                DomainEvent::MultiInstanceIterationCompleted { .. },
+                DomainEvent::MultiInstanceCompleted { .. },
+                DomainEvent::WorkflowCompleted { .. }
+            ]
+        ));
+        state = apply(&state, &final_events);
+        assert_eq!(state.lifecycle, Lifecycle::Completed);
+        assert!(state.active_multi_instances.is_empty());
+        assert_eq!(state.sequence, 10);
+    }
+
+    #[test]
+    fn sequential_multi_instance_activates_exactly_one_materialized_item() {
+        let definition = multi_instance_definition(MultiInstanceMode::Sequential);
+        let configuration = configuration(16);
+        let variables = BTreeMap::from([(
+            "recipients".into(),
+            WorkflowValue::List(vec![
+                WorkflowValue::String("first".into()),
+                WorkflowValue::String("second".into()),
+            ]),
+        )]);
+        let events = decide(
+            &definition,
+            &InstanceState::default(),
+            &Command::StartWorkflow {
+                tenant_id: id(TenantId::new, "tenant-a"),
+                occurred_at_epoch_ms: 1,
+            },
+            DecisionContext {
+                configuration: &configuration,
+                variables: &variables,
+            },
+        )
+        .unwrap();
+        assert_eq!(events.len(), 3);
+        assert!(matches!(
+            &events[2],
+            DomainEvent::MultiInstanceIterationActivated {
+                iteration: 0,
+                item: Some(WorkflowValue::String(value)),
+                ..
+            } if value == "first"
+        ));
+    }
+
+    proptest! {
+        #[test]
+        fn multi_instance_incremental_evolution_equals_full_replay(
+            cardinality in 1_u32..24,
+            requested_parallelism in 1_u32..8,
+        ) {
+            let max_parallelism = requested_parallelism.min(cardinality);
+            let definition = cardinality_multi_instance_definition(cardinality, max_parallelism);
+            let configuration = configuration(64);
+            let empty = BTreeMap::new();
+            let mut all_events = decide(
+                &definition,
+                &InstanceState::default(),
+                &Command::StartWorkflow {
+                    tenant_id: id(TenantId::new, "tenant-a"),
+                    occurred_at_epoch_ms: 1,
+                },
+                DecisionContext {
+                    configuration: &configuration,
+                    variables: &empty,
+                },
+            ).unwrap();
+            let mut state = rehydrate(None, &all_events);
+            while state.lifecycle != Lifecycle::Completed {
+                let iteration = *state.active_multi_instances
+                    [&id(NodeId::new, "batch-item")]
+                    .active_iterations
+                    .iter()
+                    .next()
+                    .expect("an incomplete bounded fan-out has an active iteration");
+                let events = decide(
+                    &definition,
+                    &state,
+                    &Command::CompleteMultiInstanceIteration {
+                        node_id: id(NodeId::new, "batch-item"),
+                        iteration,
+                        occurred_at_epoch_ms: u64::from(iteration) + 2,
+                    },
+                    DecisionContext {
+                        configuration: &configuration,
+                        variables: &empty,
+                    },
+                ).unwrap();
+                state = apply(&state, &events);
+                all_events.extend(events);
+            }
+            prop_assert_eq!(state, rehydrate(None, &all_events));
+            prop_assert_eq!(
+                all_events.iter().filter(|event| matches!(
+                    event,
+                    DomainEvent::MultiInstanceIterationCompleted { .. }
+                )).count(),
+                cardinality as usize,
+            );
+        }
+    }
+
+    #[test]
+    fn interrupting_boundary_cancels_all_active_multi_instance_iterations() {
+        let definition = boundary_definition(true, true);
+        let configuration = configuration(16);
+        let empty = BTreeMap::new();
+        let started = decide(
+            &definition,
+            &InstanceState::default(),
+            &Command::StartWorkflow {
+                tenant_id: id(TenantId::new, "tenant-a"),
+                occurred_at_epoch_ms: 1,
+            },
+            DecisionContext {
+                configuration: &configuration,
+                variables: &empty,
+            },
+        )
+        .unwrap();
+        let state = rehydrate(None, &started);
+        let triggered = decide(
+            &definition,
+            &state,
+            &Command::TriggerBoundaryEvent {
+                boundary_event_id: id(NodeId::new, "timeout"),
+                occurred_at_epoch_ms: 2,
+            },
+            DecisionContext {
+                configuration: &configuration,
+                variables: &empty,
+            },
+        )
+        .unwrap();
+        assert!(matches!(
+            &triggered[0],
+            DomainEvent::BoundaryEventTriggered {
+                cancel_activity: true,
+                cancelled_iterations,
+                ..
+            } if cancelled_iterations == &vec![0, 1]
+        ));
+        let recovered = apply(&state, &triggered);
+        assert!(recovered.active_multi_instances.is_empty());
+        assert!(recovered.active_boundary_subscriptions.is_empty());
+        assert_eq!(
+            recovered.active_tokens,
+            BTreeMap::from([(id(NodeId::new, "recovery"), 1)])
+        );
+        assert_eq!(recovered, rehydrate(None, &[started, triggered].concat()));
+    }
+
+    #[test]
+    fn non_interrupting_boundary_branch_completes_without_cancelling_owner() {
+        let definition = boundary_definition(false, false);
+        let configuration = configuration(16);
+        let empty = BTreeMap::new();
+        let started = decide(
+            &definition,
+            &InstanceState::default(),
+            &Command::StartWorkflow {
+                tenant_id: id(TenantId::new, "tenant-a"),
+                occurred_at_epoch_ms: 1,
+            },
+            DecisionContext {
+                configuration: &configuration,
+                variables: &empty,
+            },
+        )
+        .unwrap();
+        let mut state = rehydrate(None, &started);
+        let triggered = decide(
+            &definition,
+            &state,
+            &Command::TriggerBoundaryEvent {
+                boundary_event_id: id(NodeId::new, "timeout"),
+                occurred_at_epoch_ms: 2,
+            },
+            DecisionContext {
+                configuration: &configuration,
+                variables: &empty,
+            },
+        )
+        .unwrap();
+        state = apply(&state, &triggered);
+        assert_eq!(state.active_tokens.len(), 2);
+        assert!(
+            state
+                .active_boundary_subscriptions
+                .contains_key(&id(NodeId::new, "timeout"))
+        );
+        let recovery_completed = decide(
+            &definition,
+            &state,
+            &Command::CompleteServiceTask {
+                node_id: id(NodeId::new, "recovery"),
+                occurred_at_epoch_ms: 3,
+            },
+            DecisionContext {
+                configuration: &configuration,
+                variables: &empty,
+            },
+        )
+        .unwrap();
+        assert!(matches!(
+            recovery_completed.last(),
+            Some(DomainEvent::WorkflowBranchCompleted { .. })
+        ));
+        state = apply(&state, &recovery_completed);
+        assert_eq!(state.active_tokens.len(), 1);
+        let owner_completed = decide(
+            &definition,
+            &state,
+            &Command::CompleteServiceTask {
+                node_id: id(NodeId::new, "work"),
+                occurred_at_epoch_ms: 4,
+            },
+            DecisionContext {
+                configuration: &configuration,
+                variables: &empty,
+            },
+        )
+        .unwrap();
+        assert!(matches!(
+            owner_completed.last(),
+            Some(DomainEvent::WorkflowCompleted { .. })
+        ));
+        state = apply(&state, &owner_completed);
+        assert!(state.active_boundary_subscriptions.is_empty());
+    }
+
     fn configuration(max_events_per_decision: u32) -> ResolvedConfigSnapshot {
         ResolvedConfigSnapshot::new(
             id(ConfigId::new, "engine"),
@@ -2039,6 +3654,8 @@ mod tests {
             EnginePolicy {
                 snapshot_interval_events: 100,
                 max_events_per_decision,
+                max_multi_instance_cardinality: 10_000,
+                default_multi_instance_parallelism: 32,
                 command_timeout_ms: 1_000,
                 optimistic_conflict_retry: RetryPolicy {
                     max_attempts: 3,

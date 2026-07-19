@@ -108,6 +108,8 @@ fn configuration(snapshot_interval_events: u32) -> ResolvedConfigSnapshot {
         EnginePolicy {
             snapshot_interval_events,
             max_events_per_decision: 2,
+            max_multi_instance_cardinality: 10_000,
+            default_multi_instance_parallelism: 32,
             command_timeout_ms: 1_000,
             optimistic_conflict_retry: RetryPolicy {
                 max_attempts: 3,

@@ -76,6 +76,8 @@ impl RetryPolicy {
 pub struct EnginePolicy {
     pub snapshot_interval_events: u32,
     pub max_events_per_decision: u32,
+    pub max_multi_instance_cardinality: u32,
+    pub default_multi_instance_parallelism: u32,
     pub command_timeout_ms: u64,
     pub optimistic_conflict_retry: RetryPolicy,
     pub local_wasm: LocalWasmPolicy,
@@ -89,6 +91,19 @@ impl EnginePolicy {
         }
         if self.max_events_per_decision == 0 {
             return Err(ConfigError::NonPositiveValue("max_events_per_decision"));
+        }
+        if self.max_multi_instance_cardinality == 0 {
+            return Err(ConfigError::NonPositiveValue(
+                "max_multi_instance_cardinality",
+            ));
+        }
+        if self.default_multi_instance_parallelism == 0 {
+            return Err(ConfigError::NonPositiveValue(
+                "default_multi_instance_parallelism",
+            ));
+        }
+        if self.default_multi_instance_parallelism > self.max_multi_instance_cardinality {
+            return Err(ConfigError::MultiInstanceParallelismExceedsCardinality);
         }
         if self.command_timeout_ms == 0 {
             return Err(ConfigError::NonPositiveValue("command_timeout_ms"));
@@ -215,4 +230,6 @@ pub enum ConfigError {
     MissingPublishedSnapshot,
     #[error("WASM configuration value {0} exceeds the ABI i32 length range")]
     WasmAbiLengthExceeded(&'static str),
+    #[error("default multi-instance parallelism exceeds maximum cardinality")]
+    MultiInstanceParallelismExceedsCardinality,
 }

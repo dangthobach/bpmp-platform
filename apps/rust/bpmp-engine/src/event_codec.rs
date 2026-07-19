@@ -1,8 +1,8 @@
 use bpmp_contracts::engine::v1 as wire;
 use bpmp_domain_core::{
-    ActorId, CommandId, ConfigVersion, CorrelationId, DomainEvent, IdentifierError, InstanceId,
-    KeyScope, NodeId, PolicyVersion, TaskType, TenantId, WorkflowType, WorkflowValue,
-    WorkflowVersion,
+    ActorId, BoundaryTimerKind, BoundaryTrigger, CommandId, ConfigVersion, CorrelationId,
+    DomainEvent, IdentifierError, InstanceId, KeyScope, MultiInstanceMode, NodeId, PolicyVersion,
+    TaskType, TenantId, WorkflowType, WorkflowValue, WorkflowVersion,
 };
 use prost::Message;
 use thiserror::Error;
@@ -29,6 +29,7 @@ impl EventCodec {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn to_wire(envelope: &EventEnvelope) -> wire::EventEnvelope {
     let metadata = &envelope.metadata;
     let event = match &envelope.event {
@@ -89,6 +90,98 @@ fn to_wire(envelope: &EventEnvelope) -> wire::EventEnvelope {
         DomainEvent::GatewayJoined { gateway_id, .. } => {
             wire::event_envelope::Event::GatewayJoined(wire::GatewayJoined {
                 gateway_id: gateway_id.to_string(),
+            })
+        }
+        DomainEvent::BoundaryEventArmed {
+            boundary_event_id,
+            attached_node_id,
+            target_node_id,
+            cancel_activity,
+            trigger,
+            ..
+        } => {
+            let (trigger_kind, trigger_reference) = boundary_trigger_to_wire(trigger);
+            wire::event_envelope::Event::BoundaryEventArmed(wire::BoundaryEventArmed {
+                boundary_event_id: boundary_event_id.to_string(),
+                attached_node_id: attached_node_id.to_string(),
+                target_node_id: target_node_id.to_string(),
+                cancel_activity: *cancel_activity,
+                trigger_kind: trigger_kind.into(),
+                trigger_reference,
+            })
+        }
+        DomainEvent::BoundaryEventsDisarmed {
+            attached_node_id,
+            boundary_event_ids,
+            ..
+        } => wire::event_envelope::Event::BoundaryEventsDisarmed(wire::BoundaryEventsDisarmed {
+            attached_node_id: attached_node_id.to_string(),
+            boundary_event_ids: boundary_event_ids.iter().map(ToString::to_string).collect(),
+        }),
+        DomainEvent::MultiInstanceStarted {
+            node_id,
+            task_type,
+            mode,
+            total_instances,
+            max_parallelism,
+            item_variable,
+            items,
+            ..
+        } => wire::event_envelope::Event::MultiInstanceStarted(wire::MultiInstanceStarted {
+            node_id: node_id.to_string(),
+            task_type: task_type.to_string(),
+            mode: multi_instance_mode_to_wire(*mode).into(),
+            total_instances: *total_instances,
+            max_parallelism: *max_parallelism,
+            item_variable: item_variable.clone().unwrap_or_default(),
+            items: items.iter().map(workflow_value_item_to_wire).collect(),
+        }),
+        DomainEvent::MultiInstanceIterationActivated {
+            node_id,
+            task_type,
+            iteration,
+            item,
+            ..
+        } => wire::event_envelope::Event::MultiInstanceIterationActivated(
+            wire::MultiInstanceIterationActivated {
+                node_id: node_id.to_string(),
+                task_type: task_type.to_string(),
+                iteration: *iteration,
+                item: item.as_ref().map(workflow_value_item_to_wire),
+            },
+        ),
+        DomainEvent::MultiInstanceIterationCompleted {
+            node_id, iteration, ..
+        } => wire::event_envelope::Event::MultiInstanceIterationCompleted(
+            wire::MultiInstanceIterationCompleted {
+                node_id: node_id.to_string(),
+                iteration: *iteration,
+            },
+        ),
+        DomainEvent::MultiInstanceCompleted { node_id, .. } => {
+            wire::event_envelope::Event::MultiInstanceCompleted(wire::MultiInstanceCompleted {
+                node_id: node_id.to_string(),
+            })
+        }
+        DomainEvent::BoundaryEventTriggered {
+            boundary_event_id,
+            attached_node_id,
+            target_node_id,
+            cancel_activity,
+            cancelled_iterations,
+            cancelled_task_tokens,
+            ..
+        } => wire::event_envelope::Event::BoundaryEventTriggered(wire::BoundaryEventTriggered {
+            boundary_event_id: boundary_event_id.to_string(),
+            attached_node_id: attached_node_id.to_string(),
+            target_node_id: target_node_id.to_string(),
+            cancel_activity: *cancel_activity,
+            cancelled_iterations: cancelled_iterations.clone(),
+            cancelled_task_tokens: *cancelled_task_tokens,
+        }),
+        DomainEvent::WorkflowBranchCompleted { end_node_id, .. } => {
+            wire::event_envelope::Event::WorkflowBranchCompleted(wire::WorkflowBranchCompleted {
+                end_node_id: end_node_id.to_string(),
             })
         }
         DomainEvent::WorkflowCompleted { .. } => {
@@ -189,6 +282,103 @@ fn from_wire(envelope: wire::EventEnvelope) -> Result<EventEnvelope, EventCodecE
             gateway_id: identifier(NodeId::new, joined.gateway_id, "gateway_id")?,
             occurred_at_epoch_ms,
         },
+        wire::event_envelope::Event::BoundaryEventArmed(armed) => DomainEvent::BoundaryEventArmed {
+            boundary_event_id: identifier(
+                NodeId::new,
+                armed.boundary_event_id,
+                "boundary_event_id",
+            )?,
+            attached_node_id: identifier(NodeId::new, armed.attached_node_id, "attached_node_id")?,
+            target_node_id: identifier(NodeId::new, armed.target_node_id, "target_node_id")?,
+            cancel_activity: armed.cancel_activity,
+            trigger: boundary_trigger_from_wire(armed.trigger_kind, armed.trigger_reference)?,
+            occurred_at_epoch_ms,
+        },
+        wire::event_envelope::Event::BoundaryEventsDisarmed(disarmed) => {
+            DomainEvent::BoundaryEventsDisarmed {
+                attached_node_id: identifier(
+                    NodeId::new,
+                    disarmed.attached_node_id,
+                    "attached_node_id",
+                )?,
+                boundary_event_ids: disarmed
+                    .boundary_event_ids
+                    .into_iter()
+                    .map(|id| identifier(NodeId::new, id, "boundary_event_id"))
+                    .collect::<Result<_, _>>()?,
+                occurred_at_epoch_ms,
+            }
+        }
+        wire::event_envelope::Event::MultiInstanceStarted(started) => {
+            DomainEvent::MultiInstanceStarted {
+                node_id: identifier(NodeId::new, started.node_id, "node_id")?,
+                task_type: identifier(TaskType::new, started.task_type, "task_type")?,
+                mode: multi_instance_mode_from_wire(started.mode)?,
+                total_instances: started.total_instances,
+                max_parallelism: positive(started.max_parallelism, "max_parallelism")?,
+                item_variable: optional_non_empty(started.item_variable),
+                items: started
+                    .items
+                    .into_iter()
+                    .map(workflow_value_item_from_wire)
+                    .collect::<Result<_, _>>()?,
+                occurred_at_epoch_ms,
+            }
+        }
+        wire::event_envelope::Event::MultiInstanceIterationActivated(activated) => {
+            DomainEvent::MultiInstanceIterationActivated {
+                node_id: identifier(NodeId::new, activated.node_id, "node_id")?,
+                task_type: identifier(TaskType::new, activated.task_type, "task_type")?,
+                iteration: activated.iteration,
+                item: activated
+                    .item
+                    .map(workflow_value_item_from_wire)
+                    .transpose()?,
+                occurred_at_epoch_ms,
+            }
+        }
+        wire::event_envelope::Event::MultiInstanceIterationCompleted(completed) => {
+            DomainEvent::MultiInstanceIterationCompleted {
+                node_id: identifier(NodeId::new, completed.node_id, "node_id")?,
+                iteration: completed.iteration,
+                occurred_at_epoch_ms,
+            }
+        }
+        wire::event_envelope::Event::MultiInstanceCompleted(completed) => {
+            DomainEvent::MultiInstanceCompleted {
+                node_id: identifier(NodeId::new, completed.node_id, "node_id")?,
+                occurred_at_epoch_ms,
+            }
+        }
+        wire::event_envelope::Event::BoundaryEventTriggered(triggered) => {
+            DomainEvent::BoundaryEventTriggered {
+                boundary_event_id: identifier(
+                    NodeId::new,
+                    triggered.boundary_event_id,
+                    "boundary_event_id",
+                )?,
+                attached_node_id: identifier(
+                    NodeId::new,
+                    triggered.attached_node_id,
+                    "attached_node_id",
+                )?,
+                target_node_id: identifier(
+                    NodeId::new,
+                    triggered.target_node_id,
+                    "target_node_id",
+                )?,
+                cancel_activity: triggered.cancel_activity,
+                cancelled_iterations: triggered.cancelled_iterations,
+                cancelled_task_tokens: triggered.cancelled_task_tokens,
+                occurred_at_epoch_ms,
+            }
+        }
+        wire::event_envelope::Event::WorkflowBranchCompleted(completed) => {
+            DomainEvent::WorkflowBranchCompleted {
+                end_node_id: identifier(NodeId::new, completed.end_node_id, "end_node_id")?,
+                occurred_at_epoch_ms,
+            }
+        }
         wire::event_envelope::Event::WorkflowCompleted(_) => DomainEvent::WorkflowCompleted {
             occurred_at_epoch_ms,
         },
@@ -242,6 +432,9 @@ fn workflow_value_to_wire(value: &WorkflowValue) -> wire::workflow_variable::Val
         WorkflowValue::Boolean(value) => wire::workflow_variable::Value::BooleanValue(*value),
         WorkflowValue::Integer(value) => wire::workflow_variable::Value::IntegerValue(*value),
         WorkflowValue::String(value) => wire::workflow_variable::Value::StringValue(value.clone()),
+        WorkflowValue::List(items) => {
+            wire::workflow_variable::Value::ListValue(workflow_value_list_to_wire(items))
+        }
     }
 }
 
@@ -256,8 +449,126 @@ fn workflow_variable_from_wire(
         wire::workflow_variable::Value::BooleanValue(value) => WorkflowValue::Boolean(value),
         wire::workflow_variable::Value::IntegerValue(value) => WorkflowValue::Integer(value),
         wire::workflow_variable::Value::StringValue(value) => WorkflowValue::String(value),
+        wire::workflow_variable::Value::ListValue(value) => workflow_value_list_from_wire(value)?,
     };
     Ok((name, value))
+}
+
+fn workflow_value_list_to_wire(items: &[WorkflowValue]) -> wire::WorkflowValueList {
+    wire::WorkflowValueList {
+        items: items.iter().map(workflow_value_item_to_wire).collect(),
+    }
+}
+
+fn workflow_value_item_to_wire(value: &WorkflowValue) -> wire::WorkflowValueItem {
+    use wire::workflow_value_item::Value;
+    let value = match value {
+        WorkflowValue::Boolean(value) => Value::BooleanValue(*value),
+        WorkflowValue::Integer(value) => Value::IntegerValue(*value),
+        WorkflowValue::String(value) => Value::StringValue(value.clone()),
+        WorkflowValue::List(items) => Value::ListValue(workflow_value_list_to_wire(items)),
+    };
+    wire::WorkflowValueItem { value: Some(value) }
+}
+
+fn workflow_value_list_from_wire(
+    list: wire::WorkflowValueList,
+) -> Result<WorkflowValue, EventCodecError> {
+    Ok(WorkflowValue::List(
+        list.items
+            .into_iter()
+            .map(workflow_value_item_from_wire)
+            .collect::<Result<_, _>>()?,
+    ))
+}
+
+fn workflow_value_item_from_wire(
+    item: wire::WorkflowValueItem,
+) -> Result<WorkflowValue, EventCodecError> {
+    use wire::workflow_value_item::Value;
+    match item
+        .value
+        .ok_or(EventCodecError::MissingWorkflowVariableValue)?
+    {
+        Value::BooleanValue(value) => Ok(WorkflowValue::Boolean(value)),
+        Value::IntegerValue(value) => Ok(WorkflowValue::Integer(value)),
+        Value::StringValue(value) => Ok(WorkflowValue::String(value)),
+        Value::ListValue(value) => workflow_value_list_from_wire(value),
+    }
+}
+
+const fn multi_instance_mode_to_wire(mode: MultiInstanceMode) -> wire::MultiInstanceMode {
+    match mode {
+        MultiInstanceMode::Sequential => wire::MultiInstanceMode::Sequential,
+        MultiInstanceMode::Parallel => wire::MultiInstanceMode::Parallel,
+    }
+}
+
+fn multi_instance_mode_from_wire(value: i32) -> Result<MultiInstanceMode, EventCodecError> {
+    match wire::MultiInstanceMode::try_from(value) {
+        Ok(wire::MultiInstanceMode::Sequential) => Ok(MultiInstanceMode::Sequential),
+        Ok(wire::MultiInstanceMode::Parallel) => Ok(MultiInstanceMode::Parallel),
+        _ => Err(EventCodecError::InvalidMultiInstanceMode(value)),
+    }
+}
+
+fn boundary_trigger_to_wire(trigger: &BoundaryTrigger) -> (wire::BoundaryTriggerKind, String) {
+    match trigger {
+        BoundaryTrigger::Timer { kind, expression } => (
+            match kind {
+                BoundaryTimerKind::Date => wire::BoundaryTriggerKind::TimerDate,
+                BoundaryTimerKind::Duration => wire::BoundaryTriggerKind::TimerDuration,
+                BoundaryTimerKind::Cycle => wire::BoundaryTriggerKind::TimerCycle,
+            },
+            expression.clone(),
+        ),
+        BoundaryTrigger::Error { error_ref } => (
+            wire::BoundaryTriggerKind::Error,
+            error_ref.clone().unwrap_or_default(),
+        ),
+        BoundaryTrigger::Message { message_ref } => {
+            (wire::BoundaryTriggerKind::Message, message_ref.clone())
+        }
+    }
+}
+
+fn boundary_trigger_from_wire(
+    kind: i32,
+    reference: String,
+) -> Result<BoundaryTrigger, EventCodecError> {
+    match wire::BoundaryTriggerKind::try_from(kind) {
+        Ok(wire::BoundaryTriggerKind::TimerDate) => Ok(BoundaryTrigger::Timer {
+            kind: BoundaryTimerKind::Date,
+            expression: non_empty(reference, "boundary_trigger.reference")?,
+        }),
+        Ok(wire::BoundaryTriggerKind::TimerDuration) => Ok(BoundaryTrigger::Timer {
+            kind: BoundaryTimerKind::Duration,
+            expression: non_empty(reference, "boundary_trigger.reference")?,
+        }),
+        Ok(wire::BoundaryTriggerKind::TimerCycle) => Ok(BoundaryTrigger::Timer {
+            kind: BoundaryTimerKind::Cycle,
+            expression: non_empty(reference, "boundary_trigger.reference")?,
+        }),
+        Ok(wire::BoundaryTriggerKind::Error) => Ok(BoundaryTrigger::Error {
+            error_ref: optional_non_empty(reference),
+        }),
+        Ok(wire::BoundaryTriggerKind::Message) => Ok(BoundaryTrigger::Message {
+            message_ref: non_empty(reference, "boundary_trigger.reference")?,
+        }),
+        _ => Err(EventCodecError::InvalidBoundaryTriggerKind(kind)),
+    }
+}
+
+fn optional_non_empty(value: String) -> Option<String> {
+    (!value.trim().is_empty()).then_some(value)
+}
+
+fn positive(value: u32, field: &'static str) -> Result<u32, EventCodecError> {
+    if value == 0 {
+        Err(EventCodecError::InvalidPositiveField(field))
+    } else {
+        Ok(value)
+    }
 }
 
 fn non_empty(value: String, field: &'static str) -> Result<String, EventCodecError> {
@@ -290,6 +601,12 @@ pub enum EventCodecError {
     EmptyField(&'static str),
     #[error("workflow variable is missing a typed value")]
     MissingWorkflowVariableValue,
+    #[error("event contains unknown multi-instance mode {0}")]
+    InvalidMultiInstanceMode(i32),
+    #[error("event field {0} must be greater than zero")]
+    InvalidPositiveField(&'static str),
+    #[error("event contains unknown boundary trigger kind {0}")]
+    InvalidBoundaryTriggerKind(i32),
     #[error("unsupported event schema version {0}")]
     UnsupportedSchema(u32),
     #[error("invalid event identifier in field {field}: {source}")]
@@ -424,5 +741,92 @@ mod tests {
             EventCodec::decode(&EventCodec::encode(&expected)).unwrap(),
             expected
         );
+    }
+
+    #[test]
+    fn durable_multi_instance_and_boundary_events_round_trip() {
+        let metadata = EventMetadata {
+            event_id: "event-runtime".into(),
+            tenant_id: TenantId::new("tenant-a").unwrap(),
+            instance_id: InstanceId::new("instance-1").unwrap(),
+            sequence: 8,
+            schema_version: EVENT_SCHEMA_VERSION,
+            correlation_id: CorrelationId::new("correlation-1").unwrap(),
+            causation_command_id: CommandId::new("command-1").unwrap(),
+            occurred_at_epoch_ms: 123,
+            config_version: ConfigVersion::new("config-7").unwrap(),
+            policy_version: PolicyVersion::new("policy-3").unwrap(),
+            actor_id: ActorId::new("actor-1").unwrap(),
+            encryption_key_scope: KeyScope::new("tenant-a/operational").unwrap(),
+        };
+        let node_id = NodeId::new("notify").unwrap();
+        let events = vec![
+            DomainEvent::BoundaryEventArmed {
+                boundary_event_id: NodeId::new("timeout").unwrap(),
+                attached_node_id: node_id.clone(),
+                target_node_id: NodeId::new("recovery").unwrap(),
+                cancel_activity: true,
+                trigger: BoundaryTrigger::Timer {
+                    kind: BoundaryTimerKind::Duration,
+                    expression: "PT5M".into(),
+                },
+                occurred_at_epoch_ms: 123,
+            },
+            DomainEvent::BoundaryEventsDisarmed {
+                attached_node_id: node_id.clone(),
+                boundary_event_ids: vec![NodeId::new("timeout").unwrap()],
+                occurred_at_epoch_ms: 123,
+            },
+            DomainEvent::MultiInstanceStarted {
+                node_id: node_id.clone(),
+                task_type: TaskType::new("notify-recipient").unwrap(),
+                mode: MultiInstanceMode::Parallel,
+                total_instances: 3,
+                max_parallelism: 2,
+                item_variable: Some("recipient".into()),
+                items: vec![WorkflowValue::String("a".into())],
+                occurred_at_epoch_ms: 123,
+            },
+            DomainEvent::MultiInstanceIterationActivated {
+                node_id: node_id.clone(),
+                task_type: TaskType::new("notify-recipient").unwrap(),
+                iteration: 0,
+                item: Some(WorkflowValue::String("a".into())),
+                occurred_at_epoch_ms: 123,
+            },
+            DomainEvent::MultiInstanceIterationCompleted {
+                node_id: node_id.clone(),
+                iteration: 0,
+                occurred_at_epoch_ms: 123,
+            },
+            DomainEvent::MultiInstanceCompleted {
+                node_id: node_id.clone(),
+                occurred_at_epoch_ms: 123,
+            },
+            DomainEvent::BoundaryEventTriggered {
+                boundary_event_id: NodeId::new("timeout").unwrap(),
+                attached_node_id: node_id,
+                target_node_id: NodeId::new("recovery").unwrap(),
+                cancel_activity: true,
+                cancelled_iterations: vec![1, 2],
+                cancelled_task_tokens: 0,
+                occurred_at_epoch_ms: 123,
+            },
+            DomainEvent::WorkflowBranchCompleted {
+                end_node_id: NodeId::new("boundary-end").unwrap(),
+                occurred_at_epoch_ms: 123,
+            },
+        ];
+
+        for event in events {
+            let expected = EventEnvelope {
+                metadata: metadata.clone(),
+                event,
+            };
+            assert_eq!(
+                EventCodec::decode(&EventCodec::encode(&expected)).unwrap(),
+                expected
+            );
+        }
     }
 }

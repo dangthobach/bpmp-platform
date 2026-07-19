@@ -298,6 +298,12 @@ fn transition_selector<'a>(
     match command {
         Command::StartWorkflow { .. } => (definition.start_node.as_str(), "START"),
         Command::CompleteServiceTask { node_id, .. } => (node_id.as_str(), "COMPLETE_SERVICE_TASK"),
+        Command::CompleteMultiInstanceIteration { node_id, .. } => {
+            (node_id.as_str(), "COMPLETE_MULTI_INSTANCE_ITERATION")
+        }
+        Command::TriggerBoundaryEvent {
+            boundary_event_id, ..
+        } => (boundary_event_id.as_str(), "TRIGGER_BOUNDARY_EVENT"),
     }
 }
 
@@ -392,6 +398,38 @@ const fn event_time(event: &DomainEvent) -> u64 {
             ..
         }
         | DomainEvent::GatewayJoined {
+            occurred_at_epoch_ms,
+            ..
+        }
+        | DomainEvent::BoundaryEventArmed {
+            occurred_at_epoch_ms,
+            ..
+        }
+        | DomainEvent::BoundaryEventsDisarmed {
+            occurred_at_epoch_ms,
+            ..
+        }
+        | DomainEvent::MultiInstanceStarted {
+            occurred_at_epoch_ms,
+            ..
+        }
+        | DomainEvent::MultiInstanceIterationActivated {
+            occurred_at_epoch_ms,
+            ..
+        }
+        | DomainEvent::MultiInstanceIterationCompleted {
+            occurred_at_epoch_ms,
+            ..
+        }
+        | DomainEvent::MultiInstanceCompleted {
+            occurred_at_epoch_ms,
+            ..
+        }
+        | DomainEvent::BoundaryEventTriggered {
+            occurred_at_epoch_ms,
+            ..
+        }
+        | DomainEvent::WorkflowBranchCompleted {
             occurred_at_epoch_ms,
             ..
         }

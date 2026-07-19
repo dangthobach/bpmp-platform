@@ -99,7 +99,7 @@ impl WirCodec {
         validate_schema(wir.schema_version)?;
         let mut canonical = wir.clone();
         canonicalize(&mut canonical);
-        if canonical.nodes != wir.nodes {
+        if canonical != wir {
             return Err(ArtifactError::NonCanonicalArtifact);
         }
         let digest = digest_unsigned(&wir);
@@ -127,11 +127,35 @@ fn canonicalize(wir: &mut WorkflowIntermediateRepresentation) {
         .sort_unstable_by(|left, right| left.id.cmp(&right.id));
     wir.decision_tables
         .sort_unstable_by(|left, right| left.id.cmp(&right.id));
+    sort_properties(&mut wir.properties);
+    wir.case_models
+        .sort_unstable_by(|left, right| left.id.cmp(&right.id));
+    for model in &mut wir.case_models {
+        model
+            .stages
+            .sort_unstable_by(|left, right| left.id.cmp(&right.id));
+        model
+            .milestones
+            .sort_unstable_by(|left, right| left.id.cmp(&right.id));
+        model
+            .sentries
+            .sort_unstable_by(|left, right| left.id.cmp(&right.id));
+    }
     for node in &mut wir.nodes {
-        if let Some(crate::wir::v1::node::Kind::ExclusiveGateway(gateway)) = &mut node.kind {
-            gateway
+        sort_properties(&mut node.properties);
+        node.boundary_events
+            .sort_unstable_by(|left, right| left.id.cmp(&right.id));
+        match &mut node.kind {
+            Some(crate::wir::v1::node::Kind::ExclusiveGateway(gateway)) => gateway
                 .transitions
-                .sort_unstable_by(|left, right| left.target_node_id.cmp(&right.target_node_id));
+                .sort_unstable_by(|left, right| left.target_node_id.cmp(&right.target_node_id)),
+            Some(crate::wir::v1::node::Kind::InclusiveGateway(gateway)) => gateway
+                .transitions
+                .sort_unstable_by(|left, right| left.target_node_id.cmp(&right.target_node_id)),
+            Some(crate::wir::v1::node::Kind::ParallelGateway(gateway)) => {
+                gateway.target_node_ids.sort_unstable();
+            }
+            _ => {}
         }
     }
     for table in &mut wir.decision_tables {
@@ -139,6 +163,21 @@ fn canonicalize(wir: &mut WorkflowIntermediateRepresentation) {
             .rules
             .sort_unstable_by(|left, right| left.id.cmp(&right.id));
     }
+}
+
+fn sort_properties(properties: &mut [crate::wir::v1::ExtensionProperty]) {
+    properties.sort_unstable_by(|left, right| {
+        (
+            left.namespace_uri.as_str(),
+            left.element_name.as_str(),
+            left.name.as_str(),
+        )
+            .cmp(&(
+                right.namespace_uri.as_str(),
+                right.element_name.as_str(),
+                right.name.as_str(),
+            ))
+    });
 }
 
 fn digest_unsigned(wir: &WorkflowIntermediateRepresentation) -> [u8; 32] {
@@ -154,7 +193,7 @@ pub enum ArtifactError {
     UnsupportedSchema { expected: u32, actual: u32 },
     #[error("WIR artifact cannot be decoded: {0}")]
     Decode(String),
-    #[error("WIR artifact node order is not canonical")]
+    #[error("WIR artifact ordering is not canonical")]
     NonCanonicalArtifact,
     #[error("WIR artifact content hash does not match its payload")]
     HashMismatch,
@@ -182,12 +221,16 @@ mod tests {
                 data_contract: None,
                 sla_milliseconds: 0,
                 compensation_handler_id: String::new(),
+                properties: Vec::new(),
+                multi_instance: None,
+                boundary_events: Vec::new(),
             }],
             content_hash: Vec::new(),
             signature: Vec::new(),
             decision_tables: Vec::new(),
             tenant_id: "tenant-a".into(),
             case_models: Vec::new(),
+            properties: Vec::new(),
         }
     }
 

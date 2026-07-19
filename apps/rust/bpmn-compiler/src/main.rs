@@ -35,6 +35,8 @@ struct Arguments {
     max_input_bytes: usize,
     #[arg(long)]
     max_xml_depth: u32,
+    #[arg(long, default_value_t = 65_536)]
+    max_symbolic_assignments: usize,
 }
 
 fn main() -> ExitCode {
@@ -56,6 +58,7 @@ fn main() -> ExitCode {
 
 fn run(arguments: &Arguments) -> Result<(), CliError> {
     let limits = CompilerLimits::new(arguments.max_input_bytes, arguments.max_xml_depth)
+        .and_then(|limits| limits.with_max_symbolic_assignments(arguments.max_symbolic_assignments))
         .map_err(|error| CliError::Configuration(error.to_string()))?;
     let input = read_bounded(&arguments.input, arguments.max_input_bytes)?;
     let dmn_inputs = arguments

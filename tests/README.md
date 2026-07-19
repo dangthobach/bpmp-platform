@@ -22,6 +22,14 @@ Requirement 1 has a dedicated AC1-AC12 acceptance suite and compliance matrix:
 
 - `apps/rust/bpmn-compiler/tests/requirement_1_acceptance.rs`
 - `docs/requirement-1-compliance.md`
+- `apps/rust/bpmn-compiler/tests/enterprise_models.rs` covers sub-process,
+  call activity, multi-instance, boundary events, extension properties, and
+  symbolic complex-guard compilation/execution.
+- `crates/bpmp-domain-core/src/workflow.rs` covers bounded sequential/parallel
+  multi-instance execution, fan-in replay, interrupting/non-interrupting
+  boundary semantics, durable subscription state, and branch completion.
+- `apps/rust/bpmp-engine/src/event_codec.rs` and `snapshot_codec.rs` cover wire
+  round trips and crash-recovery state for those runtime constructs.
 
 Run all currently implemented workspace tests with:
 

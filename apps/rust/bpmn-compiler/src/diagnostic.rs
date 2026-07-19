@@ -100,6 +100,22 @@ pub enum DiagnosticKind {
         activity_id: String,
         detail: String,
     },
+    InvalidSubProcess {
+        subprocess_id: String,
+        detail: String,
+    },
+    InvalidBoundaryEvent {
+        boundary_id: String,
+        detail: String,
+    },
+    InvalidMultiInstance {
+        activity_id: String,
+        detail: String,
+    },
+    InvalidExtensionProperty {
+        owner: String,
+        detail: String,
+    },
     SlaConflict {
         detail: String,
     },
@@ -230,6 +246,31 @@ impl Display for DiagnosticKind {
             } => write!(
                 formatter,
                 "activity {activity_id} has invalid compensation configuration: {detail}"
+            ),
+            Self::InvalidSubProcess {
+                subprocess_id,
+                detail,
+            } => write!(
+                formatter,
+                "sub-process {subprocess_id} is invalid: {detail}"
+            ),
+            Self::InvalidBoundaryEvent {
+                boundary_id,
+                detail,
+            } => write!(
+                formatter,
+                "boundary event {boundary_id} is invalid: {detail}"
+            ),
+            Self::InvalidMultiInstance {
+                activity_id,
+                detail,
+            } => write!(
+                formatter,
+                "multi-instance activity {activity_id} is invalid: {detail}"
+            ),
+            Self::InvalidExtensionProperty { owner, detail } => write!(
+                formatter,
+                "extension property on {owner} is invalid: {detail}"
             ),
             Self::SlaConflict { detail } => write!(formatter, "SLA conflict: {detail}"),
             Self::DataContractMismatch {

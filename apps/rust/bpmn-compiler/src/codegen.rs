@@ -1,8 +1,9 @@
 use std::fmt::Write as _;
 
 use bpmp_contracts::wir::v1::{
-    ComparisonOperator, GatewayDirection, HitPolicy, WorkflowIntermediateRepresentation,
-    guard_expression, node, unary_test, workflow_literal,
+    ComparisonOperator, GatewayDirection, HitPolicy, MultiInstanceMode, TimerKind,
+    WorkflowIntermediateRepresentation, boolean_expression, event_trigger, guard_expression, node,
+    property_value, unary_test, workflow_literal,
 };
 use thiserror::Error;
 
@@ -37,7 +38,7 @@ pub(crate) fn generate_rust(
         "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
          pub enum GatewayKind { Exclusive, Inclusive, Parallel }\n\
          #[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
-         pub enum NodeKind { Start, ServiceTask, DecisionTask, Split(GatewayKind), Join(GatewayKind), End }\n\
+         pub enum NodeKind { Start, ServiceTask, DecisionTask, CallActivity, Split(GatewayKind), Join(GatewayKind), End }\n\
          #[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
          pub enum Operator { Equal, NotEqual, LessThan, LessThanOrEqual, GreaterThan, GreaterThanOrEqual }\n\
          #[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
@@ -47,9 +48,23 @@ pub(crate) fn generate_rust(
          #[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
          pub struct Guard { pub variable: &'static str, pub operator: Operator, pub literal: GuardValue }\n\
          #[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
-         pub struct Transition { pub target: &'static str, pub guard: Option<Guard>, pub is_default: bool }\n\
+         pub enum BooleanExpr { Comparison(Guard), Conjunction(&'static [BooleanExpr]), Disjunction(&'static [BooleanExpr]), Negation(&'static BooleanExpr), Constant(bool) }\n\
          #[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
-         pub struct Node { pub id: &'static str, pub kind: NodeKind, pub transitions: &'static [Transition], pub paired_gateway: Option<&'static str> }\n",
+         pub struct Transition { pub target: &'static str, pub guard: Option<BooleanExpr>, pub is_default: bool }\n\
+         #[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
+         pub enum MultiMode { Sequential, Parallel }\n\
+         #[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
+         pub struct MultiInstance { pub mode: MultiMode, pub collection: &'static str, pub item_variable: &'static str, pub cardinality: &'static str, pub max_parallelism: Option<u32> }\n\
+         #[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
+         pub enum BoundaryTrigger { TimerDate(&'static str), TimerDuration(&'static str), TimerCycle(&'static str), Error(Option<&'static str>), Message(&'static str) }\n\
+         #[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
+         pub struct BoundaryEvent { pub id: &'static str, pub cancel_activity: bool, pub target: &'static str, pub trigger: BoundaryTrigger }\n\
+         #[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
+         pub enum PropertyValue { String(&'static str), Integer(i64), Boolean(bool), DurationMilliseconds(u64) }\n\
+         #[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
+         pub struct ExtensionProperty { pub namespace_uri: &'static str, pub element_name: &'static str, pub name: &'static str, pub value: PropertyValue }\n\
+         #[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
+         pub struct Node { pub id: &'static str, pub kind: NodeKind, pub transitions: &'static [Transition], pub paired_gateway: Option<&'static str>, pub called_element: Option<&'static str>, pub called_version: Option<&'static str>, pub multi_instance: Option<MultiInstance>, pub boundary_events: &'static [BoundaryEvent], pub properties: &'static [ExtensionProperty] }\n",
     );
 
     for (index, encoded) in wir.nodes.iter().enumerate() {
@@ -62,8 +77,32 @@ pub(crate) fn generate_rust(
         .unwrap();
         writeln!(
             output,
-            "const NODE_{index}: Node = Node {{ id: {:?}, kind: {kind}, transitions: TRANSITIONS_{index}, paired_gateway: {paired} }};",
-            encoded.id
+            "const BOUNDARIES_{index}: &[BoundaryEvent] = &{};",
+            render_boundaries(encoded)?
+        )
+        .unwrap();
+        writeln!(
+            output,
+            "const PROPERTIES_{index}: &[ExtensionProperty] = &{};",
+            render_properties(&encoded.properties)?
+        )
+        .unwrap();
+        let (called_element, called_version) = match encoded.kind.as_ref() {
+            Some(node::Kind::CallActivity(call)) => (
+                format!("Some({:?})", call.called_element),
+                if call.called_version.is_empty() {
+                    "None".into()
+                } else {
+                    format!("Some({:?})", call.called_version)
+                },
+            ),
+            _ => ("None".into(), "None".into()),
+        };
+        writeln!(
+            output,
+            "const NODE_{index}: Node = Node {{ id: {:?}, kind: {kind}, transitions: TRANSITIONS_{index}, paired_gateway: {paired}, called_element: {called_element}, called_version: {called_version}, multi_instance: {}, boundary_events: BOUNDARIES_{index}, properties: PROPERTIES_{index} }};",
+            encoded.id,
+            render_multi_instance(encoded)?
         )
         .unwrap();
         let _ = next;
@@ -84,8 +123,7 @@ pub(crate) fn generate_rust(
              for transition in node.transitions {\n\
                  if transition.is_default { default = Some(transition.target); continue; }\n\
                  if let Some(guard) = transition.guard {\n\
-                     let value = variables.get(guard.variable).ok_or(EvalError::MissingVariable)?;\n\
-                     if evaluate_guard(value, guard)? { selected.push(transition.target); }\n\
+                     if evaluate_expression(guard, variables)? { selected.push(transition.target); }\n\
                  } else { selected.push(transition.target); }\n\
              }\n\
              if selected.is_empty() { if let Some(target) = default { selected.push(target); } }\n\
@@ -93,7 +131,16 @@ pub(crate) fn generate_rust(
              if !node.transitions.is_empty() && selected.is_empty() { return Err(EvalError::NoBranch); }\n\
              Ok(selected)\n\
          }\n\
-         fn evaluate_guard(value: &RuntimeValue<'_>, guard: Guard) -> Result<bool, EvalError> {\n\
+         fn evaluate_expression<'a>(expression: BooleanExpr, variables: &std::collections::BTreeMap<&str, RuntimeValue<'a>>) -> Result<bool, EvalError> {\n\
+             match expression {\n\
+                 BooleanExpr::Comparison(guard) => { let value = variables.get(guard.variable).ok_or(EvalError::MissingVariable)?; evaluate_comparison(value, guard) },\n\
+                 BooleanExpr::Conjunction(operands) => { for operand in operands { if !evaluate_expression(*operand, variables)? { return Ok(false); } } Ok(true) },\n\
+                 BooleanExpr::Disjunction(operands) => { for operand in operands { if evaluate_expression(*operand, variables)? { return Ok(true); } } Ok(false) },\n\
+                 BooleanExpr::Negation(operand) => Ok(!evaluate_expression(*operand, variables)?),\n\
+                 BooleanExpr::Constant(value) => Ok(value),\n\
+             }\n\
+         }\n\
+         fn evaluate_comparison(value: &RuntimeValue<'_>, guard: Guard) -> Result<bool, EvalError> {\n\
              use std::cmp::Ordering;\n\
              let ordering = match (value, guard.literal) {\n\
                  (RuntimeValue::Boolean(left), GuardValue::Boolean(right)) => left.cmp(&right),\n\
@@ -108,6 +155,12 @@ pub(crate) fn generate_rust(
              })\n\
          }\n",
     );
+    writeln!(
+        output,
+        "pub const WORKFLOW_PROPERTIES: &[ExtensionProperty] = &{};",
+        render_properties(&wir.properties)?
+    )
+    .unwrap();
     writeln!(
         output,
         "pub const DECISION_TABLE_IDS: &[&str] = &{:?};",
@@ -133,6 +186,101 @@ pub(crate) fn generate_rust(
     );
     render_decision_functions(wir, &mut output)?;
     Ok(output)
+}
+
+fn render_multi_instance(node: &bpmp_contracts::wir::v1::Node) -> Result<String, CodegenError> {
+    let Some(spec) = &node.multi_instance else {
+        return Ok("None".into());
+    };
+    let mode = match MultiInstanceMode::try_from(spec.mode) {
+        Ok(MultiInstanceMode::Sequential) => "MultiMode::Sequential",
+        Ok(MultiInstanceMode::Parallel) => "MultiMode::Parallel",
+        Ok(MultiInstanceMode::Unspecified) | Err(_) => {
+            return Err(CodegenError::InvalidMultiInstance(node.id.clone()));
+        }
+    };
+    let max_parallelism = if spec.max_parallelism == 0 {
+        "None".into()
+    } else {
+        format!("Some({})", spec.max_parallelism)
+    };
+    Ok(format!(
+        "Some(MultiInstance {{ mode: {mode}, collection: {:?}, item_variable: {:?}, cardinality: {:?}, max_parallelism: {max_parallelism} }})",
+        spec.collection_expression, spec.item_variable, spec.cardinality_expression
+    ))
+}
+
+fn render_boundaries(node: &bpmp_contracts::wir::v1::Node) -> Result<String, CodegenError> {
+    let boundaries = node
+        .boundary_events
+        .iter()
+        .map(|boundary| {
+            let trigger = match boundary
+                .trigger
+                .as_ref()
+                .and_then(|trigger| trigger.trigger.as_ref())
+                .ok_or_else(|| CodegenError::InvalidBoundaryEvent(boundary.id.clone()))?
+            {
+                event_trigger::Trigger::Timer(timer) => {
+                    let kind = match TimerKind::try_from(timer.kind) {
+                        Ok(TimerKind::Date) => "TimerDate",
+                        Ok(TimerKind::Duration) => "TimerDuration",
+                        Ok(TimerKind::Cycle) => "TimerCycle",
+                        Ok(TimerKind::Unspecified) | Err(_) => {
+                            return Err(CodegenError::InvalidBoundaryEvent(boundary.id.clone()));
+                        }
+                    };
+                    format!("BoundaryTrigger::{kind}({:?})", timer.expression)
+                }
+                event_trigger::Trigger::Error(error) => format!(
+                    "BoundaryTrigger::Error({})",
+                    if error.error_ref.is_empty() {
+                        "None".into()
+                    } else {
+                        format!("Some({:?})", error.error_ref)
+                    }
+                ),
+                event_trigger::Trigger::Message(message) => {
+                    format!("BoundaryTrigger::Message({:?})", message.message_ref)
+                }
+            };
+            Ok(format!(
+                "BoundaryEvent {{ id: {:?}, cancel_activity: {}, target: {:?}, trigger: {trigger} }}",
+                boundary.id, boundary.cancel_activity, boundary.target_node_id
+            ))
+        })
+        .collect::<Result<Vec<_>, CodegenError>>()?;
+    Ok(format!("[{}]", boundaries.join(", ")))
+}
+
+fn render_properties(
+    properties: &[bpmp_contracts::wir::v1::ExtensionProperty],
+) -> Result<String, CodegenError> {
+    let properties = properties
+        .iter()
+        .map(|property| {
+            let value = match property.value.as_ref().and_then(|value| value.value.as_ref()) {
+                Some(property_value::Value::StringValue(value)) => {
+                    format!("PropertyValue::String({value:?})")
+                }
+                Some(property_value::Value::IntegerValue(value)) => {
+                    format!("PropertyValue::Integer({value})")
+                }
+                Some(property_value::Value::BooleanValue(value)) => {
+                    format!("PropertyValue::Boolean({value})")
+                }
+                Some(property_value::Value::DurationMilliseconds(value)) => {
+                    format!("PropertyValue::DurationMilliseconds({value})")
+                }
+                None => return Err(CodegenError::InvalidProperty(property.name.clone())),
+            };
+            Ok(format!(
+                "ExtensionProperty {{ namespace_uri: {:?}, element_name: {:?}, name: {:?}, value: {value} }}",
+                property.namespace_uri, property.element_name, property.name
+            ))
+        })
+        .collect::<Result<Vec<_>, CodegenError>>()?;
+    Ok(format!("[{}]", properties.join(", ")))
 }
 
 fn render_decision_functions(
@@ -279,6 +427,7 @@ fn render_transitions(encoded: &bpmp_contracts::wir::v1::Node) -> Result<String,
         node::Kind::Start(node) => vec![unconditional(&node.next_node_id)],
         node::Kind::ServiceTask(node) => vec![unconditional(&node.next_node_id)],
         node::Kind::DecisionTask(node) => vec![unconditional(&node.next_node_id)],
+        node::Kind::CallActivity(node) => vec![unconditional(&node.next_node_id)],
         node::Kind::ExclusiveGateway(node) => node
             .transitions
             .iter()
@@ -312,13 +461,61 @@ fn unconditional(target: &str) -> String {
 fn render_transition(
     transition: &bpmp_contracts::wir::v1::ConditionalTransition,
 ) -> Result<String, CodegenError> {
-    let guard = transition.guard.as_ref().map(render_guard).transpose()?;
+    let guard = match (&transition.guard, &transition.expression) {
+        (Some(guard), None) => Some(format!("BooleanExpr::Comparison({})", render_guard(guard)?)),
+        (None, Some(expression)) => Some(render_boolean_expression(expression)?),
+        (None, None) => None,
+        (Some(_), Some(_)) => {
+            return Err(CodegenError::ConflictingGuardRepresentations);
+        }
+    };
     Ok(format!(
         "Transition {{ target: {:?}, guard: {}, is_default: {} }}",
         transition.target_node_id,
         guard.map_or_else(|| "None".into(), |guard| format!("Some({guard})")),
         transition.is_default
     ))
+}
+
+fn render_boolean_expression(
+    expression: &bpmp_contracts::wir::v1::BooleanExpression,
+) -> Result<String, CodegenError> {
+    match expression
+        .expression
+        .as_ref()
+        .ok_or(CodegenError::MissingBooleanExpression)?
+    {
+        boolean_expression::Expression::Comparison(guard) => {
+            Ok(format!("BooleanExpr::Comparison({})", render_guard(guard)?))
+        }
+        boolean_expression::Expression::Conjunction(junction) => {
+            render_boolean_junction("Conjunction", &junction.operands)
+        }
+        boolean_expression::Expression::Disjunction(junction) => {
+            render_boolean_junction("Disjunction", &junction.operands)
+        }
+        boolean_expression::Expression::Negation(operand) => Ok(format!(
+            "BooleanExpr::Negation(&{})",
+            render_boolean_expression(operand)?
+        )),
+        boolean_expression::Expression::Constant(value) => {
+            Ok(format!("BooleanExpr::Constant({value})"))
+        }
+    }
+}
+
+fn render_boolean_junction(
+    kind: &str,
+    operands: &[bpmp_contracts::wir::v1::BooleanExpression],
+) -> Result<String, CodegenError> {
+    if operands.len() < 2 {
+        return Err(CodegenError::InvalidBooleanJunction);
+    }
+    let operands = operands
+        .iter()
+        .map(render_boolean_expression)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(format!("BooleanExpr::{kind}(&[{}])", operands.join(", ")))
 }
 
 fn render_guard(guard: &bpmp_contracts::wir::v1::GuardExpression) -> Result<String, CodegenError> {
@@ -372,6 +569,11 @@ fn render_node(
         node::Kind::DecisionTask(task) => (
             "NodeKind::DecisionTask".into(),
             format!("[{:?}]", task.next_node_id),
+            "None".into(),
+        ),
+        node::Kind::CallActivity(call) => (
+            "NodeKind::CallActivity".into(),
+            format!("[{:?}]", call.next_node_id),
             "None".into(),
         ),
         node::Kind::ExclusiveGateway(gateway) => {
@@ -438,7 +640,13 @@ fn validate_guards(
     transitions: &[bpmp_contracts::wir::v1::ConditionalTransition],
 ) -> Result<(), CodegenError> {
     for transition in transitions {
+        if transition.guard.is_some() && transition.expression.is_some() {
+            return Err(CodegenError::ConflictingGuardRepresentations);
+        }
         let Some(guard) = &transition.guard else {
+            if let Some(expression) = &transition.expression {
+                render_boolean_expression(expression)?;
+            }
             continue;
         };
         ComparisonOperator::try_from(guard.operator)
@@ -465,4 +673,16 @@ pub enum CodegenError {
     InvalidGuard(String),
     #[error("decision table {0} is invalid for Rust generation")]
     InvalidDecisionTable(String),
+    #[error("gateway transition contains both guard representations")]
+    ConflictingGuardRepresentations,
+    #[error("gateway boolean expression has no expression")]
+    MissingBooleanExpression,
+    #[error("gateway boolean junction must contain at least two operands")]
+    InvalidBooleanJunction,
+    #[error("node {0} contains an invalid multi-instance contract")]
+    InvalidMultiInstance(String),
+    #[error("boundary event {0} contains an invalid trigger")]
+    InvalidBoundaryEvent(String),
+    #[error("extension property {0} has no typed value")]
+    InvalidProperty(String),
 }

@@ -2,12 +2,15 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use bpmp_contracts::WIR_SCHEMA_VERSION;
 use bpmp_contracts::wir::v1::{
-    CaseMilestone, CaseModel, CaseSentry, CaseStage, ComparisonOperator, ConditionalTransition,
-    DataContract, DecisionInput, DecisionOutput, DecisionRule, DecisionTable, DecisionTaskNode,
-    EndNode, ExclusiveGatewayNode, GatewayCoverage, GatewayDirection, GuardExpression, HitPolicy,
-    InclusiveGatewayNode, IntegerInterval, Node, ParallelGatewayNode, ServiceTaskNode, StartNode,
-    UnaryTest, ValueType, WorkflowIntermediateRepresentation, WorkflowLiteral, guard_expression,
-    node, unary_test, workflow_literal,
+    BooleanExpression, BooleanJunction, BoundaryEvent, CallActivityNode, CaseMilestone, CaseModel,
+    CaseSentry, CaseStage, ComparisonOperator, ConditionalTransition, DataContract, DecisionInput,
+    DecisionOutput, DecisionRule, DecisionTable, DecisionTaskNode, EndNode, ErrorTrigger,
+    EventTrigger, ExclusiveGatewayNode, ExtensionProperty, GatewayCoverage, GatewayDirection,
+    GuardExpression, HitPolicy, InclusiveGatewayNode, IntegerInterval, MessageTrigger,
+    MultiInstanceMode, MultiInstanceSpec, Node, ParallelGatewayNode, PropertyValue,
+    ServiceTaskNode, StartNode, TimerKind, TimerTrigger, UnaryTest, ValueType,
+    WorkflowIntermediateRepresentation, WorkflowLiteral, boolean_expression, event_trigger,
+    guard_expression, node, property_value, unary_test, workflow_literal,
 };
 use quick_xml::XmlVersion;
 use quick_xml::events::{BytesStart, Event};
@@ -31,6 +34,7 @@ const CMMN_MODEL_NAMESPACES: [&[u8]; 2] = [
 pub struct CompilerLimits {
     pub max_input_bytes: usize,
     pub max_xml_depth: u32,
+    pub max_symbolic_assignments: usize,
 }
 
 impl CompilerLimits {
@@ -49,7 +53,24 @@ impl CompilerLimits {
         Ok(Self {
             max_input_bytes,
             max_xml_depth,
+            max_symbolic_assignments: 65_536,
         })
+    }
+
+    /// Overrides the bounded symbolic coverage assignment budget.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the configured budget is zero.
+    pub fn with_max_symbolic_assignments(
+        mut self,
+        max_symbolic_assignments: usize,
+    ) -> Result<Self, CompilerConfigError> {
+        if max_symbolic_assignments == 0 {
+            return Err(CompilerConfigError::NonPositive("max_symbolic_assignments"));
+        }
+        self.max_symbolic_assignments = max_symbolic_assignments;
+        Ok(self)
     }
 }
 
@@ -152,7 +173,13 @@ impl BpmnCompiler {
             )]);
         }
         let mut parsed = parse(source, self.limits, &locations);
-        validate_graph(&mut parsed, &locations);
+        normalize_sub_processes(&mut parsed, &locations);
+        resolve_boundary_targets(&mut parsed, &locations);
+        validate_graph(
+            &mut parsed,
+            &locations,
+            self.limits.max_symbolic_assignments,
+        );
         if !parsed.diagnostics.is_empty() {
             parsed.diagnostics.sort_by_key(|diagnostic| {
                 (diagnostic.span.byte_offset, diagnostic.kind.to_string())
@@ -263,7 +290,18 @@ enum RawNodeKind {
     ExclusiveGateway,
     InclusiveGateway,
     ParallelGateway,
+    CallActivity,
+    SubProcess,
     End,
+}
+
+#[derive(Debug, Clone)]
+struct RawMultiInstance {
+    sequential: bool,
+    collection_expression: Option<String>,
+    item_variable: Option<String>,
+    cardinality_expression: Option<String>,
+    max_parallelism: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -279,6 +317,11 @@ struct RawNode {
     is_compensation_handler: bool,
     default_flow_id: Option<String>,
     enum_values: Vec<String>,
+    called_element: Option<String>,
+    called_version: Option<String>,
+    scope_id: Option<String>,
+    multi_instance: Option<RawMultiInstance>,
+    properties: Vec<ExtensionProperty>,
     offset: usize,
 }
 
@@ -297,7 +340,32 @@ struct RawBoundaryEvent {
     id: String,
     attached_to: String,
     is_compensation: bool,
+    trigger_count: u8,
+    cancel_activity: bool,
+    trigger: Option<RawBoundaryTrigger>,
+    target: Option<String>,
     offset: usize,
+}
+
+#[derive(Debug, Clone)]
+enum RawBoundaryTrigger {
+    Timer { kind: TimerKind, expression: String },
+    Error { error_ref: String },
+    Message { message_ref: String },
+}
+
+#[derive(Debug, Clone)]
+enum TextCapture {
+    LoopCardinality {
+        owner_id: String,
+    },
+    TimerExpression {
+        boundary_id: String,
+        kind: TimerKind,
+    },
+    FlowCondition {
+        flow_id: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -318,7 +386,14 @@ struct ParsedProcess {
     boundary_events: Vec<RawBoundaryEvent>,
     associations: Vec<RawAssociation>,
     open_boundary_event: Option<String>,
+    scope_stack: Vec<String>,
+    open_nodes: Vec<(String, String)>,
+    extension_owner: Option<String>,
+    process_properties: Vec<ExtensionProperty>,
+    text_capture: Option<TextCapture>,
+    open_sequence_flow: Option<String>,
     gateway_pairs: BTreeMap<String, String>,
+    gateway_coverage: BTreeMap<String, CoverageProof>,
     diagnostics: Vec<CompileDiagnostic>,
 }
 
@@ -357,7 +432,9 @@ fn parse(
                     offset,
                     &mut parsed,
                     locations,
+                    false,
                 );
+                track_open_node(&namespace, &element, decoder, &mut parsed);
             }
             Ok((namespace, Event::Empty(element))) => {
                 inspect_element(
@@ -367,16 +444,22 @@ fn parse(
                     offset,
                     &mut parsed,
                     locations,
+                    true,
                 );
                 if element.local_name().as_ref() == b"boundaryEvent" {
                     parsed.open_boundary_event = None;
                 }
+                if element.local_name().as_ref() == b"extensionElements" {
+                    parsed.extension_owner = None;
+                }
             }
             Ok((_, Event::End(element))) => {
-                if element.local_name().as_ref() == b"boundaryEvent" {
-                    parsed.open_boundary_event = None;
-                }
+                close_element(element.local_name().as_ref(), &mut parsed);
                 depth = depth.saturating_sub(1);
+            }
+            Ok((_, Event::Text(text))) => capture_bpmn_text(&text, &mut parsed),
+            Ok((_, Event::GeneralRef(reference))) => {
+                capture_bpmn_reference(reference.as_ref(), &mut parsed);
             }
             Ok((_, Event::DocType(_))) => parsed
                 .diagnostics
@@ -400,6 +483,250 @@ fn parse(
 }
 
 #[allow(clippy::too_many_lines)]
+fn normalize_sub_processes(parsed: &mut ParsedProcess, locations: &SourceLocations) {
+    let mut subprocess_ids = parsed
+        .nodes
+        .iter()
+        .filter(|(_, node)| node.kind == RawNodeKind::SubProcess)
+        .map(|(id, node)| (scope_depth(parsed, id), id.clone(), node.offset))
+        .collect::<Vec<_>>();
+    subprocess_ids.sort_unstable_by(|left, right| right.0.cmp(&left.0));
+    for (_, subprocess_id, offset) in subprocess_ids {
+        let Some(subprocess) = parsed.nodes.get(&subprocess_id).cloned() else {
+            continue;
+        };
+        if subprocess.multi_instance.is_some()
+            || subprocess.requires_compensation
+            || subprocess.compensation_handler_id.is_some()
+            || parsed
+                .boundary_events
+                .iter()
+                .any(|event| event.attached_to == subprocess_id)
+        {
+            parsed.diagnostics.push(locations.diagnostic(
+                offset,
+                DiagnosticKind::InvalidSubProcess {
+                    subprocess_id,
+                    detail: "scoped multi-instance, compensation, and boundary semantics require a retained sub-process node".into(),
+                },
+            ));
+            continue;
+        }
+        let children = parsed
+            .nodes
+            .iter()
+            .filter(|(_, node)| node.scope_id.as_deref() == Some(subprocess_id.as_str()))
+            .map(|(id, node)| (id.clone(), node.kind))
+            .collect::<Vec<_>>();
+        let starts = children
+            .iter()
+            .filter(|(_, kind)| *kind == RawNodeKind::Start)
+            .map(|(id, _)| id.clone())
+            .collect::<Vec<_>>();
+        let ends = children
+            .iter()
+            .filter(|(_, kind)| *kind == RawNodeKind::End)
+            .map(|(id, _)| id.clone())
+            .collect::<Vec<_>>();
+        let incoming = parsed
+            .flows
+            .iter()
+            .filter(|flow| flow.target == subprocess_id)
+            .count();
+        let outgoing = parsed
+            .flows
+            .iter()
+            .filter(|flow| flow.source == subprocess_id)
+            .collect::<Vec<_>>();
+        let start_outgoing = starts.first().map_or(0, |start| {
+            parsed
+                .flows
+                .iter()
+                .filter(|flow| flow.source == *start)
+                .count()
+        });
+        let end_incoming = ends.first().map_or(0, |end| {
+            parsed
+                .flows
+                .iter()
+                .filter(|flow| flow.target == *end)
+                .count()
+        });
+        if starts.len() != 1
+            || ends.len() != 1
+            || incoming != 1
+            || outgoing.len() != 1
+            || start_outgoing != 1
+            || end_incoming == 0
+        {
+            parsed.diagnostics.push(locations.diagnostic(
+                offset,
+                DiagnosticKind::InvalidSubProcess {
+                    subprocess_id,
+                    detail: format!(
+                        "inline normalization requires one outer entry/exit and one inner start/end; found starts={}, ends={}, incoming={incoming}, outgoing={}, start outgoing={start_outgoing}, end incoming={end_incoming}",
+                        starts.len(),
+                        ends.len(),
+                        outgoing.len()
+                    ),
+                },
+            ));
+            continue;
+        }
+        let start_id = &starts[0];
+        let end_id = &ends[0];
+        let entry_target = parsed
+            .flows
+            .iter()
+            .find(|flow| flow.source == *start_id)
+            .map(|flow| flow.target.clone())
+            .expect("sub-process start outgoing flow was counted");
+        let exit_target = outgoing[0].target.clone();
+        for flow in &mut parsed.flows {
+            if flow.target == subprocess_id {
+                flow.target.clone_from(&entry_target);
+            }
+            if flow.target == *end_id {
+                flow.target.clone_from(&exit_target);
+            }
+        }
+        parsed
+            .flows
+            .retain(|flow| flow.source != subprocess_id && flow.source != *start_id);
+        parsed.nodes.remove(&subprocess_id);
+        parsed.nodes.remove(start_id);
+        parsed.nodes.remove(end_id);
+        for node in parsed.nodes.values_mut() {
+            if node.scope_id.as_deref() == Some(subprocess_id.as_str()) {
+                node.scope_id.clone_from(&subprocess.scope_id);
+            }
+        }
+        if let Some(entry) = parsed.nodes.get_mut(&entry_target) {
+            entry.properties.extend(subprocess.properties);
+            entry.sla_milliseconds = match (entry.sla_milliseconds, subprocess.sla_milliseconds) {
+                (None, outer) => outer,
+                (inner, None) => inner,
+                (Some(inner), Some(outer)) => Some(inner.min(outer)),
+            };
+        }
+    }
+}
+
+fn scope_depth(parsed: &ParsedProcess, node_id: &str) -> usize {
+    let mut depth = 0_usize;
+    let mut scope = parsed
+        .nodes
+        .get(node_id)
+        .and_then(|node| node.scope_id.as_deref());
+    while let Some(scope_id) = scope {
+        depth = depth.saturating_add(1);
+        scope = parsed
+            .nodes
+            .get(scope_id)
+            .and_then(|node| node.scope_id.as_deref());
+    }
+    depth
+}
+
+fn resolve_boundary_targets(parsed: &mut ParsedProcess, locations: &SourceLocations) {
+    for boundary in &mut parsed.boundary_events {
+        if boundary.trigger_count != 1 {
+            parsed.diagnostics.push(locations.diagnostic(
+                boundary.offset,
+                DiagnosticKind::InvalidBoundaryEvent {
+                    boundary_id: boundary.id.clone(),
+                    detail: format!(
+                        "must declare exactly one event definition, found {}",
+                        boundary.trigger_count
+                    ),
+                },
+            ));
+            continue;
+        }
+        if boundary.is_compensation {
+            continue;
+        }
+        if !parsed.nodes.contains_key(&boundary.attached_to) {
+            parsed.diagnostics.push(locations.diagnostic(
+                boundary.offset,
+                DiagnosticKind::InvalidBoundaryEvent {
+                    boundary_id: boundary.id.clone(),
+                    detail: format!("attached activity {} does not exist", boundary.attached_to),
+                },
+            ));
+            continue;
+        }
+        let outgoing = parsed
+            .flows
+            .iter()
+            .filter(|flow| flow.source == boundary.id)
+            .collect::<Vec<_>>();
+        if outgoing.len() != 1 {
+            parsed.diagnostics.push(locations.diagnostic(
+                boundary.offset,
+                DiagnosticKind::InvalidBoundaryEvent {
+                    boundary_id: boundary.id.clone(),
+                    detail: format!(
+                        "must have exactly one outgoing sequence flow, found {}",
+                        outgoing.len()
+                    ),
+                },
+            ));
+            continue;
+        }
+        if boundary.trigger.is_none() {
+            parsed.diagnostics.push(locations.diagnostic(
+                boundary.offset,
+                DiagnosticKind::InvalidBoundaryEvent {
+                    boundary_id: boundary.id.clone(),
+                    detail: "must declare timer, error, message, or compensation definition".into(),
+                },
+            ));
+            continue;
+        }
+        match boundary.trigger.as_ref() {
+            Some(RawBoundaryTrigger::Timer { kind, expression })
+                if *kind == TimerKind::Unspecified || expression.trim().is_empty() =>
+            {
+                parsed.diagnostics.push(
+                    locations.diagnostic(
+                        boundary.offset,
+                        DiagnosticKind::InvalidBoundaryEvent {
+                            boundary_id: boundary.id.clone(),
+                            detail:
+                                "timer requires one non-empty timeDate, timeDuration, or timeCycle"
+                                    .into(),
+                        },
+                    ),
+                );
+                continue;
+            }
+            Some(RawBoundaryTrigger::Message { message_ref }) if message_ref.trim().is_empty() => {
+                parsed.diagnostics.push(locations.diagnostic(
+                    boundary.offset,
+                    DiagnosticKind::InvalidBoundaryEvent {
+                        boundary_id: boundary.id.clone(),
+                        detail: "message event requires messageRef".into(),
+                    },
+                ));
+                continue;
+            }
+            _ => {}
+        }
+        boundary.target = Some(outgoing[0].target.clone());
+    }
+    let boundary_ids = parsed
+        .boundary_events
+        .iter()
+        .filter(|boundary| !boundary.is_compensation && boundary.target.is_some())
+        .map(|boundary| boundary.id.as_str())
+        .collect::<BTreeSet<_>>();
+    parsed
+        .flows
+        .retain(|flow| !boundary_ids.contains(flow.source.as_str()));
+}
+
+#[allow(clippy::too_many_lines)]
 fn inspect_element(
     namespace: &ResolveResult<'_>,
     element: &BytesStart<'_>,
@@ -407,6 +734,7 @@ fn inspect_element(
     offset: usize,
     parsed: &mut ParsedProcess,
     locations: &SourceLocations,
+    is_empty: bool,
 ) {
     let local_name = String::from_utf8_lossy(element.local_name().as_ref()).into_owned();
     let semantic = matches!(
@@ -423,12 +751,26 @@ fn inspect_element(
             | "boundaryEvent"
             | "compensateEventDefinition"
             | "association"
+            | "multiInstanceLoopCharacteristics"
+            | "loopCardinality"
+            | "timerEventDefinition"
+            | "timeDate"
+            | "timeDuration"
+            | "timeCycle"
+            | "errorEventDefinition"
+            | "messageEventDefinition"
+            | "extensionElements"
+            | "conditionExpression"
             | "userTask"
             | "scriptTask"
             | "callActivity"
             | "subProcess"
     );
     let is_bpmn = matches!(namespace, ResolveResult::Bound(namespace) if namespace.as_ref() == BPMN_MODEL_NAMESPACE);
+    if !is_bpmn && parsed.extension_owner.is_some() {
+        collect_extension_property(namespace, element, decoder, parsed, locations, offset);
+        return;
+    }
     if semantic && !is_bpmn {
         parsed.diagnostics.push(locations.diagnostic(
             offset,
@@ -459,6 +801,13 @@ fn inspect_element(
                 parsed,
                 locations,
             );
+        }
+        "extensionElements" => {
+            parsed.extension_owner = parsed
+                .open_nodes
+                .last()
+                .map(|(_, id)| id.clone())
+                .or_else(|| parsed.process_id.clone());
         }
         "startEvent" => insert_node(
             element,
@@ -518,8 +867,42 @@ fn inspect_element(
             parsed,
             locations,
         ),
+        "callActivity" => insert_node(
+            element,
+            decoder,
+            RawNodeKind::CallActivity,
+            None,
+            offset,
+            parsed,
+            locations,
+        ),
+        "subProcess" => {
+            let id = optional_non_empty_attribute(element, decoder, b"id");
+            insert_node(
+                element,
+                decoder,
+                RawNodeKind::SubProcess,
+                None,
+                offset,
+                parsed,
+                locations,
+            );
+            if !is_empty && let Some(id) = id {
+                parsed.scope_stack.push(id);
+            }
+        }
+        "multiInstanceLoopCharacteristics" => {
+            insert_multi_instance(element, decoder, offset, parsed, locations);
+        }
+        "loopCardinality" => start_loop_cardinality_capture(parsed),
         "boundaryEvent" => insert_boundary_event(element, decoder, offset, parsed, locations),
         "compensateEventDefinition" => mark_compensation_boundary(parsed),
+        "timerEventDefinition" => mark_timer_boundary(parsed),
+        "timeDate" => start_timer_capture(parsed, TimerKind::Date),
+        "timeDuration" => start_timer_capture(parsed, TimerKind::Duration),
+        "timeCycle" => start_timer_capture(parsed, TimerKind::Cycle),
+        "errorEventDefinition" => mark_error_boundary(element, decoder, parsed),
+        "messageEventDefinition" => mark_message_boundary(element, decoder, parsed),
         "association" => insert_association(element, decoder, offset, parsed, locations),
         "endEvent" => insert_node(
             element,
@@ -530,8 +913,19 @@ fn inspect_element(
             parsed,
             locations,
         ),
-        "sequenceFlow" => insert_flow(element, decoder, offset, parsed, locations),
-        "userTask" | "scriptTask" | "callActivity" | "subProcess" => {
+        "sequenceFlow" => {
+            let flow_id = optional_non_empty_attribute(element, decoder, b"id");
+            insert_flow(element, decoder, offset, parsed, locations);
+            if !is_empty {
+                parsed.open_sequence_flow = flow_id;
+            }
+        }
+        "conditionExpression" => {
+            if let Some(flow_id) = parsed.open_sequence_flow.clone() {
+                parsed.text_capture = Some(TextCapture::FlowCondition { flow_id });
+            }
+        }
+        "userTask" | "scriptTask" => {
             parsed.diagnostics.push(locations.diagnostic(
                 offset,
                 DiagnosticKind::UnsupportedElement {
@@ -540,6 +934,266 @@ fn inspect_element(
             ));
         }
         _ => {}
+    }
+}
+
+fn track_open_node(
+    namespace: &ResolveResult<'_>,
+    element: &BytesStart<'_>,
+    decoder: quick_xml::encoding::Decoder,
+    parsed: &mut ParsedProcess,
+) {
+    let is_bpmn = matches!(namespace, ResolveResult::Bound(namespace) if namespace.as_ref() == BPMN_MODEL_NAMESPACE);
+    if !is_bpmn {
+        return;
+    }
+    let local_name = String::from_utf8_lossy(element.local_name().as_ref()).into_owned();
+    if matches!(
+        local_name.as_str(),
+        "startEvent"
+            | "serviceTask"
+            | "businessRuleTask"
+            | "exclusiveGateway"
+            | "inclusiveGateway"
+            | "parallelGateway"
+            | "callActivity"
+            | "subProcess"
+            | "endEvent"
+    ) && let Some(id) = optional_non_empty_attribute(element, decoder, b"id")
+    {
+        parsed.open_nodes.push((local_name, id));
+    }
+}
+
+fn close_element(local_name: &[u8], parsed: &mut ParsedProcess) {
+    match local_name {
+        b"boundaryEvent" => parsed.open_boundary_event = None,
+        b"extensionElements" => parsed.extension_owner = None,
+        b"loopCardinality" | b"timeDate" | b"timeDuration" | b"timeCycle" => {
+            parsed.text_capture = None;
+        }
+        b"conditionExpression" => parsed.text_capture = None,
+        b"sequenceFlow" => parsed.open_sequence_flow = None,
+        b"subProcess" => {
+            parsed.scope_stack.pop();
+        }
+        _ => {}
+    }
+    if parsed
+        .open_nodes
+        .last()
+        .is_some_and(|(open_name, _)| open_name.as_bytes() == local_name)
+    {
+        parsed.open_nodes.pop();
+    }
+}
+
+fn capture_bpmn_text(text: &quick_xml::events::BytesText<'_>, parsed: &mut ParsedProcess) {
+    let Some(capture) = parsed.text_capture.clone() else {
+        return;
+    };
+    let value = String::from_utf8_lossy(text.as_ref()).trim().to_owned();
+    if value.is_empty() {
+        return;
+    }
+    match capture {
+        TextCapture::LoopCardinality { owner_id } => {
+            if let Some(spec) = parsed
+                .nodes
+                .get_mut(&owner_id)
+                .and_then(|node| node.multi_instance.as_mut())
+            {
+                spec.cardinality_expression
+                    .get_or_insert_with(String::new)
+                    .push_str(&value);
+            }
+        }
+        TextCapture::TimerExpression { boundary_id, kind } => {
+            if let Some(boundary) = parsed
+                .boundary_events
+                .iter_mut()
+                .find(|boundary| boundary.id == boundary_id)
+            {
+                match &mut boundary.trigger {
+                    Some(RawBoundaryTrigger::Timer {
+                        kind: timer_kind,
+                        expression,
+                    }) => {
+                        *timer_kind = kind;
+                        expression.push_str(&value);
+                    }
+                    _ => {
+                        boundary.trigger = Some(RawBoundaryTrigger::Timer {
+                            kind,
+                            expression: value,
+                        });
+                    }
+                }
+            }
+        }
+        TextCapture::FlowCondition { flow_id } => {
+            if let Some(flow) = parsed.flows.iter_mut().find(|flow| flow.id == flow_id) {
+                flow.condition
+                    .get_or_insert_with(String::new)
+                    .push_str(&value);
+            }
+        }
+    }
+}
+
+fn capture_bpmn_reference(reference: &[u8], parsed: &mut ParsedProcess) {
+    let value = match reference {
+        b"amp" => "&".to_owned(),
+        b"lt" => "<".to_owned(),
+        b"gt" => ">".to_owned(),
+        b"quot" => "\"".to_owned(),
+        b"apos" => "'".to_owned(),
+        value if value.starts_with(b"#x") => std::str::from_utf8(&value[2..])
+            .ok()
+            .and_then(|value| u32::from_str_radix(value, 16).ok())
+            .and_then(char::from_u32)
+            .map(|value| value.to_string())
+            .unwrap_or_default(),
+        value if value.starts_with(b"#") => std::str::from_utf8(&value[1..])
+            .ok()
+            .and_then(|value| value.parse::<u32>().ok())
+            .and_then(char::from_u32)
+            .map(|value| value.to_string())
+            .unwrap_or_default(),
+        _ => String::new(),
+    };
+    if value.is_empty() {
+        return;
+    }
+    match parsed.text_capture.clone() {
+        Some(TextCapture::FlowCondition { flow_id }) => {
+            if let Some(flow) = parsed.flows.iter_mut().find(|flow| flow.id == flow_id) {
+                flow.condition
+                    .get_or_insert_with(String::new)
+                    .push_str(&value);
+            }
+        }
+        Some(TextCapture::LoopCardinality { owner_id }) => {
+            if let Some(spec) = parsed
+                .nodes
+                .get_mut(&owner_id)
+                .and_then(|node| node.multi_instance.as_mut())
+            {
+                spec.cardinality_expression
+                    .get_or_insert_with(String::new)
+                    .push_str(&value);
+            }
+        }
+        Some(TextCapture::TimerExpression { boundary_id, .. }) => {
+            if let Some(RawBoundaryTrigger::Timer { expression, .. }) = parsed
+                .boundary_events
+                .iter_mut()
+                .find(|boundary| boundary.id == boundary_id)
+                .and_then(|boundary| boundary.trigger.as_mut())
+            {
+                expression.push_str(&value);
+            }
+        }
+        None => {}
+    }
+}
+
+fn collect_extension_property(
+    namespace: &ResolveResult<'_>,
+    element: &BytesStart<'_>,
+    decoder: quick_xml::encoding::Decoder,
+    parsed: &mut ParsedProcess,
+    locations: &SourceLocations,
+    offset: usize,
+) {
+    let Some(owner) = parsed.extension_owner.clone() else {
+        return;
+    };
+    let mut namespace_uri = match namespace {
+        ResolveResult::Bound(namespace) => String::from_utf8_lossy(namespace.as_ref()).into_owned(),
+        ResolveResult::Unbound | ResolveResult::Unknown(_) => String::new(),
+    };
+    let mut element_name = String::from_utf8_lossy(element.local_name().as_ref()).into_owned();
+    if element_name == "property" {
+        namespace_uri = optional_non_empty_attribute(element, decoder, b"namespaceUri")
+            .unwrap_or(namespace_uri);
+        element_name =
+            optional_non_empty_attribute(element, decoder, b"elementName").unwrap_or(element_name);
+    }
+    let explicit_name = optional_non_empty_attribute(element, decoder, b"name")
+        .or_else(|| optional_non_empty_attribute(element, decoder, b"key"));
+    let explicit_value = optional_attribute(element, decoder, b"value");
+    if let (Some(name), Some(value)) = (explicit_name, explicit_value) {
+        let value_type = optional_non_empty_attribute(element, decoder, b"type");
+        match parse_property_value(&value, value_type.as_deref()) {
+            Ok(value) => push_property(
+                parsed,
+                &owner,
+                ExtensionProperty {
+                    namespace_uri,
+                    element_name,
+                    name,
+                    value: Some(value),
+                },
+            ),
+            Err(detail) => parsed.diagnostics.push(locations.diagnostic(
+                offset,
+                DiagnosticKind::InvalidExtensionProperty { owner, detail },
+            )),
+        }
+        return;
+    }
+    for attribute in element.attributes().flatten() {
+        let name = String::from_utf8_lossy(attribute.key.local_name().as_ref()).into_owned();
+        if matches!(name.as_str(), "name" | "key" | "type" | "value") {
+            continue;
+        }
+        let value = attribute
+            .decoded_and_normalized_value(XmlVersion::Implicit1_0, decoder)
+            .map_or_else(|_| String::new(), std::borrow::Cow::into_owned);
+        push_property(
+            parsed,
+            &owner,
+            ExtensionProperty {
+                namespace_uri: namespace_uri.clone(),
+                element_name: element_name.clone(),
+                name,
+                value: Some(PropertyValue {
+                    value: Some(property_value::Value::StringValue(value)),
+                }),
+            },
+        );
+    }
+}
+
+fn parse_property_value(value: &str, value_type: Option<&str>) -> Result<PropertyValue, String> {
+    let value = match value_type.unwrap_or("string") {
+        "string" => property_value::Value::StringValue(value.to_owned()),
+        "integer" | "int" => property_value::Value::IntegerValue(
+            value
+                .parse()
+                .map_err(|_| "integer property contains an invalid value")?,
+        ),
+        "boolean" | "bool" => property_value::Value::BooleanValue(
+            value
+                .parse()
+                .map_err(|_| "boolean property must be true or false")?,
+        ),
+        "durationMilliseconds" => property_value::Value::DurationMilliseconds(
+            value
+                .parse()
+                .map_err(|_| "durationMilliseconds property contains an invalid value")?,
+        ),
+        other => return Err(format!("unsupported property type {other}")),
+    };
+    Ok(PropertyValue { value: Some(value) })
+}
+
+fn push_property(parsed: &mut ParsedProcess, owner: &str, property: ExtensionProperty) {
+    if parsed.process_id.as_deref() == Some(owner) {
+        parsed.process_properties.push(property);
+    } else if let Some(node) = parsed.nodes.get_mut(owner) {
+        node.properties.push(property);
     }
 }
 
@@ -559,6 +1213,8 @@ fn insert_node(
         RawNodeKind::ExclusiveGateway => "exclusiveGateway",
         RawNodeKind::InclusiveGateway => "inclusiveGateway",
         RawNodeKind::ParallelGateway => "parallelGateway",
+        RawNodeKind::CallActivity => "callActivity",
+        RawNodeKind::SubProcess => "subProcess",
         RawNodeKind::End => "endEvent",
     };
     let Some(id) = required_attribute(
@@ -591,6 +1247,8 @@ fn insert_node(
     let is_compensation_handler = optional_attribute(element, decoder, b"isForCompensation")
         .is_some_and(|value| value == "true");
     let default_flow_id = optional_non_empty_attribute(element, decoder, b"default");
+    let called_element = optional_non_empty_attribute(element, decoder, b"calledElement");
+    let called_version = optional_non_empty_attribute(element, decoder, b"calledVersion");
     let enum_values = optional_non_empty_attribute(element, decoder, b"enumValues")
         .map(|values| {
             values
@@ -617,6 +1275,11 @@ fn insert_node(
                 is_compensation_handler,
                 default_flow_id,
                 enum_values,
+                called_element,
+                called_version,
+                scope_id: parsed.scope_stack.last().cloned(),
+                multi_instance: None,
+                properties: Vec::new(),
                 offset,
             },
         )
@@ -667,9 +1330,123 @@ fn insert_boundary_event(
             id,
             attached_to,
             is_compensation: false,
+            trigger_count: 0,
+            cancel_activity: optional_attribute(element, decoder, b"cancelActivity")
+                .is_none_or(|value| value == "true"),
+            trigger: None,
+            target: None,
             offset,
         });
     }
+}
+
+fn insert_multi_instance(
+    element: &BytesStart<'_>,
+    decoder: quick_xml::encoding::Decoder,
+    offset: usize,
+    parsed: &mut ParsedProcess,
+    locations: &SourceLocations,
+) {
+    let Some(owner_id) = parsed.open_nodes.last().map(|(_, id)| id.clone()) else {
+        parsed.diagnostics.push(locations.diagnostic(
+            offset,
+            DiagnosticKind::InvalidMultiInstance {
+                activity_id: "<unknown>".into(),
+                detail: "multiInstanceLoopCharacteristics must be nested in an activity".into(),
+            },
+        ));
+        return;
+    };
+    let max_parallelism = optional_non_empty_attribute(element, decoder, b"maxParallelism")
+        .map(|value| value.parse::<u32>())
+        .transpose();
+    let Ok(max_parallelism) = max_parallelism else {
+        parsed.diagnostics.push(locations.diagnostic(
+            offset,
+            DiagnosticKind::InvalidMultiInstance {
+                activity_id: owner_id,
+                detail: "maxParallelism must be an unsigned integer".into(),
+            },
+        ));
+        return;
+    };
+    let Some(node) = parsed.nodes.get_mut(&owner_id) else {
+        return;
+    };
+    if node.multi_instance.is_some() {
+        parsed.diagnostics.push(locations.diagnostic(
+            offset,
+            DiagnosticKind::InvalidMultiInstance {
+                activity_id: owner_id,
+                detail: "activity declares multiple multi-instance characteristics".into(),
+            },
+        ));
+        return;
+    }
+    node.multi_instance = Some(RawMultiInstance {
+        sequential: optional_attribute(element, decoder, b"isSequential")
+            .is_some_and(|value| value == "true"),
+        collection_expression: optional_non_empty_attribute(element, decoder, b"collection"),
+        item_variable: optional_non_empty_attribute(element, decoder, b"elementVariable")
+            .or_else(|| optional_non_empty_attribute(element, decoder, b"itemVariable")),
+        cardinality_expression: optional_non_empty_attribute(element, decoder, b"loopCardinality"),
+        max_parallelism,
+    });
+}
+
+fn start_loop_cardinality_capture(parsed: &mut ParsedProcess) {
+    if let Some(owner_id) = parsed.open_nodes.last().map(|(_, id)| id.clone()) {
+        parsed.text_capture = Some(TextCapture::LoopCardinality { owner_id });
+    }
+}
+
+fn mark_timer_boundary(parsed: &mut ParsedProcess) {
+    if let Some(boundary) = current_boundary_mut(parsed) {
+        boundary.trigger_count = boundary.trigger_count.saturating_add(1);
+        boundary.trigger = Some(RawBoundaryTrigger::Timer {
+            kind: TimerKind::Unspecified,
+            expression: String::new(),
+        });
+    }
+}
+
+fn start_timer_capture(parsed: &mut ParsedProcess, kind: TimerKind) {
+    if let Some(boundary_id) = parsed.open_boundary_event.clone() {
+        parsed.text_capture = Some(TextCapture::TimerExpression { boundary_id, kind });
+    }
+}
+
+fn mark_error_boundary(
+    element: &BytesStart<'_>,
+    decoder: quick_xml::encoding::Decoder,
+    parsed: &mut ParsedProcess,
+) {
+    let error_ref = optional_non_empty_attribute(element, decoder, b"errorRef").unwrap_or_default();
+    if let Some(boundary) = current_boundary_mut(parsed) {
+        boundary.trigger_count = boundary.trigger_count.saturating_add(1);
+        boundary.trigger = Some(RawBoundaryTrigger::Error { error_ref });
+    }
+}
+
+fn mark_message_boundary(
+    element: &BytesStart<'_>,
+    decoder: quick_xml::encoding::Decoder,
+    parsed: &mut ParsedProcess,
+) {
+    let message_ref =
+        optional_non_empty_attribute(element, decoder, b"messageRef").unwrap_or_default();
+    if let Some(boundary) = current_boundary_mut(parsed) {
+        boundary.trigger_count = boundary.trigger_count.saturating_add(1);
+        boundary.trigger = Some(RawBoundaryTrigger::Message { message_ref });
+    }
+}
+
+fn current_boundary_mut(parsed: &mut ParsedProcess) -> Option<&mut RawBoundaryEvent> {
+    let boundary_id = parsed.open_boundary_event.as_deref()?;
+    parsed
+        .boundary_events
+        .iter_mut()
+        .find(|boundary| boundary.id == boundary_id)
 }
 
 fn mark_compensation_boundary(parsed: &mut ParsedProcess) {
@@ -682,6 +1459,7 @@ fn mark_compensation_boundary(parsed: &mut ParsedProcess) {
         .find(|boundary| boundary.id == boundary_id)
     {
         boundary.is_compensation = true;
+        boundary.trigger_count = boundary.trigger_count.saturating_add(1);
     }
 }
 
@@ -848,7 +1626,11 @@ fn parse_optional_u64_attribute(
 
 // The passes share one diagnostic set and borrowed graph indexes.
 #[allow(clippy::match_same_arms, clippy::too_many_lines)]
-fn validate_graph(parsed: &mut ParsedProcess, locations: &SourceLocations) {
+fn validate_graph(
+    parsed: &mut ParsedProcess,
+    locations: &SourceLocations,
+    max_symbolic_assignments: usize,
+) {
     if parsed.process_count == 0 {
         parsed
             .diagnostics
@@ -909,6 +1691,18 @@ fn validate_graph(parsed: &mut ParsedProcess, locations: &SourceLocations) {
         outgoing.entry(&flow.source).or_default().push(&flow.target);
         incoming.entry(&flow.target).or_default().push(&flow.source);
     }
+    for boundary in parsed
+        .boundary_events
+        .iter()
+        .filter(|boundary| !boundary.is_compensation)
+    {
+        if let Some(target) = boundary.target.as_deref() {
+            incoming
+                .entry(target)
+                .or_default()
+                .push(boundary.attached_to.as_str());
+        }
+    }
 
     for (id, node) in &parsed.nodes {
         let outgoing_count = outgoing.get(id.as_str()).map_or(0, Vec::len);
@@ -936,9 +1730,11 @@ fn validate_graph(parsed: &mut ParsedProcess, locations: &SourceLocations) {
                     || (incoming_count >= 2 && outgoing_count == 1))
             }
             RawNodeKind::End => outgoing_count != 0,
-            RawNodeKind::Start | RawNodeKind::ServiceTask | RawNodeKind::DecisionTask => {
-                outgoing_count != 1
-            }
+            RawNodeKind::Start
+            | RawNodeKind::ServiceTask
+            | RawNodeKind::DecisionTask
+            | RawNodeKind::CallActivity => outgoing_count != 1,
+            RawNodeKind::SubProcess => true,
         };
         if invalid_outgoing {
             parsed.diagnostics.push(locations.diagnostic(
@@ -984,6 +1780,25 @@ fn validate_graph(parsed: &mut ParsedProcess, locations: &SourceLocations) {
                 },
             ));
         }
+        if node.kind == RawNodeKind::CallActivity && node.called_element.is_none() {
+            parsed.diagnostics.push(locations.diagnostic(
+                node.offset,
+                DiagnosticKind::MissingAttribute {
+                    element: "callActivity".to_owned(),
+                    attribute: "calledElement",
+                },
+            ));
+        }
+        if node.kind == RawNodeKind::SubProcess {
+            parsed.diagnostics.push(locations.diagnostic(
+                node.offset,
+                DiagnosticKind::InvalidSubProcess {
+                    subprocess_id: id.clone(),
+                    detail: "sub-process could not be normalized".into(),
+                },
+            ));
+        }
+        validate_multi_instance(id, node, locations, &mut parsed.diagnostics);
 
         if node.kind == RawNodeKind::ExclusiveGateway
             || (node.kind == RawNodeKind::InclusiveGateway && outgoing_count >= 2)
@@ -1029,8 +1844,11 @@ fn validate_graph(parsed: &mut ParsedProcess, locations: &SourceLocations) {
                     &outgoing_flows,
                     &node.enum_values,
                     node.kind == RawNodeKind::InclusiveGateway,
+                    max_symbolic_assignments,
                 ) {
-                    Ok(_) => {}
+                    Ok(proof) => {
+                        parsed.gateway_coverage.insert(id.clone(), proof);
+                    }
                     Err(CoverageError::Ambiguous(detail))
                         if node.kind == RawNodeKind::ExclusiveGateway =>
                     {
@@ -1062,7 +1880,7 @@ fn validate_graph(parsed: &mut ParsedProcess, locations: &SourceLocations) {
             continue;
         }
         if let Some(condition) = &flow.condition
-            && let Err(detail) = parse_guard(condition)
+            && let Err(detail) = parse_boolean_expression(condition)
         {
             parsed.diagnostics.push(locations.diagnostic(
                 flow.offset,
@@ -1075,7 +1893,20 @@ fn validate_graph(parsed: &mut ParsedProcess, locations: &SourceLocations) {
     }
 
     if let Some((start, _)) = starts.first() {
-        let reachable = traverse(start, &outgoing);
+        let mut reachability_outgoing = outgoing.clone();
+        for boundary in parsed
+            .boundary_events
+            .iter()
+            .filter(|boundary| !boundary.is_compensation)
+        {
+            if let Some(target) = boundary.target.as_deref() {
+                reachability_outgoing
+                    .entry(boundary.attached_to.as_str())
+                    .or_default()
+                    .push(target);
+            }
+        }
+        let reachable = traverse(start, &reachability_outgoing);
         let ends: Vec<_> = parsed
             .nodes
             .iter()
@@ -1110,6 +1941,56 @@ fn validate_graph(parsed: &mut ParsedProcess, locations: &SourceLocations) {
     parsed.diagnostics.append(&mut data_diagnostics);
     validate_gateway_structure(parsed, locations);
     validate_sla_paths(parsed, locations);
+}
+
+fn validate_multi_instance(
+    node_id: &str,
+    node: &RawNode,
+    locations: &SourceLocations,
+    diagnostics: &mut Vec<CompileDiagnostic>,
+) {
+    let Some(spec) = &node.multi_instance else {
+        return;
+    };
+    if !matches!(
+        node.kind,
+        RawNodeKind::ServiceTask | RawNodeKind::DecisionTask | RawNodeKind::CallActivity
+    ) {
+        diagnostics.push(locations.diagnostic(
+            node.offset,
+            DiagnosticKind::InvalidMultiInstance {
+                activity_id: node_id.to_owned(),
+                detail: "multi-instance is only supported on executable activities".into(),
+            },
+        ));
+    }
+    if spec.collection_expression.is_none() && spec.cardinality_expression.is_none() {
+        diagnostics.push(locations.diagnostic(
+            node.offset,
+            DiagnosticKind::InvalidMultiInstance {
+                activity_id: node_id.to_owned(),
+                detail: "declare collection or loopCardinality".into(),
+            },
+        ));
+    }
+    if spec.collection_expression.is_some() && spec.item_variable.is_none() {
+        diagnostics.push(locations.diagnostic(
+            node.offset,
+            DiagnosticKind::InvalidMultiInstance {
+                activity_id: node_id.to_owned(),
+                detail: "collection-based iteration requires elementVariable/itemVariable".into(),
+            },
+        ));
+    }
+    if spec.max_parallelism == Some(0) {
+        diagnostics.push(locations.diagnostic(
+            node.offset,
+            DiagnosticKind::InvalidMultiInstance {
+                activity_id: node_id.to_owned(),
+                detail: "maxParallelism must be greater than zero".into(),
+            },
+        ));
+    }
 }
 
 fn validate_sla_paths(parsed: &mut ParsedProcess, locations: &SourceLocations) {
@@ -1682,6 +2563,7 @@ enum CoverageProof {
         variable: String,
         intervals: Vec<CoverageInterval>,
     },
+    Symbolic,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -1700,20 +2582,32 @@ fn analyze_gateway_coverage(
     outgoing_flows: &[&RawFlow],
     enum_values: &[String],
     allow_overlap: bool,
+    max_symbolic_assignments: usize,
 ) -> Result<CoverageProof, CoverageError> {
-    let mut guards = Vec::with_capacity(outgoing_flows.len());
+    let mut expressions = Vec::with_capacity(outgoing_flows.len());
     for flow in outgoing_flows {
         let condition = flow
             .condition
             .as_deref()
             .ok_or_else(|| CoverageError::NonExhaustive("branch has no guard".into()))?;
-        guards.push(parse_guard(condition).map_err(CoverageError::NonExhaustive)?);
+        expressions
+            .push(parse_boolean_expression(condition).map_err(CoverageError::NonExhaustive)?);
     }
-    if guards.is_empty() {
+    if expressions.is_empty() {
         return Err(CoverageError::NonExhaustive(
             "gateway has no guarded branches".into(),
         ));
     }
+    let guards = expressions
+        .iter()
+        .map(|expression| match expression {
+            ParsedBooleanExpression::Comparison(guard) => Some(guard.clone()),
+            _ => None,
+        })
+        .collect::<Option<Vec<_>>>();
+    let Some(guards) = guards else {
+        return analyze_symbolic_coverage(&expressions, allow_overlap, max_symbolic_assignments);
+    };
     let variable = guards[0].variable.clone();
     if guards.iter().any(|guard| guard.variable != variable) {
         return Err(CoverageError::NonExhaustive(
@@ -1734,6 +2628,257 @@ fn analyze_gateway_coverage(
             "guard literal is missing".into(),
         )),
     }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
+enum SymbolicValue {
+    Boolean(bool),
+    Integer(i64),
+    String(String),
+}
+
+#[derive(Debug)]
+enum SymbolicDomain {
+    Boolean,
+    Integer(BTreeSet<i64>),
+    String(BTreeSet<String>),
+}
+
+fn analyze_symbolic_coverage(
+    expressions: &[ParsedBooleanExpression],
+    allow_overlap: bool,
+    max_assignments: usize,
+) -> Result<CoverageProof, CoverageError> {
+    let mut domains = BTreeMap::<String, SymbolicDomain>::new();
+    for expression in expressions {
+        collect_symbolic_domains(expression, &mut domains)?;
+    }
+    let variables = domains
+        .into_iter()
+        .map(|(variable, domain)| (variable, symbolic_representatives(domain)))
+        .collect::<Vec<_>>();
+    let assignment_count = variables.iter().try_fold(1_usize, |count, (_, values)| {
+        count.checked_mul(values.len())
+    });
+    let Some(assignment_count) = assignment_count else {
+        return Err(CoverageError::NonExhaustive(
+            "symbolic coverage assignment count overflowed".into(),
+        ));
+    };
+    if assignment_count > max_assignments {
+        return Err(CoverageError::NonExhaustive(format!(
+            "symbolic coverage needs {assignment_count} assignments, above configured limit {max_assignments}; add a default flow or raise max_symbolic_assignments"
+        )));
+    }
+    let mut assignment = BTreeMap::new();
+    visit_symbolic_assignments(&variables, 0, &mut assignment, &mut |assignment| {
+        let matched = expressions
+            .iter()
+            .map(|expression| evaluate_symbolic_expression(expression, assignment))
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .filter(|matched| *matched)
+            .count();
+        if matched == 0 {
+            return Err(CoverageError::NonExhaustive(format!(
+                "symbolic solver found uncovered assignment {}",
+                render_symbolic_assignment(assignment)
+            )));
+        }
+        if matched > 1 && !allow_overlap {
+            return Err(CoverageError::Ambiguous(format!(
+                "symbolic solver found {matched} matching branches for assignment {}",
+                render_symbolic_assignment(assignment)
+            )));
+        }
+        Ok(())
+    })?;
+    Ok(CoverageProof::Symbolic)
+}
+
+fn collect_symbolic_domains(
+    expression: &ParsedBooleanExpression,
+    domains: &mut BTreeMap<String, SymbolicDomain>,
+) -> Result<(), CoverageError> {
+    match expression {
+        ParsedBooleanExpression::Comparison(guard) => {
+            let literal = guard.literal.as_ref().ok_or_else(|| {
+                CoverageError::NonExhaustive("comparison literal is missing".into())
+            })?;
+            let candidate = match literal {
+                guard_expression::Literal::BooleanValue(_) => SymbolicDomain::Boolean,
+                guard_expression::Literal::IntegerValue(value) => {
+                    SymbolicDomain::Integer(BTreeSet::from([*value]))
+                }
+                guard_expression::Literal::StringValue(value) => {
+                    SymbolicDomain::String(BTreeSet::from([value.clone()]))
+                }
+            };
+            merge_symbolic_domain(domains, &guard.variable, candidate)
+        }
+        ParsedBooleanExpression::Conjunction(operands)
+        | ParsedBooleanExpression::Disjunction(operands) => {
+            for operand in operands {
+                collect_symbolic_domains(operand, domains)?;
+            }
+            Ok(())
+        }
+        ParsedBooleanExpression::Negation(operand) => collect_symbolic_domains(operand, domains),
+        ParsedBooleanExpression::Constant(_) => Ok(()),
+    }
+}
+
+fn merge_symbolic_domain(
+    domains: &mut BTreeMap<String, SymbolicDomain>,
+    variable: &str,
+    candidate: SymbolicDomain,
+) -> Result<(), CoverageError> {
+    let Some(current) = domains.get_mut(variable) else {
+        domains.insert(variable.to_owned(), candidate);
+        return Ok(());
+    };
+    match (current, candidate) {
+        (SymbolicDomain::Boolean, SymbolicDomain::Boolean) => Ok(()),
+        (SymbolicDomain::Integer(values), SymbolicDomain::Integer(candidate)) => {
+            values.extend(candidate);
+            Ok(())
+        }
+        (SymbolicDomain::String(values), SymbolicDomain::String(candidate)) => {
+            values.extend(candidate);
+            Ok(())
+        }
+        _ => Err(CoverageError::NonExhaustive(format!(
+            "variable {variable} is compared with incompatible literal types"
+        ))),
+    }
+}
+
+fn symbolic_representatives(domain: SymbolicDomain) -> Vec<SymbolicValue> {
+    match domain {
+        SymbolicDomain::Boolean => {
+            vec![SymbolicValue::Boolean(false), SymbolicValue::Boolean(true)]
+        }
+        SymbolicDomain::Integer(constants) => {
+            let mut values = BTreeSet::from([i64::MIN, i64::MAX]);
+            for value in constants {
+                values.insert(value);
+                if let Some(previous) = value.checked_sub(1) {
+                    values.insert(previous);
+                }
+                if let Some(next) = value.checked_add(1) {
+                    values.insert(next);
+                }
+            }
+            values.into_iter().map(SymbolicValue::Integer).collect()
+        }
+        SymbolicDomain::String(constants) => {
+            let mut other = "<bpmp-symbolic-other>".to_owned();
+            while constants.contains(&other) {
+                other.push('_');
+            }
+            constants
+                .into_iter()
+                .chain(std::iter::once(other))
+                .map(SymbolicValue::String)
+                .collect()
+        }
+    }
+}
+
+fn visit_symbolic_assignments(
+    variables: &[(String, Vec<SymbolicValue>)],
+    index: usize,
+    assignment: &mut BTreeMap<String, SymbolicValue>,
+    visitor: &mut impl FnMut(&BTreeMap<String, SymbolicValue>) -> Result<(), CoverageError>,
+) -> Result<(), CoverageError> {
+    let Some((variable, values)) = variables.get(index) else {
+        return visitor(assignment);
+    };
+    for value in values {
+        assignment.insert(variable.clone(), value.clone());
+        visit_symbolic_assignments(variables, index + 1, assignment, visitor)?;
+    }
+    assignment.remove(variable);
+    Ok(())
+}
+
+fn evaluate_symbolic_expression(
+    expression: &ParsedBooleanExpression,
+    assignment: &BTreeMap<String, SymbolicValue>,
+) -> Result<bool, CoverageError> {
+    match expression {
+        ParsedBooleanExpression::Comparison(guard) => {
+            evaluate_symbolic_comparison(guard, assignment)
+        }
+        ParsedBooleanExpression::Conjunction(operands) => {
+            for operand in operands {
+                if !evaluate_symbolic_expression(operand, assignment)? {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
+        }
+        ParsedBooleanExpression::Disjunction(operands) => {
+            for operand in operands {
+                if evaluate_symbolic_expression(operand, assignment)? {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        }
+        ParsedBooleanExpression::Negation(operand) => {
+            Ok(!evaluate_symbolic_expression(operand, assignment)?)
+        }
+        ParsedBooleanExpression::Constant(value) => Ok(*value),
+    }
+}
+
+fn evaluate_symbolic_comparison(
+    guard: &GuardExpression,
+    assignment: &BTreeMap<String, SymbolicValue>,
+) -> Result<bool, CoverageError> {
+    let actual = assignment.get(&guard.variable).ok_or_else(|| {
+        CoverageError::NonExhaustive(format!(
+            "symbolic assignment is missing variable {}",
+            guard.variable
+        ))
+    })?;
+    let literal = match guard.literal.as_ref() {
+        Some(guard_expression::Literal::BooleanValue(value)) => SymbolicValue::Boolean(*value),
+        Some(guard_expression::Literal::IntegerValue(value)) => SymbolicValue::Integer(*value),
+        Some(guard_expression::Literal::StringValue(value)) => SymbolicValue::String(value.clone()),
+        None => {
+            return Err(CoverageError::NonExhaustive(
+                "comparison literal is missing".into(),
+            ));
+        }
+    };
+    if std::mem::discriminant(actual) != std::mem::discriminant(&literal) {
+        return Err(CoverageError::NonExhaustive(format!(
+            "variable {} has incompatible comparison types",
+            guard.variable
+        )));
+    }
+    let ordering = actual.cmp(&literal);
+    let operator = ComparisonOperator::try_from(guard.operator)
+        .map_err(|_| CoverageError::NonExhaustive("invalid comparison operator".into()))?;
+    Ok(match operator {
+        ComparisonOperator::Equal => ordering.is_eq(),
+        ComparisonOperator::NotEqual => !ordering.is_eq(),
+        ComparisonOperator::LessThan => ordering.is_lt(),
+        ComparisonOperator::LessThanOrEqual => ordering.is_le(),
+        ComparisonOperator::GreaterThan => ordering.is_gt(),
+        ComparisonOperator::GreaterThanOrEqual => ordering.is_ge(),
+        ComparisonOperator::Unspecified => false,
+    })
+}
+
+fn render_symbolic_assignment(assignment: &BTreeMap<String, SymbolicValue>) -> String {
+    assignment
+        .iter()
+        .map(|(name, value)| format!("{name}={value:?}"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn analyze_boolean_coverage(
@@ -2060,6 +3205,13 @@ fn lower(
                         .expect("decisionRef is validated before lowering"),
                     next_node_id: next_by_source[&id.as_str()].to_owned(),
                 }),
+                RawNodeKind::CallActivity => node::Kind::CallActivity(CallActivityNode {
+                    called_element: raw
+                        .called_element
+                        .expect("calledElement is validated before lowering"),
+                    called_version: raw.called_version.unwrap_or_default(),
+                    next_node_id: next_by_source[&id.as_str()].to_owned(),
+                }),
                 RawNodeKind::ExclusiveGateway => {
                     let outgoing_flows: Vec<_> = parsed
                         .flows
@@ -2069,12 +3221,8 @@ fn lower(
                     let has_default = outgoing_flows.iter().any(|flow| {
                         flow.is_default || raw.default_flow_id.as_deref() == Some(flow.id.as_str())
                     });
-                    let coverage = (!has_default).then(|| {
-                        coverage_to_wire(
-                            analyze_gateway_coverage(&outgoing_flows, &raw.enum_values, false)
-                                .expect("gateway coverage is validated before lowering"),
-                        )
-                    });
+                    let coverage = (!has_default)
+                        .then(|| coverage_to_wire(parsed.gateway_coverage[&id].clone()));
                     let mut transitions: Vec<_> = parsed
                         .flows
                         .iter()
@@ -2084,10 +3232,8 @@ fn lower(
                             condition: String::new(),
                             is_default: flow.is_default
                                 || raw.default_flow_id.as_deref() == Some(flow.id.as_str()),
-                            guard: flow.condition.as_deref().map(|condition| {
-                                parse_guard(condition)
-                                    .expect("guard expressions are validated before lowering")
-                            }),
+                            guard: lower_simple_guard(flow.condition.as_deref()),
+                            expression: lower_complex_guard(flow.condition.as_deref()),
                         })
                         .collect();
                     transitions.sort_unstable_by(|left, right| {
@@ -2128,12 +3274,8 @@ fn lower(
                     let has_default = outgoing_flows.iter().any(|flow| {
                         flow.is_default || raw.default_flow_id.as_deref() == Some(flow.id.as_str())
                     });
-                    let coverage = (is_split && !has_default).then(|| {
-                        coverage_to_wire(
-                            analyze_gateway_coverage(&outgoing_flows, &raw.enum_values, true)
-                                .expect("inclusive gateway coverage is validated before lowering"),
-                        )
-                    });
+                    let coverage = (is_split && !has_default)
+                        .then(|| coverage_to_wire(parsed.gateway_coverage[&id].clone()));
                     let mut transitions = if is_split {
                         outgoing_flows
                             .iter()
@@ -2142,10 +3284,8 @@ fn lower(
                                 condition: String::new(),
                                 is_default: flow.is_default
                                     || raw.default_flow_id.as_deref() == Some(flow.id.as_str()),
-                                guard: flow.condition.as_deref().map(|condition| {
-                                    parse_guard(condition)
-                                        .expect("guard expressions are validated before lowering")
-                                }),
+                                guard: lower_simple_guard(flow.condition.as_deref()),
+                                expression: lower_complex_guard(flow.condition.as_deref()),
                             })
                             .collect::<Vec<_>>()
                     } else {
@@ -2171,7 +3311,20 @@ fn lower(
                     })
                 }
                 RawNodeKind::End => node::Kind::End(EndNode {}),
+                RawNodeKind::SubProcess => {
+                    unreachable!("sub-processes are normalized before lowering")
+                }
             };
+            let boundary_events = parsed
+                .boundary_events
+                .iter()
+                .filter(|boundary| {
+                    boundary.attached_to == id
+                        && !boundary.is_compensation
+                        && boundary.target.is_some()
+                })
+                .map(boundary_to_wire)
+                .collect();
             Node {
                 id,
                 kind: Some(kind),
@@ -2183,6 +3336,9 @@ fn lower(
                 }),
                 sla_milliseconds: raw.sla_milliseconds.unwrap_or_default(),
                 compensation_handler_id: raw.compensation_handler_id.unwrap_or_default(),
+                properties: raw.properties,
+                multi_instance: raw.multi_instance.map(multi_instance_to_wire),
+                boundary_events,
             }
         })
         .collect();
@@ -2197,6 +3353,71 @@ fn lower(
         decision_tables: Vec::new(),
         tenant_id: tenant_id.to_owned(),
         case_models: Vec::new(),
+        properties: parsed.process_properties,
+    }
+}
+
+fn multi_instance_to_wire(spec: RawMultiInstance) -> MultiInstanceSpec {
+    MultiInstanceSpec {
+        mode: if spec.sequential {
+            MultiInstanceMode::Sequential.into()
+        } else {
+            MultiInstanceMode::Parallel.into()
+        },
+        collection_expression: spec.collection_expression.unwrap_or_default(),
+        item_variable: spec.item_variable.unwrap_or_default(),
+        cardinality_expression: spec.cardinality_expression.unwrap_or_default(),
+        max_parallelism: spec.max_parallelism.unwrap_or_default(),
+    }
+}
+
+fn lower_simple_guard(condition: Option<&str>) -> Option<GuardExpression> {
+    let expression = parse_boolean_expression(condition?).ok()?;
+    match expression {
+        ParsedBooleanExpression::Comparison(guard) => Some(guard),
+        _ => None,
+    }
+}
+
+fn lower_complex_guard(condition: Option<&str>) -> Option<BooleanExpression> {
+    let expression = parse_boolean_expression(condition?).ok()?;
+    match expression {
+        ParsedBooleanExpression::Comparison(_) => None,
+        expression => Some(boolean_expression_to_wire(expression)),
+    }
+}
+
+fn boundary_to_wire(boundary: &RawBoundaryEvent) -> BoundaryEvent {
+    let trigger = match boundary
+        .trigger
+        .as_ref()
+        .expect("boundary trigger is validated before lowering")
+    {
+        RawBoundaryTrigger::Timer { kind, expression } => {
+            event_trigger::Trigger::Timer(TimerTrigger {
+                expression: expression.clone(),
+                kind: i32::from(*kind),
+            })
+        }
+        RawBoundaryTrigger::Error { error_ref } => event_trigger::Trigger::Error(ErrorTrigger {
+            error_ref: error_ref.clone(),
+        }),
+        RawBoundaryTrigger::Message { message_ref } => {
+            event_trigger::Trigger::Message(MessageTrigger {
+                message_ref: message_ref.clone(),
+            })
+        }
+    };
+    BoundaryEvent {
+        id: boundary.id.clone(),
+        cancel_activity: boundary.cancel_activity,
+        target_node_id: boundary
+            .target
+            .clone()
+            .expect("boundary target is validated before lowering"),
+        trigger: Some(EventTrigger {
+            trigger: Some(trigger),
+        }),
     }
 }
 
@@ -2207,12 +3428,14 @@ fn coverage_to_wire(proof: CoverageProof) -> GatewayCoverage {
             value_type: ValueType::Boolean.into(),
             enum_values: Vec::new(),
             integer_intervals: Vec::new(),
+            solver_verified: false,
         },
         CoverageProof::Enum { variable, values } => GatewayCoverage {
             variable,
             value_type: ValueType::String.into(),
             enum_values: values,
             integer_intervals: Vec::new(),
+            solver_verified: false,
         },
         CoverageProof::Integer {
             variable,
@@ -2230,50 +3453,294 @@ fn coverage_to_wire(proof: CoverageProof) -> GatewayCoverage {
                     upper_unbounded: interval.upper.is_none(),
                 })
                 .collect(),
+            solver_verified: false,
+        },
+        CoverageProof::Symbolic => GatewayCoverage {
+            variable: String::new(),
+            value_type: ValueType::Unspecified.into(),
+            enum_values: Vec::new(),
+            integer_intervals: Vec::new(),
+            solver_verified: true,
         },
     }
 }
 
-fn parse_guard(source: &str) -> Result<GuardExpression, String> {
-    let operators = [
-        (">=", ComparisonOperator::GreaterThanOrEqual),
-        ("<=", ComparisonOperator::LessThanOrEqual),
-        ("!=", ComparisonOperator::NotEqual),
-        ("==", ComparisonOperator::Equal),
-        (">", ComparisonOperator::GreaterThan),
-        ("<", ComparisonOperator::LessThan),
-    ];
-    let Some((token, operator)) = operators
-        .into_iter()
-        .find(|(token, _)| source.contains(token))
-    else {
-        return Err("expected one comparison operator: ==, !=, <, <=, >, >=".into());
-    };
-    let Some((variable, literal)) = source.split_once(token) else {
-        return Err("comparison is malformed".into());
-    };
-    let variable = variable.trim();
+#[derive(Debug, Clone, Eq, PartialEq)]
+enum ParsedBooleanExpression {
+    Comparison(GuardExpression),
+    Conjunction(Vec<Self>),
+    Disjunction(Vec<Self>),
+    Negation(Box<Self>),
+    Constant(bool),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+enum GuardToken {
+    Identifier(String),
+    Literal(String),
+    Operator(ComparisonOperator),
+    And,
+    Or,
+    Not,
+    LeftParen,
+    RightParen,
+}
+
+fn parse_boolean_expression(source: &str) -> Result<ParsedBooleanExpression, String> {
+    let tokens = tokenize_guard(source)?;
+    if tokens.is_empty() {
+        return Err("guard expression is empty".into());
+    }
+    let mut parser = GuardParser { tokens, cursor: 0 };
+    let expression = parser.parse_or()?;
+    if parser.cursor != parser.tokens.len() {
+        return Err("guard contains unexpected trailing tokens".into());
+    }
+    Ok(expression)
+}
+
+#[allow(clippy::too_many_lines)]
+fn tokenize_guard(source: &str) -> Result<Vec<GuardToken>, String> {
+    let bytes = source.as_bytes();
+    let mut cursor = 0_usize;
+    let mut tokens = Vec::new();
+    while cursor < bytes.len() {
+        if bytes[cursor].is_ascii_whitespace() {
+            cursor += 1;
+            continue;
+        }
+        let remaining = &source[cursor..];
+        let two_character = [
+            ("&&", GuardToken::And),
+            ("||", GuardToken::Or),
+            (
+                ">=",
+                GuardToken::Operator(ComparisonOperator::GreaterThanOrEqual),
+            ),
+            (
+                "<=",
+                GuardToken::Operator(ComparisonOperator::LessThanOrEqual),
+            ),
+            ("!=", GuardToken::Operator(ComparisonOperator::NotEqual)),
+            ("==", GuardToken::Operator(ComparisonOperator::Equal)),
+        ];
+        if let Some((token, value)) = two_character
+            .into_iter()
+            .find(|(token, _)| remaining.starts_with(token))
+        {
+            tokens.push(value);
+            cursor += token.len();
+            continue;
+        }
+        match bytes[cursor] {
+            b'(' => {
+                tokens.push(GuardToken::LeftParen);
+                cursor += 1;
+            }
+            b')' => {
+                tokens.push(GuardToken::RightParen);
+                cursor += 1;
+            }
+            b'!' => {
+                tokens.push(GuardToken::Not);
+                cursor += 1;
+            }
+            b'<' => {
+                tokens.push(GuardToken::Operator(ComparisonOperator::LessThan));
+                cursor += 1;
+            }
+            b'>' => {
+                tokens.push(GuardToken::Operator(ComparisonOperator::GreaterThan));
+                cursor += 1;
+            }
+            b'"' => {
+                let start = cursor;
+                cursor += 1;
+                let mut escaped = false;
+                while cursor < bytes.len() {
+                    match (bytes[cursor], escaped) {
+                        (b'"', false) => {
+                            cursor += 1;
+                            break;
+                        }
+                        (b'\\', false) => escaped = true,
+                        _ => escaped = false,
+                    }
+                    cursor += 1;
+                }
+                if !source[start..cursor].ends_with('"') {
+                    return Err("string literal is not terminated".into());
+                }
+                tokens.push(GuardToken::Literal(source[start..cursor].to_owned()));
+            }
+            _ => {
+                let start = cursor;
+                while cursor < bytes.len()
+                    && !bytes[cursor].is_ascii_whitespace()
+                    && !matches!(
+                        bytes[cursor],
+                        b'(' | b')' | b'!' | b'<' | b'>' | b'=' | b'&' | b'|'
+                    )
+                {
+                    cursor += 1;
+                }
+                if start == cursor {
+                    return Err(format!("unsupported guard token at byte {cursor}"));
+                }
+                let value = &source[start..cursor];
+                match value {
+                    "and" => tokens.push(GuardToken::And),
+                    "or" => tokens.push(GuardToken::Or),
+                    "not" => tokens.push(GuardToken::Not),
+                    "true" | "false" => tokens.push(GuardToken::Literal(value.to_owned())),
+                    _ if value.parse::<i64>().is_ok() => {
+                        tokens.push(GuardToken::Literal(value.to_owned()));
+                    }
+                    _ => tokens.push(GuardToken::Identifier(value.to_owned())),
+                }
+            }
+        }
+    }
+    Ok(tokens)
+}
+
+struct GuardParser {
+    tokens: Vec<GuardToken>,
+    cursor: usize,
+}
+
+impl GuardParser {
+    fn parse_or(&mut self) -> Result<ParsedBooleanExpression, String> {
+        let mut operands = vec![self.parse_and()?];
+        while self.consume(&GuardToken::Or) {
+            operands.push(self.parse_and()?);
+        }
+        Ok(if operands.len() == 1 {
+            operands.pop().expect("one operand exists")
+        } else {
+            ParsedBooleanExpression::Disjunction(operands)
+        })
+    }
+
+    fn parse_and(&mut self) -> Result<ParsedBooleanExpression, String> {
+        let mut operands = vec![self.parse_unary()?];
+        while self.consume(&GuardToken::And) {
+            operands.push(self.parse_unary()?);
+        }
+        Ok(if operands.len() == 1 {
+            operands.pop().expect("one operand exists")
+        } else {
+            ParsedBooleanExpression::Conjunction(operands)
+        })
+    }
+
+    fn parse_unary(&mut self) -> Result<ParsedBooleanExpression, String> {
+        if self.consume(&GuardToken::Not) {
+            return Ok(ParsedBooleanExpression::Negation(Box::new(
+                self.parse_unary()?,
+            )));
+        }
+        if self.consume(&GuardToken::LeftParen) {
+            let expression = self.parse_or()?;
+            if !self.consume(&GuardToken::RightParen) {
+                return Err("guard expression is missing closing parenthesis".into());
+            }
+            return Ok(expression);
+        }
+        self.parse_atom()
+    }
+
+    fn parse_atom(&mut self) -> Result<ParsedBooleanExpression, String> {
+        if let Some(GuardToken::Literal(value)) = self.tokens.get(self.cursor)
+            && matches!(value.as_str(), "true" | "false")
+            && !matches!(
+                self.tokens.get(self.cursor + 1),
+                Some(GuardToken::Operator(_))
+            )
+        {
+            self.cursor += 1;
+            return Ok(ParsedBooleanExpression::Constant(value == "true"));
+        }
+        let Some(GuardToken::Identifier(variable)) = self.tokens.get(self.cursor).cloned() else {
+            return Err("comparison must start with a variable name".into());
+        };
+        validate_guard_variable(&variable)?;
+        self.cursor += 1;
+        let Some(GuardToken::Operator(operator)) = self.tokens.get(self.cursor).cloned() else {
+            return Err("comparison is missing an operator".into());
+        };
+        self.cursor += 1;
+        let Some(GuardToken::Literal(literal)) = self.tokens.get(self.cursor).cloned() else {
+            return Err("comparison is missing a literal".into());
+        };
+        self.cursor += 1;
+        let literal = parse_guard_literal(&literal)?;
+        if matches!(literal, guard_expression::Literal::BooleanValue(_))
+            && !matches!(
+                operator,
+                ComparisonOperator::Equal | ComparisonOperator::NotEqual
+            )
+        {
+            return Err("boolean values only support == and !=".into());
+        }
+        Ok(ParsedBooleanExpression::Comparison(GuardExpression {
+            variable,
+            operator: operator.into(),
+            literal: Some(literal),
+        }))
+    }
+
+    fn consume(&mut self, expected: &GuardToken) -> bool {
+        if self.tokens.get(self.cursor) == Some(expected) {
+            self.cursor += 1;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+fn validate_guard_variable(variable: &str) -> Result<(), String> {
     if variable.is_empty()
         || !variable
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'-'))
     {
-        return Err("variable name is empty or contains unsupported characters".into());
+        Err("variable name is empty or contains unsupported characters".into())
+    } else {
+        Ok(())
     }
-    let literal = parse_guard_literal(literal.trim())?;
-    if matches!(literal, guard_expression::Literal::BooleanValue(_))
-        && !matches!(
-            operator,
-            ComparisonOperator::Equal | ComparisonOperator::NotEqual
-        )
-    {
-        return Err("boolean values only support == and !=".into());
+}
+
+fn boolean_expression_to_wire(expression: ParsedBooleanExpression) -> BooleanExpression {
+    let expression = match expression {
+        ParsedBooleanExpression::Comparison(guard) => {
+            boolean_expression::Expression::Comparison(guard)
+        }
+        ParsedBooleanExpression::Conjunction(operands) => {
+            boolean_expression::Expression::Conjunction(BooleanJunction {
+                operands: operands
+                    .into_iter()
+                    .map(boolean_expression_to_wire)
+                    .collect(),
+            })
+        }
+        ParsedBooleanExpression::Disjunction(operands) => {
+            boolean_expression::Expression::Disjunction(BooleanJunction {
+                operands: operands
+                    .into_iter()
+                    .map(boolean_expression_to_wire)
+                    .collect(),
+            })
+        }
+        ParsedBooleanExpression::Negation(operand) => {
+            boolean_expression::Expression::Negation(Box::new(boolean_expression_to_wire(*operand)))
+        }
+        ParsedBooleanExpression::Constant(value) => boolean_expression::Expression::Constant(value),
+    };
+    BooleanExpression {
+        expression: Some(expression),
     }
-    Ok(GuardExpression {
-        variable: variable.to_owned(),
-        operator: operator.into(),
-        literal: Some(literal),
-    })
 }
 
 fn parse_guard_literal(source: &str) -> Result<guard_expression::Literal, String> {

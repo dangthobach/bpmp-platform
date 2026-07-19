@@ -32,6 +32,8 @@ message EnginePolicy {
   RetryPolicy optimistic_conflict_retry = 4;
   LocalWasmPolicy local_wasm = 5;
   string authorization_audit_key_scope = 6;
+  uint32 max_multi_instance_cardinality = 7;
+  uint32 default_multi_instance_parallelism = 8;
 }
 
 message LocalWasmPolicy {

@@ -34,15 +34,18 @@ repository gate is `./tools/check.ps1`.
 
 ## Standards Profile
 
-The executable profile currently lowers start/end events, service tasks,
-business-rule tasks, exclusive/inclusive/parallel gateways, sequence flows,
-standard compensation boundaries, typed DMN decision tables, and the documented
-CMMN subset. Unsupported BPMN elements fail at compile time rather than being
-silently lowered with incorrect semantics.
+The executable compiler profile also supports inline embedded sub-processes,
+versioned call activities, typed multi-instance metadata, timer/error/message
+boundaries, namespaced typed extension properties, and bounded symbolic
+coverage for composed guards. The exact profile and runtime boundary are in
+`docs/bpmn-enterprise-compiler-profile.md`.
 
 Passing all twelve Requirement 1 acceptance checks means full acceptance
 coverage for this executable profile. It does not claim implementation of every
-element in the full OMG BPMN/DMN/CMMN catalogs. User tasks belong to Human
-Runtime; sub-process/call-activity, multi-instance, timer/error/message boundary
-normalization, extension `PropertyBag`, and complex-expression SMT analysis
-remain explicit standards-breadth work described in `design.md`.
+element in the full OMG BPMN/DMN/CMMN catalogs. User tasks remain owned by Human
+Runtime. Multi-instance fan-out/fan-in/replay and boundary subscription,
+trigger, cancellation, and branch completion now execute through additive
+durable events and snapshots in `bpmp-domain-core`/`bpmp-engine`. Retained
+sub-process scopes, multi-instance completion-condition expressions, external
+timer/message/error correlation adapters, and call child-instance orchestration
+remain explicit follow-up work.

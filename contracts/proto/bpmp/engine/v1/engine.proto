@@ -54,6 +54,14 @@ message EventEnvelope {
     GatewaySplitActivated gateway_split_activated = 15;
     GatewayTokenArrived gateway_token_arrived = 16;
     GatewayJoined gateway_joined = 17;
+    MultiInstanceStarted multi_instance_started = 18;
+    MultiInstanceIterationActivated multi_instance_iteration_activated = 19;
+    MultiInstanceIterationCompleted multi_instance_iteration_completed = 20;
+    MultiInstanceCompleted multi_instance_completed = 21;
+    BoundaryEventTriggered boundary_event_triggered = 22;
+    WorkflowBranchCompleted workflow_branch_completed = 23;
+    BoundaryEventArmed boundary_event_armed = 24;
+    BoundaryEventsDisarmed boundary_events_disarmed = 25;
   }
 }
 
@@ -101,7 +109,89 @@ message WorkflowVariable {
     bool boolean_value = 2;
     sint64 integer_value = 3;
     string string_value = 4;
+    WorkflowValueList list_value = 5;
   }
+}
+
+message WorkflowValueList {
+  repeated WorkflowValueItem items = 1;
+}
+
+message WorkflowValueItem {
+  oneof value {
+    bool boolean_value = 1;
+    sint64 integer_value = 2;
+    string string_value = 3;
+    WorkflowValueList list_value = 4;
+  }
+}
+
+enum MultiInstanceMode {
+  MULTI_INSTANCE_MODE_UNSPECIFIED = 0;
+  MULTI_INSTANCE_MODE_SEQUENTIAL = 1;
+  MULTI_INSTANCE_MODE_PARALLEL = 2;
+}
+
+message MultiInstanceStarted {
+  string node_id = 1;
+  string task_type = 2;
+  MultiInstanceMode mode = 3;
+  uint32 total_instances = 4;
+  uint32 max_parallelism = 5;
+  string item_variable = 6;
+  repeated WorkflowValueItem items = 7;
+}
+
+message MultiInstanceIterationActivated {
+  string node_id = 1;
+  string task_type = 2;
+  uint32 iteration = 3;
+  WorkflowValueItem item = 4;
+}
+
+message MultiInstanceIterationCompleted {
+  string node_id = 1;
+  uint32 iteration = 2;
+}
+
+message MultiInstanceCompleted {
+  string node_id = 1;
+}
+
+message BoundaryEventTriggered {
+  string boundary_event_id = 1;
+  string attached_node_id = 2;
+  string target_node_id = 3;
+  bool cancel_activity = 4;
+  repeated uint32 cancelled_iterations = 5;
+  uint32 cancelled_task_tokens = 6;
+}
+
+enum BoundaryTriggerKind {
+  BOUNDARY_TRIGGER_KIND_UNSPECIFIED = 0;
+  BOUNDARY_TRIGGER_KIND_TIMER_DATE = 1;
+  BOUNDARY_TRIGGER_KIND_TIMER_DURATION = 2;
+  BOUNDARY_TRIGGER_KIND_TIMER_CYCLE = 3;
+  BOUNDARY_TRIGGER_KIND_ERROR = 4;
+  BOUNDARY_TRIGGER_KIND_MESSAGE = 5;
+}
+
+message BoundaryEventArmed {
+  string boundary_event_id = 1;
+  string attached_node_id = 2;
+  string target_node_id = 3;
+  bool cancel_activity = 4;
+  BoundaryTriggerKind trigger_kind = 5;
+  string trigger_reference = 6;
+}
+
+message BoundaryEventsDisarmed {
+  string attached_node_id = 1;
+  repeated string boundary_event_ids = 2;
+}
+
+message WorkflowBranchCompleted {
+  string end_node_id = 1;
 }
 
 enum WorkflowLifecycle {
@@ -126,6 +216,8 @@ message WorkflowSnapshot {
   repeated WorkflowVariable variables = 12;
   repeated ActiveToken active_tokens = 13;
   repeated PendingGatewayJoin pending_gateway_joins = 14;
+  repeated ActiveMultiInstance active_multi_instances = 15;
+  repeated ActiveBoundarySubscription active_boundary_subscriptions = 16;
 }
 
 message ActiveToken {
@@ -137,4 +229,27 @@ message PendingGatewayJoin {
   string gateway_id = 1;
   uint32 expected_tokens = 2;
   uint32 arrived_tokens = 3;
+}
+
+message ActiveMultiInstance {
+  string node_id = 1;
+  string task_type = 2;
+  MultiInstanceMode mode = 3;
+  uint32 total_instances = 4;
+  uint32 next_iteration = 5;
+  uint32 max_parallelism = 6;
+  string item_variable = 7;
+  repeated WorkflowValueItem items = 8;
+  repeated uint32 active_iterations = 9;
+  repeated uint32 completed_iterations = 10;
+}
+
+message ActiveBoundarySubscription {
+  string boundary_event_id = 1;
+  string attached_node_id = 2;
+  string target_node_id = 3;
+  bool cancel_activity = 4;
+  BoundaryTriggerKind trigger_kind = 5;
+  string trigger_reference = 6;
+  uint64 armed_at_epoch_ms = 7;
 }

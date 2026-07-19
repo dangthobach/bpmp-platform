@@ -13,6 +13,7 @@ message WorkflowIntermediateRepresentation {
   repeated DecisionTable decision_tables = 8;
   string tenant_id = 9;
   repeated CaseModel case_models = 10;
+  repeated ExtensionProperty properties = 11;
 }
 
 message Node {
@@ -25,10 +26,14 @@ message Node {
     DecisionTaskNode decision_task = 9;
     ParallelGatewayNode parallel_gateway = 10;
     InclusiveGatewayNode inclusive_gateway = 11;
+    CallActivityNode call_activity = 15;
   }
   DataContract data_contract = 6;
   uint64 sla_milliseconds = 7;
   string compensation_handler_id = 8;
+  repeated ExtensionProperty properties = 12;
+  MultiInstanceSpec multi_instance = 13;
+  repeated BoundaryEvent boundary_events = 14;
 }
 
 message StartNode {
@@ -43,6 +48,12 @@ message ServiceTaskNode {
 message DecisionTaskNode {
   string decision_table_id = 1;
   string next_node_id = 2;
+}
+
+message CallActivityNode {
+  string called_element = 1;
+  string called_version = 2;
+  string next_node_id = 3;
 }
 
 message EndNode {}
@@ -77,6 +88,21 @@ message ConditionalTransition {
   string condition = 2;
   bool is_default = 3;
   GuardExpression guard = 4;
+  BooleanExpression expression = 5;
+}
+
+message BooleanExpression {
+  oneof expression {
+    GuardExpression comparison = 1;
+    BooleanJunction conjunction = 2;
+    BooleanJunction disjunction = 3;
+    BooleanExpression negation = 4;
+    bool constant = 5;
+  }
+}
+
+message BooleanJunction {
+  repeated BooleanExpression operands = 1;
 }
 
 message GuardExpression {
@@ -94,6 +120,7 @@ message GatewayCoverage {
   ValueType value_type = 2;
   repeated string enum_values = 3;
   repeated IntegerInterval integer_intervals = 4;
+  bool solver_verified = 5;
 }
 
 message IntegerInterval {
@@ -170,6 +197,71 @@ enum HitPolicy {
 message DataContract {
   string input_type = 1;
   string output_type = 2;
+}
+
+enum MultiInstanceMode {
+  MULTI_INSTANCE_MODE_UNSPECIFIED = 0;
+  MULTI_INSTANCE_MODE_SEQUENTIAL = 1;
+  MULTI_INSTANCE_MODE_PARALLEL = 2;
+}
+
+message MultiInstanceSpec {
+  MultiInstanceMode mode = 1;
+  string collection_expression = 2;
+  string item_variable = 3;
+  string cardinality_expression = 4;
+  uint32 max_parallelism = 5;
+}
+
+message BoundaryEvent {
+  string id = 1;
+  bool cancel_activity = 2;
+  string target_node_id = 3;
+  EventTrigger trigger = 4;
+}
+
+message EventTrigger {
+  oneof trigger {
+    TimerTrigger timer = 1;
+    ErrorTrigger error = 2;
+    MessageTrigger message = 3;
+  }
+}
+
+message TimerTrigger {
+  string expression = 1;
+  TimerKind kind = 2;
+}
+
+enum TimerKind {
+  TIMER_KIND_UNSPECIFIED = 0;
+  TIMER_KIND_DATE = 1;
+  TIMER_KIND_DURATION = 2;
+  TIMER_KIND_CYCLE = 3;
+}
+
+message ErrorTrigger {
+  string error_ref = 1;
+}
+
+message MessageTrigger {
+  string message_ref = 1;
+}
+
+message ExtensionProperty {
+  string namespace_uri = 1;
+  string element_name = 2;
+  string name = 3;
+  PropertyValue value = 4;
+}
+
+message PropertyValue {
+  oneof value {
+    string string_value = 1;
+    sint64 integer_value = 2;
+    bool boolean_value = 3;
+    uint64 duration_milliseconds = 4;
+  }
 }
 
 message CaseModel {
