@@ -153,4 +153,51 @@ pub struct CaseView {
     #[prost(int64, tag="6")]
     pub version: i64,
 }
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ListAuditRecordsRequest {
+    #[prost(string, tag="1")]
+    pub tenant_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub work_item_id: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub case_id: ::prost::alloc::string::String,
+    #[prost(uint32, tag="4")]
+    pub page_size: u32,
+    #[prost(string, tag="5")]
+    pub page_token: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="6")]
+    pub actor_proof: ::core::option::Option<super::super::authorization::v1::ActorProof>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListAuditRecordsResponse {
+    #[prost(message, repeated, tag="1")]
+    pub records: ::prost::alloc::vec::Vec<AuditRecord>,
+    #[prost(string, tag="2")]
+    pub next_page_token: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct AuditRecord {
+    #[prost(string, tag="1")]
+    pub audit_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub work_item_id: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub case_id: ::prost::alloc::string::String,
+    #[prost(string, tag="4")]
+    pub actor_id: ::prost::alloc::string::String,
+    #[prost(string, tag="5")]
+    pub action: ::prost::alloc::string::String,
+    #[prost(uint64, tag="6")]
+    pub occurred_at_epoch_ms: u64,
+    #[prost(string, tag="7")]
+    pub command_id: ::prost::alloc::string::String,
+    #[prost(string, tag="8")]
+    pub correlation_id: ::prost::alloc::string::String,
+    #[prost(int64, tag="9")]
+    pub from_version: i64,
+    #[prost(int64, tag="10")]
+    pub to_version: i64,
+    #[prost(bytes="vec", tag="11")]
+    pub details_json: ::prost::alloc::vec::Vec<u8>,
+}
 // @@protoc_insertion_point(module)

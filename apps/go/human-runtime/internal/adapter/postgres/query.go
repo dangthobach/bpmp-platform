@@ -76,4 +76,42 @@ func (s *Store) GetCase(ctx context.Context, tenantID, caseID string) (applicati
 	return application.CaseView{Case: c}, nil
 }
 
+func (s *Store) ListAuditRecords(ctx context.Context, tenantID, workItemID, caseID string, limit int, cursor *application.AuditCursor) ([]application.AuditRecord, *application.AuditCursor, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	cursorTime := time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
+	cursorID := "~"
+	if cursor != nil {
+		cursorTime = cursor.OccurredAt
+		cursorID = cursor.AuditID
+	}
+	rows, err := s.pool.Query(ctx, `SELECT audit_id,COALESCE(work_item_id,''),COALESCE(case_id,''),actor_id,action,occurred_at,
+		COALESCE(command_id,''),COALESCE(correlation_id,''),COALESCE(from_version,0),COALESCE(to_version,0),details
+		FROM human_audit_log WHERE tenant_id=$1 AND NOT is_deleted AND ($2='' OR work_item_id=$2) AND ($3='' OR case_id=$3)
+		AND (occurred_at,audit_id)<($4,$5) ORDER BY occurred_at DESC,audit_id DESC LIMIT $6`, tenantID, workItemID, caseID, cursorTime, cursorID, limit+1)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	records := make([]application.AuditRecord, 0, limit+1)
+	for rows.Next() {
+		var record application.AuditRecord
+		if err = rows.Scan(&record.AuditID, &record.WorkItemID, &record.CaseID, &record.ActorID, &record.Action, &record.OccurredAt, &record.CommandID, &record.CorrelationID, &record.FromVersion, &record.ToVersion, &record.DetailsJSON); err != nil {
+			return nil, nil, err
+		}
+		records = append(records, record)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	var next *application.AuditCursor
+	if len(records) > limit {
+		records = records[:limit]
+		last := records[len(records)-1]
+		next = &application.AuditCursor{OccurredAt: last.OccurredAt, AuditID: last.AuditID}
+	}
+	return records, next, nil
+}
+
 var _ application.QueryPort = (*Store)(nil)

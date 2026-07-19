@@ -28,11 +28,13 @@ func (f *fakeStore) RequestCompletion(_ context.Context, item domain.WorkItem, _
 func (*fakeStore) CommitCompletion(context.Context, CommittedCompletion) error {
 	return nil
 }
+func (*fakeStore) CommitCancellation(context.Context, CommittedCancellation) error { return nil }
 func (f *fakeStore) Delegate(_ context.Context, item domain.WorkItem, _, _, _ string) error {
 	f.item = item
 	return nil
 }
-func (*fakeStore) ProjectCase(context.Context, CommittedCase) (bool, error) { return false, nil }
+func (*fakeStore) ProjectCase(context.Context, CommittedCase) (bool, error)            { return false, nil }
+func (*fakeStore) CommitCaseTransition(context.Context, CommittedCaseTransition) error { return nil }
 func (*fakeStore) TransitionCaseStage(context.Context, string, string, string, domain.PlanItemStatus, string, time.Time) error {
 	return nil
 }

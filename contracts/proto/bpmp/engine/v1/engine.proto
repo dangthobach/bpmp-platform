@@ -92,6 +92,9 @@ message EventEnvelope {
     UserTaskCompleted user_task_completed = 29;
     ScriptTaskActivated script_task_activated = 30;
     ScriptTaskCompleted script_task_completed = 31;
+    CaseActivated case_activated = 32;
+    CasePlanItemTransitioned case_plan_item_transitioned = 33;
+    UserTaskCancelled user_task_cancelled = 34;
   }
 }
 
@@ -122,6 +125,26 @@ message UserTaskCompleted {
   string node_id = 1;
   string decision = 2;
   string result_variable = 3;
+}
+
+message CaseActivated {
+  string case_id = 1;
+  string case_type = 2;
+  repeated string stage_ids = 3;
+  repeated string milestone_ids = 4;
+}
+
+message CasePlanItemTransitioned {
+  string case_id = 1;
+  string plan_item_id = 2;
+  string plan_item_kind = 3;
+  string status = 4;
+  repeated string satisfied_sentry_ids = 5;
+}
+
+message UserTaskCancelled {
+  string node_id = 1;
+  string reason = 2;
 }
 
 message CommandReceipt {

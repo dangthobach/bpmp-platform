@@ -85,6 +85,28 @@ type CommittedCase struct {
 	Case     domain.Case
 }
 
+type CommittedCaseTransition struct {
+	TenantID           string
+	EventID            string
+	Sequence           uint64
+	CaseID             string
+	PlanItemID         string
+	PlanItemKind       string
+	Status             domain.PlanItemStatus
+	SatisfiedSentryIDs []string
+	OccurredAt         time.Time
+}
+
+type CommittedCancellation struct {
+	TenantID   string
+	EventID    string
+	Sequence   uint64
+	InstanceID string
+	NodeID     string
+	Reason     string
+	OccurredAt time.Time
+}
+
 type EnginePort interface {
 	CompleteUserTask(context.Context, EngineCompleteCommand) error
 }
@@ -94,8 +116,10 @@ type Store interface {
 	ProjectActivation(context.Context, domain.Activation) (domain.WorkItem, bool, error)
 	RequestCompletion(context.Context, domain.WorkItem, string, string, string) error
 	CommitCompletion(context.Context, CommittedCompletion) error
+	CommitCancellation(context.Context, CommittedCancellation) error
 	Delegate(context.Context, domain.WorkItem, string, string, string) error
 	ProjectCase(context.Context, CommittedCase) (bool, error)
+	CommitCaseTransition(context.Context, CommittedCaseTransition) error
 	TransitionCaseStage(context.Context, string, string, string, domain.PlanItemStatus, string, time.Time) error
 	AchieveCaseMilestone(context.Context, string, string, string, string, time.Time) error
 }
@@ -185,4 +209,16 @@ func (s *Service) Delegate(ctx context.Context, request DelegateRequest) error {
 
 func (s *Service) ProjectCommittedCompletion(ctx context.Context, event CommittedCompletion) error {
 	return s.store.CommitCompletion(ctx, event)
+}
+
+func (s *Service) ProjectCommittedCancellation(ctx context.Context, event CommittedCancellation) error {
+	return s.store.CommitCancellation(ctx, event)
+}
+
+func (s *Service) ProjectCase(ctx context.Context, event CommittedCase) (bool, error) {
+	return s.store.ProjectCase(ctx, event)
+}
+
+func (s *Service) ProjectCommittedCaseTransition(ctx context.Context, event CommittedCaseTransition) error {
+	return s.store.CommitCaseTransition(ctx, event)
 }

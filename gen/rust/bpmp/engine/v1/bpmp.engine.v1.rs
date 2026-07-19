@@ -112,7 +112,7 @@ pub struct EventMetadata {
 pub struct EventEnvelope {
     #[prost(message, optional, tag="1")]
     pub metadata: ::core::option::Option<EventMetadata>,
-    #[prost(oneof="event_envelope::Event", tags="10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31")]
+    #[prost(oneof="event_envelope::Event", tags="10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34")]
     pub event: ::core::option::Option<event_envelope::Event>,
 }
 /// Nested message and enum types in `EventEnvelope`.
@@ -163,6 +163,12 @@ pub mod event_envelope {
         ScriptTaskActivated(super::ScriptTaskActivated),
         #[prost(message, tag="31")]
         ScriptTaskCompleted(super::ScriptTaskCompleted),
+        #[prost(message, tag="32")]
+        CaseActivated(super::CaseActivated),
+        #[prost(message, tag="33")]
+        CasePlanItemTransitioned(super::CasePlanItemTransitioned),
+        #[prost(message, tag="34")]
+        UserTaskCancelled(super::UserTaskCancelled),
     }
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -207,6 +213,37 @@ pub struct UserTaskCompleted {
     pub decision: ::prost::alloc::string::String,
     #[prost(string, tag="3")]
     pub result_variable: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct CaseActivated {
+    #[prost(string, tag="1")]
+    pub case_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub case_type: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag="3")]
+    pub stage_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, repeated, tag="4")]
+    pub milestone_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct CasePlanItemTransitioned {
+    #[prost(string, tag="1")]
+    pub case_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub plan_item_id: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub plan_item_kind: ::prost::alloc::string::String,
+    #[prost(string, tag="4")]
+    pub status: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag="5")]
+    pub satisfied_sentry_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct UserTaskCancelled {
+    #[prost(string, tag="1")]
+    pub node_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub reason: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct CommandReceipt {

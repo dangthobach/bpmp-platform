@@ -24,6 +24,7 @@ const (
 	HumanRuntimeService_CompleteWorkItem_FullMethodName = "/bpmp.human.v1.HumanRuntimeService/CompleteWorkItem"
 	HumanRuntimeService_DelegateWorkItem_FullMethodName = "/bpmp.human.v1.HumanRuntimeService/DelegateWorkItem"
 	HumanRuntimeService_GetCase_FullMethodName          = "/bpmp.human.v1.HumanRuntimeService/GetCase"
+	HumanRuntimeService_ListAuditRecords_FullMethodName = "/bpmp.human.v1.HumanRuntimeService/ListAuditRecords"
 )
 
 // HumanRuntimeServiceClient is the client API for HumanRuntimeService service.
@@ -35,6 +36,7 @@ type HumanRuntimeServiceClient interface {
 	CompleteWorkItem(ctx context.Context, in *CompleteWorkItemRequest, opts ...grpc.CallOption) (*CompleteWorkItemResponse, error)
 	DelegateWorkItem(ctx context.Context, in *DelegateWorkItemRequest, opts ...grpc.CallOption) (*DelegateWorkItemResponse, error)
 	GetCase(ctx context.Context, in *GetCaseRequest, opts ...grpc.CallOption) (*GetCaseResponse, error)
+	ListAuditRecords(ctx context.Context, in *ListAuditRecordsRequest, opts ...grpc.CallOption) (*ListAuditRecordsResponse, error)
 }
 
 type humanRuntimeServiceClient struct {
@@ -95,6 +97,16 @@ func (c *humanRuntimeServiceClient) GetCase(ctx context.Context, in *GetCaseRequ
 	return out, nil
 }
 
+func (c *humanRuntimeServiceClient) ListAuditRecords(ctx context.Context, in *ListAuditRecordsRequest, opts ...grpc.CallOption) (*ListAuditRecordsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListAuditRecordsResponse)
+	err := c.cc.Invoke(ctx, HumanRuntimeService_ListAuditRecords_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // HumanRuntimeServiceServer is the server API for HumanRuntimeService service.
 // All implementations must embed UnimplementedHumanRuntimeServiceServer
 // for forward compatibility.
@@ -104,6 +116,7 @@ type HumanRuntimeServiceServer interface {
 	CompleteWorkItem(context.Context, *CompleteWorkItemRequest) (*CompleteWorkItemResponse, error)
 	DelegateWorkItem(context.Context, *DelegateWorkItemRequest) (*DelegateWorkItemResponse, error)
 	GetCase(context.Context, *GetCaseRequest) (*GetCaseResponse, error)
+	ListAuditRecords(context.Context, *ListAuditRecordsRequest) (*ListAuditRecordsResponse, error)
 	mustEmbedUnimplementedHumanRuntimeServiceServer()
 }
 
@@ -128,6 +141,9 @@ func (UnimplementedHumanRuntimeServiceServer) DelegateWorkItem(context.Context, 
 }
 func (UnimplementedHumanRuntimeServiceServer) GetCase(context.Context, *GetCaseRequest) (*GetCaseResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetCase not implemented")
+}
+func (UnimplementedHumanRuntimeServiceServer) ListAuditRecords(context.Context, *ListAuditRecordsRequest) (*ListAuditRecordsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListAuditRecords not implemented")
 }
 func (UnimplementedHumanRuntimeServiceServer) mustEmbedUnimplementedHumanRuntimeServiceServer() {}
 func (UnimplementedHumanRuntimeServiceServer) testEmbeddedByValue()                             {}
@@ -240,6 +256,24 @@ func _HumanRuntimeService_GetCase_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _HumanRuntimeService_ListAuditRecords_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListAuditRecordsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HumanRuntimeServiceServer).ListAuditRecords(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HumanRuntimeService_ListAuditRecords_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HumanRuntimeServiceServer).ListAuditRecords(ctx, req.(*ListAuditRecordsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // HumanRuntimeService_ServiceDesc is the grpc.ServiceDesc for HumanRuntimeService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -266,6 +300,10 @@ var HumanRuntimeService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetCase",
 			Handler:    _HumanRuntimeService_GetCase_Handler,
+		},
+		{
+			MethodName: "ListAuditRecords",
+			Handler:    _HumanRuntimeService_ListAuditRecords_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

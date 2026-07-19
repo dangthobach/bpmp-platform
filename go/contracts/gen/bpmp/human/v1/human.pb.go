@@ -946,6 +946,266 @@ func (x *CaseView) GetVersion() int64 {
 	return 0
 }
 
+type ListAuditRecordsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TenantId      string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	WorkItemId    string                 `protobuf:"bytes,2,opt,name=work_item_id,json=workItemId,proto3" json:"work_item_id,omitempty"`
+	CaseId        string                 `protobuf:"bytes,3,opt,name=case_id,json=caseId,proto3" json:"case_id,omitempty"`
+	PageSize      uint32                 `protobuf:"varint,4,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	PageToken     string                 `protobuf:"bytes,5,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	ActorProof    *v1.ActorProof         `protobuf:"bytes,6,opt,name=actor_proof,json=actorProof,proto3" json:"actor_proof,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListAuditRecordsRequest) Reset() {
+	*x = ListAuditRecordsRequest{}
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListAuditRecordsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListAuditRecordsRequest) ProtoMessage() {}
+
+func (x *ListAuditRecordsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListAuditRecordsRequest.ProtoReflect.Descriptor instead.
+func (*ListAuditRecordsRequest) Descriptor() ([]byte, []int) {
+	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *ListAuditRecordsRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *ListAuditRecordsRequest) GetWorkItemId() string {
+	if x != nil {
+		return x.WorkItemId
+	}
+	return ""
+}
+
+func (x *ListAuditRecordsRequest) GetCaseId() string {
+	if x != nil {
+		return x.CaseId
+	}
+	return ""
+}
+
+func (x *ListAuditRecordsRequest) GetPageSize() uint32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *ListAuditRecordsRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+func (x *ListAuditRecordsRequest) GetActorProof() *v1.ActorProof {
+	if x != nil {
+		return x.ActorProof
+	}
+	return nil
+}
+
+type ListAuditRecordsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Records       []*AuditRecord         `protobuf:"bytes,1,rep,name=records,proto3" json:"records,omitempty"`
+	NextPageToken string                 `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListAuditRecordsResponse) Reset() {
+	*x = ListAuditRecordsResponse{}
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListAuditRecordsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListAuditRecordsResponse) ProtoMessage() {}
+
+func (x *ListAuditRecordsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListAuditRecordsResponse.ProtoReflect.Descriptor instead.
+func (*ListAuditRecordsResponse) Descriptor() ([]byte, []int) {
+	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *ListAuditRecordsResponse) GetRecords() []*AuditRecord {
+	if x != nil {
+		return x.Records
+	}
+	return nil
+}
+
+func (x *ListAuditRecordsResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
+type AuditRecord struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	AuditId           string                 `protobuf:"bytes,1,opt,name=audit_id,json=auditId,proto3" json:"audit_id,omitempty"`
+	WorkItemId        string                 `protobuf:"bytes,2,opt,name=work_item_id,json=workItemId,proto3" json:"work_item_id,omitempty"`
+	CaseId            string                 `protobuf:"bytes,3,opt,name=case_id,json=caseId,proto3" json:"case_id,omitempty"`
+	ActorId           string                 `protobuf:"bytes,4,opt,name=actor_id,json=actorId,proto3" json:"actor_id,omitempty"`
+	Action            string                 `protobuf:"bytes,5,opt,name=action,proto3" json:"action,omitempty"`
+	OccurredAtEpochMs uint64                 `protobuf:"varint,6,opt,name=occurred_at_epoch_ms,json=occurredAtEpochMs,proto3" json:"occurred_at_epoch_ms,omitempty"`
+	CommandId         string                 `protobuf:"bytes,7,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
+	CorrelationId     string                 `protobuf:"bytes,8,opt,name=correlation_id,json=correlationId,proto3" json:"correlation_id,omitempty"`
+	FromVersion       int64                  `protobuf:"varint,9,opt,name=from_version,json=fromVersion,proto3" json:"from_version,omitempty"`
+	ToVersion         int64                  `protobuf:"varint,10,opt,name=to_version,json=toVersion,proto3" json:"to_version,omitempty"`
+	DetailsJson       []byte                 `protobuf:"bytes,11,opt,name=details_json,json=detailsJson,proto3" json:"details_json,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *AuditRecord) Reset() {
+	*x = AuditRecord{}
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuditRecord) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuditRecord) ProtoMessage() {}
+
+func (x *AuditRecord) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuditRecord.ProtoReflect.Descriptor instead.
+func (*AuditRecord) Descriptor() ([]byte, []int) {
+	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *AuditRecord) GetAuditId() string {
+	if x != nil {
+		return x.AuditId
+	}
+	return ""
+}
+
+func (x *AuditRecord) GetWorkItemId() string {
+	if x != nil {
+		return x.WorkItemId
+	}
+	return ""
+}
+
+func (x *AuditRecord) GetCaseId() string {
+	if x != nil {
+		return x.CaseId
+	}
+	return ""
+}
+
+func (x *AuditRecord) GetActorId() string {
+	if x != nil {
+		return x.ActorId
+	}
+	return ""
+}
+
+func (x *AuditRecord) GetAction() string {
+	if x != nil {
+		return x.Action
+	}
+	return ""
+}
+
+func (x *AuditRecord) GetOccurredAtEpochMs() uint64 {
+	if x != nil {
+		return x.OccurredAtEpochMs
+	}
+	return 0
+}
+
+func (x *AuditRecord) GetCommandId() string {
+	if x != nil {
+		return x.CommandId
+	}
+	return ""
+}
+
+func (x *AuditRecord) GetCorrelationId() string {
+	if x != nil {
+		return x.CorrelationId
+	}
+	return ""
+}
+
+func (x *AuditRecord) GetFromVersion() int64 {
+	if x != nil {
+		return x.FromVersion
+	}
+	return 0
+}
+
+func (x *AuditRecord) GetToVersion() int64 {
+	if x != nil {
+		return x.ToVersion
+	}
+	return 0
+}
+
+func (x *AuditRecord) GetDetailsJson() []byte {
+	if x != nil {
+		return x.DetailsJson
+	}
+	return nil
+}
+
 var File_bpmp_human_v1_human_proto protoreflect.FileDescriptor
 
 const file_bpmp_human_v1_human_proto_rawDesc = "" +
@@ -1041,13 +1301,43 @@ const file_bpmp_human_v1_human_proto_rawDesc = "" +
 	"\x06status\x18\x04 \x01(\tR\x06status\x12:\n" +
 	"\n" +
 	"plan_items\x18\x05 \x03(\v2\x1b.bpmp.human.v1.CasePlanItemR\tplanItems\x12\x18\n" +
-	"\aversion\x18\x06 \x01(\x03R\aversion2\xdb\x03\n" +
+	"\aversion\x18\x06 \x01(\x03R\aversion\"\xf1\x01\n" +
+	"\x17ListAuditRecordsRequest\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12 \n" +
+	"\fwork_item_id\x18\x02 \x01(\tR\n" +
+	"workItemId\x12\x17\n" +
+	"\acase_id\x18\x03 \x01(\tR\x06caseId\x12\x1b\n" +
+	"\tpage_size\x18\x04 \x01(\rR\bpageSize\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x05 \x01(\tR\tpageToken\x12B\n" +
+	"\vactor_proof\x18\x06 \x01(\v2!.bpmp.authorization.v1.ActorProofR\n" +
+	"actorProof\"x\n" +
+	"\x18ListAuditRecordsResponse\x124\n" +
+	"\arecords\x18\x01 \x03(\v2\x1a.bpmp.human.v1.AuditRecordR\arecords\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\xf2\x02\n" +
+	"\vAuditRecord\x12\x19\n" +
+	"\baudit_id\x18\x01 \x01(\tR\aauditId\x12 \n" +
+	"\fwork_item_id\x18\x02 \x01(\tR\n" +
+	"workItemId\x12\x17\n" +
+	"\acase_id\x18\x03 \x01(\tR\x06caseId\x12\x19\n" +
+	"\bactor_id\x18\x04 \x01(\tR\aactorId\x12\x16\n" +
+	"\x06action\x18\x05 \x01(\tR\x06action\x12/\n" +
+	"\x14occurred_at_epoch_ms\x18\x06 \x01(\x04R\x11occurredAtEpochMs\x12\x1d\n" +
+	"\n" +
+	"command_id\x18\a \x01(\tR\tcommandId\x12%\n" +
+	"\x0ecorrelation_id\x18\b \x01(\tR\rcorrelationId\x12!\n" +
+	"\ffrom_version\x18\t \x01(\x03R\vfromVersion\x12\x1d\n" +
+	"\n" +
+	"to_version\x18\n" +
+	" \x01(\x03R\ttoVersion\x12!\n" +
+	"\fdetails_json\x18\v \x01(\fR\vdetailsJson2\xc0\x04\n" +
 	"\x13HumanRuntimeService\x12T\n" +
 	"\vGetWorkItem\x12!.bpmp.human.v1.GetWorkItemRequest\x1a\".bpmp.human.v1.GetWorkItemResponse\x12Z\n" +
 	"\rListWorkItems\x12#.bpmp.human.v1.ListWorkItemsRequest\x1a$.bpmp.human.v1.ListWorkItemsResponse\x12c\n" +
 	"\x10CompleteWorkItem\x12&.bpmp.human.v1.CompleteWorkItemRequest\x1a'.bpmp.human.v1.CompleteWorkItemResponse\x12c\n" +
 	"\x10DelegateWorkItem\x12&.bpmp.human.v1.DelegateWorkItemRequest\x1a'.bpmp.human.v1.DelegateWorkItemResponse\x12H\n" +
-	"\aGetCase\x12\x1d.bpmp.human.v1.GetCaseRequest\x1a\x1e.bpmp.human.v1.GetCaseResponseB\xc2\x01\n" +
+	"\aGetCase\x12\x1d.bpmp.human.v1.GetCaseRequest\x1a\x1e.bpmp.human.v1.GetCaseResponse\x12c\n" +
+	"\x10ListAuditRecords\x12&.bpmp.human.v1.ListAuditRecordsRequest\x1a'.bpmp.human.v1.ListAuditRecordsResponseB\xc2\x01\n" +
 	"\x11com.bpmp.human.v1B\n" +
 	"HumanProtoP\x01ZKgithub.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/human/v1;humanv1\xa2\x02\x03BHX\xaa\x02\rBpmp.Human.V1\xca\x02\rBpmp\\Human\\V1\xe2\x02\x19Bpmp\\Human\\V1\\GPBMetadata\xea\x02\x0fBpmp::Human::V1b\x06proto3"
 
@@ -1063,7 +1353,7 @@ func file_bpmp_human_v1_human_proto_rawDescGZIP() []byte {
 	return file_bpmp_human_v1_human_proto_rawDescData
 }
 
-var file_bpmp_human_v1_human_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_bpmp_human_v1_human_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_bpmp_human_v1_human_proto_goTypes = []any{
 	(*GetWorkItemRequest)(nil),       // 0: bpmp.human.v1.GetWorkItemRequest
 	(*GetWorkItemResponse)(nil),      // 1: bpmp.human.v1.GetWorkItemResponse
@@ -1078,33 +1368,40 @@ var file_bpmp_human_v1_human_proto_goTypes = []any{
 	(*GetCaseResponse)(nil),          // 10: bpmp.human.v1.GetCaseResponse
 	(*CasePlanItem)(nil),             // 11: bpmp.human.v1.CasePlanItem
 	(*CaseView)(nil),                 // 12: bpmp.human.v1.CaseView
-	(*v1.ActorProof)(nil),            // 13: bpmp.authorization.v1.ActorProof
+	(*ListAuditRecordsRequest)(nil),  // 13: bpmp.human.v1.ListAuditRecordsRequest
+	(*ListAuditRecordsResponse)(nil), // 14: bpmp.human.v1.ListAuditRecordsResponse
+	(*AuditRecord)(nil),              // 15: bpmp.human.v1.AuditRecord
+	(*v1.ActorProof)(nil),            // 16: bpmp.authorization.v1.ActorProof
 }
 var file_bpmp_human_v1_human_proto_depIdxs = []int32{
-	13, // 0: bpmp.human.v1.GetWorkItemRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	16, // 0: bpmp.human.v1.GetWorkItemRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
 	8,  // 1: bpmp.human.v1.GetWorkItemResponse.work_item:type_name -> bpmp.human.v1.WorkItem
-	13, // 2: bpmp.human.v1.ListWorkItemsRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	16, // 2: bpmp.human.v1.ListWorkItemsRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
 	8,  // 3: bpmp.human.v1.ListWorkItemsResponse.work_items:type_name -> bpmp.human.v1.WorkItem
-	13, // 4: bpmp.human.v1.CompleteWorkItemRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
-	13, // 5: bpmp.human.v1.DelegateWorkItemRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
-	13, // 6: bpmp.human.v1.GetCaseRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	16, // 4: bpmp.human.v1.CompleteWorkItemRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	16, // 5: bpmp.human.v1.DelegateWorkItemRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	16, // 6: bpmp.human.v1.GetCaseRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
 	12, // 7: bpmp.human.v1.GetCaseResponse.case:type_name -> bpmp.human.v1.CaseView
 	11, // 8: bpmp.human.v1.CaseView.plan_items:type_name -> bpmp.human.v1.CasePlanItem
-	0,  // 9: bpmp.human.v1.HumanRuntimeService.GetWorkItem:input_type -> bpmp.human.v1.GetWorkItemRequest
-	2,  // 10: bpmp.human.v1.HumanRuntimeService.ListWorkItems:input_type -> bpmp.human.v1.ListWorkItemsRequest
-	4,  // 11: bpmp.human.v1.HumanRuntimeService.CompleteWorkItem:input_type -> bpmp.human.v1.CompleteWorkItemRequest
-	5,  // 12: bpmp.human.v1.HumanRuntimeService.DelegateWorkItem:input_type -> bpmp.human.v1.DelegateWorkItemRequest
-	9,  // 13: bpmp.human.v1.HumanRuntimeService.GetCase:input_type -> bpmp.human.v1.GetCaseRequest
-	1,  // 14: bpmp.human.v1.HumanRuntimeService.GetWorkItem:output_type -> bpmp.human.v1.GetWorkItemResponse
-	3,  // 15: bpmp.human.v1.HumanRuntimeService.ListWorkItems:output_type -> bpmp.human.v1.ListWorkItemsResponse
-	6,  // 16: bpmp.human.v1.HumanRuntimeService.CompleteWorkItem:output_type -> bpmp.human.v1.CompleteWorkItemResponse
-	7,  // 17: bpmp.human.v1.HumanRuntimeService.DelegateWorkItem:output_type -> bpmp.human.v1.DelegateWorkItemResponse
-	10, // 18: bpmp.human.v1.HumanRuntimeService.GetCase:output_type -> bpmp.human.v1.GetCaseResponse
-	14, // [14:19] is the sub-list for method output_type
-	9,  // [9:14] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	16, // 9: bpmp.human.v1.ListAuditRecordsRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	15, // 10: bpmp.human.v1.ListAuditRecordsResponse.records:type_name -> bpmp.human.v1.AuditRecord
+	0,  // 11: bpmp.human.v1.HumanRuntimeService.GetWorkItem:input_type -> bpmp.human.v1.GetWorkItemRequest
+	2,  // 12: bpmp.human.v1.HumanRuntimeService.ListWorkItems:input_type -> bpmp.human.v1.ListWorkItemsRequest
+	4,  // 13: bpmp.human.v1.HumanRuntimeService.CompleteWorkItem:input_type -> bpmp.human.v1.CompleteWorkItemRequest
+	5,  // 14: bpmp.human.v1.HumanRuntimeService.DelegateWorkItem:input_type -> bpmp.human.v1.DelegateWorkItemRequest
+	9,  // 15: bpmp.human.v1.HumanRuntimeService.GetCase:input_type -> bpmp.human.v1.GetCaseRequest
+	13, // 16: bpmp.human.v1.HumanRuntimeService.ListAuditRecords:input_type -> bpmp.human.v1.ListAuditRecordsRequest
+	1,  // 17: bpmp.human.v1.HumanRuntimeService.GetWorkItem:output_type -> bpmp.human.v1.GetWorkItemResponse
+	3,  // 18: bpmp.human.v1.HumanRuntimeService.ListWorkItems:output_type -> bpmp.human.v1.ListWorkItemsResponse
+	6,  // 19: bpmp.human.v1.HumanRuntimeService.CompleteWorkItem:output_type -> bpmp.human.v1.CompleteWorkItemResponse
+	7,  // 20: bpmp.human.v1.HumanRuntimeService.DelegateWorkItem:output_type -> bpmp.human.v1.DelegateWorkItemResponse
+	10, // 21: bpmp.human.v1.HumanRuntimeService.GetCase:output_type -> bpmp.human.v1.GetCaseResponse
+	14, // 22: bpmp.human.v1.HumanRuntimeService.ListAuditRecords:output_type -> bpmp.human.v1.ListAuditRecordsResponse
+	17, // [17:23] is the sub-list for method output_type
+	11, // [11:17] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_bpmp_human_v1_human_proto_init() }
@@ -1118,7 +1415,7 @@ func file_bpmp_human_v1_human_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bpmp_human_v1_human_proto_rawDesc), len(file_bpmp_human_v1_human_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   13,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

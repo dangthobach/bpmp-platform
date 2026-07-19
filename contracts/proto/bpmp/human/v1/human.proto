@@ -10,6 +10,7 @@ service HumanRuntimeService {
   rpc CompleteWorkItem(CompleteWorkItemRequest) returns (CompleteWorkItemResponse);
   rpc DelegateWorkItem(DelegateWorkItemRequest) returns (DelegateWorkItemResponse);
   rpc GetCase(GetCaseRequest) returns (GetCaseResponse);
+  rpc ListAuditRecords(ListAuditRecordsRequest) returns (ListAuditRecordsResponse);
 }
 
 message GetWorkItemRequest {
@@ -106,4 +107,32 @@ message CaseView {
   string status = 4;
   repeated CasePlanItem plan_items = 5;
   int64 version = 6;
+}
+
+message ListAuditRecordsRequest {
+  string tenant_id = 1;
+  string work_item_id = 2;
+  string case_id = 3;
+  uint32 page_size = 4;
+  string page_token = 5;
+  bpmp.authorization.v1.ActorProof actor_proof = 6;
+}
+
+message ListAuditRecordsResponse {
+  repeated AuditRecord records = 1;
+  string next_page_token = 2;
+}
+
+message AuditRecord {
+  string audit_id = 1;
+  string work_item_id = 2;
+  string case_id = 3;
+  string actor_id = 4;
+  string action = 5;
+  uint64 occurred_at_epoch_ms = 6;
+  string command_id = 7;
+  string correlation_id = 8;
+  int64 from_version = 9;
+  int64 to_version = 10;
+  bytes details_json = 11;
 }

@@ -151,6 +151,39 @@ func (s *Store) CommitCompletion(ctx context.Context, event application.Committe
 	return tx.Commit(ctx)
 }
 
+func (s *Store) CommitCancellation(ctx context.Context, event application.CommittedCancellation) error {
+	if event.TenantID == "" || event.EventID == "" || event.InstanceID == "" || event.NodeID == "" || event.Sequence == 0 {
+		return errors.New("committed cancellation metadata is incomplete")
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	duplicate, err := insertInbox(ctx, tx, event.TenantID, event.EventID, event.InstanceID, event.Sequence, event.OccurredAt)
+	if err != nil || duplicate {
+		if duplicate {
+			return tx.Commit(ctx)
+		}
+		return err
+	}
+	var id string
+	var version int64
+	err = tx.QueryRow(ctx, `UPDATE work_items SET status='CANCELLED',updated_at=$4,version=version+1
+		WHERE tenant_id=$1 AND instance_id=$2 AND node_id=$3 AND status IN ('ACTIVE','COMPLETION_REQUESTED')
+		AND NOT is_deleted RETURNING work_item_id,version`, event.TenantID, event.InstanceID, event.NodeID, event.OccurredAt).Scan(&id, &version)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return application.ErrProjectionDependency
+	}
+	if err != nil {
+		return err
+	}
+	if err = appendAudit(ctx, tx, event.TenantID, "cancelled:"+event.EventID, id, "", "engine", "CANCELLED", event.OccurredAt, "", "", version-1, version, map[string]any{"event_id": event.EventID, "sequence": event.Sequence, "reason": event.Reason}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 func (s *Store) ProjectCase(ctx context.Context, event application.CommittedCase) (bool, error) {
 	c := event.Case
 	if event.EventID == "" || event.Sequence == 0 || c.TenantID == "" || c.ID == "" {
@@ -183,7 +216,59 @@ func (s *Store) ProjectCase(ctx context.Context, event application.CommittedCase
 			return false, err
 		}
 	}
+	if err = appendAudit(ctx, tx, c.TenantID, "case-activated:"+event.EventID, "", c.ID, "engine", "CASE_ACTIVATED", c.UpdatedAt, "", "", 0, c.Version, map[string]any{"event_id": event.EventID, "sequence": event.Sequence}); err != nil {
+		return false, err
+	}
 	return false, tx.Commit(ctx)
+}
+
+func (s *Store) CommitCaseTransition(ctx context.Context, event application.CommittedCaseTransition) error {
+	if event.TenantID == "" || event.EventID == "" || event.CaseID == "" || event.PlanItemID == "" || event.Sequence == 0 ||
+		(event.PlanItemKind != "STAGE" && event.PlanItemKind != "MILESTONE") {
+		return errors.New("committed case transition metadata is incomplete")
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	duplicate, err := insertInbox(ctx, tx, event.TenantID, event.EventID, event.CaseID, event.Sequence, event.OccurredAt)
+	if err != nil || duplicate {
+		if duplicate {
+			return tx.Commit(ctx)
+		}
+		return err
+	}
+	var itemVersion int64
+	err = tx.QueryRow(ctx, `UPDATE human_case_plan_items SET status=$5,version=version+1,updated_at=$6
+		WHERE tenant_id=$1 AND case_id=$2 AND plan_item_id=$3 AND plan_item_kind=$4 AND NOT is_deleted
+		AND (($4='STAGE' AND ((status='AVAILABLE' AND $5='ACTIVE') OR (status='ACTIVE' AND $5='COMPLETED')))
+		 OR ($4='MILESTONE' AND status IN ('AVAILABLE','ACTIVE') AND $5='COMPLETED')) RETURNING version`,
+		event.TenantID, event.CaseID, event.PlanItemID, event.PlanItemKind, event.Status, event.OccurredAt).Scan(&itemVersion)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return application.ErrProjectionDependency
+	}
+	if err != nil {
+		return err
+	}
+	var caseVersion int64
+	if err = tx.QueryRow(ctx, `UPDATE human_cases SET version=version+1,updated_at=$3 WHERE tenant_id=$1 AND case_id=$2 AND NOT is_deleted RETURNING version`, event.TenantID, event.CaseID, event.OccurredAt).Scan(&caseVersion); err != nil {
+		return err
+	}
+	details := map[string]any{"event_id": event.EventID, "sequence": event.Sequence, "satisfied_sentry_ids": event.SatisfiedSentryIDs, "plan_item_version": itemVersion}
+	if err = appendAudit(ctx, tx, event.TenantID, "case-transition:"+event.EventID, "", event.CaseID, "engine", "CASE_"+event.PlanItemKind+"_"+string(event.Status), event.OccurredAt, "", "", caseVersion-1, caseVersion, details); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func insertInbox(ctx context.Context, tx pgx.Tx, tenantID, eventID, streamID string, sequence uint64, occurredAt time.Time) (bool, error) {
+	result, err := tx.Exec(ctx, `INSERT INTO human_event_inbox(tenant_id,consumer_name,event_id,stream_id,sequence,processed_at)
+		VALUES($1,'human-runtime',$2,$3,$4,$5) ON CONFLICT (tenant_id,consumer_name,event_id) DO NOTHING`, tenantID, eventID, streamID, sequence, occurredAt)
+	if err != nil {
+		return false, err
+	}
+	return result.RowsAffected() == 0, nil
 }
 
 func (s *Store) TransitionCaseStage(ctx context.Context, tenantID, caseID, stageID string, target domain.PlanItemStatus, actorID string, at time.Time) error {

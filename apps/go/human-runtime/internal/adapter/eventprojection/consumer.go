@@ -49,6 +49,26 @@ func (c *Consumer) Handle(ctx context.Context, payload []byte) error {
 			InstanceID: metadata.GetInstanceId(), NodeID: event.UserTaskCompleted.GetNodeId(),
 			Decision: event.UserTaskCompleted.GetDecision(), OccurredAt: occurredAt,
 		})
+	case *enginev1.EventEnvelope_UserTaskCancelled:
+		return c.service.ProjectCommittedCancellation(ctx, application.CommittedCancellation{
+			TenantID: metadata.GetTenantId(), EventID: metadata.GetEventId(), Sequence: metadata.GetSequence(),
+			InstanceID: metadata.GetInstanceId(), NodeID: event.UserTaskCancelled.GetNodeId(),
+			Reason: event.UserTaskCancelled.GetReason(), OccurredAt: occurredAt,
+		})
+	case *enginev1.EventEnvelope_CaseActivated:
+		caseState, err := domain.NewCase(metadata.GetTenantId(), event.CaseActivated.GetCaseId(), event.CaseActivated.GetCaseType(), event.CaseActivated.GetStageIds(), event.CaseActivated.GetMilestoneIds(), occurredAt)
+		if err != nil {
+			return err
+		}
+		_, err = c.service.ProjectCase(ctx, application.CommittedCase{EventID: metadata.GetEventId(), Sequence: metadata.GetSequence(), Case: caseState})
+		return err
+	case *enginev1.EventEnvelope_CasePlanItemTransitioned:
+		return c.service.ProjectCommittedCaseTransition(ctx, application.CommittedCaseTransition{
+			TenantID: metadata.GetTenantId(), EventID: metadata.GetEventId(), Sequence: metadata.GetSequence(),
+			CaseID: event.CasePlanItemTransitioned.GetCaseId(), PlanItemID: event.CasePlanItemTransitioned.GetPlanItemId(),
+			PlanItemKind: event.CasePlanItemTransitioned.GetPlanItemKind(), Status: domain.PlanItemStatus(event.CasePlanItemTransitioned.GetStatus()),
+			SatisfiedSentryIDs: append([]string(nil), event.CasePlanItemTransitioned.GetSatisfiedSentryIds()...), OccurredAt: occurredAt,
+		})
 	default:
 		return nil
 	}

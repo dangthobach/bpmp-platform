@@ -11,10 +11,17 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"google.golang.org/protobuf/proto"
 
+	"github.com/dangthobach/bpmp-platform/apps/go/human-runtime/internal/adapter/eventprojection"
 	"github.com/dangthobach/bpmp-platform/apps/go/human-runtime/internal/application"
 	"github.com/dangthobach/bpmp-platform/apps/go/human-runtime/internal/domain"
+	enginev1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/engine/v1"
 )
+
+type integrationEngine struct{}
+
+func (integrationEngine) CompleteUserTask(context.Context, application.EngineCompleteCommand) error { return nil }
 
 func TestPostgresProjectionAuditLockingAndLeaseRecovery(t *testing.T) {
 	dsn := os.Getenv("HUMAN_RUNTIME_POSTGRES_DSN")
@@ -125,7 +132,57 @@ func TestPostgresProjectionAuditLockingAndLeaseRecovery(t *testing.T) {
 	if err = pool.QueryRow(ctx, `SELECT count(*) FROM human_event_inbox WHERE tenant_id='tenant-a' AND event_id='event-missing'`).Scan(&missingCheckpoint); err != nil || missingCheckpoint != 0 {
 		t.Fatalf("failed projection checkpoint was committed: count=%d err=%v", missingCheckpoint, err)
 	}
+	service, err := application.NewService(store, integrationEngine{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	consumer, err := eventprojection.New(service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectCommittedEvent(t, consumer, &enginev1.EventEnvelope{
+		Metadata: &enginev1.EventMetadata{TenantId: "tenant-a", EventId: "case-event-1", InstanceId: "case-1", Sequence: 1, OccurredAtEpochMs: uint64(now.UnixMilli())},
+		Event: &enginev1.EventEnvelope_CaseActivated{CaseActivated: &enginev1.CaseActivated{CaseId: "case-1", CaseType: "claim", StageIds: []string{"assessment"}, MilestoneIds: []string{"approved"}}},
+	})
+	projectCommittedEvent(t, consumer, &enginev1.EventEnvelope{
+		Metadata: &enginev1.EventMetadata{TenantId: "tenant-a", EventId: "case-event-2", InstanceId: "case-1", Sequence: 2, OccurredAtEpochMs: uint64(now.Add(time.Second).UnixMilli())},
+		Event: &enginev1.EventEnvelope_CasePlanItemTransitioned{CasePlanItemTransitioned: &enginev1.CasePlanItemTransitioned{CaseId: "case-1", PlanItemId: "assessment", PlanItemKind: "STAGE", Status: "ACTIVE", SatisfiedSentryIds: []string{"documents-ready"}}},
+	})
+	caseView, err := store.GetCase(ctx, "tenant-a", "case-1")
+	if err != nil || caseView.Case.Stages["assessment"] != domain.PlanActive {
+		t.Fatalf("committed CMMN sentry transition was not projected: %#v err=%v", caseView, err)
+	}
+	activation2 := activation
+	activation2.EventID = "cancel-activation"
+	activation2.InstanceID = "instance-2"
+	activation2.Sequence = 1
+	if _, _, err = store.ProjectActivation(ctx, activation2); err != nil {
+		t.Fatal(err)
+	}
+	projectCommittedEvent(t, consumer, &enginev1.EventEnvelope{
+		Metadata: &enginev1.EventMetadata{TenantId: "tenant-a", EventId: "cancel-event", InstanceId: "instance-2", Sequence: 2, OccurredAtEpochMs: uint64(now.Add(2 * time.Second).UnixMilli())},
+		Event: &enginev1.EventEnvelope_UserTaskCancelled{UserTaskCancelled: &enginev1.UserTaskCancelled{NodeId: "review", Reason: "boundary-error"}},
+	})
+	cancelled, err := store.GetWorkItem(ctx, "tenant-a", "cancel-activation")
+	if err != nil || cancelled.Status != domain.WorkItemCancelled {
+		t.Fatalf("committed cancellation was not projected: %#v err=%v", cancelled, err)
+	}
+	var lifecycleAudits int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM human_audit_log WHERE tenant_id='tenant-a' AND action IN ('CASE_ACTIVATED','CASE_STAGE_ACTIVE','CANCELLED')`).Scan(&lifecycleAudits); err != nil || lifecycleAudits != 3 {
+		t.Fatalf("CMMN/cancellation audit coverage failed: count=%d err=%v", lifecycleAudits, err)
+	}
 	assertNormalLoadP95(t, store)
+}
+
+func projectCommittedEvent(t *testing.T, consumer *eventprojection.Consumer, event *enginev1.EventEnvelope) {
+	t.Helper()
+	payload, err := proto.Marshal(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = consumer.Handle(context.Background(), payload); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func assertNormalLoadP95(t *testing.T, store *Store) {

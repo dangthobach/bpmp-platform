@@ -54,12 +54,18 @@ func (s *testStore) RequestCompletion(_ context.Context, item domain.WorkItem, _
 func (*testStore) CommitCompletion(context.Context, application.CommittedCompletion) error {
 	return nil
 }
+func (*testStore) CommitCancellation(context.Context, application.CommittedCancellation) error {
+	return nil
+}
 func (s *testStore) Delegate(_ context.Context, item domain.WorkItem, _, _, _ string) error {
 	s.item = item
 	return nil
 }
 func (*testStore) ProjectCase(context.Context, application.CommittedCase) (bool, error) {
 	return false, nil
+}
+func (*testStore) CommitCaseTransition(context.Context, application.CommittedCaseTransition) error {
+	return nil
 }
 func (*testStore) TransitionCaseStage(context.Context, string, string, string, domain.PlanItemStatus, string, time.Time) error {
 	return nil

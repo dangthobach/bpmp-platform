@@ -32,11 +32,17 @@ func (p *projectionStore) CommitCompletion(_ context.Context, event application.
 	p.completion = event
 	return nil
 }
+func (*projectionStore) CommitCancellation(context.Context, application.CommittedCancellation) error {
+	return nil
+}
 func (*projectionStore) Delegate(context.Context, domain.WorkItem, string, string, string) error {
 	return nil
 }
 func (*projectionStore) ProjectCase(context.Context, application.CommittedCase) (bool, error) {
 	return false, nil
+}
+func (*projectionStore) CommitCaseTransition(context.Context, application.CommittedCaseTransition) error {
+	return nil
 }
 func (*projectionStore) TransitionCaseStage(context.Context, string, string, string, domain.PlanItemStatus, string, time.Time) error {
 	return nil
