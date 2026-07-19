@@ -12,6 +12,7 @@ message WorkflowIntermediateRepresentation {
   bytes signature = 7;
   repeated DecisionTable decision_tables = 8;
   string tenant_id = 9;
+  repeated CaseModel case_models = 10;
 }
 
 message Node {
@@ -22,6 +23,8 @@ message Node {
     EndNode end = 4;
     ExclusiveGatewayNode exclusive_gateway = 5;
     DecisionTaskNode decision_task = 9;
+    ParallelGatewayNode parallel_gateway = 10;
+    InclusiveGatewayNode inclusive_gateway = 11;
   }
   DataContract data_contract = 6;
   uint64 sla_milliseconds = 7;
@@ -47,6 +50,26 @@ message EndNode {}
 message ExclusiveGatewayNode {
   repeated ConditionalTransition transitions = 1;
   GatewayCoverage coverage = 2;
+}
+
+enum GatewayDirection {
+  GATEWAY_DIRECTION_UNSPECIFIED = 0;
+  GATEWAY_DIRECTION_SPLIT = 1;
+  GATEWAY_DIRECTION_JOIN = 2;
+}
+
+message ParallelGatewayNode {
+  GatewayDirection direction = 1;
+  repeated string target_node_ids = 2;
+  string paired_gateway_id = 3;
+}
+
+message InclusiveGatewayNode {
+  GatewayDirection direction = 1;
+  repeated ConditionalTransition transitions = 2;
+  string next_node_id = 3;
+  string paired_gateway_id = 4;
+  GatewayCoverage coverage = 5;
 }
 
 message ConditionalTransition {
@@ -147,4 +170,30 @@ enum HitPolicy {
 message DataContract {
   string input_type = 1;
   string output_type = 2;
+}
+
+message CaseModel {
+  string id = 1;
+  string name = 2;
+  repeated CaseStage stages = 3;
+  repeated CaseMilestone milestones = 4;
+  repeated CaseSentry sentries = 5;
+}
+
+message CaseStage {
+  string id = 1;
+  string name = 2;
+  repeated string entry_sentry_ids = 3;
+  repeated string exit_sentry_ids = 4;
+}
+
+message CaseMilestone {
+  string id = 1;
+  string name = 2;
+  repeated string entry_sentry_ids = 3;
+}
+
+message CaseSentry {
+  string id = 1;
+  string condition = 2;
 }

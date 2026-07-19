@@ -51,6 +51,9 @@ message EventEnvelope {
     ServiceTaskCompleted service_task_completed = 12;
     WorkflowCompleted workflow_completed = 13;
     DecisionTaskEvaluated decision_task_evaluated = 14;
+    GatewaySplitActivated gateway_split_activated = 15;
+    GatewayTokenArrived gateway_token_arrived = 16;
+    GatewayJoined gateway_joined = 17;
   }
 }
 
@@ -76,6 +79,20 @@ message DecisionTaskEvaluated {
   string node_id = 1;
   string decision_table_id = 2;
   repeated WorkflowVariable outputs = 3;
+}
+
+message GatewaySplitActivated {
+  string gateway_id = 1;
+  string join_gateway_id = 2;
+  repeated string selected_target_node_ids = 3;
+}
+
+message GatewayTokenArrived {
+  string gateway_id = 1;
+}
+
+message GatewayJoined {
+  string gateway_id = 1;
 }
 
 message WorkflowVariable {
@@ -107,4 +124,17 @@ message WorkflowSnapshot {
   string policy_version = 10;
   string encryption_key_scope = 11;
   repeated WorkflowVariable variables = 12;
+  repeated ActiveToken active_tokens = 13;
+  repeated PendingGatewayJoin pending_gateway_joins = 14;
+}
+
+message ActiveToken {
+  string node_id = 1;
+  uint32 count = 2;
+}
+
+message PendingGatewayJoin {
+  string gateway_id = 1;
+  uint32 expected_tokens = 2;
+  uint32 arrived_tokens = 3;
 }

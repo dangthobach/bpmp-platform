@@ -187,6 +187,7 @@ mod tests {
             signature: Vec::new(),
             decision_tables: Vec::new(),
             tenant_id: "tenant-a".into(),
+            case_models: Vec::new(),
         }
     }
 

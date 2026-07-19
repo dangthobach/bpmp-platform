@@ -71,6 +71,26 @@ fn to_wire(envelope: &EventEnvelope) -> wire::EventEnvelope {
                 })
                 .collect(),
         }),
+        DomainEvent::GatewaySplitActivated {
+            gateway_id,
+            join_gateway_id,
+            selected_targets,
+            ..
+        } => wire::event_envelope::Event::GatewaySplitActivated(wire::GatewaySplitActivated {
+            gateway_id: gateway_id.to_string(),
+            join_gateway_id: join_gateway_id.to_string(),
+            selected_target_node_ids: selected_targets.iter().map(ToString::to_string).collect(),
+        }),
+        DomainEvent::GatewayTokenArrived { gateway_id, .. } => {
+            wire::event_envelope::Event::GatewayTokenArrived(wire::GatewayTokenArrived {
+                gateway_id: gateway_id.to_string(),
+            })
+        }
+        DomainEvent::GatewayJoined { gateway_id, .. } => {
+            wire::event_envelope::Event::GatewayJoined(wire::GatewayJoined {
+                gateway_id: gateway_id.to_string(),
+            })
+        }
         DomainEvent::WorkflowCompleted { .. } => {
             wire::event_envelope::Event::WorkflowCompleted(wire::WorkflowCompleted {})
         }
@@ -94,6 +114,7 @@ fn to_wire(envelope: &EventEnvelope) -> wire::EventEnvelope {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn from_wire(envelope: wire::EventEnvelope) -> Result<EventEnvelope, EventCodecError> {
     let metadata = envelope.metadata.ok_or(EventCodecError::MissingMetadata)?;
     if metadata.schema_version != EVENT_SCHEMA_VERSION {
@@ -142,6 +163,32 @@ fn from_wire(envelope: wire::EventEnvelope) -> Result<EventEnvelope, EventCodecE
                 occurred_at_epoch_ms,
             }
         }
+        wire::event_envelope::Event::GatewaySplitActivated(activated) => {
+            DomainEvent::GatewaySplitActivated {
+                gateway_id: identifier(NodeId::new, activated.gateway_id, "gateway_id")?,
+                join_gateway_id: identifier(
+                    NodeId::new,
+                    activated.join_gateway_id,
+                    "join_gateway_id",
+                )?,
+                selected_targets: activated
+                    .selected_target_node_ids
+                    .into_iter()
+                    .map(|target| identifier(NodeId::new, target, "selected_target_node_id"))
+                    .collect::<Result<_, _>>()?,
+                occurred_at_epoch_ms,
+            }
+        }
+        wire::event_envelope::Event::GatewayTokenArrived(arrived) => {
+            DomainEvent::GatewayTokenArrived {
+                gateway_id: identifier(NodeId::new, arrived.gateway_id, "gateway_id")?,
+                occurred_at_epoch_ms,
+            }
+        }
+        wire::event_envelope::Event::GatewayJoined(joined) => DomainEvent::GatewayJoined {
+            gateway_id: identifier(NodeId::new, joined.gateway_id, "gateway_id")?,
+            occurred_at_epoch_ms,
+        },
         wire::event_envelope::Event::WorkflowCompleted(_) => DomainEvent::WorkflowCompleted {
             occurred_at_epoch_ms,
         },
@@ -343,5 +390,39 @@ mod tests {
 
         let encoded = EventCodec::encode(&expected);
         assert_eq!(EventCodec::decode(&encoded).unwrap(), expected);
+    }
+
+    #[test]
+    fn gateway_split_event_round_trips_selected_token_obligation() {
+        let expected = EventEnvelope {
+            metadata: EventMetadata {
+                event_id: "event-2".into(),
+                tenant_id: TenantId::new("tenant-a").unwrap(),
+                instance_id: InstanceId::new("instance-1").unwrap(),
+                sequence: 2,
+                schema_version: EVENT_SCHEMA_VERSION,
+                correlation_id: CorrelationId::new("correlation-1").unwrap(),
+                causation_command_id: CommandId::new("command-1").unwrap(),
+                occurred_at_epoch_ms: 123,
+                config_version: ConfigVersion::new("config-7").unwrap(),
+                policy_version: PolicyVersion::new("policy-3").unwrap(),
+                actor_id: ActorId::new("actor-1").unwrap(),
+                encryption_key_scope: KeyScope::new("tenant-a/operational").unwrap(),
+            },
+            event: DomainEvent::GatewaySplitActivated {
+                gateway_id: NodeId::new("fork").unwrap(),
+                join_gateway_id: NodeId::new("join").unwrap(),
+                selected_targets: vec![
+                    NodeId::new("charge").unwrap(),
+                    NodeId::new("reserve").unwrap(),
+                ],
+                occurred_at_epoch_ms: 123,
+            },
+        };
+
+        assert_eq!(
+            EventCodec::decode(&EventCodec::encode(&expected)).unwrap(),
+            expected
+        );
     }
 }

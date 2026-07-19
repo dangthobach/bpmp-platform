@@ -21,6 +21,23 @@ pub enum Node {
         transitions: Vec<GuardedTransition>,
         coverage: Option<GatewayCoverage>,
     },
+    ParallelSplit {
+        targets: Vec<NodeId>,
+        join: NodeId,
+    },
+    ParallelJoin {
+        split: NodeId,
+        next: NodeId,
+    },
+    InclusiveSplit {
+        transitions: Vec<GuardedTransition>,
+        coverage: Option<GatewayCoverage>,
+        join: NodeId,
+    },
+    InclusiveJoin {
+        split: NodeId,
+        next: NodeId,
+    },
     End,
 }
 
@@ -186,13 +203,7 @@ impl WorkflowDefinition {
         }
 
         for (node_id, node) in &indexed {
-            if let Node::ExclusiveGateway {
-                transitions,
-                coverage,
-            } = node
-            {
-                validate_gateway(node_id, transitions, coverage.as_ref())?;
-            }
+            validate_gateway_node(node_id, node, &indexed)?;
             if let Node::DecisionTask {
                 decision_table_id, ..
             } = node
@@ -246,6 +257,72 @@ impl WorkflowDefinition {
         self.nodes
             .get(node_id)
             .ok_or_else(|| DomainError::UnknownNode(node_id.clone()))
+    }
+}
+
+fn validate_gateway_node(
+    node_id: &NodeId,
+    node: &Node,
+    indexed: &BTreeMap<NodeId, Node>,
+) -> Result<(), DomainError> {
+    match node {
+        Node::ExclusiveGateway {
+            transitions,
+            coverage,
+        } => validate_gateway(node_id, transitions, coverage.as_ref()),
+        Node::ParallelSplit { targets, join } => {
+            validate_parallel_split(node_id, targets)?;
+            reciprocal_pair(
+                indexed.get(join),
+                |paired| matches!(paired, Node::ParallelJoin { split, .. } if split == node_id),
+                node_id,
+                join,
+            )
+        }
+        Node::ParallelJoin { split, .. } => reciprocal_pair(
+            indexed.get(split),
+            |paired| matches!(paired, Node::ParallelSplit { join, .. } if join == node_id),
+            node_id,
+            split,
+        ),
+        Node::InclusiveSplit {
+            transitions,
+            coverage,
+            join,
+        } => {
+            validate_inclusive_gateway(node_id, transitions, coverage.as_ref())?;
+            reciprocal_pair(
+                indexed.get(join),
+                |paired| matches!(paired, Node::InclusiveJoin { split, .. } if split == node_id),
+                node_id,
+                join,
+            )
+        }
+        Node::InclusiveJoin { split, .. } => reciprocal_pair(
+            indexed.get(split),
+            |paired| matches!(paired, Node::InclusiveSplit { join, .. } if join == node_id),
+            node_id,
+            split,
+        ),
+        Node::Start { .. } | Node::ServiceTask { .. } | Node::DecisionTask { .. } | Node::End => {
+            Ok(())
+        }
+    }
+}
+
+fn reciprocal_pair(
+    paired_node: Option<&Node>,
+    predicate: impl FnOnce(&Node) -> bool,
+    gateway: &NodeId,
+    paired: &NodeId,
+) -> Result<(), DomainError> {
+    if paired_node.is_some_and(predicate) {
+        Ok(())
+    } else {
+        Err(DomainError::InvalidGatewayPair {
+            gateway: gateway.clone(),
+            paired: paired.clone(),
+        })
     }
 }
 
@@ -572,13 +649,71 @@ impl Node {
         match self {
             Self::Start { next }
             | Self::ServiceTask { next, .. }
-            | Self::DecisionTask { next, .. } => Box::new(std::iter::once(next)),
-            Self::ExclusiveGateway { transitions, .. } => {
+            | Self::DecisionTask { next, .. }
+            | Self::ParallelJoin { next, .. }
+            | Self::InclusiveJoin { next, .. } => Box::new(std::iter::once(next)),
+            Self::ExclusiveGateway { transitions, .. }
+            | Self::InclusiveSplit { transitions, .. } => {
                 Box::new(transitions.iter().map(|transition| &transition.target))
             }
+            Self::ParallelSplit { targets, .. } => Box::new(targets.iter()),
             Self::End => Box::new(std::iter::empty()),
         }
     }
+}
+
+fn validate_parallel_split(node_id: &NodeId, targets: &[NodeId]) -> Result<(), DomainError> {
+    if targets.len() < 2 {
+        return Err(DomainError::GatewayRequiresBranches(node_id.clone()));
+    }
+    let unique = targets.iter().collect::<BTreeSet<_>>();
+    if unique.len() != targets.len() {
+        return Err(DomainError::DuplicateGatewayTarget {
+            gateway: node_id.clone(),
+            target: targets
+                .iter()
+                .find(|target| targets.iter().filter(|item| *item == *target).count() > 1)
+                .cloned()
+                .expect("duplicate target exists"),
+        });
+    }
+    Ok(())
+}
+
+fn validate_inclusive_gateway(
+    node_id: &NodeId,
+    transitions: &[GuardedTransition],
+    coverage: Option<&GatewayCoverage>,
+) -> Result<(), DomainError> {
+    if transitions.len() < 2 {
+        return Err(DomainError::GatewayRequiresBranches(node_id.clone()));
+    }
+    let default_count = transitions
+        .iter()
+        .filter(|item| item.guard.is_none())
+        .count();
+    if default_count > 1 {
+        return Err(DomainError::GatewayRequiresOneDefault {
+            gateway: node_id.clone(),
+            actual: default_count,
+        });
+    }
+    if default_count == 0 && coverage.is_none() {
+        return Err(DomainError::GatewayRequiresDefaultOrCoverage(
+            node_id.clone(),
+        ));
+    }
+    let unique = transitions
+        .iter()
+        .map(|transition| &transition.target)
+        .collect::<BTreeSet<_>>();
+    if unique.len() != transitions.len() {
+        return Err(DomainError::DuplicateGatewayTarget {
+            gateway: node_id.clone(),
+            target: transitions[0].target.clone(),
+        });
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -617,6 +752,20 @@ pub enum DomainEvent {
         outputs: BTreeMap<String, WorkflowValue>,
         occurred_at_epoch_ms: u64,
     },
+    GatewaySplitActivated {
+        gateway_id: NodeId,
+        join_gateway_id: NodeId,
+        selected_targets: Vec<NodeId>,
+        occurred_at_epoch_ms: u64,
+    },
+    GatewayTokenArrived {
+        gateway_id: NodeId,
+        occurred_at_epoch_ms: u64,
+    },
+    GatewayJoined {
+        gateway_id: NodeId,
+        occurred_at_epoch_ms: u64,
+    },
     WorkflowCompleted {
         occurred_at_epoch_ms: u64,
     },
@@ -634,6 +783,14 @@ pub struct InstanceState {
     pub lifecycle: Lifecycle,
     pub sequence: u64,
     pub variables: BTreeMap<String, WorkflowValue>,
+    pub active_tokens: BTreeMap<NodeId, u32>,
+    pub pending_gateway_joins: BTreeMap<NodeId, PendingGatewayJoin>,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct PendingGatewayJoin {
+    pub expected_tokens: u32,
+    pub arrived_tokens: u32,
 }
 
 impl Default for InstanceState {
@@ -642,6 +799,8 @@ impl Default for InstanceState {
             lifecycle: Lifecycle::Initial,
             sequence: 0,
             variables: BTreeMap::new(),
+            active_tokens: BTreeMap::new(),
+            pending_gateway_joins: BTreeMap::new(),
         }
     }
 }
@@ -689,10 +848,12 @@ pub fn decide(
                 occurred_at_epoch_ms: *occurred_at_epoch_ms,
             }];
             let mut variables = state_variables_with_context(state, context.variables);
+            let mut routing = RoutingState::from(state);
             events.extend(activation_events(
                 definition,
                 next,
                 &mut variables,
+                &mut routing,
                 *occurred_at_epoch_ms,
             )?);
             events
@@ -703,8 +864,14 @@ pub fn decide(
                 node_id,
                 occurred_at_epoch_ms,
             },
-            Lifecycle::Active { active_node },
-        ) if node_id == active_node => {
+            Lifecycle::Active { .. },
+        ) if state
+            .active_tokens
+            .get(node_id)
+            .copied()
+            .unwrap_or_default()
+            > 0 =>
+        {
             let Node::ServiceTask { next, .. } = definition.node(node_id)? else {
                 return Err(DomainError::NodeIsNotServiceTask(node_id.clone()));
             };
@@ -713,19 +880,19 @@ pub fn decide(
                 occurred_at_epoch_ms: *occurred_at_epoch_ms,
             }];
             let mut variables = state_variables_with_context(state, context.variables);
+            let mut routing = RoutingState::from(state);
+            routing.complete_task(node_id)?;
             events.extend(activation_events(
                 definition,
                 next,
                 &mut variables,
+                &mut routing,
                 *occurred_at_epoch_ms,
             )?);
             events
         }
-        (Command::CompleteServiceTask { node_id, .. }, Lifecycle::Active { active_node }) => {
-            return Err(DomainError::TaskNotActive {
-                requested: node_id.clone(),
-                active: active_node.clone(),
-            });
+        (Command::CompleteServiceTask { node_id, .. }, Lifecycle::Active { .. }) => {
+            return Err(DomainError::TaskNotActive(node_id.clone()));
         }
         (Command::CompleteServiceTask { .. }, Lifecycle::Initial) => {
             return Err(DomainError::NotStarted);
@@ -753,19 +920,28 @@ fn activation_events(
     definition: &WorkflowDefinition,
     node_id: &NodeId,
     variables: &mut BTreeMap<String, WorkflowValue>,
+    routing: &mut RoutingState,
     occurred_at_epoch_ms: u64,
 ) -> Result<Vec<DomainEvent>, DomainError> {
-    let mut current = node_id.clone();
+    let mut pending = vec![node_id.clone()];
     let mut events = Vec::new();
-    for _ in 0..definition.nodes.len() {
+    let max_steps = definition.nodes.len().saturating_mul(4).max(1);
+    let mut steps = 0_usize;
+    while let Some(current) = pending.pop() {
+        steps = steps.saturating_add(1);
+        if steps > max_steps {
+            return Err(DomainError::AutomaticTransitionLimitExceeded(
+                node_id.clone(),
+            ));
+        }
         match definition.node(&current)? {
             Node::ServiceTask { task_type, .. } => {
+                routing.activate_task(&current)?;
                 events.push(DomainEvent::ServiceTaskActivated {
                     node_id: current,
                     task_type: task_type.clone(),
                     occurred_at_epoch_ms,
                 });
-                return Ok(events);
             }
             Node::DecisionTask {
                 decision_table_id,
@@ -787,25 +963,137 @@ fn activation_events(
                     outputs,
                     occurred_at_epoch_ms,
                 });
-                current = next.clone();
+                pending.push(next.clone());
             }
             Node::End => {
+                if !routing.active_tokens.is_empty() || !routing.pending_joins.is_empty() {
+                    return Err(DomainError::EndReachedWithOutstandingTokens(current));
+                }
                 events.push(DomainEvent::WorkflowCompleted {
                     occurred_at_epoch_ms,
                 });
-                return Ok(events);
             }
             Node::Start { .. } => {
                 return Err(DomainError::TransitionToStartNode(current));
             }
             Node::ExclusiveGateway { transitions, .. } => {
-                current = select_transition(&current, transitions, variables)?.clone();
+                pending.push(select_transition(&current, transitions, variables)?.clone());
+            }
+            Node::ParallelSplit { targets, join } => {
+                routing.open_join(join, targets.len())?;
+                events.push(DomainEvent::GatewaySplitActivated {
+                    gateway_id: current,
+                    join_gateway_id: join.clone(),
+                    selected_targets: targets.clone(),
+                    occurred_at_epoch_ms,
+                });
+                pending.extend(targets.iter().rev().cloned());
+            }
+            Node::InclusiveSplit {
+                transitions, join, ..
+            } => {
+                let selected = select_transitions(&current, transitions, variables)?;
+                routing.open_join(join, selected.len())?;
+                events.push(DomainEvent::GatewaySplitActivated {
+                    gateway_id: current,
+                    join_gateway_id: join.clone(),
+                    selected_targets: selected.clone(),
+                    occurred_at_epoch_ms,
+                });
+                pending.extend(selected.into_iter().rev());
+            }
+            Node::ParallelJoin { next, .. } | Node::InclusiveJoin { next, .. } => {
+                let complete = routing.arrive(&current)?;
+                events.push(DomainEvent::GatewayTokenArrived {
+                    gateway_id: current.clone(),
+                    occurred_at_epoch_ms,
+                });
+                if complete {
+                    routing.close_join(&current);
+                    events.push(DomainEvent::GatewayJoined {
+                        gateway_id: current,
+                        occurred_at_epoch_ms,
+                    });
+                    pending.push(next.clone());
+                }
             }
         }
     }
-    Err(DomainError::AutomaticTransitionLimitExceeded(
-        node_id.clone(),
-    ))
+    Ok(events)
+}
+
+#[derive(Clone)]
+struct RoutingState {
+    active_tokens: BTreeMap<NodeId, u32>,
+    pending_joins: BTreeMap<NodeId, PendingGatewayJoin>,
+}
+
+impl From<&InstanceState> for RoutingState {
+    fn from(state: &InstanceState) -> Self {
+        Self {
+            active_tokens: state.active_tokens.clone(),
+            pending_joins: state.pending_gateway_joins.clone(),
+        }
+    }
+}
+
+impl RoutingState {
+    fn activate_task(&mut self, node_id: &NodeId) -> Result<(), DomainError> {
+        let count = self.active_tokens.entry(node_id.clone()).or_default();
+        *count = count
+            .checked_add(1)
+            .ok_or_else(|| DomainError::TokenCountOverflow(node_id.clone()))?;
+        Ok(())
+    }
+
+    fn complete_task(&mut self, node_id: &NodeId) -> Result<(), DomainError> {
+        let Some(count) = self.active_tokens.get_mut(node_id) else {
+            return Err(DomainError::TaskNotActive(node_id.clone()));
+        };
+        *count -= 1;
+        if *count == 0 {
+            self.active_tokens.remove(node_id);
+        }
+        Ok(())
+    }
+
+    fn open_join(&mut self, join: &NodeId, target_count: usize) -> Result<(), DomainError> {
+        let expected_tokens = u32::try_from(target_count)
+            .map_err(|_| DomainError::TokenCountOverflow(join.clone()))?;
+        if self
+            .pending_joins
+            .insert(
+                join.clone(),
+                PendingGatewayJoin {
+                    expected_tokens,
+                    arrived_tokens: 0,
+                },
+            )
+            .is_some()
+        {
+            return Err(DomainError::JoinAlreadyPending(join.clone()));
+        }
+        Ok(())
+    }
+
+    fn arrive(&mut self, join: &NodeId) -> Result<bool, DomainError> {
+        let state = self
+            .pending_joins
+            .get_mut(join)
+            .ok_or_else(|| DomainError::UnexpectedGatewayJoin(join.clone()))?;
+        state.arrived_tokens = state
+            .arrived_tokens
+            .checked_add(1)
+            .ok_or_else(|| DomainError::TokenCountOverflow(join.clone()))?;
+        if state.arrived_tokens > state.expected_tokens {
+            return Err(DomainError::UnexpectedGatewayJoin(join.clone()));
+        }
+        Ok(state.arrived_tokens == state.expected_tokens)
+    }
+
+    fn close_join(&mut self, join: &NodeId) {
+        self.pending_joins.remove(join);
+    }
 }
 
 fn state_variables_with_context(
@@ -842,6 +1130,33 @@ fn select_transition<'a>(
                 .map(|transition| &transition.target)
         })
         .ok_or_else(|| DomainError::NoGatewayBranch(gateway_id.clone()))
+}
+
+fn select_transitions(
+    gateway_id: &NodeId,
+    transitions: &[GuardedTransition],
+    variables: &BTreeMap<String, WorkflowValue>,
+) -> Result<Vec<NodeId>, DomainError> {
+    let mut selected = Vec::new();
+    for transition in transitions {
+        if let Some(guard) = &transition.guard
+            && guard.evaluate(variables)?
+        {
+            selected.push(transition.target.clone());
+        }
+    }
+    if selected.is_empty()
+        && let Some(default) = transitions
+            .iter()
+            .find(|transition| transition.guard.is_none())
+    {
+        selected.push(default.target.clone());
+    }
+    if selected.is_empty() {
+        Err(DomainError::NoGatewayBranch(gateway_id.clone()))
+    } else {
+        Ok(selected)
+    }
 }
 
 fn evaluate_decision_table(
@@ -984,15 +1299,71 @@ pub fn evolve(mut state: InstanceState, event: &DomainEvent) -> InstanceState {
         DomainEvent::WorkflowStarted { start_node_id, .. } => Lifecycle::Active {
             active_node: start_node_id.clone(),
         },
-        DomainEvent::ServiceTaskActivated { node_id, .. }
-        | DomainEvent::ServiceTaskCompleted { node_id, .. } => Lifecycle::Active {
-            active_node: node_id.clone(),
-        },
+        DomainEvent::ServiceTaskActivated { node_id, .. } => {
+            let count = state.active_tokens.entry(node_id.clone()).or_default();
+            *count = count.saturating_add(1);
+            Lifecycle::Active {
+                active_node: state
+                    .active_tokens
+                    .keys()
+                    .next()
+                    .cloned()
+                    .unwrap_or_else(|| node_id.clone()),
+            }
+        }
+        DomainEvent::ServiceTaskCompleted { node_id, .. } => {
+            if let Some(count) = state.active_tokens.get_mut(node_id) {
+                *count = count.saturating_sub(1);
+                if *count == 0 {
+                    state.active_tokens.remove(node_id);
+                }
+            }
+            Lifecycle::Active {
+                active_node: state
+                    .active_tokens
+                    .keys()
+                    .next()
+                    .cloned()
+                    .unwrap_or_else(|| node_id.clone()),
+            }
+        }
         DomainEvent::DecisionTaskEvaluated { outputs, .. } => {
             state.variables.extend(outputs.clone());
             state.lifecycle.clone()
         }
-        DomainEvent::WorkflowCompleted { .. } => Lifecycle::Completed,
+        DomainEvent::GatewaySplitActivated {
+            join_gateway_id,
+            selected_targets,
+            ..
+        } => {
+            state.pending_gateway_joins.insert(
+                join_gateway_id.clone(),
+                PendingGatewayJoin {
+                    expected_tokens: u32::try_from(selected_targets.len()).unwrap_or(u32::MAX),
+                    arrived_tokens: 0,
+                },
+            );
+            state.lifecycle.clone()
+        }
+        DomainEvent::GatewayTokenArrived { gateway_id, .. } => {
+            if let Some(join) = state.pending_gateway_joins.get_mut(gateway_id) {
+                join.arrived_tokens = join.arrived_tokens.saturating_add(1);
+            }
+            Lifecycle::Active {
+                active_node: gateway_id.clone(),
+            }
+        }
+        DomainEvent::GatewayJoined { gateway_id, .. } => {
+            state.pending_gateway_joins.remove(gateway_id);
+            Lifecycle::Active {
+                active_node: gateway_id.clone(),
+            }
+        }
+        DomainEvent::WorkflowCompleted { .. } => {
+            state.active_tokens.clear();
+            state.pending_gateway_joins.clear();
+            Lifecycle::Completed
+        }
     };
     state
 }
@@ -1028,8 +1399,8 @@ pub enum DomainError {
     },
     #[error("node {0} is not a service task")]
     NodeIsNotServiceTask(NodeId),
-    #[error("requested task {requested} is not active; active task is {active}")]
-    TaskNotActive { requested: NodeId, active: NodeId },
+    #[error("requested task {0} is not active")]
+    TaskNotActive(NodeId),
     #[error("exclusive gateway {0} matched more than one branch")]
     AmbiguousGateway(NodeId),
     #[error("exclusive gateway {0} has no matching branch and no default")]
@@ -1067,6 +1438,16 @@ pub enum DomainError {
     InvalidGatewayCoverage { gateway: NodeId, detail: String },
     #[error("exclusive gateway {gateway} has duplicate target {target}")]
     DuplicateGatewayTarget { gateway: NodeId, target: NodeId },
+    #[error("gateway {gateway} does not form a reciprocal pair with {paired}")]
+    InvalidGatewayPair { gateway: NodeId, paired: NodeId },
+    #[error("gateway join {0} is already pending")]
+    JoinAlreadyPending(NodeId),
+    #[error("token reached gateway join {0} without a matching split obligation")]
+    UnexpectedGatewayJoin(NodeId),
+    #[error("token count overflow at node {0}")]
+    TokenCountOverflow(NodeId),
+    #[error("end node {0} was reached while tokens or joins remain active")]
+    EndReachedWithOutstandingTokens(NodeId),
     #[error("gateway guard variable {0} is missing")]
     GuardVariableMissing(String),
     #[error("gateway guard variable {variable} has type {actual}, expected {expected}")]
@@ -1444,6 +1825,204 @@ mod tests {
             replayed.variables.get("approved"),
             Some(&WorkflowValue::Boolean(true))
         );
+    }
+
+    #[test]
+    fn parallel_tokens_wait_for_every_branch_and_replay_deterministically() {
+        let start = id(NodeId::new, "start");
+        let split = id(NodeId::new, "fork");
+        let left = id(NodeId::new, "left");
+        let right = id(NodeId::new, "right");
+        let join = id(NodeId::new, "join");
+        let end = id(NodeId::new, "end");
+        let definition = WorkflowDefinition::new(
+            id(TenantId::new, "tenant-a"),
+            id(WorkflowType::new, "parallel"),
+            id(WorkflowVersion::new, "1"),
+            start.clone(),
+            [
+                (
+                    start,
+                    Node::Start {
+                        next: split.clone(),
+                    },
+                ),
+                (
+                    split.clone(),
+                    Node::ParallelSplit {
+                        targets: vec![left.clone(), right.clone()],
+                        join: join.clone(),
+                    },
+                ),
+                (
+                    left.clone(),
+                    Node::ServiceTask {
+                        task_type: id(TaskType::new, "left-task"),
+                        next: join.clone(),
+                    },
+                ),
+                (
+                    right.clone(),
+                    Node::ServiceTask {
+                        task_type: id(TaskType::new, "right-task"),
+                        next: join.clone(),
+                    },
+                ),
+                (
+                    join.clone(),
+                    Node::ParallelJoin {
+                        split,
+                        next: end.clone(),
+                    },
+                ),
+                (end, Node::End),
+            ],
+        )
+        .unwrap();
+        let configuration = configuration(6);
+        let variables = BTreeMap::new();
+        let context = DecisionContext {
+            configuration: &configuration,
+            variables: &variables,
+        };
+        let started = decide(
+            &definition,
+            &InstanceState::default(),
+            &Command::StartWorkflow {
+                tenant_id: id(TenantId::new, "tenant-a"),
+                occurred_at_epoch_ms: 1,
+            },
+            context,
+        )
+        .unwrap();
+        let after_start = rehydrate(None, &started);
+        assert_eq!(after_start.active_tokens.len(), 2);
+        assert_eq!(after_start.pending_gateway_joins[&join].expected_tokens, 2);
+
+        let left_completed = decide(
+            &definition,
+            &after_start,
+            &Command::CompleteServiceTask {
+                node_id: left,
+                occurred_at_epoch_ms: 2,
+            },
+            context,
+        )
+        .unwrap();
+        let after_left = rehydrate(Some(after_start), &left_completed);
+        assert_eq!(after_left.pending_gateway_joins[&join].arrived_tokens, 1);
+        assert!(!matches!(after_left.lifecycle, Lifecycle::Completed));
+
+        let right_completed = decide(
+            &definition,
+            &after_left,
+            &Command::CompleteServiceTask {
+                node_id: right,
+                occurred_at_epoch_ms: 3,
+            },
+            context,
+        )
+        .unwrap();
+        let history = [started, left_completed, right_completed].concat();
+        let replayed = rehydrate(None, &history);
+        assert_eq!(replayed.lifecycle, Lifecycle::Completed);
+        assert_eq!(replayed, rehydrate(None, &history));
+    }
+
+    #[test]
+    fn inclusive_split_persists_only_selected_branch_obligations() {
+        let start = id(NodeId::new, "start");
+        let split = id(NodeId::new, "inclusive-fork");
+        let left = id(NodeId::new, "left");
+        let right = id(NodeId::new, "right");
+        let fallback = id(NodeId::new, "fallback");
+        let join = id(NodeId::new, "inclusive-join");
+        let end = id(NodeId::new, "end");
+        let task = |task_type: &str| Node::ServiceTask {
+            task_type: id(TaskType::new, task_type),
+            next: join.clone(),
+        };
+        let definition = WorkflowDefinition::new(
+            id(TenantId::new, "tenant-a"),
+            id(WorkflowType::new, "inclusive"),
+            id(WorkflowVersion::new, "1"),
+            start.clone(),
+            [
+                (
+                    start,
+                    Node::Start {
+                        next: split.clone(),
+                    },
+                ),
+                (
+                    split.clone(),
+                    Node::InclusiveSplit {
+                        transitions: vec![
+                            GuardedTransition {
+                                target: left.clone(),
+                                guard: Some(GuardExpression {
+                                    variable: "left".into(),
+                                    operator: ComparisonOperator::Equal,
+                                    literal: WorkflowValue::Boolean(true),
+                                }),
+                            },
+                            GuardedTransition {
+                                target: right.clone(),
+                                guard: Some(GuardExpression {
+                                    variable: "right".into(),
+                                    operator: ComparisonOperator::Equal,
+                                    literal: WorkflowValue::Boolean(true),
+                                }),
+                            },
+                            GuardedTransition {
+                                target: fallback.clone(),
+                                guard: None,
+                            },
+                        ],
+                        coverage: None,
+                        join: join.clone(),
+                    },
+                ),
+                (left.clone(), task("left-task")),
+                (right.clone(), task("right-task")),
+                (fallback.clone(), task("fallback-task")),
+                (
+                    join.clone(),
+                    Node::InclusiveJoin {
+                        split,
+                        next: end.clone(),
+                    },
+                ),
+                (end, Node::End),
+            ],
+        )
+        .unwrap();
+        let configuration = configuration(6);
+        let variables = BTreeMap::from([
+            ("left".into(), WorkflowValue::Boolean(true)),
+            ("right".into(), WorkflowValue::Boolean(true)),
+        ]);
+        let events = decide(
+            &definition,
+            &InstanceState::default(),
+            &Command::StartWorkflow {
+                tenant_id: id(TenantId::new, "tenant-a"),
+                occurred_at_epoch_ms: 1,
+            },
+            DecisionContext {
+                configuration: &configuration,
+                variables: &variables,
+            },
+        )
+        .unwrap();
+        assert!(matches!(
+            &events[1],
+            DomainEvent::GatewaySplitActivated { selected_targets, .. }
+                if selected_targets == &vec![left.clone(), right.clone()]
+        ));
+        let state = rehydrate(None, &events);
+        assert_eq!(state.pending_gateway_joins[&join].expected_tokens, 2);
+        assert!(!state.active_tokens.contains_key(&fallback));
     }
 
     fn configuration(max_events_per_decision: u32) -> ResolvedConfigSnapshot {

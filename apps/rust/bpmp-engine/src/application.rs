@@ -383,6 +383,18 @@ const fn event_time(event: &DomainEvent) -> u64 {
             occurred_at_epoch_ms,
             ..
         }
+        | DomainEvent::GatewaySplitActivated {
+            occurred_at_epoch_ms,
+            ..
+        }
+        | DomainEvent::GatewayTokenArrived {
+            occurred_at_epoch_ms,
+            ..
+        }
+        | DomainEvent::GatewayJoined {
+            occurred_at_epoch_ms,
+            ..
+        }
         | DomainEvent::WorkflowCompleted {
             occurred_at_epoch_ms,
         } => *occurred_at_epoch_ms,

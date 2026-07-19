@@ -19,5 +19,6 @@ pub use workflow::{
     Command, ComparisonOperator, DecisionContext, DecisionInput, DecisionOutput, DecisionRule,
     DecisionTable, DomainError, DomainEvent, GatewayCoverage, GatewayCoverageDomain,
     GuardExpression, GuardedTransition, HitPolicy, InstanceState, IntegerInterval, Lifecycle, Node,
-    UnaryTest, WorkflowDefinition, WorkflowValue, WorkflowValueType, decide, evolve, rehydrate,
+    PendingGatewayJoin, UnaryTest, WorkflowDefinition, WorkflowValue, WorkflowValueType, decide,
+    evolve, rehydrate,
 };

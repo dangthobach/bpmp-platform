@@ -82,8 +82,23 @@ pub enum DiagnosticKind {
         gateway_id: String,
         detail: String,
     },
+    InvalidGatewayFlow {
+        gateway_id: String,
+        detail: String,
+    },
+    UnbalancedGateway {
+        gateway_id: String,
+        detail: String,
+    },
+    UnexpectedCycle {
+        node_id: String,
+    },
     MissingCompensation {
         activity_id: String,
+    },
+    InvalidCompensation {
+        activity_id: String,
+        detail: String,
     },
     SlaConflict {
         detail: String,
@@ -105,6 +120,10 @@ pub enum DiagnosticKind {
     MissingDecisionTable {
         task_id: String,
         table_id: String,
+    },
+    InvalidCaseModel {
+        case_id: String,
+        detail: String,
     },
 }
 
@@ -188,9 +207,29 @@ impl Display for DiagnosticKind {
                 formatter,
                 "exclusive gateway {gateway_id} has ambiguous coverage: {detail}"
             ),
+            Self::InvalidGatewayFlow { gateway_id, detail } => {
+                write!(formatter, "gateway {gateway_id} has invalid flow: {detail}")
+            }
+            Self::UnbalancedGateway { gateway_id, detail } => {
+                write!(
+                    formatter,
+                    "gateway {gateway_id} is structurally unbalanced: {detail}"
+                )
+            }
+            Self::UnexpectedCycle { node_id } => write!(
+                formatter,
+                "workflow contains an unsupported cycle through node {node_id}"
+            ),
             Self::MissingCompensation { activity_id } => write!(
                 formatter,
                 "activity {activity_id} requires a compensation handler"
+            ),
+            Self::InvalidCompensation {
+                activity_id,
+                detail,
+            } => write!(
+                formatter,
+                "activity {activity_id} has invalid compensation configuration: {detail}"
             ),
             Self::SlaConflict { detail } => write!(formatter, "SLA conflict: {detail}"),
             Self::DataContractMismatch {
@@ -218,6 +257,9 @@ impl Display for DiagnosticKind {
                 formatter,
                 "businessRuleTask {task_id} references missing DMN decision table {table_id}"
             ),
+            Self::InvalidCaseModel { case_id, detail } => {
+                write!(formatter, "CMMN case {case_id} is invalid: {detail}")
+            }
         }
     }
 }

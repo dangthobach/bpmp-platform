@@ -1,7 +1,7 @@
 use bpmp_contracts::engine::v1 as wire;
 use bpmp_domain_core::{
     ConfigVersion, IdentifierError, InstanceId, InstanceState, KeyScope, Lifecycle, NodeId,
-    PolicyVersion, TenantId, WorkflowType, WorkflowValue, WorkflowVersion,
+    PendingGatewayJoin, PolicyVersion, TenantId, WorkflowType, WorkflowValue, WorkflowVersion,
 };
 use prost::Message;
 use thiserror::Error;
@@ -59,6 +59,25 @@ fn to_wire(snapshot: &SnapshotEnvelope) -> wire::WorkflowSnapshot {
                 value: Some(workflow_value_to_wire(value)),
             })
             .collect(),
+        active_tokens: snapshot
+            .state
+            .active_tokens
+            .iter()
+            .map(|(node_id, count)| wire::ActiveToken {
+                node_id: node_id.to_string(),
+                count: *count,
+            })
+            .collect(),
+        pending_gateway_joins: snapshot
+            .state
+            .pending_gateway_joins
+            .iter()
+            .map(|(gateway_id, join)| wire::PendingGatewayJoin {
+                gateway_id: gateway_id.to_string(),
+                expected_tokens: join.expected_tokens,
+                arrived_tokens: join.arrived_tokens,
+            })
+            .collect(),
     }
 }
 
@@ -84,6 +103,35 @@ fn from_wire(snapshot: wire::WorkflowSnapshot) -> Result<SnapshotEnvelope, Snaps
         }
         lifecycle => return Err(SnapshotCodecError::InconsistentLifecycle(lifecycle)),
     };
+    let active_tokens = snapshot
+        .active_tokens
+        .into_iter()
+        .map(|token| {
+            if token.count == 0 {
+                return Err(SnapshotCodecError::InvalidTokenState);
+            }
+            Ok((
+                identifier(NodeId::new, token.node_id, "active_token.node_id")?,
+                token.count,
+            ))
+        })
+        .collect::<Result<_, _>>()?;
+    let pending_gateway_joins = snapshot
+        .pending_gateway_joins
+        .into_iter()
+        .map(|join| {
+            if join.expected_tokens == 0 || join.arrived_tokens >= join.expected_tokens {
+                return Err(SnapshotCodecError::InvalidTokenState);
+            }
+            Ok((
+                identifier(NodeId::new, join.gateway_id, "pending_join.gateway_id")?,
+                PendingGatewayJoin {
+                    expected_tokens: join.expected_tokens,
+                    arrived_tokens: join.arrived_tokens,
+                },
+            ))
+        })
+        .collect::<Result<_, _>>()?;
     Ok(SnapshotEnvelope {
         tenant_id: identifier(TenantId::new, snapshot.tenant_id, "tenant_id")?,
         instance_id: identifier(InstanceId::new, snapshot.instance_id, "instance_id")?,
@@ -101,6 +149,8 @@ fn from_wire(snapshot: wire::WorkflowSnapshot) -> Result<SnapshotEnvelope, Snaps
                 .into_iter()
                 .map(workflow_variable_from_wire)
                 .collect::<Result<_, _>>()?,
+            active_tokens,
+            pending_gateway_joins,
         },
         config_version: identifier(
             ConfigVersion::new,
@@ -173,6 +223,8 @@ pub enum SnapshotCodecError {
     EmptyField(&'static str),
     #[error("workflow variable is missing a typed value")]
     MissingWorkflowVariableValue,
+    #[error("snapshot token/join state is invalid")]
+    InvalidTokenState,
     #[error("invalid snapshot identifier in field {field}: {source}")]
     Identifier {
         field: &'static str,
@@ -197,6 +249,8 @@ mod tests {
                 },
                 sequence: 100,
                 variables: [("tier".into(), WorkflowValue::String("gold".into()))].into(),
+                active_tokens: [(NodeId::new("charge").unwrap(), 1)].into(),
+                pending_gateway_joins: std::collections::BTreeMap::default(),
             },
             config_version: ConfigVersion::new("config-7").unwrap(),
             policy_version: PolicyVersion::new("policy-3").unwrap(),

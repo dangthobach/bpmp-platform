@@ -2,11 +2,12 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use bpmp_contracts::WIR_SCHEMA_VERSION;
 use bpmp_contracts::wir::v1::{
-    ComparisonOperator, ConditionalTransition, DataContract, DecisionInput, DecisionOutput,
-    DecisionRule, DecisionTable, DecisionTaskNode, EndNode, ExclusiveGatewayNode, GatewayCoverage,
-    GuardExpression, HitPolicy, IntegerInterval, Node, ServiceTaskNode, StartNode, UnaryTest,
-    ValueType, WorkflowIntermediateRepresentation, WorkflowLiteral, guard_expression, node,
-    unary_test, workflow_literal,
+    CaseMilestone, CaseModel, CaseSentry, CaseStage, ComparisonOperator, ConditionalTransition,
+    DataContract, DecisionInput, DecisionOutput, DecisionRule, DecisionTable, DecisionTaskNode,
+    EndNode, ExclusiveGatewayNode, GatewayCoverage, GatewayDirection, GuardExpression, HitPolicy,
+    InclusiveGatewayNode, IntegerInterval, Node, ParallelGatewayNode, ServiceTaskNode, StartNode,
+    UnaryTest, ValueType, WorkflowIntermediateRepresentation, WorkflowLiteral, guard_expression,
+    node, unary_test, workflow_literal,
 };
 use quick_xml::XmlVersion;
 use quick_xml::events::{BytesStart, Event};
@@ -20,6 +21,10 @@ const BPMN_MODEL_NAMESPACE: &[u8] = b"http://www.omg.org/spec/BPMN/20100524/MODE
 const DMN_MODEL_NAMESPACES: [&[u8]; 2] = [
     b"https://www.omg.org/spec/DMN/20191111/MODEL/",
     b"http://www.omg.org/spec/DMN/20191111/MODEL/",
+];
+const CMMN_MODEL_NAMESPACES: [&[u8]; 2] = [
+    b"https://www.omg.org/spec/CMMN/20151109/MODEL",
+    b"http://www.omg.org/spec/CMMN/20151109/MODEL",
 ];
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -101,6 +106,23 @@ impl BpmnCompiler {
         tenant_id: &str,
         workflow_version: &str,
     ) -> Result<WorkflowIntermediateRepresentation, Vec<CompileDiagnostic>> {
+        self.compile_with_models(source, decision_sources, &[], tenant_id, workflow_version)
+    }
+
+    /// Compiles BPMN with optional DMN and CMMN documents into one canonical WIR.
+    ///
+    /// # Errors
+    ///
+    /// Returns collected source diagnostics for any invalid input document.
+    #[allow(clippy::too_many_lines)]
+    pub fn compile_with_models(
+        &self,
+        source: SourceDocument<'_>,
+        decision_sources: &[SourceDocument<'_>],
+        case_sources: &[SourceDocument<'_>],
+        tenant_id: &str,
+        workflow_version: &str,
+    ) -> Result<WorkflowIntermediateRepresentation, Vec<CompileDiagnostic>> {
         let locations = SourceLocations::new(source.name, source.bytes);
         if tenant_id.trim().is_empty() {
             return Err(vec![locations.diagnostic(
@@ -157,11 +179,46 @@ impl BpmnCompiler {
                 Err(mut errors) => diagnostics.append(&mut errors),
             }
         }
+        let mut case_models = Vec::new();
+        for case_source in case_sources {
+            let case_locations = SourceLocations::new(case_source.name, case_source.bytes);
+            if case_source.bytes.len() > self.limits.max_input_bytes {
+                diagnostics.push(case_locations.diagnostic(
+                    0,
+                    DiagnosticKind::InputTooLarge {
+                        actual: case_source.bytes.len(),
+                        configured_limit: self.limits.max_input_bytes,
+                    },
+                ));
+                continue;
+            }
+            match parse_cmmn(*case_source, self.limits, &case_locations) {
+                Ok(mut models) => case_models.append(&mut models),
+                Err(mut errors) => diagnostics.append(&mut errors),
+            }
+        }
+        let mut case_ids = BTreeSet::new();
+        for model in &case_models {
+            if !case_ids.insert(model.id.as_str()) {
+                diagnostics.push(locations.diagnostic(
+                    0,
+                    DiagnosticKind::InvalidCaseModel {
+                        case_id: model.id.clone(),
+                        detail: "duplicate case id across CMMN sources".into(),
+                    },
+                ));
+            }
+        }
         validate_decision_references(&parsed, &decision_tables, &locations, &mut diagnostics);
+        enrich_decision_contracts(&mut parsed, &decision_tables, &locations, &mut diagnostics);
+        validate_data_flow_paths(&parsed, &locations, &mut diagnostics);
         if diagnostics.is_empty() {
             let mut wir = lower(parsed, tenant_id, workflow_version);
             wir.decision_tables = decision_tables;
             wir.decision_tables
+                .sort_unstable_by(|left, right| left.id.cmp(&right.id));
+            wir.case_models = case_models;
+            wir.case_models
                 .sort_unstable_by(|left, right| left.id.cmp(&right.id));
             Ok(wir)
         } else {
@@ -184,6 +241,18 @@ impl BpmnCompiler {
     ) -> Result<String, crate::PrintError> {
         crate::printer::print_canonical(wir)
     }
+
+    /// Generates a standalone, deterministic Rust transition table from WIR.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::CodegenError`] when WIR contains an invalid node contract.
+    pub fn generate_rust(
+        &self,
+        wir: &WorkflowIntermediateRepresentation,
+    ) -> Result<String, crate::CodegenError> {
+        crate::codegen::generate_rust(wir)
+    }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -192,6 +261,8 @@ enum RawNodeKind {
     ServiceTask,
     DecisionTask,
     ExclusiveGateway,
+    InclusiveGateway,
+    ParallelGateway,
     End,
 }
 
@@ -205,6 +276,7 @@ struct RawNode {
     sla_milliseconds: Option<u64>,
     compensation_handler_id: Option<String>,
     requires_compensation: bool,
+    is_compensation_handler: bool,
     default_flow_id: Option<String>,
     enum_values: Vec<String>,
     offset: usize,
@@ -220,6 +292,22 @@ struct RawFlow {
     offset: usize,
 }
 
+#[derive(Debug, Clone)]
+struct RawBoundaryEvent {
+    id: String,
+    attached_to: String,
+    is_compensation: bool,
+    offset: usize,
+}
+
+#[derive(Debug, Clone)]
+struct RawAssociation {
+    id: String,
+    source: String,
+    target: String,
+    offset: usize,
+}
+
 #[derive(Default)]
 struct ParsedProcess {
     process_id: Option<String>,
@@ -227,6 +315,10 @@ struct ParsedProcess {
     process_sla_milliseconds: Option<u64>,
     nodes: BTreeMap<String, RawNode>,
     flows: Vec<RawFlow>,
+    boundary_events: Vec<RawBoundaryEvent>,
+    associations: Vec<RawAssociation>,
+    open_boundary_event: Option<String>,
+    gateway_pairs: BTreeMap<String, String>,
     diagnostics: Vec<CompileDiagnostic>,
 }
 
@@ -276,8 +368,16 @@ fn parse(
                     &mut parsed,
                     locations,
                 );
+                if element.local_name().as_ref() == b"boundaryEvent" {
+                    parsed.open_boundary_event = None;
+                }
             }
-            Ok((_, Event::End(_))) => depth = depth.saturating_sub(1),
+            Ok((_, Event::End(element))) => {
+                if element.local_name().as_ref() == b"boundaryEvent" {
+                    parsed.open_boundary_event = None;
+                }
+                depth = depth.saturating_sub(1);
+            }
             Ok((_, Event::DocType(_))) => parsed
                 .diagnostics
                 .push(locations.diagnostic(offset, DiagnosticKind::ForbiddenDocumentType)),
@@ -320,6 +420,9 @@ fn inspect_element(
             | "exclusiveGateway"
             | "inclusiveGateway"
             | "parallelGateway"
+            | "boundaryEvent"
+            | "compensateEventDefinition"
+            | "association"
             | "userTask"
             | "scriptTask"
             | "callActivity"
@@ -397,6 +500,27 @@ fn inspect_element(
             parsed,
             locations,
         ),
+        "inclusiveGateway" => insert_node(
+            element,
+            decoder,
+            RawNodeKind::InclusiveGateway,
+            None,
+            offset,
+            parsed,
+            locations,
+        ),
+        "parallelGateway" => insert_node(
+            element,
+            decoder,
+            RawNodeKind::ParallelGateway,
+            None,
+            offset,
+            parsed,
+            locations,
+        ),
+        "boundaryEvent" => insert_boundary_event(element, decoder, offset, parsed, locations),
+        "compensateEventDefinition" => mark_compensation_boundary(parsed),
+        "association" => insert_association(element, decoder, offset, parsed, locations),
         "endEvent" => insert_node(
             element,
             decoder,
@@ -407,8 +531,7 @@ fn inspect_element(
             locations,
         ),
         "sequenceFlow" => insert_flow(element, decoder, offset, parsed, locations),
-        "inclusiveGateway" | "parallelGateway" | "userTask" | "scriptTask" | "callActivity"
-        | "subProcess" => {
+        "userTask" | "scriptTask" | "callActivity" | "subProcess" => {
             parsed.diagnostics.push(locations.diagnostic(
                 offset,
                 DiagnosticKind::UnsupportedElement {
@@ -434,6 +557,8 @@ fn insert_node(
         RawNodeKind::ServiceTask => "serviceTask",
         RawNodeKind::DecisionTask => "businessRuleTask",
         RawNodeKind::ExclusiveGateway => "exclusiveGateway",
+        RawNodeKind::InclusiveGateway => "inclusiveGateway",
+        RawNodeKind::ParallelGateway => "parallelGateway",
         RawNodeKind::End => "endEvent",
     };
     let Some(id) = required_attribute(
@@ -463,6 +588,8 @@ fn insert_node(
         optional_non_empty_attribute(element, decoder, b"compensationHandler");
     let requires_compensation = optional_attribute(element, decoder, b"requiresCompensation")
         .is_some_and(|value| value == "true");
+    let is_compensation_handler = optional_attribute(element, decoder, b"isForCompensation")
+        .is_some_and(|value| value == "true");
     let default_flow_id = optional_non_empty_attribute(element, decoder, b"default");
     let enum_values = optional_non_empty_attribute(element, decoder, b"enumValues")
         .map(|values| {
@@ -487,6 +614,7 @@ fn insert_node(
                 sla_milliseconds,
                 compensation_handler_id,
                 requires_compensation,
+                is_compensation_handler,
                 default_flow_id,
                 enum_values,
                 offset,
@@ -497,6 +625,107 @@ fn insert_node(
         parsed
             .diagnostics
             .push(locations.diagnostic(offset, DiagnosticKind::DuplicateId { id }));
+    }
+}
+
+fn insert_boundary_event(
+    element: &BytesStart<'_>,
+    decoder: quick_xml::encoding::Decoder,
+    offset: usize,
+    parsed: &mut ParsedProcess,
+    locations: &SourceLocations,
+) {
+    let id = required_attribute(
+        element,
+        decoder,
+        "boundaryEvent",
+        b"id",
+        offset,
+        parsed,
+        locations,
+    );
+    let attached_to = required_attribute(
+        element,
+        decoder,
+        "boundaryEvent",
+        b"attachedToRef",
+        offset,
+        parsed,
+        locations,
+    );
+    if let (Some(id), Some(attached_to)) = (id, attached_to) {
+        if parsed.nodes.contains_key(&id)
+            || parsed.boundary_events.iter().any(|event| event.id == id)
+        {
+            parsed
+                .diagnostics
+                .push(locations.diagnostic(offset, DiagnosticKind::DuplicateId { id }));
+            return;
+        }
+        parsed.open_boundary_event = Some(id.clone());
+        parsed.boundary_events.push(RawBoundaryEvent {
+            id,
+            attached_to,
+            is_compensation: false,
+            offset,
+        });
+    }
+}
+
+fn mark_compensation_boundary(parsed: &mut ParsedProcess) {
+    let Some(boundary_id) = parsed.open_boundary_event.as_deref() else {
+        return;
+    };
+    if let Some(boundary) = parsed
+        .boundary_events
+        .iter_mut()
+        .find(|boundary| boundary.id == boundary_id)
+    {
+        boundary.is_compensation = true;
+    }
+}
+
+fn insert_association(
+    element: &BytesStart<'_>,
+    decoder: quick_xml::encoding::Decoder,
+    offset: usize,
+    parsed: &mut ParsedProcess,
+    locations: &SourceLocations,
+) {
+    let id = required_attribute(
+        element,
+        decoder,
+        "association",
+        b"id",
+        offset,
+        parsed,
+        locations,
+    );
+    let source = required_attribute(
+        element,
+        decoder,
+        "association",
+        b"sourceRef",
+        offset,
+        parsed,
+        locations,
+    );
+    let target = required_attribute(
+        element,
+        decoder,
+        "association",
+        b"targetRef",
+        offset,
+        parsed,
+        locations,
+    );
+    if let (Some(id), Some(source), Some(target)) = (id, source, target) {
+        parsed.associations.push(RawAssociation {
+            id,
+            source,
+            target,
+            offset,
+        });
     }
 }
 
@@ -618,7 +847,7 @@ fn parse_optional_u64_attribute(
 }
 
 // The passes share one diagnostic set and borrowed graph indexes.
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::match_same_arms, clippy::too_many_lines)]
 fn validate_graph(parsed: &mut ParsedProcess, locations: &SourceLocations) {
     if parsed.process_count == 0 {
         parsed
@@ -629,6 +858,7 @@ fn validate_graph(parsed: &mut ParsedProcess, locations: &SourceLocations) {
             .diagnostics
             .push(locations.diagnostic(0, DiagnosticKind::MultipleProcesses));
     }
+    resolve_compensation_handlers(parsed, locations);
 
     let starts: Vec<_> = parsed
         .nodes
@@ -683,8 +913,28 @@ fn validate_graph(parsed: &mut ParsedProcess, locations: &SourceLocations) {
     for (id, node) in &parsed.nodes {
         let outgoing_count = outgoing.get(id.as_str()).map_or(0, Vec::len);
         let incoming_count = incoming.get(id.as_str()).map_or(0, Vec::len);
+        if node.is_compensation_handler {
+            if outgoing_count != 0 || incoming_count != 0 {
+                parsed.diagnostics.push(
+                    locations.diagnostic(
+                        node.offset,
+                        DiagnosticKind::InvalidCompensation {
+                            activity_id: id.clone(),
+                            detail:
+                                "compensation handler must not be on the normal sequence-flow path"
+                                    .into(),
+                        },
+                    ),
+                );
+            }
+            continue;
+        }
         let invalid_outgoing = match node.kind {
             RawNodeKind::ExclusiveGateway => outgoing_count < 2,
+            RawNodeKind::InclusiveGateway | RawNodeKind::ParallelGateway => {
+                !((incoming_count == 1 && outgoing_count >= 2)
+                    || (incoming_count >= 2 && outgoing_count == 1))
+            }
             RawNodeKind::End => outgoing_count != 0,
             RawNodeKind::Start | RawNodeKind::ServiceTask | RawNodeKind::DecisionTask => {
                 outgoing_count != 1
@@ -699,8 +949,15 @@ fn validate_graph(parsed: &mut ParsedProcess, locations: &SourceLocations) {
                 },
             ));
         }
-        let expected_incoming = usize::from(node.kind != RawNodeKind::Start);
-        if incoming_count != expected_incoming {
+        let valid_incoming = match node.kind {
+            RawNodeKind::Start => incoming_count == 0,
+            RawNodeKind::InclusiveGateway | RawNodeKind::ParallelGateway => {
+                (incoming_count == 1 && outgoing_count >= 2)
+                    || (incoming_count >= 2 && outgoing_count == 1)
+            }
+            _ => incoming_count == 1,
+        };
+        if !valid_incoming {
             parsed.diagnostics.push(locations.diagnostic(
                 node.offset,
                 DiagnosticKind::InvalidIncomingCount {
@@ -728,21 +985,9 @@ fn validate_graph(parsed: &mut ParsedProcess, locations: &SourceLocations) {
             ));
         }
 
-        if let Some(process_sla) = parsed.process_sla_milliseconds
-            && let Some(node_sla) = node.sla_milliseconds
-            && node_sla > process_sla
+        if node.kind == RawNodeKind::ExclusiveGateway
+            || (node.kind == RawNodeKind::InclusiveGateway && outgoing_count >= 2)
         {
-            parsed.diagnostics.push(locations.diagnostic(
-                node.offset,
-                DiagnosticKind::SlaConflict {
-                    detail: format!(
-                        "activity {id} SLA {node_sla}ms exceeds process SLA {process_sla}ms"
-                    ),
-                },
-            ));
-        }
-
-        if node.kind == RawNodeKind::ExclusiveGateway {
             let outgoing_flows: Vec<_> = parsed
                 .flows
                 .iter()
@@ -780,9 +1025,15 @@ fn validate_graph(parsed: &mut ParsedProcess, locations: &SourceLocations) {
                 continue;
             }
             if default_count == 0 {
-                match analyze_gateway_coverage(&outgoing_flows, &node.enum_values) {
+                match analyze_gateway_coverage(
+                    &outgoing_flows,
+                    &node.enum_values,
+                    node.kind == RawNodeKind::InclusiveGateway,
+                ) {
                     Ok(_) => {}
-                    Err(CoverageError::Ambiguous(detail)) => {
+                    Err(CoverageError::Ambiguous(detail))
+                        if node.kind == RawNodeKind::ExclusiveGateway =>
+                    {
                         parsed.diagnostics.push(locations.diagnostic(
                             node.offset,
                             DiagnosticKind::AmbiguousGatewayCoverage {
@@ -791,6 +1042,7 @@ fn validate_graph(parsed: &mut ParsedProcess, locations: &SourceLocations) {
                             },
                         ));
                     }
+                    Err(CoverageError::Ambiguous(_)) => {}
                     Err(CoverageError::NonExhaustive(detail)) => {
                         parsed.diagnostics.push(locations.diagnostic(
                             node.offset,
@@ -806,24 +1058,8 @@ fn validate_graph(parsed: &mut ParsedProcess, locations: &SourceLocations) {
     }
 
     for flow in &parsed.flows {
-        let (Some(source), Some(target)) = (
-            parsed.nodes.get(&flow.source),
-            parsed.nodes.get(&flow.target),
-        ) else {
+        if !parsed.nodes.contains_key(&flow.source) || !parsed.nodes.contains_key(&flow.target) {
             continue;
-        };
-        if let (Some(actual), Some(expected)) = (&source.output_type, &target.input_type)
-            && actual != expected
-        {
-            parsed.diagnostics.push(locations.diagnostic(
-                flow.offset,
-                DiagnosticKind::DataContractMismatch {
-                    from: flow.source.clone(),
-                    to: flow.target.clone(),
-                    expected: expected.clone(),
-                    actual: actual.clone(),
-                },
-            ));
         }
         if let Some(condition) = &flow.condition
             && let Err(detail) = parse_guard(condition)
@@ -848,6 +1084,9 @@ fn validate_graph(parsed: &mut ParsedProcess, locations: &SourceLocations) {
             .collect();
         let can_reach_end = traverse_many(&ends, &incoming);
         for (id, node) in &parsed.nodes {
+            if node.is_compensation_handler {
+                continue;
+            }
             if !reachable.contains(id.as_str()) {
                 parsed.diagnostics.push(locations.diagnostic(
                     node.offset,
@@ -866,10 +1105,383 @@ fn validate_graph(parsed: &mut ParsedProcess, locations: &SourceLocations) {
             }
         }
     }
+    let mut data_diagnostics = Vec::new();
+    validate_data_flow_paths(parsed, locations, &mut data_diagnostics);
+    parsed.diagnostics.append(&mut data_diagnostics);
+    validate_gateway_structure(parsed, locations);
+    validate_sla_paths(parsed, locations);
+}
+
+fn validate_sla_paths(parsed: &mut ParsedProcess, locations: &SourceLocations) {
+    let Some(process_sla) = parsed.process_sla_milliseconds else {
+        return;
+    };
+    let normal_nodes = parsed
+        .nodes
+        .iter()
+        .filter(|(_, node)| !node.is_compensation_handler)
+        .map(|(id, node)| (id.clone(), node))
+        .collect::<BTreeMap<_, _>>();
+    let Some(start) = normal_nodes
+        .iter()
+        .find(|(_, node)| node.kind == RawNodeKind::Start)
+        .map(|(id, _)| id.clone())
+    else {
+        return;
+    };
+    let mut indegree = normal_nodes
+        .keys()
+        .map(|id| (id.clone(), 0_usize))
+        .collect::<BTreeMap<_, _>>();
+    let mut outgoing = BTreeMap::<String, Vec<String>>::new();
+    for flow in &parsed.flows {
+        if indegree.contains_key(&flow.source) && indegree.contains_key(&flow.target) {
+            outgoing
+                .entry(flow.source.clone())
+                .or_default()
+                .push(flow.target.clone());
+            *indegree.get_mut(&flow.target).expect("target was checked") += 1;
+        }
+    }
+    let mut pending = indegree
+        .iter()
+        .filter(|(_, count)| **count == 0)
+        .map(|(id, _)| id.clone())
+        .collect::<VecDeque<_>>();
+    let mut longest = BTreeMap::<String, (u64, Vec<String>)>::new();
+    longest.insert(
+        start.clone(),
+        (
+            normal_nodes[&start].sla_milliseconds.unwrap_or_default(),
+            vec![start],
+        ),
+    );
+    while let Some(node_id) = pending.pop_front() {
+        let current = longest.get(&node_id).cloned();
+        for target in outgoing.get(&node_id).into_iter().flatten() {
+            if let Some((sum, path)) = &current {
+                let candidate =
+                    sum.saturating_add(normal_nodes[target].sla_milliseconds.unwrap_or_default());
+                if longest
+                    .get(target)
+                    .is_none_or(|(known, _)| candidate > *known)
+                {
+                    let mut candidate_path = path.clone();
+                    candidate_path.push(target.clone());
+                    longest.insert(target.clone(), (candidate, candidate_path));
+                }
+            }
+            let count = indegree.get_mut(target).expect("target was checked");
+            *count -= 1;
+            if *count == 0 {
+                pending.push_back(target.clone());
+            }
+        }
+    }
+    let violation = normal_nodes
+        .iter()
+        .filter(|(_, node)| node.kind == RawNodeKind::End)
+        .filter_map(|(id, node)| {
+            longest
+                .get(id)
+                .filter(|(sum, _)| *sum > process_sla)
+                .map(|(sum, path)| (*sum, path.clone(), node.offset))
+        })
+        .max_by_key(|(sum, _, _)| *sum);
+    if let Some((sum, path, offset)) = violation {
+        parsed.diagnostics.push(locations.diagnostic(
+            offset,
+            DiagnosticKind::SlaConflict {
+                detail: format!(
+                    "path {} totals {sum}ms, exceeding process SLA {process_sla}ms",
+                    path.join(" -> ")
+                ),
+            },
+        ));
+    }
+}
+
+fn resolve_compensation_handlers(parsed: &mut ParsedProcess, locations: &SourceLocations) {
+    let boundaries = parsed
+        .boundary_events
+        .iter()
+        .filter(|boundary| boundary.is_compensation)
+        .cloned()
+        .collect::<Vec<_>>();
+    for boundary in boundaries {
+        let Some(activity) = parsed.nodes.get(&boundary.attached_to) else {
+            parsed.diagnostics.push(locations.diagnostic(
+                boundary.offset,
+                DiagnosticKind::UnresolvedReference {
+                    flow_id: boundary.id,
+                    missing_id: boundary.attached_to,
+                },
+            ));
+            continue;
+        };
+        let targets = parsed
+            .associations
+            .iter()
+            .filter(|association| association.source == boundary.id)
+            .collect::<Vec<_>>();
+        let Some(association) = targets.first() else {
+            parsed.diagnostics.push(locations.diagnostic(
+                activity.offset,
+                DiagnosticKind::MissingCompensation {
+                    activity_id: boundary.attached_to,
+                },
+            ));
+            continue;
+        };
+        if targets.len() > 1 {
+            parsed.diagnostics.push(locations.diagnostic(
+                association.offset,
+                DiagnosticKind::InvalidCompensation {
+                    activity_id: boundary.attached_to,
+                    detail: "compensation boundary must target exactly one handler".into(),
+                },
+            ));
+            continue;
+        }
+        let Some(handler) = parsed.nodes.get(&association.target) else {
+            parsed.diagnostics.push(locations.diagnostic(
+                association.offset,
+                DiagnosticKind::UnresolvedReference {
+                    flow_id: association.id.clone(),
+                    missing_id: association.target.clone(),
+                },
+            ));
+            continue;
+        };
+        if !handler.is_compensation_handler {
+            parsed.diagnostics.push(locations.diagnostic(
+                handler.offset,
+                DiagnosticKind::InvalidCompensation {
+                    activity_id: boundary.attached_to,
+                    detail: format!(
+                        "association target {} must declare isForCompensation=true",
+                        association.target
+                    ),
+                },
+            ));
+            continue;
+        }
+        if let Some(activity) = parsed.nodes.get_mut(&boundary.attached_to) {
+            activity.requires_compensation = true;
+            activity.compensation_handler_id = Some(association.target.clone());
+        }
+    }
 }
 
 fn traverse<'a>(start: &'a str, edges: &BTreeMap<&'a str, Vec<&'a str>>) -> BTreeSet<&'a str> {
     traverse_many(&[start], edges)
+}
+
+#[allow(clippy::too_many_lines)]
+fn validate_gateway_structure(parsed: &mut ParsedProcess, locations: &SourceLocations) {
+    let mut outgoing = BTreeMap::<String, Vec<String>>::new();
+    let mut incoming = BTreeMap::<String, Vec<String>>::new();
+    for flow in &parsed.flows {
+        outgoing
+            .entry(flow.source.clone())
+            .or_default()
+            .push(flow.target.clone());
+        incoming
+            .entry(flow.target.clone())
+            .or_default()
+            .push(flow.source.clone());
+    }
+    for flow in &parsed.flows {
+        if parsed.nodes.get(&flow.source).is_some_and(|node| {
+            node.kind == RawNodeKind::ParallelGateway
+                && outgoing
+                    .get(&flow.source)
+                    .is_some_and(|targets| targets.len() >= 2)
+        }) && (flow.condition.is_some() || flow.is_default)
+        {
+            parsed.diagnostics.push(locations.diagnostic(
+                flow.offset,
+                DiagnosticKind::InvalidGatewayFlow {
+                    gateway_id: flow.source.clone(),
+                    detail: "parallel split flows cannot declare guards or defaults".into(),
+                },
+            ));
+        }
+    }
+
+    if let Some(cycle_node) = first_cycle(&parsed.nodes, &outgoing) {
+        let offset = parsed.nodes.get(&cycle_node).map_or(0, |node| node.offset);
+        parsed.diagnostics.push(locations.diagnostic(
+            offset,
+            DiagnosticKind::UnexpectedCycle {
+                node_id: cycle_node,
+            },
+        ));
+        return;
+    }
+
+    let gateways = parsed
+        .nodes
+        .iter()
+        .filter(|(_, node)| {
+            matches!(
+                node.kind,
+                RawNodeKind::ParallelGateway | RawNodeKind::InclusiveGateway
+            )
+        })
+        .map(|(id, node)| (id.clone(), node.kind, node.offset))
+        .collect::<Vec<_>>();
+    let joins = gateways
+        .iter()
+        .filter(|(id, _, _)| incoming.get(id).map_or(0, Vec::len) >= 2)
+        .collect::<Vec<_>>();
+    let mut paired_joins = BTreeSet::new();
+
+    for (split_id, split_kind, split_offset) in gateways
+        .iter()
+        .filter(|(id, _, _)| outgoing.get(id).map_or(0, Vec::len) >= 2)
+    {
+        let branches = outgoing.get(split_id).map_or(&[][..], Vec::as_slice);
+        let mut candidates = joins
+            .iter()
+            .filter(|(_, join_kind, _)| join_kind == split_kind)
+            .filter_map(|(join_id, _, _)| {
+                let distances = branches
+                    .iter()
+                    .map(|branch| shortest_distance(branch, join_id, &outgoing))
+                    .collect::<Option<Vec<_>>>()?;
+                Some((
+                    distances.into_iter().max().unwrap_or_default(),
+                    (*join_id).clone(),
+                ))
+            })
+            .collect::<Vec<_>>();
+        candidates.sort_unstable();
+        let Some((_, join_id)) = candidates.first() else {
+            parsed.diagnostics.push(locations.diagnostic(
+                *split_offset,
+                DiagnosticKind::UnbalancedGateway {
+                    gateway_id: split_id.clone(),
+                    detail: "split has no reachable matching join".into(),
+                },
+            ));
+            continue;
+        };
+        if !branches
+            .iter()
+            .all(|branch| all_paths_reach_join(branch, join_id, &outgoing))
+        {
+            parsed.diagnostics.push(locations.diagnostic(
+                *split_offset,
+                DiagnosticKind::UnbalancedGateway {
+                    gateway_id: split_id.clone(),
+                    detail: format!("a branch can escape before paired join {join_id}"),
+                },
+            ));
+            continue;
+        }
+        if !paired_joins.insert(join_id.clone()) {
+            parsed.diagnostics.push(locations.diagnostic(
+                *split_offset,
+                DiagnosticKind::UnbalancedGateway {
+                    gateway_id: split_id.clone(),
+                    detail: format!("join {join_id} is paired with more than one split"),
+                },
+            ));
+            continue;
+        }
+        parsed
+            .gateway_pairs
+            .insert(split_id.clone(), join_id.clone());
+        parsed
+            .gateway_pairs
+            .insert(join_id.clone(), split_id.clone());
+    }
+
+    for (join_id, _, offset) in joins {
+        if !paired_joins.contains(join_id) {
+            parsed.diagnostics.push(locations.diagnostic(
+                *offset,
+                DiagnosticKind::UnbalancedGateway {
+                    gateway_id: join_id.clone(),
+                    detail: "join has no matching split".into(),
+                },
+            ));
+        }
+    }
+}
+
+fn shortest_distance(
+    start: &str,
+    target: &str,
+    outgoing: &BTreeMap<String, Vec<String>>,
+) -> Option<usize> {
+    let mut pending = VecDeque::from([(start, 0_usize)]);
+    let mut visited = BTreeSet::new();
+    while let Some((node, distance)) = pending.pop_front() {
+        if node == target {
+            return Some(distance);
+        }
+        if !visited.insert(node) {
+            continue;
+        }
+        if let Some(targets) = outgoing.get(node) {
+            pending.extend(targets.iter().map(|next| (next.as_str(), distance + 1)));
+        }
+    }
+    None
+}
+
+fn all_paths_reach_join(start: &str, join: &str, outgoing: &BTreeMap<String, Vec<String>>) -> bool {
+    let mut pending = vec![start];
+    let mut visited = BTreeSet::new();
+    while let Some(node) = pending.pop() {
+        if node == join || !visited.insert(node) {
+            continue;
+        }
+        let Some(targets) = outgoing.get(node).filter(|targets| !targets.is_empty()) else {
+            return false;
+        };
+        pending.extend(targets.iter().map(String::as_str));
+    }
+    true
+}
+
+fn first_cycle(
+    nodes: &BTreeMap<String, RawNode>,
+    outgoing: &BTreeMap<String, Vec<String>>,
+) -> Option<String> {
+    let mut indegree = nodes
+        .keys()
+        .map(|node| (node.clone(), 0_usize))
+        .collect::<BTreeMap<_, _>>();
+    for targets in outgoing.values() {
+        for target in targets {
+            if let Some(count) = indegree.get_mut(target) {
+                *count = count.saturating_add(1);
+            }
+        }
+    }
+    let mut ready = indegree
+        .iter()
+        .filter(|(_, count)| **count == 0)
+        .map(|(node, _)| node.clone())
+        .collect::<VecDeque<_>>();
+    while let Some(node) = ready.pop_front() {
+        if let Some(targets) = outgoing.get(&node) {
+            for target in targets {
+                let Some(count) = indegree.get_mut(target) else {
+                    continue;
+                };
+                *count -= 1;
+                if *count == 0 {
+                    ready.push_back(target.clone());
+                }
+            }
+        }
+        indegree.remove(&node);
+    }
+    indegree.into_keys().next()
 }
 
 fn validate_decision_references(
@@ -897,6 +1509,162 @@ fn validate_decision_references(
                     table_id: decision_ref.clone(),
                 },
             ));
+        }
+    }
+}
+
+fn enrich_decision_contracts(
+    parsed: &mut ParsedProcess,
+    decision_tables: &[DecisionTable],
+    locations: &SourceLocations,
+    diagnostics: &mut Vec<CompileDiagnostic>,
+) {
+    let tables = decision_tables
+        .iter()
+        .map(|table| (table.id.as_str(), table))
+        .collect::<BTreeMap<_, _>>();
+    for (node_id, node) in &mut parsed.nodes {
+        if node.kind != RawNodeKind::DecisionTask {
+            continue;
+        }
+        let Some(table) = node
+            .decision_ref
+            .as_deref()
+            .and_then(|decision_ref| tables.get(decision_ref).copied())
+        else {
+            continue;
+        };
+        if table.inputs.len() == 1 {
+            merge_inferred_contract(
+                node_id,
+                &mut node.input_type,
+                value_type_name(table.inputs[0].value_type),
+                "DMN input",
+                node.offset,
+                locations,
+                diagnostics,
+            );
+        }
+        if table.outputs.len() == 1 {
+            merge_inferred_contract(
+                node_id,
+                &mut node.output_type,
+                value_type_name(table.outputs[0].value_type),
+                "DMN output",
+                node.offset,
+                locations,
+                diagnostics,
+            );
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn merge_inferred_contract(
+    node_id: &str,
+    declared: &mut Option<String>,
+    inferred: Option<&'static str>,
+    boundary: &'static str,
+    offset: usize,
+    locations: &SourceLocations,
+    diagnostics: &mut Vec<CompileDiagnostic>,
+) {
+    let Some(inferred) = inferred else {
+        return;
+    };
+    if let Some(actual) = declared {
+        if !actual.eq_ignore_ascii_case(inferred) {
+            diagnostics.push(locations.diagnostic(
+                offset,
+                DiagnosticKind::DataContractMismatch {
+                    from: format!("{node_id} {boundary}"),
+                    to: node_id.to_owned(),
+                    expected: inferred.into(),
+                    actual: actual.clone(),
+                },
+            ));
+        }
+    } else {
+        *declared = Some(inferred.into());
+    }
+}
+
+fn value_type_name(value_type: i32) -> Option<&'static str> {
+    match ValueType::try_from(value_type).ok()? {
+        ValueType::Boolean => Some("boolean"),
+        ValueType::Integer => Some("integer"),
+        ValueType::String => Some("string"),
+        ValueType::Unspecified => None,
+    }
+}
+
+fn validate_data_flow_paths(
+    parsed: &ParsedProcess,
+    locations: &SourceLocations,
+    diagnostics: &mut Vec<CompileDiagnostic>,
+) {
+    let outgoing =
+        parsed
+            .flows
+            .iter()
+            .fold(BTreeMap::<&str, Vec<&str>>::new(), |mut graph, flow| {
+                graph
+                    .entry(flow.source.as_str())
+                    .or_default()
+                    .push(flow.target.as_str());
+                graph
+            });
+    let mut received = BTreeMap::<String, BTreeMap<String, String>>::new();
+    let mut pending = parsed
+        .nodes
+        .iter()
+        .filter(|(_, node)| !node.is_compensation_handler)
+        .map(|(id, _)| id.clone())
+        .collect::<VecDeque<_>>();
+    let mut mismatches = BTreeSet::new();
+    while let Some(node_id) = pending.pop_front() {
+        let Some(node) = parsed.nodes.get(&node_id) else {
+            continue;
+        };
+        let inputs = received.get(&node_id).cloned().unwrap_or_default();
+        if let Some(expected) = &node.input_type {
+            for (actual, origin) in &inputs {
+                if actual != expected
+                    && mismatches.insert((origin.clone(), node_id.clone(), actual.clone()))
+                {
+                    diagnostics.push(locations.diagnostic(
+                        node.offset,
+                        DiagnosticKind::DataContractMismatch {
+                            from: origin.clone(),
+                            to: node_id.clone(),
+                            expected: expected.clone(),
+                            actual: actual.clone(),
+                        },
+                    ));
+                }
+            }
+        }
+        let outputs = node.output_type.as_ref().map_or_else(
+            || {
+                if node.kind == RawNodeKind::DecisionTask {
+                    BTreeMap::new()
+                } else {
+                    inputs
+                }
+            },
+            |output| BTreeMap::from([(output.clone(), node_id.clone())]),
+        );
+        for target in outgoing.get(node_id.as_str()).into_iter().flatten() {
+            let target_inputs = received.entry((*target).to_owned()).or_default();
+            let mut changed = false;
+            for (value_type, origin) in &outputs {
+                changed |= target_inputs
+                    .insert(value_type.clone(), origin.clone())
+                    .is_none();
+            }
+            if changed {
+                pending.push_back((*target).to_owned());
+            }
         }
     }
 }
@@ -931,6 +1699,7 @@ enum CoverageError {
 fn analyze_gateway_coverage(
     outgoing_flows: &[&RawFlow],
     enum_values: &[String],
+    allow_overlap: bool,
 ) -> Result<CoverageProof, CoverageError> {
     let mut guards = Vec::with_capacity(outgoing_flows.len());
     for flow in outgoing_flows {
@@ -953,13 +1722,13 @@ fn analyze_gateway_coverage(
     }
     match guards[0].literal.as_ref() {
         Some(guard_expression::Literal::BooleanValue(_)) => {
-            analyze_boolean_coverage(variable, &guards)
+            analyze_boolean_coverage(variable, &guards, allow_overlap)
         }
         Some(guard_expression::Literal::StringValue(_)) => {
-            analyze_enum_coverage(variable, &guards, enum_values)
+            analyze_enum_coverage(variable, &guards, enum_values, allow_overlap)
         }
         Some(guard_expression::Literal::IntegerValue(_)) => {
-            analyze_integer_coverage(variable, &guards)
+            analyze_integer_coverage(variable, &guards, allow_overlap)
         }
         None => Err(CoverageError::NonExhaustive(
             "guard literal is missing".into(),
@@ -970,6 +1739,7 @@ fn analyze_gateway_coverage(
 fn analyze_boolean_coverage(
     variable: String,
     guards: &[GuardExpression],
+    allow_overlap: bool,
 ) -> Result<CoverageProof, CoverageError> {
     let mut covered = BTreeSet::new();
     for guard in guards {
@@ -988,7 +1758,7 @@ fn analyze_boolean_coverage(
             }
         };
         for value in values {
-            if !covered.insert(value) {
+            if !covered.insert(value) && !allow_overlap {
                 return Err(CoverageError::Ambiguous(format!(
                     "boolean value {value} is matched by more than one branch"
                 )));
@@ -1008,6 +1778,7 @@ fn analyze_enum_coverage(
     variable: String,
     guards: &[GuardExpression],
     enum_values: &[String],
+    allow_overlap: bool,
 ) -> Result<CoverageProof, CoverageError> {
     if enum_values.is_empty() {
         return Err(CoverageError::NonExhaustive(
@@ -1040,7 +1811,7 @@ fn analyze_enum_coverage(
                 "guard value {value} is outside gateway enumValues"
             )));
         }
-        if !covered.insert(value.clone()) {
+        if !covered.insert(value.clone()) && !allow_overlap {
             return Err(CoverageError::Ambiguous(format!(
                 "enum value {value} is matched by more than one branch"
             )));
@@ -1063,6 +1834,7 @@ fn analyze_enum_coverage(
 fn analyze_integer_coverage(
     variable: String,
     guards: &[GuardExpression],
+    allow_overlap: bool,
 ) -> Result<CoverageProof, CoverageError> {
     let mut intervals = Vec::new();
     for guard in guards {
@@ -1077,11 +1849,53 @@ fn analyze_integer_coverage(
             value,
         )?);
     }
-    validate_disjoint_integer_cover(&mut intervals)?;
+    if allow_overlap {
+        merge_and_validate_integer_cover(&mut intervals)?;
+    } else {
+        validate_disjoint_integer_cover(&mut intervals)?;
+    }
     Ok(CoverageProof::Integer {
         variable,
         intervals,
     })
+}
+
+fn merge_and_validate_integer_cover(
+    intervals: &mut Vec<CoverageInterval>,
+) -> Result<(), CoverageError> {
+    if intervals.is_empty() {
+        return Err(CoverageError::NonExhaustive(
+            "integer coverage has no intervals".into(),
+        ));
+    }
+    intervals.sort_unstable_by_key(|interval| (interval.lower.unwrap_or(i64::MIN), interval.upper));
+    let mut merged = Vec::<CoverageInterval>::new();
+    for interval in intervals.iter().copied() {
+        if let Some(last) = merged.last_mut() {
+            let overlaps_or_touches = match last.upper {
+                None | Some(i64::MAX) => true,
+                Some(upper) => interval
+                    .lower
+                    .is_none_or(|lower| lower <= upper.saturating_add(1)),
+            };
+            if overlaps_or_touches {
+                last.upper = match (last.upper, interval.upper) {
+                    (None, _) | (_, None) => None,
+                    (Some(left), Some(right)) => Some(left.max(right)),
+                };
+                continue;
+            }
+        }
+        merged.push(interval);
+    }
+    if merged.len() == 1 && merged[0].lower.is_none() && merged[0].upper.is_none() {
+        *intervals = merged;
+        Ok(())
+    } else {
+        Err(CoverageError::NonExhaustive(
+            "integer intervals do not cover the full domain".into(),
+        ))
+    }
 }
 
 fn integer_guard_intervals(
@@ -1211,6 +2025,7 @@ fn traverse_many<'a>(
     visited
 }
 
+#[allow(clippy::too_many_lines)]
 fn lower(
     parsed: ParsedProcess,
     tenant_id: &str,
@@ -1229,6 +2044,7 @@ fn lower(
     let nodes = parsed
         .nodes
         .into_iter()
+        .filter(|(_, node)| !node.is_compensation_handler)
         .map(|(id, raw)| {
             let kind = match raw.kind {
                 RawNodeKind::Start => node::Kind::Start(StartNode {
@@ -1255,7 +2071,7 @@ fn lower(
                     });
                     let coverage = (!has_default).then(|| {
                         coverage_to_wire(
-                            analyze_gateway_coverage(&outgoing_flows, &raw.enum_values)
+                            analyze_gateway_coverage(&outgoing_flows, &raw.enum_values, false)
                                 .expect("gateway coverage is validated before lowering"),
                         )
                     });
@@ -1279,6 +2095,78 @@ fn lower(
                     });
                     node::Kind::ExclusiveGateway(ExclusiveGatewayNode {
                         transitions,
+                        coverage,
+                    })
+                }
+                RawNodeKind::ParallelGateway => {
+                    let outgoing_flows = parsed
+                        .flows
+                        .iter()
+                        .filter(|flow| flow.source == id)
+                        .collect::<Vec<_>>();
+                    let is_split = outgoing_flows.len() >= 2;
+                    node::Kind::ParallelGateway(ParallelGatewayNode {
+                        direction: if is_split {
+                            GatewayDirection::Split.into()
+                        } else {
+                            GatewayDirection::Join.into()
+                        },
+                        target_node_ids: outgoing_flows
+                            .iter()
+                            .map(|flow| flow.target.clone())
+                            .collect(),
+                        paired_gateway_id: parsed.gateway_pairs[&id].clone(),
+                    })
+                }
+                RawNodeKind::InclusiveGateway => {
+                    let outgoing_flows = parsed
+                        .flows
+                        .iter()
+                        .filter(|flow| flow.source == id)
+                        .collect::<Vec<_>>();
+                    let is_split = outgoing_flows.len() >= 2;
+                    let has_default = outgoing_flows.iter().any(|flow| {
+                        flow.is_default || raw.default_flow_id.as_deref() == Some(flow.id.as_str())
+                    });
+                    let coverage = (is_split && !has_default).then(|| {
+                        coverage_to_wire(
+                            analyze_gateway_coverage(&outgoing_flows, &raw.enum_values, true)
+                                .expect("inclusive gateway coverage is validated before lowering"),
+                        )
+                    });
+                    let mut transitions = if is_split {
+                        outgoing_flows
+                            .iter()
+                            .map(|flow| ConditionalTransition {
+                                target_node_id: flow.target.clone(),
+                                condition: String::new(),
+                                is_default: flow.is_default
+                                    || raw.default_flow_id.as_deref() == Some(flow.id.as_str()),
+                                guard: flow.condition.as_deref().map(|condition| {
+                                    parse_guard(condition)
+                                        .expect("guard expressions are validated before lowering")
+                                }),
+                            })
+                            .collect::<Vec<_>>()
+                    } else {
+                        Vec::new()
+                    };
+                    transitions.sort_unstable_by(|left, right| {
+                        left.target_node_id.cmp(&right.target_node_id)
+                    });
+                    node::Kind::InclusiveGateway(InclusiveGatewayNode {
+                        direction: if is_split {
+                            GatewayDirection::Split.into()
+                        } else {
+                            GatewayDirection::Join.into()
+                        },
+                        transitions,
+                        next_node_id: if is_split {
+                            String::new()
+                        } else {
+                            outgoing_flows[0].target.clone()
+                        },
+                        paired_gateway_id: parsed.gateway_pairs[&id].clone(),
                         coverage,
                     })
                 }
@@ -1308,6 +2196,7 @@ fn lower(
         signature: Vec::new(),
         decision_tables: Vec::new(),
         tenant_id: tenant_id.to_owned(),
+        case_models: Vec::new(),
     }
 }
 
@@ -1399,6 +2288,248 @@ fn parse_guard_literal(source: &str) -> Result<guard_expression::Literal, String
             .map(guard_expression::Literal::IntegerValue)
             .map_err(|_| "literal must be a boolean, signed integer, or quoted string".into()),
     }
+}
+
+#[allow(clippy::too_many_lines)]
+fn parse_cmmn(
+    source: SourceDocument<'_>,
+    limits: CompilerLimits,
+    locations: &SourceLocations,
+) -> Result<Vec<CaseModel>, Vec<CompileDiagnostic>> {
+    let mut reader = NsReader::from_reader(source.bytes);
+    reader.config_mut().trim_text(true);
+    let decoder = reader.decoder();
+    let mut buffer = Vec::new();
+    let mut depth = 0_u32;
+    let mut previous_position = 0_usize;
+    let mut diagnostics = Vec::new();
+    let mut model = None::<CaseModel>;
+    let mut identifiers = BTreeSet::new();
+
+    loop {
+        let offset = next_tag_offset(source.bytes, previous_position);
+        match reader.read_resolved_event_into(&mut buffer) {
+            Ok((namespace, Event::Start(element))) => {
+                depth = depth.saturating_add(1);
+                if depth > limits.max_xml_depth {
+                    diagnostics.push(locations.diagnostic(
+                        offset,
+                        DiagnosticKind::XmlDepthExceeded {
+                            actual: depth,
+                            configured_limit: limits.max_xml_depth,
+                        },
+                    ));
+                }
+                inspect_cmmn_element(
+                    &namespace,
+                    &element,
+                    decoder,
+                    offset,
+                    &mut model,
+                    &mut identifiers,
+                    locations,
+                    &mut diagnostics,
+                );
+            }
+            Ok((namespace, Event::Empty(element))) => inspect_cmmn_element(
+                &namespace,
+                &element,
+                decoder,
+                offset,
+                &mut model,
+                &mut identifiers,
+                locations,
+                &mut diagnostics,
+            ),
+            Ok((_, Event::End(_))) => depth = depth.saturating_sub(1),
+            Ok((_, Event::DocType(_))) => diagnostics
+                .push(locations.diagnostic(offset, DiagnosticKind::ForbiddenDocumentType)),
+            Ok((_, Event::Eof)) => break,
+            Ok(_) => {}
+            Err(error) => {
+                diagnostics.push(locations.diagnostic(
+                    offset,
+                    DiagnosticKind::Xml {
+                        detail: error.to_string(),
+                    },
+                ));
+                break;
+            }
+        }
+        previous_position = usize::try_from(reader.buffer_position()).unwrap_or(source.bytes.len());
+        buffer.clear();
+    }
+
+    let Some(mut model) = model else {
+        diagnostics.push(locations.diagnostic(
+            0,
+            DiagnosticKind::InvalidCaseModel {
+                case_id: source.name.to_owned(),
+                detail: "CMMN document contains no case element".into(),
+            },
+        ));
+        return Err(diagnostics);
+    };
+    let sentry_ids = model
+        .sentries
+        .iter()
+        .map(|sentry| sentry.id.as_str())
+        .collect::<BTreeSet<_>>();
+    for (owner, sentry_ref) in model
+        .stages
+        .iter()
+        .flat_map(|stage| {
+            stage
+                .entry_sentry_ids
+                .iter()
+                .chain(&stage.exit_sentry_ids)
+                .map(move |reference| (stage.id.as_str(), reference.as_str()))
+        })
+        .chain(model.milestones.iter().flat_map(|milestone| {
+            milestone
+                .entry_sentry_ids
+                .iter()
+                .map(move |reference| (milestone.id.as_str(), reference.as_str()))
+        }))
+    {
+        if !sentry_ids.contains(sentry_ref) {
+            diagnostics.push(locations.diagnostic(
+                0,
+                DiagnosticKind::InvalidCaseModel {
+                    case_id: model.id.clone(),
+                    detail: format!("{owner} references missing sentry {sentry_ref}"),
+                },
+            ));
+        }
+    }
+    model
+        .stages
+        .sort_unstable_by(|left, right| left.id.cmp(&right.id));
+    model
+        .milestones
+        .sort_unstable_by(|left, right| left.id.cmp(&right.id));
+    model
+        .sentries
+        .sort_unstable_by(|left, right| left.id.cmp(&right.id));
+    if diagnostics.is_empty() {
+        Ok(vec![model])
+    } else {
+        Err(diagnostics)
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn inspect_cmmn_element(
+    namespace: &ResolveResult<'_>,
+    element: &BytesStart<'_>,
+    decoder: quick_xml::encoding::Decoder,
+    offset: usize,
+    model: &mut Option<CaseModel>,
+    identifiers: &mut BTreeSet<String>,
+    locations: &SourceLocations,
+    diagnostics: &mut Vec<CompileDiagnostic>,
+) {
+    let is_cmmn = matches!(namespace, ResolveResult::Bound(namespace) if CMMN_MODEL_NAMESPACES.contains(&namespace.as_ref()));
+    if !is_cmmn {
+        return;
+    }
+    let local_name = String::from_utf8_lossy(element.local_name().as_ref()).into_owned();
+    let id = || optional_non_empty_attribute(element, decoder, b"id");
+    let name = || optional_non_empty_attribute(element, decoder, b"name").unwrap_or_default();
+    match local_name.as_str() {
+        "case" => {
+            let Some(case_id) = id() else {
+                diagnostics.push(locations.diagnostic(
+                    offset,
+                    DiagnosticKind::MissingAttribute {
+                        element: "case".into(),
+                        attribute: "id",
+                    },
+                ));
+                return;
+            };
+            if model.is_some() {
+                diagnostics.push(locations.diagnostic(
+                    offset,
+                    DiagnosticKind::InvalidCaseModel {
+                        case_id,
+                        detail: "one CMMN source may contain exactly one case".into(),
+                    },
+                ));
+                return;
+            }
+            identifiers.insert(case_id.clone());
+            *model = Some(CaseModel {
+                id: case_id,
+                name: name(),
+                stages: Vec::new(),
+                milestones: Vec::new(),
+                sentries: Vec::new(),
+            });
+        }
+        "stage" | "milestone" | "sentry" => {
+            let Some(item_id) = id() else {
+                diagnostics.push(locations.diagnostic(
+                    offset,
+                    DiagnosticKind::MissingAttribute {
+                        element: local_name,
+                        attribute: "id",
+                    },
+                ));
+                return;
+            };
+            if !identifiers.insert(item_id.clone()) {
+                diagnostics.push(
+                    locations.diagnostic(offset, DiagnosticKind::DuplicateId { id: item_id }),
+                );
+                return;
+            }
+            let Some(model) = model.as_mut() else {
+                diagnostics.push(locations.diagnostic(
+                    offset,
+                    DiagnosticKind::InvalidCaseModel {
+                        case_id: "<unknown>".into(),
+                        detail: format!("{local_name} appears before case"),
+                    },
+                ));
+                return;
+            };
+            let refs = |attribute| {
+                optional_non_empty_attribute(element, decoder, attribute)
+                    .map(|value| split_references(&value))
+                    .unwrap_or_default()
+            };
+            match local_name.as_str() {
+                "stage" => model.stages.push(CaseStage {
+                    id: item_id,
+                    name: name(),
+                    entry_sentry_ids: refs(b"entrySentryRefs"),
+                    exit_sentry_ids: refs(b"exitSentryRefs"),
+                }),
+                "milestone" => model.milestones.push(CaseMilestone {
+                    id: item_id,
+                    name: name(),
+                    entry_sentry_ids: refs(b"entrySentryRefs"),
+                }),
+                "sentry" => model.sentries.push(CaseSentry {
+                    id: item_id,
+                    condition: optional_non_empty_attribute(element, decoder, b"condition")
+                        .unwrap_or_default(),
+                }),
+                _ => unreachable!(),
+            }
+        }
+        _ => {}
+    }
+}
+
+fn split_references(value: &str) -> Vec<String> {
+    value
+        .split([',', ' '])
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 #[allow(clippy::too_many_lines)]

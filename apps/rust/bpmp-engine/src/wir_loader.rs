@@ -1,7 +1,7 @@
 use bpmp_contracts::wir::v1::{
-    ComparisonOperator as WireComparisonOperator, HitPolicy as WireHitPolicy,
-    ValueType as WireValueType, WorkflowIntermediateRepresentation, guard_expression, node,
-    unary_test, workflow_literal,
+    ComparisonOperator as WireComparisonOperator, GatewayDirection as WireGatewayDirection,
+    HitPolicy as WireHitPolicy, ValueType as WireValueType, WorkflowIntermediateRepresentation,
+    guard_expression, node, unary_test, workflow_literal,
 };
 use bpmp_contracts::{ArtifactError, WirArtifactVerifier, WirCodec};
 use bpmp_domain_core::{
@@ -30,6 +30,7 @@ impl WirLoader {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn map_definition(
     wir: WorkflowIntermediateRepresentation,
 ) -> Result<WorkflowDefinition, WirLoadError> {
@@ -89,6 +90,77 @@ fn map_definition(
                     .collect::<Result<_, _>>()?,
                 coverage: gateway.coverage.map(map_coverage).transpose()?,
             },
+            node::Kind::ParallelGateway(gateway) => {
+                let paired = node_id_value(
+                    gateway.paired_gateway_id,
+                    "parallel_gateway.paired_gateway_id",
+                )?;
+                match WireGatewayDirection::try_from(gateway.direction) {
+                    Ok(WireGatewayDirection::Split) => Node::ParallelSplit {
+                        targets: gateway
+                            .target_node_ids
+                            .into_iter()
+                            .map(|target| node_id_value(target, "parallel_gateway.target_node_ids"))
+                            .collect::<Result<_, _>>()?,
+                        join: paired,
+                    },
+                    Ok(WireGatewayDirection::Join) if gateway.target_node_ids.len() == 1 => {
+                        Node::ParallelJoin {
+                            split: paired,
+                            next: node_id_value(
+                                gateway.target_node_ids[0].clone(),
+                                "parallel_gateway.target_node_ids",
+                            )?,
+                        }
+                    }
+                    Ok(WireGatewayDirection::Join) => {
+                        return Err(WirLoadError::InvalidGatewayShape(
+                            "parallel join must have exactly one target",
+                        ));
+                    }
+                    Ok(WireGatewayDirection::Unspecified) | Err(_) => {
+                        return Err(WirLoadError::InvalidGatewayDirection(gateway.direction));
+                    }
+                }
+            }
+            node::Kind::InclusiveGateway(gateway) => {
+                let paired = node_id_value(
+                    gateway.paired_gateway_id,
+                    "inclusive_gateway.paired_gateway_id",
+                )?;
+                match WireGatewayDirection::try_from(gateway.direction) {
+                    Ok(WireGatewayDirection::Split) => Node::InclusiveSplit {
+                        transitions: gateway
+                            .transitions
+                            .into_iter()
+                            .map(map_transition)
+                            .collect::<Result<_, _>>()?,
+                        coverage: gateway.coverage.map(map_coverage).transpose()?,
+                        join: paired,
+                    },
+                    Ok(WireGatewayDirection::Join)
+                        if gateway.transitions.is_empty()
+                            && gateway.coverage.is_none()
+                            && !gateway.next_node_id.is_empty() =>
+                    {
+                        Node::InclusiveJoin {
+                            split: paired,
+                            next: node_id_value(
+                                gateway.next_node_id,
+                                "inclusive_gateway.next_node_id",
+                            )?,
+                        }
+                    }
+                    Ok(WireGatewayDirection::Join) => {
+                        return Err(WirLoadError::InvalidGatewayShape(
+                            "inclusive join must have one next node and no split transitions",
+                        ));
+                    }
+                    Ok(WireGatewayDirection::Unspecified) | Err(_) => {
+                        return Err(WirLoadError::InvalidGatewayDirection(gateway.direction));
+                    }
+                }
+            }
         };
         nodes.push((node_id, kind));
     }
@@ -338,6 +410,10 @@ pub enum WirLoadError {
     InvalidCoverageValueType(i32),
     #[error("gateway coverage is invalid: {0}")]
     InvalidCoverage(&'static str),
+    #[error("gateway direction tag {0} is invalid")]
+    InvalidGatewayDirection(i32),
+    #[error("gateway shape is invalid: {0}")]
+    InvalidGatewayShape(&'static str),
     #[error("decision table hit policy tag {0} is invalid")]
     InvalidHitPolicy(i32),
     #[error("decision table hit policy {0} is not supported by this engine phase")]

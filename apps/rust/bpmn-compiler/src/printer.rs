@@ -1,5 +1,5 @@
 use bpmp_contracts::wir::v1::{
-    ComparisonOperator, GatewayCoverage, GuardExpression, ValueType,
+    ComparisonOperator, GatewayCoverage, GatewayDirection, GuardExpression, ValueType,
     WorkflowIntermediateRepresentation, guard_expression, node,
 };
 use quick_xml::Writer;
@@ -8,6 +8,7 @@ use thiserror::Error;
 
 const BPMN_MODEL_NAMESPACE: &str = "http://www.omg.org/spec/BPMN/20100524/MODEL";
 
+#[allow(clippy::too_many_lines)]
 pub(crate) fn print_canonical(
     wir: &WorkflowIntermediateRepresentation,
 ) -> Result<String, PrintError> {
@@ -72,6 +73,49 @@ pub(crate) fn print_canonical(
                         condition,
                         transition.is_default,
                     ));
+                }
+            }
+            node::Kind::ParallelGateway(gateway) => {
+                write_node(&mut writer, "bpmn:parallelGateway", node, None, None, None)?;
+                match GatewayDirection::try_from(gateway.direction) {
+                    Ok(GatewayDirection::Split | GatewayDirection::Join) => {
+                        for target in &gateway.target_node_ids {
+                            flows.push((node.id.as_str(), target.as_str(), None, false));
+                        }
+                    }
+                    Ok(GatewayDirection::Unspecified) | Err(_) => {
+                        return Err(PrintError::InvalidGatewayDirection(gateway.direction));
+                    }
+                }
+            }
+            node::Kind::InclusiveGateway(gateway) => {
+                write_node(
+                    &mut writer,
+                    "bpmn:inclusiveGateway",
+                    node,
+                    None,
+                    None,
+                    enum_values(gateway.coverage.as_ref()),
+                )?;
+                match GatewayDirection::try_from(gateway.direction) {
+                    Ok(GatewayDirection::Split) => {
+                        for transition in &gateway.transitions {
+                            let condition =
+                                transition.guard.as_ref().map(render_guard).transpose()?;
+                            flows.push((
+                                node.id.as_str(),
+                                transition.target_node_id.as_str(),
+                                condition,
+                                transition.is_default,
+                            ));
+                        }
+                    }
+                    Ok(GatewayDirection::Join) => {
+                        flows.push((node.id.as_str(), gateway.next_node_id.as_str(), None, false));
+                    }
+                    Ok(GatewayDirection::Unspecified) | Err(_) => {
+                        return Err(PrintError::InvalidGatewayDirection(gateway.direction));
+                    }
                 }
             }
             node::Kind::End(_) => {
@@ -178,6 +222,8 @@ pub enum PrintError {
     MissingNodeKind(String),
     #[error("gateway guard has unsupported comparison operator tag {0}")]
     InvalidGuardOperator(i32),
+    #[error("gateway has unsupported direction tag {0}")]
+    InvalidGatewayDirection(i32),
     #[error("gateway guard has no literal")]
     MissingGuardLiteral,
     #[error("failed to write canonical BPMN: {0}")]

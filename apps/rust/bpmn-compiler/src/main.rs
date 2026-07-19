@@ -19,10 +19,14 @@ struct Arguments {
     input: PathBuf,
     #[arg(long, action = ArgAction::Append)]
     dmn: Vec<PathBuf>,
+    #[arg(long, action = ArgAction::Append)]
+    cmmn: Vec<PathBuf>,
     #[arg(long)]
     tenant_id: String,
     #[arg(long)]
     output: PathBuf,
+    #[arg(long)]
+    rust_output: Option<PathBuf>,
     #[arg(long)]
     workflow_version: String,
     #[arg(long)]
@@ -62,22 +66,42 @@ fn run(arguments: &Arguments) -> Result<(), CliError> {
                 .map(|bytes| (path.to_string_lossy().into_owned(), bytes))
         })
         .collect::<Result<Vec<_>, _>>()?;
+    let cmmn_inputs = arguments
+        .cmmn
+        .iter()
+        .map(|path| {
+            read_bounded(path, arguments.max_input_bytes)
+                .map(|bytes| (path.to_string_lossy().into_owned(), bytes))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let signing_key = read_exact_key(&arguments.signing_key)?;
     let dmn_sources = dmn_inputs
         .iter()
         .map(|(name, bytes)| SourceDocument { name, bytes })
         .collect::<Vec<_>>();
-    let wir = BpmnCompiler::new(limits)
-        .compile_with_decisions(
+    let cmmn_sources = cmmn_inputs
+        .iter()
+        .map(|(name, bytes)| SourceDocument { name, bytes })
+        .collect::<Vec<_>>();
+    let compiler = BpmnCompiler::new(limits);
+    let wir = compiler
+        .compile_with_models(
             SourceDocument {
                 name: &arguments.input.to_string_lossy(),
                 bytes: &input,
             },
             &dmn_sources,
+            &cmmn_sources,
             &arguments.tenant_id,
             &arguments.workflow_version,
         )
         .map_err(CliError::Compile)?;
+    if let Some(rust_output) = &arguments.rust_output {
+        let generated = compiler
+            .generate_rust(&wir)
+            .map_err(|error| CliError::Codegen(error.to_string()))?;
+        write_atomically(rust_output, generated.as_bytes())?;
+    }
     let artifact = WirCodec::seal(wir, &Ed25519Signer::from_bytes(&signing_key))
         .map_err(|error| CliError::Artifact(error.to_string()))?;
     write_atomically(&arguments.output, &artifact)
@@ -168,6 +192,8 @@ enum CliError {
     SigningKeyLength,
     #[error("WIR artifact sealing failed: {0}")]
     Artifact(String),
+    #[error("Rust state-machine generation failed: {0}")]
+    Codegen(String),
     #[error("BPMN compilation failed")]
     Compile(Vec<bpmn_compiler::CompileDiagnostic>),
 }
