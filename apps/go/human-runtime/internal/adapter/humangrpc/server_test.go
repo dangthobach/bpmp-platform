@@ -25,6 +25,9 @@ func (q testQuery) ListWorkItems(context.Context, string, string, []string, int,
 func (testQuery) GetCase(context.Context, string, string) (application.CaseView, error) {
 	return application.CaseView{}, errors.New("not found")
 }
+func (testQuery) ListAuditRecords(context.Context, string, string, string, int, *application.AuditCursor) ([]application.AuditRecord, *application.AuditCursor, error) {
+	return nil, nil, nil
+}
 
 type testVerifier struct {
 	tenant string
@@ -123,6 +126,18 @@ func TestMissingProofIsUnauthenticated(t *testing.T) {
 	_, err := server.GetWorkItem(context.Background(), &humanv1.GetWorkItemRequest{TenantId: "tenant-a", WorkItemId: "work-1"})
 	if status.Code(err) != codes.Unauthenticated {
 		t.Fatalf("expected unauthenticated, got %v", err)
+	}
+}
+
+func TestAuditQueryRequiresExplicitCapability(t *testing.T) {
+	item := domain.WorkItem{Assignment: domain.Assignment{AssigneeID: "alice"}}
+	store := &testStore{item: item}
+	service, _ := application.NewService(store, &testEngine{})
+	verifier := &testVerifier{actor: application.ActorIdentity{ActorID: "alice", Groups: map[string]struct{}{}}}
+	server, _ := New(service, testQuery{item: item}, verifier, time.Now)
+	_, err := server.ListAuditRecords(context.Background(), &humanv1.ListAuditRecordsRequest{TenantId: "tenant-a", ActorProof: originalJWT("signed")})
+	if status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("expected permission denied, got %v", err)
 	}
 }
 

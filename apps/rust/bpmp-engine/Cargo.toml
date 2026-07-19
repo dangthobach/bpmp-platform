@@ -20,6 +20,7 @@ tonic.workspace = true
 [dev-dependencies]
 proptest.workspace = true
 tokio.workspace = true
+tokio-stream.workspace = true
 
 [lints]
 workspace = true

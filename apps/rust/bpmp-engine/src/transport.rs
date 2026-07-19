@@ -20,6 +20,11 @@ use crate::{
 };
 
 pub trait CommandDefinitionProviderPort: Send + Sync {
+    /// Resolves the exact tenant/workflow definition requested by the command.
+    ///
+    /// # Errors
+    ///
+    /// Returns an adapter-safe description when the definition is unavailable.
     fn resolve(
         &self,
         tenant_id: &TenantId,
@@ -29,6 +34,11 @@ pub trait CommandDefinitionProviderPort: Send + Sync {
 }
 
 pub trait EngineCommandHandlerPort: Send + Sync + 'static {
+    /// Validates and executes one versioned engine command envelope.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TransportError`] before mutation on invalid scope or failed execution.
     fn handle(&self, envelope: CommandEnvelope) -> Result<CommandReceipt, TransportError>;
 }
 
@@ -61,7 +71,11 @@ where
         let scope = parse_scope(&envelope)?;
         let definition = self
             .definitions
-            .resolve(&scope.tenant_id, &scope.workflow_type, &scope.workflow_version)
+            .resolve(
+                &scope.tenant_id,
+                &scope.workflow_type,
+                &scope.workflow_version,
+            )
             .map_err(TransportError::Definition)?;
         if definition.tenant_id != scope.tenant_id
             || definition.workflow_type != scope.workflow_type
@@ -70,7 +84,7 @@ where
             return Err(TransportError::DefinitionScopeMismatch);
         }
         let command_id = envelope.command_id.clone();
-        let request = map_authorized_command(envelope, &definition, scope)?;
+        let request = map_authorized_command(&envelope, &definition, scope)?;
         let outcome = self
             .engine
             .handle(&definition, request)
@@ -92,6 +106,33 @@ pub struct GrpcEngineCommandService<H> {
     handler: Arc<H>,
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct GrpcTransportConfig {
+    pub max_decoding_message_bytes: usize,
+    pub max_encoding_message_bytes: usize,
+}
+
+impl GrpcTransportConfig {
+    /// Creates explicit inbound and outbound gRPC payload bounds.
+    ///
+    /// # Errors
+    ///
+    /// Rejects zero-sized limits.
+    pub const fn new(
+        max_decoding_message_bytes: usize,
+        max_encoding_message_bytes: usize,
+    ) -> Result<Self, TransportError> {
+        if max_decoding_message_bytes == 0 || max_encoding_message_bytes == 0 {
+            Err(TransportError::InvalidTransportConfiguration)
+        } else {
+            Ok(Self {
+                max_decoding_message_bytes,
+                max_encoding_message_bytes,
+            })
+        }
+    }
+}
+
 impl<H> GrpcEngineCommandService<H> {
     pub fn new(handler: H) -> Self {
         Self {
@@ -99,11 +140,13 @@ impl<H> GrpcEngineCommandService<H> {
         }
     }
 
-    pub fn into_server(self) -> EngineCommandServiceServer<Self>
+    pub fn into_server(self, config: GrpcTransportConfig) -> EngineCommandServiceServer<Self>
     where
         H: EngineCommandHandlerPort,
     {
         EngineCommandServiceServer::new(self)
+            .max_decoding_message_size(config.max_decoding_message_bytes)
+            .max_encoding_message_size(config.max_encoding_message_bytes)
     }
 }
 
@@ -140,23 +183,27 @@ fn parse_scope(envelope: &CommandEnvelope) -> Result<CommandScope, TransportErro
 }
 
 fn map_authorized_command(
-    envelope: CommandEnvelope,
+    envelope: &CommandEnvelope,
     definition: &WorkflowDefinition,
     scope: CommandScope,
 ) -> Result<AuthorizedCommand, TransportError> {
     if envelope.occurred_at_epoch_ms == 0 {
         return Err(TransportError::InvalidField("occurred_at_epoch_ms"));
     }
-    let instance_id = InstanceId::new(envelope.instance_id.clone()).map_err(invalid("instance_id"))?;
+    let instance_id =
+        InstanceId::new(envelope.instance_id.clone()).map_err(invalid("instance_id"))?;
     let command_id = CommandId::new(envelope.command_id.clone()).map_err(invalid("command_id"))?;
     let idempotency_key = IdempotencyKey::new(envelope.idempotency_key.clone())
         .map_err(invalid("idempotency_key"))?;
-    let correlation_id = CorrelationId::new(envelope.correlation_id.clone())
-        .map_err(invalid("correlation_id"))?;
+    let correlation_id =
+        CorrelationId::new(envelope.correlation_id.clone()).map_err(invalid("correlation_id"))?;
     let encryption_key_scope = KeyScope::new(envelope.encryption_key_scope.clone())
         .map_err(invalid("encryption_key_scope"))?;
     let command = map_command(
-        envelope.command.as_ref().ok_or(TransportError::MissingCommand)?,
+        envelope
+            .command
+            .as_ref()
+            .ok_or(TransportError::MissingCommand)?,
         &scope.tenant_id,
         envelope.occurred_at_epoch_ms,
     )?;
@@ -264,9 +311,9 @@ fn command_resource<'a>(
         Command::CompleteMultiInstanceIteration { node_id, .. } => {
             (node_id.as_str(), "COMPLETE_MULTI_INSTANCE_ITERATION")
         }
-        Command::TriggerBoundaryEvent { boundary_event_id, .. } => {
-            (boundary_event_id.as_str(), "TRIGGER_BOUNDARY_EVENT")
-        }
+        Command::TriggerBoundaryEvent {
+            boundary_event_id, ..
+        } => (boundary_event_id.as_str(), "TRIGGER_BOUNDARY_EVENT"),
     }
 }
 
@@ -300,6 +347,8 @@ pub enum TransportError {
     Definition(String),
     #[error("resolved workflow definition scope does not match the command")]
     DefinitionScopeMismatch,
+    #[error("gRPC transport message limits must be greater than zero")]
+    InvalidTransportConfiguration,
     #[error(transparent)]
     Engine(EngineError),
 }
@@ -315,6 +364,157 @@ impl From<TransportError> for Status {
                 Self::failed_precondition(error.to_string())
             }
             _ => Self::invalid_argument(error.to_string()),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bpmp_authz_contracts::authorization::v1::{
+        ActorProof, ActorProofType, AuthorizationContext, TransitionResource, WorkloadProof,
+    };
+    use bpmp_contracts::engine::v1::engine_command_service_client::EngineCommandServiceClient;
+    use bpmp_contracts::engine::v1::{CompleteUserTask, command_envelope};
+    use bpmp_domain_core::{Node, TaskType};
+    use tokio::net::TcpListener;
+    use tokio::sync::oneshot;
+    use tokio_stream::wrappers::TcpListenerStream;
+    use tonic::transport::Server;
+
+    use super::*;
+
+    struct ReceiptHandler;
+
+    impl EngineCommandHandlerPort for ReceiptHandler {
+        fn handle(&self, envelope: CommandEnvelope) -> Result<CommandReceipt, TransportError> {
+            Ok(CommandReceipt {
+                command_id: envelope.command_id,
+                committed_sequence: 7,
+                duplicate: false,
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn tonic_server_accepts_generated_client_requests() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        let server = tokio::spawn(async move {
+            Server::builder()
+                .add_service(
+                    GrpcEngineCommandService::new(ReceiptHandler)
+                        .into_server(GrpcTransportConfig::new(64 * 1024, 64 * 1024).unwrap()),
+                )
+                .serve_with_incoming_shutdown(TcpListenerStream::new(listener), async {
+                    let _ = shutdown_rx.await;
+                })
+                .await
+        });
+        let mut client = EngineCommandServiceClient::connect(format!("http://{address}"))
+            .await
+            .unwrap();
+        let response = client
+            .handle_command(valid_envelope())
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(response.command_id, "command-1");
+        assert_eq!(response.committed_sequence, 7);
+        let _ = shutdown_tx.send(());
+        server.await.unwrap().unwrap();
+    }
+
+    #[test]
+    fn wire_scope_mismatch_fails_before_engine_execution() {
+        let definition = definition();
+        let mut envelope = valid_envelope();
+        envelope
+            .authorization_context
+            .as_mut()
+            .unwrap()
+            .resource
+            .as_mut()
+            .unwrap()
+            .active_node_id = "other-node".into();
+        let scope = parse_scope(&envelope).unwrap();
+        assert!(matches!(
+            map_authorized_command(&envelope, &definition, scope),
+            Err(TransportError::AuthorizationScopeMismatch)
+        ));
+    }
+
+    fn definition() -> WorkflowDefinition {
+        let start = NodeId::new("start").unwrap();
+        let review = NodeId::new("review").unwrap();
+        let end = NodeId::new("end").unwrap();
+        WorkflowDefinition::new(
+            TenantId::new("tenant-a").unwrap(),
+            WorkflowType::new("approval").unwrap(),
+            WorkflowVersion::new("1").unwrap(),
+            start.clone(),
+            [
+                (
+                    start,
+                    Node::Start {
+                        next: review.clone(),
+                    },
+                ),
+                (
+                    review,
+                    Node::UserTask {
+                        task_type: TaskType::new("review").unwrap(),
+                        assignment_policy_ref: "reviewers".into(),
+                        form_key: None,
+                        result_variable: "decision".into(),
+                        next: end.clone(),
+                    },
+                ),
+                (end, Node::End),
+            ],
+        )
+        .unwrap()
+    }
+
+    fn valid_envelope() -> CommandEnvelope {
+        CommandEnvelope {
+            tenant_id: "tenant-a".into(),
+            instance_id: "instance-1".into(),
+            command_id: "command-1".into(),
+            idempotency_key: "command-1".into(),
+            correlation_id: "correlation-1".into(),
+            actor_id: "alice".into(),
+            workflow_type: "approval".into(),
+            workflow_version: "1".into(),
+            occurred_at_epoch_ms: 1_000,
+            command: Some(command_envelope::Command::CompleteUserTask(
+                CompleteUserTask {
+                    node_id: "review".into(),
+                    decision: "approved".into(),
+                },
+            )),
+            encryption_key_scope: "tenant-a/operational".into(),
+            authorization_context: Some(AuthorizationContext {
+                tenant_id: "tenant-a".into(),
+                command_id: "command-1".into(),
+                correlation_id: "correlation-1".into(),
+                evaluated_at_epoch_ms: 1_000,
+                actor_proof: Some(ActorProof {
+                    r#type: ActorProofType::SignedInternalContext.into(),
+                    signed_proof: vec![1],
+                }),
+                workload_proof: Some(WorkloadProof {
+                    signed_proof: vec![2],
+                }),
+                resource: Some(TransitionResource {
+                    workflow_type: "approval".into(),
+                    workflow_version: "1".into(),
+                    instance_id: "instance-1".into(),
+                    active_node_id: "review".into(),
+                    action: "COMPLETE_USER_TASK".into(),
+                    resource_attributes_digest: Vec::new(),
+                }),
+            }),
         }
     }
 }

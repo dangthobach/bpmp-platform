@@ -9,8 +9,9 @@ use bpmp_domain_core::{
 use thiserror::Error;
 
 use crate::ports::{
-    ActorProofKind, AuthorizationError, AuthorizationProviderPort, AuthorizationRequest, CommitOutcome,
-    CommitRequest, ConfigurationLookup, ConfigurationProviderPort, StoreError, WorkflowStorePort,
+    ActorProofKind, AuthorizationError, AuthorizationProviderPort, AuthorizationRequest,
+    CommitOutcome, CommitRequest, ConfigurationLookup, ConfigurationProviderPort, StoreError,
+    WorkflowStorePort,
 };
 
 /// Immutable wire-contract version for `bpmp.engine.v1.EventEnvelope`.

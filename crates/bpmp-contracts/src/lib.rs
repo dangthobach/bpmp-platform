@@ -10,7 +10,11 @@ pub mod configuration {
 }
 
 pub mod engine {
-    #[allow(clippy::doc_markdown)]
+    #[allow(
+        clippy::default_trait_access,
+        clippy::doc_markdown,
+        clippy::missing_errors_doc
+    )]
     pub mod v1 {
         include!(concat!(env!("OUT_DIR"), "/bpmp.engine.v1.rs"));
     }

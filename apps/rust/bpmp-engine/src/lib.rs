@@ -36,13 +36,13 @@ pub use outbox::{
     OutboxRecord, OutboxStorePort, PublishAcknowledgement, PublishBatchOutcome, RetryDelayPort,
 };
 pub use ports::{
-    ActorProofKind, AuthorizationError, AuthorizationProviderPort, AuthorizationRequest, AuthorizedPrincipal,
-    CommitOutcome, CommitRequest, ConfigurationLookup, ConfigurationProviderPort, LoadedInstance,
-    StoreError, WorkflowStorePort,
+    ActorProofKind, AuthorizationError, AuthorizationProviderPort, AuthorizationRequest,
+    AuthorizedPrincipal, CommitOutcome, CommitRequest, ConfigurationLookup,
+    ConfigurationProviderPort, LoadedInstance, StoreError, WorkflowStorePort,
 };
 pub use snapshot_codec::{SNAPSHOT_SCHEMA_VERSION, SnapshotCodec, SnapshotCodecError};
 pub use transport::{
     AuthoritativeCommandHandler, CommandDefinitionProviderPort, EngineCommandHandlerPort,
-    GrpcEngineCommandService, TransportError,
+    GrpcEngineCommandService, GrpcTransportConfig, TransportError,
 };
 pub use wir_loader::{WirLoadError, WirLoader};

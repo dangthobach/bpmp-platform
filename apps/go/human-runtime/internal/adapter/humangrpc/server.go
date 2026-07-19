@@ -109,6 +109,34 @@ func (s *Server) GetCase(ctx context.Context, r *humanv1.GetCaseRequest) (*human
 	return &humanv1.GetCaseResponse{Case: &humanv1.CaseView{TenantId: view.Case.TenantID, CaseId: view.Case.ID, CaseType: view.Case.CaseType, Status: string(view.Case.Status), PlanItems: items, Version: view.Case.Version}}, nil
 }
 
+func (s *Server) ListAuditRecords(ctx context.Context, r *humanv1.ListAuditRecordsRequest) (*humanv1.ListAuditRecordsResponse, error) {
+	_, identity, err := s.verify(ctx, r.GetTenantId(), "", r.GetActorProof(), s.now())
+	if err != nil {
+		return nil, err
+	}
+	if _, allowed := identity.Capabilities["audit.read"]; !allowed {
+		return nil, status.Error(codes.PermissionDenied, "actor lacks audit.read capability")
+	}
+	cursor, err := decodeAuditCursor(r.GetPageToken())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid audit page token")
+	}
+	records, next, err := s.query.ListAuditRecords(ctx, r.GetTenantId(), r.GetWorkItemId(), r.GetCaseId(), int(r.GetPageSize()), cursor)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "query audit records")
+	}
+	out := make([]*humanv1.AuditRecord, 0, len(records))
+	for _, record := range records {
+		out = append(out, &humanv1.AuditRecord{
+			AuditId: record.AuditID, WorkItemId: record.WorkItemID, CaseId: record.CaseID,
+			ActorId: record.ActorID, Action: record.Action, OccurredAtEpochMs: uint64(record.OccurredAt.UnixMilli()),
+			CommandId: record.CommandID, CorrelationId: record.CorrelationID, FromVersion: record.FromVersion,
+			ToVersion: record.ToVersion, DetailsJson: append([]byte(nil), record.DetailsJSON...),
+		})
+	}
+	return &humanv1.ListAuditRecordsResponse{Records: out, NextPageToken: encodeAuditCursor(next)}, nil
+}
+
 func (s *Server) verify(ctx context.Context, tenantID, commandID string, proof *authv1.ActorProof, evaluatedAt time.Time) (application.ActorCredential, application.ActorIdentity, error) {
 	credential, err := credentialFromProof(proof)
 	if err != nil {
@@ -179,6 +207,32 @@ func decodeCursor(value string) (*application.PageCursor, error) {
 		return nil, errors.New("empty cursor")
 	}
 	return &c, nil
+}
+
+func encodeAuditCursor(cursor *application.AuditCursor) string {
+	if cursor == nil {
+		return ""
+	}
+	raw, _ := json.Marshal(cursor)
+	return base64.RawURLEncoding.EncodeToString(raw)
+}
+
+func decodeAuditCursor(value string) (*application.AuditCursor, error) {
+	if value == "" {
+		return nil, nil
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return nil, err
+	}
+	var cursor application.AuditCursor
+	if err = json.Unmarshal(raw, &cursor); err != nil {
+		return nil, err
+	}
+	if cursor.AuditID == "" || cursor.OccurredAt.IsZero() {
+		return nil, errors.New("empty audit cursor")
+	}
+	return &cursor, nil
 }
 
 var _ humanv1.HumanRuntimeServiceServer = (*Server)(nil)

@@ -2,14 +2,16 @@ use std::collections::BTreeMap;
 
 use bpmp_adapter_policy_bundle::VerifiedAuthorizationStore;
 use bpmp_authz_contracts::authorization::v1::{
-    AuthorizationPolicyBundle, AuthorizationPolicyEffect, AuthorizationPolicyGrant,
-    AuthorizationRevokeEpochUpdate, SignedActorContext, SignedWorkloadContext,
+    ActorProof, ActorProofType, AuthorizationContext, AuthorizationPolicyBundle,
+    AuthorizationPolicyEffect, AuthorizationPolicyGrant, AuthorizationRevokeEpochUpdate,
+    SignedActorContext, SignedWorkloadContext, TransitionResource, WorkloadProof,
 };
 use bpmp_authz_contracts::{
     AUTHORIZATION_BUNDLE_SCHEMA_VERSION, AUTHORIZATION_PROOF_SCHEMA_VERSION, ActorProofCodec,
     AuthorizationArtifactLimits, AuthorizationBundleCodec, AuthorizationKeyring,
     AuthorizationProofLimits, AuthorizationRevokeCodec, Ed25519Signer, WorkloadProofCodec,
 };
+use bpmp_contracts::engine::v1::{CommandEnvelope, CompleteUserTask, command_envelope};
 use bpmp_domain_core::{
     BoundaryEventDefinition, BoundaryRuntimePolicy, BoundaryTrigger, Command, CommandId, ConfigId,
     ConfigVersion, ConfigurationScope, CorrelationId, DomainEvent, EnginePolicy, IdempotencyKey,
@@ -19,11 +21,12 @@ use bpmp_domain_core::{
 };
 use bpmp_engine::memory::{InMemoryConfigurationProvider, InMemoryWorkflowStore};
 use bpmp_engine::{
-    ActorProofKind, AuthorizedCommand, BoundaryCommandDispatcherPort, BoundaryDispatchCredentials,
-    BoundaryDispatchCredentialsPort, BoundaryDispatchRequest, BoundaryDispatchSource,
-    BoundaryRuntimeError, ConfigurationLookup, EmbeddedAuthorizationProvider, Engine,
-    EngineBoundaryCommandDispatcher, HandleOutcome, OutboxStorePort,
-    WorkflowDefinitionProviderPort, WorkflowStorePort,
+    ActorProofKind, AuthoritativeCommandHandler, AuthorizedCommand, BoundaryCommandDispatcherPort,
+    BoundaryDispatchCredentials, BoundaryDispatchCredentialsPort, BoundaryDispatchRequest,
+    BoundaryDispatchSource, BoundaryRuntimeError, CommandDefinitionProviderPort,
+    ConfigurationLookup, EmbeddedAuthorizationProvider, Engine, EngineBoundaryCommandDispatcher,
+    EngineCommandHandlerPort, HandleOutcome, OutboxStorePort, WorkflowDefinitionProviderPort,
+    WorkflowStorePort,
 };
 
 const KEY_ID: &str = "test-key";
@@ -65,6 +68,18 @@ fn authorization() -> EmbeddedAuthorizationProvider {
                 workflow_version: "1".into(),
                 active_node_id: "start".into(),
                 action: "START".into(),
+                effect: AuthorizationPolicyEffect::Allow.into(),
+                priority: 10,
+            },
+            AuthorizationPolicyGrant {
+                grant_id: "allow-complete-user".into(),
+                actor_ids: vec!["user-1".into()],
+                roles: Vec::new(),
+                required_capabilities: vec!["workflow.start".into()],
+                workflow_type: "order".into(),
+                workflow_version: "1".into(),
+                active_node_id: "review".into(),
+                action: "COMPLETE_USER_TASK".into(),
                 effect: AuthorizationPolicyEffect::Allow.into(),
                 priority: 10,
             },
@@ -164,6 +179,38 @@ fn boundary_definition() -> WorkflowDefinition {
     .unwrap()
 }
 
+fn user_task_definition() -> WorkflowDefinition {
+    let start = NodeId::new("start").unwrap();
+    let review = NodeId::new("review").unwrap();
+    let end = NodeId::new("end").unwrap();
+    WorkflowDefinition::new(
+        TenantId::new("tenant-a").unwrap(),
+        WorkflowType::new("order").unwrap(),
+        WorkflowVersion::new("1").unwrap(),
+        start.clone(),
+        [
+            (
+                start,
+                Node::Start {
+                    next: review.clone(),
+                },
+            ),
+            (
+                review,
+                Node::UserTask {
+                    task_type: TaskType::new("approval").unwrap(),
+                    assignment_policy_ref: "reviewers".into(),
+                    form_key: None,
+                    result_variable: "decision".into(),
+                    next: end.clone(),
+                },
+            ),
+            (end, Node::End),
+        ],
+    )
+    .unwrap()
+}
+
 struct StaticDefinitionProvider(WorkflowDefinition);
 
 impl WorkflowDefinitionProviderPort for StaticDefinitionProvider {
@@ -173,6 +220,17 @@ impl WorkflowDefinitionProviderPort for StaticDefinitionProvider {
         _workflow_type: &WorkflowType,
         _workflow_version: &WorkflowVersion,
     ) -> Result<WorkflowDefinition, BoundaryRuntimeError> {
+        Ok(self.0.clone())
+    }
+}
+
+impl CommandDefinitionProviderPort for StaticDefinitionProvider {
+    fn resolve(
+        &self,
+        _tenant_id: &TenantId,
+        _workflow_type: &WorkflowType,
+        _workflow_version: &WorkflowVersion,
+    ) -> Result<WorkflowDefinition, String> {
         Ok(self.0.clone())
     }
 }
@@ -586,4 +644,110 @@ fn boundary_dispatcher_reauthorizes_and_commits_idempotently_through_engine() {
     assert_eq!(audit.actor_id.as_str(), "user-1");
     assert_eq!(audit.workload_id, "boundary-runtime");
     assert_eq!(audit.action, "TRIGGER_BOUNDARY_EVENT");
+}
+
+#[test]
+fn wire_handler_reauthorizes_commits_and_returns_duplicate_receipt() {
+    let definition = user_task_definition();
+    let mut provider = InMemoryConfigurationProvider::default();
+    provider.insert(
+        ConfigurationLookup {
+            tenant_id: TenantId::new("tenant-a").unwrap(),
+            workflow_type: definition.workflow_type.clone(),
+            workflow_version: definition.workflow_version.clone(),
+        },
+        configuration(100),
+    );
+    let engine = Engine::new(provider, InMemoryWorkflowStore::default(), authorization());
+    engine.handle(&definition, start_request()).unwrap();
+    let handler = AuthoritativeCommandHandler::new(engine, StaticDefinitionProvider(definition));
+    let envelope = complete_user_envelope();
+    let first = handler.handle(envelope.clone()).unwrap();
+    let duplicate = handler.handle(envelope).unwrap();
+    assert_eq!(first.command_id, "command-2");
+    assert_eq!(first.committed_sequence, 4);
+    assert!(!first.duplicate);
+    assert!(duplicate.duplicate);
+    assert_eq!(duplicate.committed_sequence, first.committed_sequence);
+}
+
+fn complete_user_envelope() -> CommandEnvelope {
+    let signer = Ed25519Signer::from_bytes(&[11; 32]);
+    let actor_proof = ActorProofCodec::seal(
+        SignedActorContext {
+            schema_version: AUTHORIZATION_PROOF_SCHEMA_VERSION,
+            tenant_id: "tenant-a".into(),
+            actor_id: "user-1".into(),
+            roles: vec!["operator".into()],
+            capabilities: vec!["workflow.start".into()],
+            revoke_epoch: 1,
+            issued_at_epoch_ms: 1,
+            expires_at_epoch_ms: 100,
+            audience_workload_id: "human-runtime".into(),
+            command_id: "command-2".into(),
+            signing_key_id: String::new(),
+            content_hash: Vec::new(),
+            signature: Vec::new(),
+        },
+        KEY_ID,
+        &signer,
+        proof_limits(),
+    )
+    .unwrap();
+    let workload_proof = WorkloadProofCodec::seal(
+        SignedWorkloadContext {
+            schema_version: AUTHORIZATION_PROOF_SCHEMA_VERSION,
+            tenant_id: "tenant-a".into(),
+            workload_id: "human-runtime".into(),
+            command_id: "command-2".into(),
+            issued_at_epoch_ms: 1,
+            expires_at_epoch_ms: 100,
+            signing_key_id: String::new(),
+            content_hash: Vec::new(),
+            signature: Vec::new(),
+        },
+        KEY_ID,
+        &signer,
+        proof_limits(),
+    )
+    .unwrap();
+    CommandEnvelope {
+        tenant_id: "tenant-a".into(),
+        instance_id: "instance-1".into(),
+        command_id: "command-2".into(),
+        idempotency_key: "complete-review-1".into(),
+        correlation_id: "trace-2".into(),
+        actor_id: "user-1".into(),
+        workflow_type: "order".into(),
+        workflow_version: "1".into(),
+        occurred_at_epoch_ms: 50,
+        command: Some(command_envelope::Command::CompleteUserTask(
+            CompleteUserTask {
+                node_id: "review".into(),
+                decision: "approved".into(),
+            },
+        )),
+        encryption_key_scope: "tenant-a/operational".into(),
+        authorization_context: Some(AuthorizationContext {
+            tenant_id: "tenant-a".into(),
+            command_id: "command-2".into(),
+            correlation_id: "trace-2".into(),
+            evaluated_at_epoch_ms: 50,
+            actor_proof: Some(ActorProof {
+                r#type: ActorProofType::SignedInternalContext.into(),
+                signed_proof: actor_proof,
+            }),
+            workload_proof: Some(WorkloadProof {
+                signed_proof: workload_proof,
+            }),
+            resource: Some(TransitionResource {
+                workflow_type: "order".into(),
+                workflow_version: "1".into(),
+                instance_id: "instance-1".into(),
+                active_node_id: "review".into(),
+                action: "COMPLETE_USER_TASK".into(),
+                resource_attributes_digest: Vec::new(),
+            }),
+        }),
+    }
 }

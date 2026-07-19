@@ -1,5 +1,5 @@
-use bpmp_adapter_policy_bundle::VerifiedAuthorizationStore;
 use bpmp_adapter_identity_jwt::JwtIdentityVerifier;
+use bpmp_adapter_policy_bundle::VerifiedAuthorizationStore;
 use bpmp_authz_contracts::{
     ActorProofCodec, AuthorizationKeyring, AuthorizationProofLimits, WorkloadProofCodec,
 };
@@ -7,7 +7,8 @@ use bpmp_authz_engine::{AuthorizationInput, DecisionType};
 use bpmp_domain_core::{ActorId, PolicyVersion};
 
 use crate::ports::{
-    ActorProofKind, AuthorizationError, AuthorizationProviderPort, AuthorizationRequest, AuthorizedPrincipal,
+    ActorProofKind, AuthorizationError, AuthorizationProviderPort, AuthorizationRequest,
+    AuthorizedPrincipal,
 };
 
 struct VerifiedActor {
@@ -44,6 +45,7 @@ impl EmbeddedAuthorizationProvider {
         }
     }
 
+    #[must_use]
     pub fn with_jwt_verifier(mut self, verifier: JwtIdentityVerifier) -> Self {
         self.jwt_verifier = Some(verifier);
         self
@@ -80,7 +82,11 @@ impl AuthorizationProviderPort for EmbeddedAuthorizationProvider {
         ) {
             return Err(AuthorizationError::WorkloadProofOutsideValidity);
         }
-        if actor.audience_workload_id.as_deref().is_some_and(|audience| audience != workload.workload_id) {
+        if actor
+            .audience_workload_id
+            .as_deref()
+            .is_some_and(|audience| audience != workload.workload_id)
+        {
             return Err(AuthorizationError::WorkloadAudienceMismatch);
         }
 
@@ -128,12 +134,11 @@ impl EmbeddedAuthorizationProvider {
     ) -> Result<VerifiedActor, AuthorizationError> {
         match request.actor_proof_kind {
             ActorProofKind::SignedInternalContext => {
-                let actor = ActorProofCodec::open(
-                    request.actor_proof,
-                    &self.actor_keys,
-                    self.proof_limits,
-                )
-                .map_err(|error| AuthorizationError::InvalidActorProof(error.to_string()))?;
+                let actor =
+                    ActorProofCodec::open(request.actor_proof, &self.actor_keys, self.proof_limits)
+                        .map_err(|error| {
+                            AuthorizationError::InvalidActorProof(error.to_string())
+                        })?;
                 if actor.command_id != request.command_id.as_str() {
                     return Err(AuthorizationError::ScopeMismatch);
                 }
@@ -157,8 +162,9 @@ impl EmbeddedAuthorizationProvider {
                 let verifier = self.jwt_verifier.as_ref().ok_or_else(|| {
                     AuthorizationError::Unavailable("JWT verifier is not configured".into())
                 })?;
-                let token = std::str::from_utf8(request.actor_proof)
-                    .map_err(|_| AuthorizationError::InvalidActorProof("JWT is not UTF-8".into()))?;
+                let token = std::str::from_utf8(request.actor_proof).map_err(|_| {
+                    AuthorizationError::InvalidActorProof("JWT is not UTF-8".into())
+                })?;
                 let claims = verifier
                     .verify(token, request.evaluated_at_epoch_ms / 1_000)
                     .map_err(|error| AuthorizationError::InvalidActorProof(error.to_string()))?;

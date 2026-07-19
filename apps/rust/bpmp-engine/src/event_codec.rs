@@ -517,6 +517,17 @@ fn from_wire(envelope: wire::EventEnvelope) -> Result<EventEnvelope, EventCodecE
         wire::event_envelope::Event::WorkflowCompleted(_) => DomainEvent::WorkflowCompleted {
             occurred_at_epoch_ms,
         },
+        wire::event_envelope::Event::CaseActivated(_) => {
+            return Err(EventCodecError::ProjectionOnlyEvent("case_activated"));
+        }
+        wire::event_envelope::Event::CasePlanItemTransitioned(_) => {
+            return Err(EventCodecError::ProjectionOnlyEvent(
+                "case_plan_item_transitioned",
+            ));
+        }
+        wire::event_envelope::Event::UserTaskCancelled(_) => {
+            return Err(EventCodecError::ProjectionOnlyEvent("user_task_cancelled"));
+        }
     };
     if let DomainEvent::WorkflowStarted { tenant_id, .. } = &event
         && tenant_id != &metadata_tenant_id
@@ -762,6 +773,8 @@ pub enum EventCodecError {
     InvalidBoundaryTriggerKind(i32),
     #[error("unsupported event schema version {0}")]
     UnsupportedSchema(u32),
+    #[error("integration projection event {0} is not a workflow event-log payload")]
+    ProjectionOnlyEvent(&'static str),
     #[error("invalid event identifier in field {field}: {source}")]
     Identifier {
         field: &'static str,

@@ -21,7 +21,9 @@ import (
 
 type integrationEngine struct{}
 
-func (integrationEngine) CompleteUserTask(context.Context, application.EngineCompleteCommand) error { return nil }
+func (integrationEngine) CompleteUserTask(context.Context, application.EngineCompleteCommand) error {
+	return nil
+}
 
 func TestPostgresProjectionAuditLockingAndLeaseRecovery(t *testing.T) {
 	dsn := os.Getenv("HUMAN_RUNTIME_POSTGRES_DSN")
@@ -142,11 +144,11 @@ func TestPostgresProjectionAuditLockingAndLeaseRecovery(t *testing.T) {
 	}
 	projectCommittedEvent(t, consumer, &enginev1.EventEnvelope{
 		Metadata: &enginev1.EventMetadata{TenantId: "tenant-a", EventId: "case-event-1", InstanceId: "case-1", Sequence: 1, OccurredAtEpochMs: uint64(now.UnixMilli())},
-		Event: &enginev1.EventEnvelope_CaseActivated{CaseActivated: &enginev1.CaseActivated{CaseId: "case-1", CaseType: "claim", StageIds: []string{"assessment"}, MilestoneIds: []string{"approved"}}},
+		Event:    &enginev1.EventEnvelope_CaseActivated{CaseActivated: &enginev1.CaseActivated{CaseId: "case-1", CaseType: "claim", StageIds: []string{"assessment"}, MilestoneIds: []string{"approved"}}},
 	})
 	projectCommittedEvent(t, consumer, &enginev1.EventEnvelope{
 		Metadata: &enginev1.EventMetadata{TenantId: "tenant-a", EventId: "case-event-2", InstanceId: "case-1", Sequence: 2, OccurredAtEpochMs: uint64(now.Add(time.Second).UnixMilli())},
-		Event: &enginev1.EventEnvelope_CasePlanItemTransitioned{CasePlanItemTransitioned: &enginev1.CasePlanItemTransitioned{CaseId: "case-1", PlanItemId: "assessment", PlanItemKind: "STAGE", Status: "ACTIVE", SatisfiedSentryIds: []string{"documents-ready"}}},
+		Event:    &enginev1.EventEnvelope_CasePlanItemTransitioned{CasePlanItemTransitioned: &enginev1.CasePlanItemTransitioned{CaseId: "case-1", PlanItemId: "assessment", PlanItemKind: "STAGE", Status: "ACTIVE", SatisfiedSentryIds: []string{"documents-ready"}}},
 	})
 	caseView, err := store.GetCase(ctx, "tenant-a", "case-1")
 	if err != nil || caseView.Case.Stages["assessment"] != domain.PlanActive {
@@ -161,7 +163,7 @@ func TestPostgresProjectionAuditLockingAndLeaseRecovery(t *testing.T) {
 	}
 	projectCommittedEvent(t, consumer, &enginev1.EventEnvelope{
 		Metadata: &enginev1.EventMetadata{TenantId: "tenant-a", EventId: "cancel-event", InstanceId: "instance-2", Sequence: 2, OccurredAtEpochMs: uint64(now.Add(2 * time.Second).UnixMilli())},
-		Event: &enginev1.EventEnvelope_UserTaskCancelled{UserTaskCancelled: &enginev1.UserTaskCancelled{NodeId: "review", Reason: "boundary-error"}},
+		Event:    &enginev1.EventEnvelope_UserTaskCancelled{UserTaskCancelled: &enginev1.UserTaskCancelled{NodeId: "review", Reason: "boundary-error"}},
 	})
 	cancelled, err := store.GetWorkItem(ctx, "tenant-a", "cancel-activation")
 	if err != nil || cancelled.Status != domain.WorkItemCancelled {
@@ -170,6 +172,18 @@ func TestPostgresProjectionAuditLockingAndLeaseRecovery(t *testing.T) {
 	var lifecycleAudits int
 	if err = pool.QueryRow(ctx, `SELECT count(*) FROM human_audit_log WHERE tenant_id='tenant-a' AND action IN ('CASE_ACTIVATED','CASE_STAGE_ACTIVE','CANCELLED')`).Scan(&lifecycleAudits); err != nil || lifecycleAudits != 3 {
 		t.Fatalf("CMMN/cancellation audit coverage failed: count=%d err=%v", lifecycleAudits, err)
+	}
+	auditPage, nextAudit, err := store.ListAuditRecords(ctx, "tenant-a", "", "case-1", 1, nil)
+	if err != nil || len(auditPage) != 1 || nextAudit == nil {
+		t.Fatalf("first audit page failed: records=%d next=%#v err=%v", len(auditPage), nextAudit, err)
+	}
+	secondAuditPage, _, err := store.ListAuditRecords(ctx, "tenant-a", "", "case-1", 1, nextAudit)
+	if err != nil || len(secondAuditPage) != 1 || secondAuditPage[0].AuditID == auditPage[0].AuditID {
+		t.Fatalf("audit keyset pagination failed: %#v err=%v", secondAuditPage, err)
+	}
+	otherTenantAudit, _, err := store.ListAuditRecords(ctx, "tenant-b", "", "", 10, nil)
+	if err != nil || len(otherTenantAudit) != 0 {
+		t.Fatalf("audit tenant isolation failed: records=%d err=%v", len(otherTenantAudit), err)
 	}
 	assertNormalLoadP95(t, store)
 }
