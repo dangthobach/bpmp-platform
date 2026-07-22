@@ -50,7 +50,7 @@ base64 = "0.22.1"
 futures = "0.3.31"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter", "fmt", "json"] }
-jsonwebtoken = "9.3.1"
+jsonwebtoken = "10.4.0"
 openraft = { version = "=0.9.24", features = ["serde", "storage-v2"] }
 sha2 = "0.11.0"
 thiserror = "2.0.17"
