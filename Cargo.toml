@@ -23,7 +23,7 @@ license = "Apache-2.0"
 rust-version = "1.91"
 
 [workspace.dependencies]
-aes-gcm = "0.10.3"
+aes-gcm = "0.11.0"
 anyhow = "1.0.100"
 bpmp-contracts = { path = "crates/bpmp-contracts" }
 bpmp-authz-contracts = { path = "crates/bpmp-authz-contracts" }
