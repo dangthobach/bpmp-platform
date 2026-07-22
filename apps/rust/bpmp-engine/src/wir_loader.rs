@@ -6,13 +6,14 @@ use bpmp_contracts::wir::v1::{
 };
 use bpmp_contracts::{ArtifactError, WirArtifactVerifier, WirCodec};
 use bpmp_domain_core::{
-    BooleanExpression, BoundaryEventDefinition, BoundaryTimerKind, BoundaryTrigger,
+    BooleanExpression, BoundaryEventDefinition, BoundaryTimerKind, BoundaryTrigger, CaseDefinition,
+    CaseMilestoneDefinition, CaseModelId, CaseSentryDefinition, CaseStageDefinition,
     ComparisonOperator, DecisionInput, DecisionOutput, DecisionRule, DecisionTable, DomainError,
     ExtensionProperty, ExtensionPropertyValue, GatewayCoverage, GatewayCoverageDomain,
     GuardExpression, GuardedTransition, HitPolicy, IdentifierError, IntegerInterval,
-    MultiInstanceDefinition, MultiInstanceMode, Node, NodeExecutionMetadata, NodeId, TaskType,
-    TenantId, UnaryTest, WorkflowDefinition, WorkflowExecutionContracts, WorkflowType,
-    WorkflowValue, WorkflowValueType, WorkflowVersion,
+    MultiInstanceDefinition, MultiInstanceMode, Node, NodeExecutionMetadata, NodeId, PlanItemId,
+    SentryId, TaskType, TenantId, UnaryTest, WorkflowDefinition, WorkflowExecutionContracts,
+    WorkflowType, WorkflowValue, WorkflowValueType, WorkflowVersion,
 };
 use thiserror::Error;
 
@@ -60,6 +61,11 @@ fn map_definition(
     let mut boundary_events = Vec::new();
     let workflow_properties = map_properties(wir.properties)?;
     let mut node_metadata = Vec::new();
+    let case_models = wir
+        .case_models
+        .into_iter()
+        .map(map_case_model)
+        .collect::<Result<Vec<_>, _>>()?;
     for encoded in wir.nodes {
         let node_id = NodeId::new(encoded.id).map_err(|source| WirLoadError::Identifier {
             field: "node.id",
@@ -268,9 +274,62 @@ fn map_definition(
             boundary_events,
             node_metadata,
             properties: workflow_properties,
+            case_models,
         },
     )
     .map_err(WirLoadError::Domain)
+}
+
+fn map_case_model(
+    model: bpmp_contracts::wir::v1::CaseModel,
+) -> Result<CaseDefinition, WirLoadError> {
+    Ok(CaseDefinition {
+        id: identifier(CaseModelId::new, model.id, "case_model.id")?,
+        name: model.name,
+        stages: model
+            .stages
+            .into_iter()
+            .map(|stage| {
+                Ok(CaseStageDefinition {
+                    id: identifier(PlanItemId::new, stage.id, "case_stage.id")?,
+                    name: stage.name,
+                    entry_sentry_ids: map_sentry_ids(stage.entry_sentry_ids)?,
+                    exit_sentry_ids: map_sentry_ids(stage.exit_sentry_ids)?,
+                })
+            })
+            .collect::<Result<_, WirLoadError>>()?,
+        milestones: model
+            .milestones
+            .into_iter()
+            .map(|milestone| {
+                Ok(CaseMilestoneDefinition {
+                    id: identifier(PlanItemId::new, milestone.id, "case_milestone.id")?,
+                    name: milestone.name,
+                    entry_sentry_ids: map_sentry_ids(milestone.entry_sentry_ids)?,
+                })
+            })
+            .collect::<Result<_, WirLoadError>>()?,
+        sentries: model
+            .sentries
+            .into_iter()
+            .map(|sentry| {
+                Ok(CaseSentryDefinition {
+                    id: identifier(SentryId::new, sentry.id, "case_sentry.id")?,
+                    condition: sentry
+                        .typed_condition
+                        .map(map_boolean_expression)
+                        .transpose()?
+                        .ok_or(WirLoadError::MissingCaseSentryCondition)?,
+                })
+            })
+            .collect::<Result<_, WirLoadError>>()?,
+    })
+}
+
+fn map_sentry_ids(ids: Vec<String>) -> Result<Vec<SentryId>, WirLoadError> {
+    ids.into_iter()
+        .map(|id| identifier(SentryId::new, id, "case_sentry_ref"))
+        .collect()
 }
 
 fn map_multi_instance(
@@ -616,6 +675,14 @@ fn node_id_value(value: String, field: &'static str) -> Result<NodeId, WirLoadEr
     NodeId::new(value).map_err(|source| WirLoadError::Identifier { field, source })
 }
 
+fn identifier<T>(
+    constructor: impl FnOnce(String) -> Result<T, IdentifierError>,
+    value: String,
+    field: &'static str,
+) -> Result<T, WirLoadError> {
+    constructor(value).map_err(|source| WirLoadError::Identifier { field, source })
+}
+
 fn map_value_type(value_type: i32) -> Result<WorkflowValueType, WirLoadError> {
     match WireValueType::try_from(value_type) {
         Ok(WireValueType::Boolean) => Ok(WorkflowValueType::Boolean),
@@ -667,6 +734,8 @@ pub enum WirLoadError {
     ConflictingGuardRepresentations(NodeId),
     #[error("gateway boolean expression has no expression")]
     MissingBooleanExpression,
+    #[error("CMMN sentry is missing its compiled typed condition")]
+    MissingCaseSentryCondition,
     #[error("gateway boolean junction must contain at least two operands")]
     InvalidBooleanJunction,
     #[error("gateway guard has unsupported comparison operator tag {0}")]

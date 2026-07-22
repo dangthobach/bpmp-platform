@@ -46,7 +46,7 @@ func (c *Client) CompleteUserTask(ctx context.Context, command application.Engin
 	occurredAt := uint64(command.OccurredAt.UnixMilli())
 	envelope := &enginev1.CommandEnvelope{
 		TenantId: command.TenantID, InstanceId: command.InstanceID,
-		CommandId: command.CommandID, IdempotencyKey: command.CommandID,
+		CommandId: command.CommandID, IdempotencyKey: command.IdempotencyKey,
 		CorrelationId: command.CorrelationID, ActorId: command.ActorID,
 		WorkflowType: command.WorkflowType, WorkflowVersion: command.WorkflowVersion,
 		OccurredAtEpochMs: occurredAt, EncryptionKeyScope: snapshot.EncryptionKeyScope,

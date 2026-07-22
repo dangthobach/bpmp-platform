@@ -12,12 +12,14 @@ bpmp-adapter-policy-bundle.workspace = true
 bpmp-adapter-identity-jwt.workspace = true
 bpmp-contracts.workspace = true
 bpmp-domain-core.workspace = true
+bpmp-governance-domain.workspace = true
 prost.workspace = true
 thiserror.workspace = true
 time.workspace = true
 tonic.workspace = true
 
 [dev-dependencies]
+ed25519-dalek.workspace = true
 proptest.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true

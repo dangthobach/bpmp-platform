@@ -69,6 +69,11 @@ func (c *Consumer) Handle(ctx context.Context, payload []byte) error {
 			PlanItemKind: event.CasePlanItemTransitioned.GetPlanItemKind(), Status: domain.PlanItemStatus(event.CasePlanItemTransitioned.GetStatus()),
 			SatisfiedSentryIDs: append([]string(nil), event.CasePlanItemTransitioned.GetSatisfiedSentryIds()...), OccurredAt: occurredAt,
 		})
+	case *enginev1.EventEnvelope_CaseCompleted:
+		return c.service.ProjectCommittedCaseCompletion(ctx, application.CommittedCaseCompletion{
+			TenantID: metadata.GetTenantId(), EventID: metadata.GetEventId(), Sequence: metadata.GetSequence(),
+			CaseID: event.CaseCompleted.GetCaseId(), OccurredAt: occurredAt,
+		})
 	default:
 		return nil
 	}

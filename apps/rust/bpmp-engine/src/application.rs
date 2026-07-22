@@ -174,12 +174,7 @@ where
             workflow_type: definition.workflow_type.clone(),
             workflow_version: definition.workflow_version.clone(),
         })?;
-        if configuration.policy_version != principal.policy_version {
-            return Err(EngineError::PolicyVersionMismatch {
-                configured: configuration.policy_version,
-                authorized: principal.policy_version,
-            });
-        }
+        validate_configuration_binding(&request, &configuration, &principal)?;
         let loaded = self.store.load(&request.tenant_id, &request.instance_id)?;
         if loaded.snapshot.as_ref().is_some_and(|snapshot| {
             snapshot.workflow_type != definition.workflow_type
@@ -247,6 +242,23 @@ where
     }
 }
 
+fn validate_configuration_binding(
+    request: &AuthorizedCommand,
+    configuration: &ResolvedConfigSnapshot,
+    principal: &crate::AuthorizedPrincipal,
+) -> Result<(), EngineError> {
+    if configuration.policy_version != principal.policy_version {
+        return Err(EngineError::PolicyVersionMismatch {
+            configured: configuration.policy_version.clone(),
+            authorized: principal.policy_version.clone(),
+        });
+    }
+    if request.encryption_key_scope != configuration.engine.event_payload_key_scope {
+        return Err(EngineError::EncryptionKeyScopeMismatch);
+    }
+    Ok(())
+}
+
 fn committed_result(
     current_version: u64,
     events: &[EventEnvelope],
@@ -302,6 +314,10 @@ fn transition_selector<'a>(
     command: &'a Command,
 ) -> (&'a str, &'static str) {
     match command {
+        Command::ActivateCase { case_id, .. } => (case_id.as_str(), "ACTIVATE_CASE"),
+        Command::EvaluateCaseSentries { case_id, .. } => {
+            (case_id.as_str(), "EVALUATE_CASE_SENTRIES")
+        }
         Command::StartWorkflow { .. } => (definition.start_node.as_str(), "START"),
         Command::CompleteServiceTask { node_id, .. } => (node_id.as_str(), "COMPLETE_SERVICE_TASK"),
         Command::CompleteUserTask { node_id, .. } => (node_id.as_str(), "COMPLETE_USER_TASK"),
@@ -382,9 +398,26 @@ fn attach_metadata(
         .collect()
 }
 
+#[allow(clippy::too_many_lines)]
 const fn event_time(event: &DomainEvent) -> u64 {
     match event {
-        DomainEvent::WorkflowStarted {
+        DomainEvent::CaseActivated {
+            occurred_at_epoch_ms,
+            ..
+        }
+        | DomainEvent::CaseSentrySatisfied {
+            occurred_at_epoch_ms,
+            ..
+        }
+        | DomainEvent::CasePlanItemTransitioned {
+            occurred_at_epoch_ms,
+            ..
+        }
+        | DomainEvent::CaseCompleted {
+            occurred_at_epoch_ms,
+            ..
+        }
+        | DomainEvent::WorkflowStarted {
             occurred_at_epoch_ms,
             ..
         }
@@ -401,6 +434,10 @@ const fn event_time(event: &DomainEvent) -> u64 {
             ..
         }
         | DomainEvent::UserTaskCompleted {
+            occurred_at_epoch_ms,
+            ..
+        }
+        | DomainEvent::UserTaskCancelled {
             occurred_at_epoch_ms,
             ..
         }
@@ -470,6 +507,10 @@ const fn event_time(event: &DomainEvent) -> u64 {
         }
         | DomainEvent::WorkflowCompleted {
             occurred_at_epoch_ms,
+        }
+        | DomainEvent::WorkflowTerminatedForCompliance {
+            occurred_at_epoch_ms,
+            ..
         } => *occurred_at_epoch_ms,
     }
 }
@@ -490,6 +531,8 @@ pub enum EngineError {
     SnapshotWorkflowMismatch,
     #[error("workflow definition tenant does not match the command tenant")]
     DefinitionTenantMismatch,
+    #[error("command encryption key scope does not match the published workflow configuration")]
+    EncryptionKeyScopeMismatch,
     #[error(
         "resolved configuration policy version {configured} differs from authorized policy version {authorized}"
     )]

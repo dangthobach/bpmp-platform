@@ -451,12 +451,14 @@ pub struct CaseMilestone {
     #[prost(string, repeated, tag="3")]
     pub entry_sentry_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CaseSentry {
     #[prost(string, tag="1")]
     pub id: ::prost::alloc::string::String,
     #[prost(string, tag="2")]
     pub condition: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="3")]
+    pub typed_condition: ::core::option::Option<BooleanExpression>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

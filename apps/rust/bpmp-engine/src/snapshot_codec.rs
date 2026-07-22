@@ -1,9 +1,11 @@
 use bpmp_contracts::engine::v1 as wire;
 use bpmp_domain_core::{
-    ActiveBoundarySubscription, ActiveExecutionScope, ActiveMultiInstance, BoundaryTimerKind,
-    BoundaryTrigger, ConfigVersion, IdentifierError, InstanceId, InstanceState, KeyScope,
-    Lifecycle, MultiInstanceMode, NodeId, PendingGatewayJoin, PolicyVersion, ScopeInstanceId,
-    TaskType, TenantId, WorkflowType, WorkflowValue, WorkflowVersion,
+    ActiveBoundarySubscription, ActiveCase, ActiveExecutionScope, ActiveMultiInstance,
+    BoundaryTimerKind, BoundaryTrigger, CaseId, CaseLifecycle, CaseModelId, CasePlanItemKind,
+    CasePlanItemState, CasePlanItemStatus, ConfigVersion, IdentifierError, InstanceId,
+    InstanceState, KeyScope, Lifecycle, MultiInstanceMode, NodeId, PendingGatewayJoin, PlanItemId,
+    PolicyVersion, ScopeInstanceId, SentryId, TaskType, TenantId, WorkflowType, WorkflowValue,
+    WorkflowVersion,
 };
 use prost::Message;
 use thiserror::Error;
@@ -32,6 +34,7 @@ impl SnapshotCodec {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn to_wire(snapshot: &SnapshotEnvelope) -> wire::WorkflowSnapshot {
     let (lifecycle, active_node_id) = match &snapshot.state.lifecycle {
         Lifecycle::Initial => (wire::WorkflowLifecycle::Initial, String::new()),
@@ -39,6 +42,10 @@ fn to_wire(snapshot: &SnapshotEnvelope) -> wire::WorkflowSnapshot {
             (wire::WorkflowLifecycle::Active, active_node.to_string())
         }
         Lifecycle::Completed => (wire::WorkflowLifecycle::Completed, String::new()),
+        Lifecycle::TerminatedForCompliance => (
+            wire::WorkflowLifecycle::TerminatedForCompliance,
+            String::new(),
+        ),
     };
     wire::WorkflowSnapshot {
         tenant_id: snapshot.tenant_id.to_string(),
@@ -131,6 +138,34 @@ fn to_wire(snapshot: &SnapshotEnvelope) -> wire::WorkflowSnapshot {
             .iter()
             .map(scope_invocation_counter_to_wire)
             .collect(),
+        active_cases: snapshot
+            .state
+            .active_cases
+            .iter()
+            .map(active_case_to_wire)
+            .collect(),
+    }
+}
+
+fn active_case_to_wire((case_id, active): (&CaseId, &ActiveCase)) -> wire::ActiveCase {
+    wire::ActiveCase {
+        case_id: case_id.to_string(),
+        status: case_lifecycle_name(active.lifecycle).into(),
+        satisfied_sentry_ids: active
+            .satisfied_sentries
+            .iter()
+            .map(ToString::to_string)
+            .collect(),
+        plan_items: active
+            .plan_items
+            .iter()
+            .map(|(plan_item_id, state)| wire::CasePlanItemState {
+                plan_item_id: plan_item_id.to_string(),
+                kind: case_plan_item_kind_name(state.kind).into(),
+                status: case_plan_item_status_name(state.status).into(),
+            })
+            .collect(),
+        case_model_id: active.model_id.to_string(),
     }
 }
 
@@ -206,6 +241,11 @@ fn from_wire(snapshot: wire::WorkflowSnapshot) -> Result<SnapshotEnvelope, Snaps
         .collect::<Result<_, _>>()?;
     let scope_state =
         scope_state_from_wire(snapshot.active_scopes, snapshot.scope_invocation_counters)?;
+    let active_cases = snapshot
+        .active_cases
+        .into_iter()
+        .map(active_case_from_wire)
+        .collect::<Result<_, _>>()?;
     Ok(SnapshotEnvelope {
         tenant_id: identifier(TenantId::new, snapshot.tenant_id, "tenant_id")?,
         instance_id: identifier(InstanceId::new, snapshot.instance_id, "instance_id")?,
@@ -229,6 +269,7 @@ fn from_wire(snapshot: wire::WorkflowSnapshot) -> Result<SnapshotEnvelope, Snaps
             active_boundary_subscriptions,
             active_scopes: scope_state.active_scopes,
             scope_invocation_counts: scope_state.invocation_counts,
+            active_cases,
         },
         config_version: identifier(
             ConfigVersion::new,
@@ -260,6 +301,9 @@ fn lifecycle_from_wire(
             active_node: identifier(NodeId::new, active_node_id, "active_node_id")?,
         }),
         wire::WorkflowLifecycle::Completed if active_node_id.is_empty() => Ok(Lifecycle::Completed),
+        wire::WorkflowLifecycle::TerminatedForCompliance if active_node_id.is_empty() => {
+            Ok(Lifecycle::TerminatedForCompliance)
+        }
         lifecycle => Err(SnapshotCodecError::InconsistentLifecycle(lifecycle)),
     }
 }
@@ -335,6 +379,72 @@ fn active_execution_scope_from_wire(
             invocation: scope.invocation,
         },
     ))
+}
+
+fn active_case_from_wire(
+    active: wire::ActiveCase,
+) -> Result<(CaseId, ActiveCase), SnapshotCodecError> {
+    let lifecycle = match active.status.as_str() {
+        "ACTIVE" => CaseLifecycle::Active,
+        "COMPLETED" => CaseLifecycle::Completed,
+        _ => return Err(SnapshotCodecError::InvalidCaseState),
+    };
+    let plan_items = active
+        .plan_items
+        .into_iter()
+        .map(|item| {
+            let kind = match item.kind.as_str() {
+                "STAGE" => CasePlanItemKind::Stage,
+                "MILESTONE" => CasePlanItemKind::Milestone,
+                _ => return Err(SnapshotCodecError::InvalidCaseState),
+            };
+            let status = match item.status.as_str() {
+                "AVAILABLE" => CasePlanItemStatus::Available,
+                "ACTIVE" => CasePlanItemStatus::Active,
+                "COMPLETED" => CasePlanItemStatus::Completed,
+                _ => return Err(SnapshotCodecError::InvalidCaseState),
+            };
+            Ok((
+                identifier(PlanItemId::new, item.plan_item_id, "case.plan_item_id")?,
+                CasePlanItemState { kind, status },
+            ))
+        })
+        .collect::<Result<_, _>>()?;
+    Ok((
+        identifier(CaseId::new, active.case_id, "case.case_id")?,
+        ActiveCase {
+            model_id: identifier(CaseModelId::new, active.case_model_id, "case.case_model_id")?,
+            lifecycle,
+            satisfied_sentries: active
+                .satisfied_sentry_ids
+                .into_iter()
+                .map(|id| identifier(SentryId::new, id, "case.satisfied_sentry_id"))
+                .collect::<Result<_, _>>()?,
+            plan_items,
+        },
+    ))
+}
+
+const fn case_lifecycle_name(lifecycle: CaseLifecycle) -> &'static str {
+    match lifecycle {
+        CaseLifecycle::Active => "ACTIVE",
+        CaseLifecycle::Completed => "COMPLETED",
+    }
+}
+
+const fn case_plan_item_kind_name(kind: CasePlanItemKind) -> &'static str {
+    match kind {
+        CasePlanItemKind::Stage => "STAGE",
+        CasePlanItemKind::Milestone => "MILESTONE",
+    }
+}
+
+const fn case_plan_item_status_name(status: CasePlanItemStatus) -> &'static str {
+    match status {
+        CasePlanItemStatus::Available => "AVAILABLE",
+        CasePlanItemStatus::Active => "ACTIVE",
+        CasePlanItemStatus::Completed => "COMPLETED",
+    }
 }
 
 fn workflow_value_to_wire(value: &WorkflowValue) -> wire::workflow_variable::Value {
@@ -593,6 +703,8 @@ pub enum SnapshotCodecError {
     InvalidMultiInstanceState,
     #[error("snapshot retained scope state is invalid")]
     InvalidScopeState,
+    #[error("snapshot CMMN case state is invalid")]
+    InvalidCaseState,
     #[error("snapshot contains unknown boundary trigger kind {0}")]
     InvalidBoundaryTriggerKind(i32),
     #[error("invalid snapshot identifier in field {field}: {source}")]
@@ -669,6 +781,23 @@ mod tests {
                 )]
                 .into(),
                 scope_invocation_counts: [(NodeId::new("review").unwrap(), 1)].into(),
+                active_cases: [(
+                    CaseId::new("case-1").unwrap(),
+                    ActiveCase {
+                        model_id: CaseModelId::new("claim").unwrap(),
+                        lifecycle: CaseLifecycle::Active,
+                        satisfied_sentries: [SentryId::new("documents-ready").unwrap()].into(),
+                        plan_items: [(
+                            PlanItemId::new("assessment").unwrap(),
+                            CasePlanItemState {
+                                kind: CasePlanItemKind::Stage,
+                                status: CasePlanItemStatus::Active,
+                            },
+                        )]
+                        .into(),
+                    },
+                )]
+                .into(),
             },
             config_version: ConfigVersion::new("config-7").unwrap(),
             policy_version: PolicyVersion::new("policy-3").unwrap(),

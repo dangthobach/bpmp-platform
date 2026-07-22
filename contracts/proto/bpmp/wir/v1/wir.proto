@@ -314,4 +314,5 @@ message CaseMilestone {
 message CaseSentry {
   string id = 1;
   string condition = 2;
+  BooleanExpression typed_condition = 3;
 }

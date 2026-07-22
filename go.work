@@ -2,5 +2,6 @@ go 1.25.0
 
 use (
 	./apps/go/human-runtime
+	./apps/go/api-gateway
 	./go/contracts
 )

@@ -132,10 +132,11 @@ func (BoundaryTriggerKind) EnumDescriptor() ([]byte, []int) {
 type WorkflowLifecycle int32
 
 const (
-	WorkflowLifecycle_WORKFLOW_LIFECYCLE_UNSPECIFIED WorkflowLifecycle = 0
-	WorkflowLifecycle_WORKFLOW_LIFECYCLE_INITIAL     WorkflowLifecycle = 1
-	WorkflowLifecycle_WORKFLOW_LIFECYCLE_ACTIVE      WorkflowLifecycle = 2
-	WorkflowLifecycle_WORKFLOW_LIFECYCLE_COMPLETED   WorkflowLifecycle = 3
+	WorkflowLifecycle_WORKFLOW_LIFECYCLE_UNSPECIFIED               WorkflowLifecycle = 0
+	WorkflowLifecycle_WORKFLOW_LIFECYCLE_INITIAL                   WorkflowLifecycle = 1
+	WorkflowLifecycle_WORKFLOW_LIFECYCLE_ACTIVE                    WorkflowLifecycle = 2
+	WorkflowLifecycle_WORKFLOW_LIFECYCLE_COMPLETED                 WorkflowLifecycle = 3
+	WorkflowLifecycle_WORKFLOW_LIFECYCLE_TERMINATED_FOR_COMPLIANCE WorkflowLifecycle = 4
 )
 
 // Enum value maps for WorkflowLifecycle.
@@ -145,12 +146,14 @@ var (
 		1: "WORKFLOW_LIFECYCLE_INITIAL",
 		2: "WORKFLOW_LIFECYCLE_ACTIVE",
 		3: "WORKFLOW_LIFECYCLE_COMPLETED",
+		4: "WORKFLOW_LIFECYCLE_TERMINATED_FOR_COMPLIANCE",
 	}
 	WorkflowLifecycle_value = map[string]int32{
-		"WORKFLOW_LIFECYCLE_UNSPECIFIED": 0,
-		"WORKFLOW_LIFECYCLE_INITIAL":     1,
-		"WORKFLOW_LIFECYCLE_ACTIVE":      2,
-		"WORKFLOW_LIFECYCLE_COMPLETED":   3,
+		"WORKFLOW_LIFECYCLE_UNSPECIFIED":               0,
+		"WORKFLOW_LIFECYCLE_INITIAL":                   1,
+		"WORKFLOW_LIFECYCLE_ACTIVE":                    2,
+		"WORKFLOW_LIFECYCLE_COMPLETED":                 3,
+		"WORKFLOW_LIFECYCLE_TERMINATED_FOR_COMPLIANCE": 4,
 	}
 )
 
@@ -200,6 +203,8 @@ type CommandEnvelope struct {
 	//	*CommandEnvelope_TriggerBoundaryEvent
 	//	*CommandEnvelope_CompleteUserTask
 	//	*CommandEnvelope_CompleteScriptTask
+	//	*CommandEnvelope_ActivateCase
+	//	*CommandEnvelope_EvaluateCaseSentries
 	Command              isCommandEnvelope_Command `protobuf_oneof:"command"`
 	EncryptionKeyScope   string                    `protobuf:"bytes,12,opt,name=encryption_key_scope,json=encryptionKeyScope,proto3" json:"encryption_key_scope,omitempty"`
 	AuthorizationContext *v1.AuthorizationContext  `protobuf:"bytes,13,opt,name=authorization_context,json=authorizationContext,proto3" json:"authorization_context,omitempty"`
@@ -361,6 +366,24 @@ func (x *CommandEnvelope) GetCompleteScriptTask() *CompleteScriptTask {
 	return nil
 }
 
+func (x *CommandEnvelope) GetActivateCase() *ActivateCase {
+	if x != nil {
+		if x, ok := x.Command.(*CommandEnvelope_ActivateCase); ok {
+			return x.ActivateCase
+		}
+	}
+	return nil
+}
+
+func (x *CommandEnvelope) GetEvaluateCaseSentries() *EvaluateCaseSentries {
+	if x != nil {
+		if x, ok := x.Command.(*CommandEnvelope_EvaluateCaseSentries); ok {
+			return x.EvaluateCaseSentries
+		}
+	}
+	return nil
+}
+
 func (x *CommandEnvelope) GetEncryptionKeyScope() string {
 	if x != nil {
 		return x.EncryptionKeyScope
@@ -403,6 +426,14 @@ type CommandEnvelope_CompleteScriptTask struct {
 	CompleteScriptTask *CompleteScriptTask `protobuf:"bytes,17,opt,name=complete_script_task,json=completeScriptTask,proto3,oneof"`
 }
 
+type CommandEnvelope_ActivateCase struct {
+	ActivateCase *ActivateCase `protobuf:"bytes,18,opt,name=activate_case,json=activateCase,proto3,oneof"`
+}
+
+type CommandEnvelope_EvaluateCaseSentries struct {
+	EvaluateCaseSentries *EvaluateCaseSentries `protobuf:"bytes,19,opt,name=evaluate_case_sentries,json=evaluateCaseSentries,proto3,oneof"`
+}
+
 func (*CommandEnvelope_StartWorkflow) isCommandEnvelope_Command() {}
 
 func (*CommandEnvelope_CompleteServiceTask) isCommandEnvelope_Command() {}
@@ -414,6 +445,10 @@ func (*CommandEnvelope_TriggerBoundaryEvent) isCommandEnvelope_Command() {}
 func (*CommandEnvelope_CompleteUserTask) isCommandEnvelope_Command() {}
 
 func (*CommandEnvelope_CompleteScriptTask) isCommandEnvelope_Command() {}
+
+func (*CommandEnvelope_ActivateCase) isCommandEnvelope_Command() {}
+
+func (*CommandEnvelope_EvaluateCaseSentries) isCommandEnvelope_Command() {}
 
 type StartWorkflow struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -687,6 +722,110 @@ func (x *TriggerBoundaryEvent) GetBoundaryEventId() string {
 	return ""
 }
 
+type ActivateCase struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	CaseId        string                 `protobuf:"bytes,1,opt,name=case_id,json=caseId,proto3" json:"case_id,omitempty"`
+	CaseModelId   string                 `protobuf:"bytes,2,opt,name=case_model_id,json=caseModelId,proto3" json:"case_model_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ActivateCase) Reset() {
+	*x = ActivateCase{}
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ActivateCase) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ActivateCase) ProtoMessage() {}
+
+func (x *ActivateCase) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ActivateCase.ProtoReflect.Descriptor instead.
+func (*ActivateCase) Descriptor() ([]byte, []int) {
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *ActivateCase) GetCaseId() string {
+	if x != nil {
+		return x.CaseId
+	}
+	return ""
+}
+
+func (x *ActivateCase) GetCaseModelId() string {
+	if x != nil {
+		return x.CaseModelId
+	}
+	return ""
+}
+
+type EvaluateCaseSentries struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	CaseId        string                 `protobuf:"bytes,1,opt,name=case_id,json=caseId,proto3" json:"case_id,omitempty"`
+	Facts         []*WorkflowVariable    `protobuf:"bytes,2,rep,name=facts,proto3" json:"facts,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EvaluateCaseSentries) Reset() {
+	*x = EvaluateCaseSentries{}
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EvaluateCaseSentries) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EvaluateCaseSentries) ProtoMessage() {}
+
+func (x *EvaluateCaseSentries) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EvaluateCaseSentries.ProtoReflect.Descriptor instead.
+func (*EvaluateCaseSentries) Descriptor() ([]byte, []int) {
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *EvaluateCaseSentries) GetCaseId() string {
+	if x != nil {
+		return x.CaseId
+	}
+	return ""
+}
+
+func (x *EvaluateCaseSentries) GetFacts() []*WorkflowVariable {
+	if x != nil {
+		return x.Facts
+	}
+	return nil
+}
+
 type EventMetadata struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	EventId            string                 `protobuf:"bytes,1,opt,name=event_id,json=eventId,proto3" json:"event_id,omitempty"`
@@ -709,7 +848,7 @@ type EventMetadata struct {
 
 func (x *EventMetadata) Reset() {
 	*x = EventMetadata{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[7]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -721,7 +860,7 @@ func (x *EventMetadata) String() string {
 func (*EventMetadata) ProtoMessage() {}
 
 func (x *EventMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[7]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -734,7 +873,7 @@ func (x *EventMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventMetadata.ProtoReflect.Descriptor instead.
 func (*EventMetadata) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{7}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *EventMetadata) GetEventId() string {
@@ -865,6 +1004,9 @@ type EventEnvelope struct {
 	//	*EventEnvelope_CaseActivated
 	//	*EventEnvelope_CasePlanItemTransitioned
 	//	*EventEnvelope_UserTaskCancelled
+	//	*EventEnvelope_CaseSentrySatisfied
+	//	*EventEnvelope_CaseCompleted
+	//	*EventEnvelope_WorkflowTerminatedForCompliance
 	Event         isEventEnvelope_Event `protobuf_oneof:"event"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -872,7 +1014,7 @@ type EventEnvelope struct {
 
 func (x *EventEnvelope) Reset() {
 	*x = EventEnvelope{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[8]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -884,7 +1026,7 @@ func (x *EventEnvelope) String() string {
 func (*EventEnvelope) ProtoMessage() {}
 
 func (x *EventEnvelope) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[8]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -897,7 +1039,7 @@ func (x *EventEnvelope) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventEnvelope.ProtoReflect.Descriptor instead.
 func (*EventEnvelope) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{8}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *EventEnvelope) GetMetadata() *EventMetadata {
@@ -1139,6 +1281,33 @@ func (x *EventEnvelope) GetUserTaskCancelled() *UserTaskCancelled {
 	return nil
 }
 
+func (x *EventEnvelope) GetCaseSentrySatisfied() *CaseSentrySatisfied {
+	if x != nil {
+		if x, ok := x.Event.(*EventEnvelope_CaseSentrySatisfied); ok {
+			return x.CaseSentrySatisfied
+		}
+	}
+	return nil
+}
+
+func (x *EventEnvelope) GetCaseCompleted() *CaseCompleted {
+	if x != nil {
+		if x, ok := x.Event.(*EventEnvelope_CaseCompleted); ok {
+			return x.CaseCompleted
+		}
+	}
+	return nil
+}
+
+func (x *EventEnvelope) GetWorkflowTerminatedForCompliance() *WorkflowTerminatedForCompliance {
+	if x != nil {
+		if x, ok := x.Event.(*EventEnvelope_WorkflowTerminatedForCompliance); ok {
+			return x.WorkflowTerminatedForCompliance
+		}
+	}
+	return nil
+}
+
 type isEventEnvelope_Event interface {
 	isEventEnvelope_Event()
 }
@@ -1243,6 +1412,18 @@ type EventEnvelope_UserTaskCancelled struct {
 	UserTaskCancelled *UserTaskCancelled `protobuf:"bytes,34,opt,name=user_task_cancelled,json=userTaskCancelled,proto3,oneof"`
 }
 
+type EventEnvelope_CaseSentrySatisfied struct {
+	CaseSentrySatisfied *CaseSentrySatisfied `protobuf:"bytes,35,opt,name=case_sentry_satisfied,json=caseSentrySatisfied,proto3,oneof"`
+}
+
+type EventEnvelope_CaseCompleted struct {
+	CaseCompleted *CaseCompleted `protobuf:"bytes,36,opt,name=case_completed,json=caseCompleted,proto3,oneof"`
+}
+
+type EventEnvelope_WorkflowTerminatedForCompliance struct {
+	WorkflowTerminatedForCompliance *WorkflowTerminatedForCompliance `protobuf:"bytes,37,opt,name=workflow_terminated_for_compliance,json=workflowTerminatedForCompliance,proto3,oneof"`
+}
+
 func (*EventEnvelope_WorkflowStarted) isEventEnvelope_Event() {}
 
 func (*EventEnvelope_ServiceTaskActivated) isEventEnvelope_Event() {}
@@ -1293,6 +1474,12 @@ func (*EventEnvelope_CasePlanItemTransitioned) isEventEnvelope_Event() {}
 
 func (*EventEnvelope_UserTaskCancelled) isEventEnvelope_Event() {}
 
+func (*EventEnvelope_CaseSentrySatisfied) isEventEnvelope_Event() {}
+
+func (*EventEnvelope_CaseCompleted) isEventEnvelope_Event() {}
+
+func (*EventEnvelope_WorkflowTerminatedForCompliance) isEventEnvelope_Event() {}
+
 type WorkflowStarted struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	WorkflowType    string                 `protobuf:"bytes,1,opt,name=workflow_type,json=workflowType,proto3" json:"workflow_type,omitempty"`
@@ -1305,7 +1492,7 @@ type WorkflowStarted struct {
 
 func (x *WorkflowStarted) Reset() {
 	*x = WorkflowStarted{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[9]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1317,7 +1504,7 @@ func (x *WorkflowStarted) String() string {
 func (*WorkflowStarted) ProtoMessage() {}
 
 func (x *WorkflowStarted) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[9]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1330,7 +1517,7 @@ func (x *WorkflowStarted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkflowStarted.ProtoReflect.Descriptor instead.
 func (*WorkflowStarted) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{9}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *WorkflowStarted) GetWorkflowType() string {
@@ -1371,7 +1558,7 @@ type ServiceTaskActivated struct {
 
 func (x *ServiceTaskActivated) Reset() {
 	*x = ServiceTaskActivated{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[10]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1383,7 +1570,7 @@ func (x *ServiceTaskActivated) String() string {
 func (*ServiceTaskActivated) ProtoMessage() {}
 
 func (x *ServiceTaskActivated) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[10]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1396,7 +1583,7 @@ func (x *ServiceTaskActivated) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServiceTaskActivated.ProtoReflect.Descriptor instead.
 func (*ServiceTaskActivated) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{10}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ServiceTaskActivated) GetNodeId() string {
@@ -1422,7 +1609,7 @@ type ServiceTaskCompleted struct {
 
 func (x *ServiceTaskCompleted) Reset() {
 	*x = ServiceTaskCompleted{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[11]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1434,7 +1621,7 @@ func (x *ServiceTaskCompleted) String() string {
 func (*ServiceTaskCompleted) ProtoMessage() {}
 
 func (x *ServiceTaskCompleted) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[11]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1447,7 +1634,7 @@ func (x *ServiceTaskCompleted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServiceTaskCompleted.ProtoReflect.Descriptor instead.
 func (*ServiceTaskCompleted) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{11}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ServiceTaskCompleted) GetNodeId() string {
@@ -1469,7 +1656,7 @@ type UserTaskActivated struct {
 
 func (x *UserTaskActivated) Reset() {
 	*x = UserTaskActivated{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[12]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1481,7 +1668,7 @@ func (x *UserTaskActivated) String() string {
 func (*UserTaskActivated) ProtoMessage() {}
 
 func (x *UserTaskActivated) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[12]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1494,7 +1681,7 @@ func (x *UserTaskActivated) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserTaskActivated.ProtoReflect.Descriptor instead.
 func (*UserTaskActivated) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{12}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *UserTaskActivated) GetNodeId() string {
@@ -1536,7 +1723,7 @@ type UserTaskCompleted struct {
 
 func (x *UserTaskCompleted) Reset() {
 	*x = UserTaskCompleted{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[13]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1548,7 +1735,7 @@ func (x *UserTaskCompleted) String() string {
 func (*UserTaskCompleted) ProtoMessage() {}
 
 func (x *UserTaskCompleted) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[13]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1561,7 +1748,7 @@ func (x *UserTaskCompleted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserTaskCompleted.ProtoReflect.Descriptor instead.
 func (*UserTaskCompleted) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{13}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *UserTaskCompleted) GetNodeId() string {
@@ -1597,7 +1784,7 @@ type CaseActivated struct {
 
 func (x *CaseActivated) Reset() {
 	*x = CaseActivated{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[14]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1609,7 +1796,7 @@ func (x *CaseActivated) String() string {
 func (*CaseActivated) ProtoMessage() {}
 
 func (x *CaseActivated) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[14]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1622,7 +1809,7 @@ func (x *CaseActivated) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CaseActivated.ProtoReflect.Descriptor instead.
 func (*CaseActivated) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{14}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *CaseActivated) GetCaseId() string {
@@ -1666,7 +1853,7 @@ type CasePlanItemTransitioned struct {
 
 func (x *CasePlanItemTransitioned) Reset() {
 	*x = CasePlanItemTransitioned{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[15]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1678,7 +1865,7 @@ func (x *CasePlanItemTransitioned) String() string {
 func (*CasePlanItemTransitioned) ProtoMessage() {}
 
 func (x *CasePlanItemTransitioned) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[15]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1691,7 +1878,7 @@ func (x *CasePlanItemTransitioned) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CasePlanItemTransitioned.ProtoReflect.Descriptor instead.
 func (*CasePlanItemTransitioned) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{15}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *CasePlanItemTransitioned) GetCaseId() string {
@@ -1729,6 +1916,102 @@ func (x *CasePlanItemTransitioned) GetSatisfiedSentryIds() []string {
 	return nil
 }
 
+type CaseSentrySatisfied struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	CaseId        string                 `protobuf:"bytes,1,opt,name=case_id,json=caseId,proto3" json:"case_id,omitempty"`
+	SentryId      string                 `protobuf:"bytes,2,opt,name=sentry_id,json=sentryId,proto3" json:"sentry_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CaseSentrySatisfied) Reset() {
+	*x = CaseSentrySatisfied{}
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CaseSentrySatisfied) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CaseSentrySatisfied) ProtoMessage() {}
+
+func (x *CaseSentrySatisfied) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CaseSentrySatisfied.ProtoReflect.Descriptor instead.
+func (*CaseSentrySatisfied) Descriptor() ([]byte, []int) {
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *CaseSentrySatisfied) GetCaseId() string {
+	if x != nil {
+		return x.CaseId
+	}
+	return ""
+}
+
+func (x *CaseSentrySatisfied) GetSentryId() string {
+	if x != nil {
+		return x.SentryId
+	}
+	return ""
+}
+
+type CaseCompleted struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	CaseId        string                 `protobuf:"bytes,1,opt,name=case_id,json=caseId,proto3" json:"case_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CaseCompleted) Reset() {
+	*x = CaseCompleted{}
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CaseCompleted) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CaseCompleted) ProtoMessage() {}
+
+func (x *CaseCompleted) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CaseCompleted.ProtoReflect.Descriptor instead.
+func (*CaseCompleted) Descriptor() ([]byte, []int) {
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *CaseCompleted) GetCaseId() string {
+	if x != nil {
+		return x.CaseId
+	}
+	return ""
+}
+
 type UserTaskCancelled struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	NodeId        string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
@@ -1739,7 +2022,7 @@ type UserTaskCancelled struct {
 
 func (x *UserTaskCancelled) Reset() {
 	*x = UserTaskCancelled{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[16]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1751,7 +2034,7 @@ func (x *UserTaskCancelled) String() string {
 func (*UserTaskCancelled) ProtoMessage() {}
 
 func (x *UserTaskCancelled) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[16]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1764,7 +2047,7 @@ func (x *UserTaskCancelled) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserTaskCancelled.ProtoReflect.Descriptor instead.
 func (*UserTaskCancelled) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{16}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *UserTaskCancelled) GetNodeId() string {
@@ -1792,7 +2075,7 @@ type CommandReceipt struct {
 
 func (x *CommandReceipt) Reset() {
 	*x = CommandReceipt{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[17]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1804,7 +2087,7 @@ func (x *CommandReceipt) String() string {
 func (*CommandReceipt) ProtoMessage() {}
 
 func (x *CommandReceipt) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[17]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1817,7 +2100,7 @@ func (x *CommandReceipt) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommandReceipt.ProtoReflect.Descriptor instead.
 func (*CommandReceipt) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{17}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *CommandReceipt) GetCommandId() string {
@@ -1853,7 +2136,7 @@ type ScriptTaskActivated struct {
 
 func (x *ScriptTaskActivated) Reset() {
 	*x = ScriptTaskActivated{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[18]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1865,7 +2148,7 @@ func (x *ScriptTaskActivated) String() string {
 func (*ScriptTaskActivated) ProtoMessage() {}
 
 func (x *ScriptTaskActivated) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[18]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1878,7 +2161,7 @@ func (x *ScriptTaskActivated) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScriptTaskActivated.ProtoReflect.Descriptor instead.
 func (*ScriptTaskActivated) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{18}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *ScriptTaskActivated) GetNodeId() string {
@@ -1918,7 +2201,7 @@ type ScriptTaskCompleted struct {
 
 func (x *ScriptTaskCompleted) Reset() {
 	*x = ScriptTaskCompleted{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[19]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1930,7 +2213,7 @@ func (x *ScriptTaskCompleted) String() string {
 func (*ScriptTaskCompleted) ProtoMessage() {}
 
 func (x *ScriptTaskCompleted) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[19]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1943,7 +2226,7 @@ func (x *ScriptTaskCompleted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScriptTaskCompleted.ProtoReflect.Descriptor instead.
 func (*ScriptTaskCompleted) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{19}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *ScriptTaskCompleted) GetNodeId() string {
@@ -1961,7 +2244,7 @@ type WorkflowCompleted struct {
 
 func (x *WorkflowCompleted) Reset() {
 	*x = WorkflowCompleted{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[20]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1973,7 +2256,7 @@ func (x *WorkflowCompleted) String() string {
 func (*WorkflowCompleted) ProtoMessage() {}
 
 func (x *WorkflowCompleted) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[20]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1986,7 +2269,75 @@ func (x *WorkflowCompleted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkflowCompleted.ProtoReflect.Descriptor instead.
 func (*WorkflowCompleted) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{20}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{24}
+}
+
+type WorkflowTerminatedForCompliance struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	PolicyId            string                 `protobuf:"bytes,1,opt,name=policy_id,json=policyId,proto3" json:"policy_id,omitempty"`
+	RequestDigest       []byte                 `protobuf:"bytes,2,opt,name=request_digest,json=requestDigest,proto3" json:"request_digest,omitempty"`
+	ReasonCode          string                 `protobuf:"bytes,3,opt,name=reason_code,json=reasonCode,proto3" json:"reason_code,omitempty"`
+	ReconciliationCount uint32                 `protobuf:"varint,4,opt,name=reconciliation_count,json=reconciliationCount,proto3" json:"reconciliation_count,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *WorkflowTerminatedForCompliance) Reset() {
+	*x = WorkflowTerminatedForCompliance{}
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WorkflowTerminatedForCompliance) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WorkflowTerminatedForCompliance) ProtoMessage() {}
+
+func (x *WorkflowTerminatedForCompliance) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WorkflowTerminatedForCompliance.ProtoReflect.Descriptor instead.
+func (*WorkflowTerminatedForCompliance) Descriptor() ([]byte, []int) {
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *WorkflowTerminatedForCompliance) GetPolicyId() string {
+	if x != nil {
+		return x.PolicyId
+	}
+	return ""
+}
+
+func (x *WorkflowTerminatedForCompliance) GetRequestDigest() []byte {
+	if x != nil {
+		return x.RequestDigest
+	}
+	return nil
+}
+
+func (x *WorkflowTerminatedForCompliance) GetReasonCode() string {
+	if x != nil {
+		return x.ReasonCode
+	}
+	return ""
+}
+
+func (x *WorkflowTerminatedForCompliance) GetReconciliationCount() uint32 {
+	if x != nil {
+		return x.ReconciliationCount
+	}
+	return 0
 }
 
 type DecisionTaskEvaluated struct {
@@ -2000,7 +2351,7 @@ type DecisionTaskEvaluated struct {
 
 func (x *DecisionTaskEvaluated) Reset() {
 	*x = DecisionTaskEvaluated{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[21]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2012,7 +2363,7 @@ func (x *DecisionTaskEvaluated) String() string {
 func (*DecisionTaskEvaluated) ProtoMessage() {}
 
 func (x *DecisionTaskEvaluated) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[21]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2025,7 +2376,7 @@ func (x *DecisionTaskEvaluated) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DecisionTaskEvaluated.ProtoReflect.Descriptor instead.
 func (*DecisionTaskEvaluated) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{21}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *DecisionTaskEvaluated) GetNodeId() string {
@@ -2060,7 +2411,7 @@ type GatewaySplitActivated struct {
 
 func (x *GatewaySplitActivated) Reset() {
 	*x = GatewaySplitActivated{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[22]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2072,7 +2423,7 @@ func (x *GatewaySplitActivated) String() string {
 func (*GatewaySplitActivated) ProtoMessage() {}
 
 func (x *GatewaySplitActivated) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[22]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2085,7 +2436,7 @@ func (x *GatewaySplitActivated) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GatewaySplitActivated.ProtoReflect.Descriptor instead.
 func (*GatewaySplitActivated) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{22}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *GatewaySplitActivated) GetGatewayId() string {
@@ -2118,7 +2469,7 @@ type GatewayTokenArrived struct {
 
 func (x *GatewayTokenArrived) Reset() {
 	*x = GatewayTokenArrived{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[23]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2130,7 +2481,7 @@ func (x *GatewayTokenArrived) String() string {
 func (*GatewayTokenArrived) ProtoMessage() {}
 
 func (x *GatewayTokenArrived) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[23]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2143,7 +2494,7 @@ func (x *GatewayTokenArrived) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GatewayTokenArrived.ProtoReflect.Descriptor instead.
 func (*GatewayTokenArrived) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{23}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *GatewayTokenArrived) GetGatewayId() string {
@@ -2162,7 +2513,7 @@ type GatewayJoined struct {
 
 func (x *GatewayJoined) Reset() {
 	*x = GatewayJoined{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[24]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2174,7 +2525,7 @@ func (x *GatewayJoined) String() string {
 func (*GatewayJoined) ProtoMessage() {}
 
 func (x *GatewayJoined) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[24]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2187,7 +2538,7 @@ func (x *GatewayJoined) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GatewayJoined.ProtoReflect.Descriptor instead.
 func (*GatewayJoined) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{24}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *GatewayJoined) GetGatewayId() string {
@@ -2213,7 +2564,7 @@ type WorkflowVariable struct {
 
 func (x *WorkflowVariable) Reset() {
 	*x = WorkflowVariable{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[25]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2225,7 +2576,7 @@ func (x *WorkflowVariable) String() string {
 func (*WorkflowVariable) ProtoMessage() {}
 
 func (x *WorkflowVariable) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[25]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2238,7 +2589,7 @@ func (x *WorkflowVariable) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkflowVariable.ProtoReflect.Descriptor instead.
 func (*WorkflowVariable) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{25}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *WorkflowVariable) GetName() string {
@@ -2328,7 +2679,7 @@ type WorkflowValueList struct {
 
 func (x *WorkflowValueList) Reset() {
 	*x = WorkflowValueList{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[26]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2340,7 +2691,7 @@ func (x *WorkflowValueList) String() string {
 func (*WorkflowValueList) ProtoMessage() {}
 
 func (x *WorkflowValueList) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[26]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2353,7 +2704,7 @@ func (x *WorkflowValueList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkflowValueList.ProtoReflect.Descriptor instead.
 func (*WorkflowValueList) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{26}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *WorkflowValueList) GetItems() []*WorkflowValueItem {
@@ -2378,7 +2729,7 @@ type WorkflowValueItem struct {
 
 func (x *WorkflowValueItem) Reset() {
 	*x = WorkflowValueItem{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[27]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2390,7 +2741,7 @@ func (x *WorkflowValueItem) String() string {
 func (*WorkflowValueItem) ProtoMessage() {}
 
 func (x *WorkflowValueItem) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[27]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2403,7 +2754,7 @@ func (x *WorkflowValueItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkflowValueItem.ProtoReflect.Descriptor instead.
 func (*WorkflowValueItem) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{27}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *WorkflowValueItem) GetValue() isWorkflowValueItem_Value {
@@ -2492,7 +2843,7 @@ type MultiInstanceStarted struct {
 
 func (x *MultiInstanceStarted) Reset() {
 	*x = MultiInstanceStarted{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[28]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2504,7 +2855,7 @@ func (x *MultiInstanceStarted) String() string {
 func (*MultiInstanceStarted) ProtoMessage() {}
 
 func (x *MultiInstanceStarted) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[28]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2517,7 +2868,7 @@ func (x *MultiInstanceStarted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MultiInstanceStarted.ProtoReflect.Descriptor instead.
 func (*MultiInstanceStarted) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{28}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *MultiInstanceStarted) GetNodeId() string {
@@ -2581,7 +2932,7 @@ type MultiInstanceIterationActivated struct {
 
 func (x *MultiInstanceIterationActivated) Reset() {
 	*x = MultiInstanceIterationActivated{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[29]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2593,7 +2944,7 @@ func (x *MultiInstanceIterationActivated) String() string {
 func (*MultiInstanceIterationActivated) ProtoMessage() {}
 
 func (x *MultiInstanceIterationActivated) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[29]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2606,7 +2957,7 @@ func (x *MultiInstanceIterationActivated) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MultiInstanceIterationActivated.ProtoReflect.Descriptor instead.
 func (*MultiInstanceIterationActivated) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{29}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *MultiInstanceIterationActivated) GetNodeId() string {
@@ -2647,7 +2998,7 @@ type MultiInstanceIterationCompleted struct {
 
 func (x *MultiInstanceIterationCompleted) Reset() {
 	*x = MultiInstanceIterationCompleted{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[30]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2659,7 +3010,7 @@ func (x *MultiInstanceIterationCompleted) String() string {
 func (*MultiInstanceIterationCompleted) ProtoMessage() {}
 
 func (x *MultiInstanceIterationCompleted) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[30]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2672,7 +3023,7 @@ func (x *MultiInstanceIterationCompleted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MultiInstanceIterationCompleted.ProtoReflect.Descriptor instead.
 func (*MultiInstanceIterationCompleted) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{30}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *MultiInstanceIterationCompleted) GetNodeId() string {
@@ -2700,7 +3051,7 @@ type MultiInstanceCompleted struct {
 
 func (x *MultiInstanceCompleted) Reset() {
 	*x = MultiInstanceCompleted{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[31]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2712,7 +3063,7 @@ func (x *MultiInstanceCompleted) String() string {
 func (*MultiInstanceCompleted) ProtoMessage() {}
 
 func (x *MultiInstanceCompleted) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[31]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2725,7 +3076,7 @@ func (x *MultiInstanceCompleted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MultiInstanceCompleted.ProtoReflect.Descriptor instead.
 func (*MultiInstanceCompleted) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{31}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *MultiInstanceCompleted) GetNodeId() string {
@@ -2763,7 +3114,7 @@ type BoundaryEventTriggered struct {
 
 func (x *BoundaryEventTriggered) Reset() {
 	*x = BoundaryEventTriggered{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[32]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2775,7 +3126,7 @@ func (x *BoundaryEventTriggered) String() string {
 func (*BoundaryEventTriggered) ProtoMessage() {}
 
 func (x *BoundaryEventTriggered) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[32]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2788,7 +3139,7 @@ func (x *BoundaryEventTriggered) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BoundaryEventTriggered.ProtoReflect.Descriptor instead.
 func (*BoundaryEventTriggered) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{32}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *BoundaryEventTriggered) GetBoundaryEventId() string {
@@ -2847,7 +3198,7 @@ type BoundaryEventArmed struct {
 
 func (x *BoundaryEventArmed) Reset() {
 	*x = BoundaryEventArmed{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[33]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2859,7 +3210,7 @@ func (x *BoundaryEventArmed) String() string {
 func (*BoundaryEventArmed) ProtoMessage() {}
 
 func (x *BoundaryEventArmed) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[33]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2872,7 +3223,7 @@ func (x *BoundaryEventArmed) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BoundaryEventArmed.ProtoReflect.Descriptor instead.
 func (*BoundaryEventArmed) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{33}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *BoundaryEventArmed) GetBoundaryEventId() string {
@@ -2927,7 +3278,7 @@ type BoundaryEventsDisarmed struct {
 
 func (x *BoundaryEventsDisarmed) Reset() {
 	*x = BoundaryEventsDisarmed{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[34]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2939,7 +3290,7 @@ func (x *BoundaryEventsDisarmed) String() string {
 func (*BoundaryEventsDisarmed) ProtoMessage() {}
 
 func (x *BoundaryEventsDisarmed) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[34]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2952,7 +3303,7 @@ func (x *BoundaryEventsDisarmed) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BoundaryEventsDisarmed.ProtoReflect.Descriptor instead.
 func (*BoundaryEventsDisarmed) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{34}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *BoundaryEventsDisarmed) GetAttachedNodeId() string {
@@ -2978,7 +3329,7 @@ type WorkflowBranchCompleted struct {
 
 func (x *WorkflowBranchCompleted) Reset() {
 	*x = WorkflowBranchCompleted{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[35]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2990,7 +3341,7 @@ func (x *WorkflowBranchCompleted) String() string {
 func (*WorkflowBranchCompleted) ProtoMessage() {}
 
 func (x *WorkflowBranchCompleted) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[35]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3003,7 +3354,7 @@ func (x *WorkflowBranchCompleted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkflowBranchCompleted.ProtoReflect.Descriptor instead.
 func (*WorkflowBranchCompleted) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{35}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *WorkflowBranchCompleted) GetEndNodeId() string {
@@ -3026,7 +3377,7 @@ type ScopeEntered struct {
 
 func (x *ScopeEntered) Reset() {
 	*x = ScopeEntered{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[36]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3038,7 +3389,7 @@ func (x *ScopeEntered) String() string {
 func (*ScopeEntered) ProtoMessage() {}
 
 func (x *ScopeEntered) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[36]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3051,7 +3402,7 @@ func (x *ScopeEntered) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScopeEntered.ProtoReflect.Descriptor instead.
 func (*ScopeEntered) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{36}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *ScopeEntered) GetScopeInstanceId() string {
@@ -3100,7 +3451,7 @@ type ScopeCompleted struct {
 
 func (x *ScopeCompleted) Reset() {
 	*x = ScopeCompleted{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[37]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3112,7 +3463,7 @@ func (x *ScopeCompleted) String() string {
 func (*ScopeCompleted) ProtoMessage() {}
 
 func (x *ScopeCompleted) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[37]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3125,7 +3476,7 @@ func (x *ScopeCompleted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScopeCompleted.ProtoReflect.Descriptor instead.
 func (*ScopeCompleted) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{37}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *ScopeCompleted) GetScopeInstanceId() string {
@@ -3169,13 +3520,14 @@ type WorkflowSnapshot struct {
 	ActiveBoundarySubscriptions []*ActiveBoundarySubscription `protobuf:"bytes,16,rep,name=active_boundary_subscriptions,json=activeBoundarySubscriptions,proto3" json:"active_boundary_subscriptions,omitempty"`
 	ActiveScopes                []*ActiveExecutionScope       `protobuf:"bytes,17,rep,name=active_scopes,json=activeScopes,proto3" json:"active_scopes,omitempty"`
 	ScopeInvocationCounters     []*ScopeInvocationCounter     `protobuf:"bytes,18,rep,name=scope_invocation_counters,json=scopeInvocationCounters,proto3" json:"scope_invocation_counters,omitempty"`
+	ActiveCases                 []*ActiveCase                 `protobuf:"bytes,19,rep,name=active_cases,json=activeCases,proto3" json:"active_cases,omitempty"`
 	unknownFields               protoimpl.UnknownFields
 	sizeCache                   protoimpl.SizeCache
 }
 
 func (x *WorkflowSnapshot) Reset() {
 	*x = WorkflowSnapshot{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[38]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3187,7 +3539,7 @@ func (x *WorkflowSnapshot) String() string {
 func (*WorkflowSnapshot) ProtoMessage() {}
 
 func (x *WorkflowSnapshot) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[38]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3200,7 +3552,7 @@ func (x *WorkflowSnapshot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkflowSnapshot.ProtoReflect.Descriptor instead.
 func (*WorkflowSnapshot) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{38}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *WorkflowSnapshot) GetTenantId() string {
@@ -3329,6 +3681,149 @@ func (x *WorkflowSnapshot) GetScopeInvocationCounters() []*ScopeInvocationCounte
 	return nil
 }
 
+func (x *WorkflowSnapshot) GetActiveCases() []*ActiveCase {
+	if x != nil {
+		return x.ActiveCases
+	}
+	return nil
+}
+
+type ActiveCase struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	CaseId             string                 `protobuf:"bytes,1,opt,name=case_id,json=caseId,proto3" json:"case_id,omitempty"`
+	Status             string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+	SatisfiedSentryIds []string               `protobuf:"bytes,3,rep,name=satisfied_sentry_ids,json=satisfiedSentryIds,proto3" json:"satisfied_sentry_ids,omitempty"`
+	PlanItems          []*CasePlanItemState   `protobuf:"bytes,4,rep,name=plan_items,json=planItems,proto3" json:"plan_items,omitempty"`
+	CaseModelId        string                 `protobuf:"bytes,5,opt,name=case_model_id,json=caseModelId,proto3" json:"case_model_id,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *ActiveCase) Reset() {
+	*x = ActiveCase{}
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[44]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ActiveCase) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ActiveCase) ProtoMessage() {}
+
+func (x *ActiveCase) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[44]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ActiveCase.ProtoReflect.Descriptor instead.
+func (*ActiveCase) Descriptor() ([]byte, []int) {
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{44}
+}
+
+func (x *ActiveCase) GetCaseId() string {
+	if x != nil {
+		return x.CaseId
+	}
+	return ""
+}
+
+func (x *ActiveCase) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *ActiveCase) GetSatisfiedSentryIds() []string {
+	if x != nil {
+		return x.SatisfiedSentryIds
+	}
+	return nil
+}
+
+func (x *ActiveCase) GetPlanItems() []*CasePlanItemState {
+	if x != nil {
+		return x.PlanItems
+	}
+	return nil
+}
+
+func (x *ActiveCase) GetCaseModelId() string {
+	if x != nil {
+		return x.CaseModelId
+	}
+	return ""
+}
+
+type CasePlanItemState struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PlanItemId    string                 `protobuf:"bytes,1,opt,name=plan_item_id,json=planItemId,proto3" json:"plan_item_id,omitempty"`
+	Kind          string                 `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"`
+	Status        string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CasePlanItemState) Reset() {
+	*x = CasePlanItemState{}
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[45]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CasePlanItemState) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CasePlanItemState) ProtoMessage() {}
+
+func (x *CasePlanItemState) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[45]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CasePlanItemState.ProtoReflect.Descriptor instead.
+func (*CasePlanItemState) Descriptor() ([]byte, []int) {
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{45}
+}
+
+func (x *CasePlanItemState) GetPlanItemId() string {
+	if x != nil {
+		return x.PlanItemId
+	}
+	return ""
+}
+
+func (x *CasePlanItemState) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *CasePlanItemState) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
 type ActiveToken struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	NodeId        string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
@@ -3339,7 +3834,7 @@ type ActiveToken struct {
 
 func (x *ActiveToken) Reset() {
 	*x = ActiveToken{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[39]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3351,7 +3846,7 @@ func (x *ActiveToken) String() string {
 func (*ActiveToken) ProtoMessage() {}
 
 func (x *ActiveToken) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[39]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3364,7 +3859,7 @@ func (x *ActiveToken) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ActiveToken.ProtoReflect.Descriptor instead.
 func (*ActiveToken) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{39}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *ActiveToken) GetNodeId() string {
@@ -3392,7 +3887,7 @@ type PendingGatewayJoin struct {
 
 func (x *PendingGatewayJoin) Reset() {
 	*x = PendingGatewayJoin{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[40]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3404,7 +3899,7 @@ func (x *PendingGatewayJoin) String() string {
 func (*PendingGatewayJoin) ProtoMessage() {}
 
 func (x *PendingGatewayJoin) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[40]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3417,7 +3912,7 @@ func (x *PendingGatewayJoin) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PendingGatewayJoin.ProtoReflect.Descriptor instead.
 func (*PendingGatewayJoin) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{40}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *PendingGatewayJoin) GetGatewayId() string {
@@ -3459,7 +3954,7 @@ type ActiveMultiInstance struct {
 
 func (x *ActiveMultiInstance) Reset() {
 	*x = ActiveMultiInstance{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[41]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3471,7 +3966,7 @@ func (x *ActiveMultiInstance) String() string {
 func (*ActiveMultiInstance) ProtoMessage() {}
 
 func (x *ActiveMultiInstance) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[41]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3484,7 +3979,7 @@ func (x *ActiveMultiInstance) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ActiveMultiInstance.ProtoReflect.Descriptor instead.
 func (*ActiveMultiInstance) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{41}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *ActiveMultiInstance) GetNodeId() string {
@@ -3572,7 +4067,7 @@ type ActiveBoundarySubscription struct {
 
 func (x *ActiveBoundarySubscription) Reset() {
 	*x = ActiveBoundarySubscription{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[42]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3584,7 +4079,7 @@ func (x *ActiveBoundarySubscription) String() string {
 func (*ActiveBoundarySubscription) ProtoMessage() {}
 
 func (x *ActiveBoundarySubscription) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[42]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3597,7 +4092,7 @@ func (x *ActiveBoundarySubscription) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ActiveBoundarySubscription.ProtoReflect.Descriptor instead.
 func (*ActiveBoundarySubscription) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{42}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *ActiveBoundarySubscription) GetBoundaryEventId() string {
@@ -3662,7 +4157,7 @@ type ActiveExecutionScope struct {
 
 func (x *ActiveExecutionScope) Reset() {
 	*x = ActiveExecutionScope{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[43]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3674,7 +4169,7 @@ func (x *ActiveExecutionScope) String() string {
 func (*ActiveExecutionScope) ProtoMessage() {}
 
 func (x *ActiveExecutionScope) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[43]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3687,7 +4182,7 @@ func (x *ActiveExecutionScope) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ActiveExecutionScope.ProtoReflect.Descriptor instead.
 func (*ActiveExecutionScope) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{43}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *ActiveExecutionScope) GetScopeInstanceId() string {
@@ -3735,7 +4230,7 @@ type ScopeInvocationCounter struct {
 
 func (x *ScopeInvocationCounter) Reset() {
 	*x = ScopeInvocationCounter{}
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[44]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3747,7 +4242,7 @@ func (x *ScopeInvocationCounter) String() string {
 func (*ScopeInvocationCounter) ProtoMessage() {}
 
 func (x *ScopeInvocationCounter) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[44]
+	mi := &file_bpmp_engine_v1_engine_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3760,7 +4255,7 @@ func (x *ScopeInvocationCounter) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScopeInvocationCounter.ProtoReflect.Descriptor instead.
 func (*ScopeInvocationCounter) Descriptor() ([]byte, []int) {
-	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{44}
+	return file_bpmp_engine_v1_engine_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *ScopeInvocationCounter) GetScopeNodeId() string {
@@ -3781,7 +4276,7 @@ var File_bpmp_engine_v1_engine_proto protoreflect.FileDescriptor
 
 const file_bpmp_engine_v1_engine_proto_rawDesc = "" +
 	"\n" +
-	"\x1bbpmp/engine/v1/engine.proto\x12\x0ebpmp.engine.v1\x1a)bpmp/authorization/v1/authorization.proto\"\xa1\b\n" +
+	"\x1bbpmp/engine/v1/engine.proto\x12\x0ebpmp.engine.v1\x1a)bpmp/authorization/v1/authorization.proto\"\xc4\t\n" +
 	"\x0fCommandEnvelope\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x1f\n" +
 	"\vinstance_id\x18\x02 \x01(\tR\n" +
@@ -3800,7 +4295,9 @@ const file_bpmp_engine_v1_engine_proto_rawDesc = "" +
 	"!complete_multi_instance_iteration\x18\x0e \x01(\v2..bpmp.engine.v1.CompleteMultiInstanceIterationH\x00R\x1ecompleteMultiInstanceIteration\x12\\\n" +
 	"\x16trigger_boundary_event\x18\x0f \x01(\v2$.bpmp.engine.v1.TriggerBoundaryEventH\x00R\x14triggerBoundaryEvent\x12P\n" +
 	"\x12complete_user_task\x18\x10 \x01(\v2 .bpmp.engine.v1.CompleteUserTaskH\x00R\x10completeUserTask\x12V\n" +
-	"\x14complete_script_task\x18\x11 \x01(\v2\".bpmp.engine.v1.CompleteScriptTaskH\x00R\x12completeScriptTask\x120\n" +
+	"\x14complete_script_task\x18\x11 \x01(\v2\".bpmp.engine.v1.CompleteScriptTaskH\x00R\x12completeScriptTask\x12C\n" +
+	"\ractivate_case\x18\x12 \x01(\v2\x1c.bpmp.engine.v1.ActivateCaseH\x00R\factivateCase\x12\\\n" +
+	"\x16evaluate_case_sentries\x18\x13 \x01(\v2$.bpmp.engine.v1.EvaluateCaseSentriesH\x00R\x14evaluateCaseSentries\x120\n" +
 	"\x14encryption_key_scope\x18\f \x01(\tR\x12encryptionKeyScope\x12`\n" +
 	"\x15authorization_context\x18\r \x01(\v2+.bpmp.authorization.v1.AuthorizationContextR\x14authorizationContextB\t\n" +
 	"\acommand\"\x0f\n" +
@@ -3816,7 +4313,13 @@ const file_bpmp_engine_v1_engine_proto_rawDesc = "" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x1c\n" +
 	"\titeration\x18\x02 \x01(\rR\titeration\"B\n" +
 	"\x14TriggerBoundaryEvent\x12*\n" +
-	"\x11boundary_event_id\x18\x01 \x01(\tR\x0fboundaryEventId\"\xa0\x04\n" +
+	"\x11boundary_event_id\x18\x01 \x01(\tR\x0fboundaryEventId\"K\n" +
+	"\fActivateCase\x12\x17\n" +
+	"\acase_id\x18\x01 \x01(\tR\x06caseId\x12\"\n" +
+	"\rcase_model_id\x18\x02 \x01(\tR\vcaseModelId\"g\n" +
+	"\x14EvaluateCaseSentries\x12\x17\n" +
+	"\acase_id\x18\x01 \x01(\tR\x06caseId\x126\n" +
+	"\x05facts\x18\x02 \x03(\v2 .bpmp.engine.v1.WorkflowVariableR\x05facts\"\xa0\x04\n" +
 	"\rEventMetadata\x12\x19\n" +
 	"\bevent_id\x18\x01 \x01(\tR\aeventId\x12\x1b\n" +
 	"\ttenant_id\x18\x02 \x01(\tR\btenantId\x12\x1f\n" +
@@ -3833,7 +4336,7 @@ const file_bpmp_engine_v1_engine_proto_rawDesc = "" +
 	"\bactor_id\x18\v \x01(\tR\aactorId\x120\n" +
 	"\x14encryption_key_scope\x18\f \x01(\tR\x12encryptionKeyScope\x12#\n" +
 	"\rworkflow_type\x18\r \x01(\tR\fworkflowType\x12)\n" +
-	"\x10workflow_version\x18\x0e \x01(\tR\x0fworkflowVersion\"\xd7\x12\n" +
+	"\x10workflow_version\x18\x0e \x01(\tR\x0fworkflowVersion\"\xfa\x14\n" +
 	"\rEventEnvelope\x129\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1d.bpmp.engine.v1.EventMetadataR\bmetadata\x12L\n" +
 	"\x10workflow_started\x18\n" +
@@ -3861,7 +4364,10 @@ const file_bpmp_engine_v1_engine_proto_rawDesc = "" +
 	"\x15script_task_completed\x18\x1f \x01(\v2#.bpmp.engine.v1.ScriptTaskCompletedH\x00R\x13scriptTaskCompleted\x12F\n" +
 	"\x0ecase_activated\x18  \x01(\v2\x1d.bpmp.engine.v1.CaseActivatedH\x00R\rcaseActivated\x12i\n" +
 	"\x1bcase_plan_item_transitioned\x18! \x01(\v2(.bpmp.engine.v1.CasePlanItemTransitionedH\x00R\x18casePlanItemTransitioned\x12S\n" +
-	"\x13user_task_cancelled\x18\" \x01(\v2!.bpmp.engine.v1.UserTaskCancelledH\x00R\x11userTaskCancelledB\a\n" +
+	"\x13user_task_cancelled\x18\" \x01(\v2!.bpmp.engine.v1.UserTaskCancelledH\x00R\x11userTaskCancelled\x12Y\n" +
+	"\x15case_sentry_satisfied\x18# \x01(\v2#.bpmp.engine.v1.CaseSentrySatisfiedH\x00R\x13caseSentrySatisfied\x12F\n" +
+	"\x0ecase_completed\x18$ \x01(\v2\x1d.bpmp.engine.v1.CaseCompletedH\x00R\rcaseCompleted\x12~\n" +
+	"\"workflow_terminated_for_compliance\x18% \x01(\v2/.bpmp.engine.v1.WorkflowTerminatedForComplianceH\x00R\x1fworkflowTerminatedForComplianceB\a\n" +
 	"\x05event\"\xa2\x01\n" +
 	"\x0fWorkflowStarted\x12#\n" +
 	"\rworkflow_type\x18\x01 \x01(\tR\fworkflowType\x12)\n" +
@@ -3893,7 +4399,12 @@ const file_bpmp_engine_v1_engine_proto_rawDesc = "" +
 	"planItemId\x12$\n" +
 	"\x0eplan_item_kind\x18\x03 \x01(\tR\fplanItemKind\x12\x16\n" +
 	"\x06status\x18\x04 \x01(\tR\x06status\x120\n" +
-	"\x14satisfied_sentry_ids\x18\x05 \x03(\tR\x12satisfiedSentryIds\"D\n" +
+	"\x14satisfied_sentry_ids\x18\x05 \x03(\tR\x12satisfiedSentryIds\"K\n" +
+	"\x13CaseSentrySatisfied\x12\x17\n" +
+	"\acase_id\x18\x01 \x01(\tR\x06caseId\x12\x1b\n" +
+	"\tsentry_id\x18\x02 \x01(\tR\bsentryId\"(\n" +
+	"\rCaseCompleted\x12\x17\n" +
+	"\acase_id\x18\x01 \x01(\tR\x06caseId\"D\n" +
 	"\x11UserTaskCancelled\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\"|\n" +
@@ -3909,7 +4420,13 @@ const file_bpmp_engine_v1_engine_proto_rawDesc = "" +
 	"\x16implementation_version\x18\x04 \x01(\tR\x15implementationVersion\".\n" +
 	"\x13ScriptTaskCompleted\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\"\x13\n" +
-	"\x11WorkflowCompleted\"\x98\x01\n" +
+	"\x11WorkflowCompleted\"\xb9\x01\n" +
+	"\x1fWorkflowTerminatedForCompliance\x12\x1b\n" +
+	"\tpolicy_id\x18\x01 \x01(\tR\bpolicyId\x12%\n" +
+	"\x0erequest_digest\x18\x02 \x01(\fR\rrequestDigest\x12\x1f\n" +
+	"\vreason_code\x18\x03 \x01(\tR\n" +
+	"reasonCode\x121\n" +
+	"\x14reconciliation_count\x18\x04 \x01(\rR\x13reconciliationCount\"\x98\x01\n" +
 	"\x15DecisionTaskEvaluated\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12*\n" +
 	"\x11decision_table_id\x18\x02 \x01(\tR\x0fdecisionTableId\x12:\n" +
@@ -3993,7 +4510,7 @@ const file_bpmp_engine_v1_engine_proto_rawDesc = "" +
 	"\x0eScopeCompleted\x12*\n" +
 	"\x11scope_instance_id\x18\x01 \x01(\tR\x0fscopeInstanceId\x12\"\n" +
 	"\rscope_node_id\x18\x02 \x01(\tR\vscopeNodeId\x12\x1e\n" +
-	"\vend_node_id\x18\x03 \x01(\tR\tendNodeId\"\x9e\b\n" +
+	"\vend_node_id\x18\x03 \x01(\tR\tendNodeId\"\xdd\b\n" +
 	"\x10WorkflowSnapshot\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x1f\n" +
 	"\vinstance_id\x18\x02 \x01(\tR\n" +
@@ -4014,7 +4531,21 @@ const file_bpmp_engine_v1_engine_proto_rawDesc = "" +
 	"\x16active_multi_instances\x18\x0f \x03(\v2#.bpmp.engine.v1.ActiveMultiInstanceR\x14activeMultiInstances\x12n\n" +
 	"\x1dactive_boundary_subscriptions\x18\x10 \x03(\v2*.bpmp.engine.v1.ActiveBoundarySubscriptionR\x1bactiveBoundarySubscriptions\x12I\n" +
 	"\ractive_scopes\x18\x11 \x03(\v2$.bpmp.engine.v1.ActiveExecutionScopeR\factiveScopes\x12b\n" +
-	"\x19scope_invocation_counters\x18\x12 \x03(\v2&.bpmp.engine.v1.ScopeInvocationCounterR\x17scopeInvocationCounters\"<\n" +
+	"\x19scope_invocation_counters\x18\x12 \x03(\v2&.bpmp.engine.v1.ScopeInvocationCounterR\x17scopeInvocationCounters\x12=\n" +
+	"\factive_cases\x18\x13 \x03(\v2\x1a.bpmp.engine.v1.ActiveCaseR\vactiveCases\"\xd5\x01\n" +
+	"\n" +
+	"ActiveCase\x12\x17\n" +
+	"\acase_id\x18\x01 \x01(\tR\x06caseId\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\x120\n" +
+	"\x14satisfied_sentry_ids\x18\x03 \x03(\tR\x12satisfiedSentryIds\x12@\n" +
+	"\n" +
+	"plan_items\x18\x04 \x03(\v2!.bpmp.engine.v1.CasePlanItemStateR\tplanItems\x12\"\n" +
+	"\rcase_model_id\x18\x05 \x01(\tR\vcaseModelId\"a\n" +
+	"\x11CasePlanItemState\x12 \n" +
+	"\fplan_item_id\x18\x01 \x01(\tR\n" +
+	"planItemId\x12\x12\n" +
+	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x16\n" +
+	"\x06status\x18\x03 \x01(\tR\x06status\"<\n" +
 	"\vActiveToken\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x14\n" +
 	"\x05count\x18\x02 \x01(\rR\x05count\"\x83\x01\n" +
@@ -4065,12 +4596,13 @@ const file_bpmp_engine_v1_engine_proto_rawDesc = "" +
 	"$BOUNDARY_TRIGGER_KIND_TIMER_DURATION\x10\x02\x12%\n" +
 	"!BOUNDARY_TRIGGER_KIND_TIMER_CYCLE\x10\x03\x12\x1f\n" +
 	"\x1bBOUNDARY_TRIGGER_KIND_ERROR\x10\x04\x12!\n" +
-	"\x1dBOUNDARY_TRIGGER_KIND_MESSAGE\x10\x05*\x98\x01\n" +
+	"\x1dBOUNDARY_TRIGGER_KIND_MESSAGE\x10\x05*\xca\x01\n" +
 	"\x11WorkflowLifecycle\x12\"\n" +
 	"\x1eWORKFLOW_LIFECYCLE_UNSPECIFIED\x10\x00\x12\x1e\n" +
 	"\x1aWORKFLOW_LIFECYCLE_INITIAL\x10\x01\x12\x1d\n" +
 	"\x19WORKFLOW_LIFECYCLE_ACTIVE\x10\x02\x12 \n" +
-	"\x1cWORKFLOW_LIFECYCLE_COMPLETED\x10\x032h\n" +
+	"\x1cWORKFLOW_LIFECYCLE_COMPLETED\x10\x03\x120\n" +
+	",WORKFLOW_LIFECYCLE_TERMINATED_FOR_COMPLIANCE\x10\x042h\n" +
 	"\x14EngineCommandService\x12P\n" +
 	"\rHandleCommand\x12\x1f.bpmp.engine.v1.CommandEnvelope\x1a\x1e.bpmp.engine.v1.CommandReceiptB\xca\x01\n" +
 	"\x12com.bpmp.engine.v1B\vEngineProtoP\x01ZMgithub.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/engine/v1;enginev1\xa2\x02\x03BEX\xaa\x02\x0eBpmp.Engine.V1\xca\x02\x0eBpmp\\Engine\\V1\xe2\x02\x1aBpmp\\Engine\\V1\\GPBMetadata\xea\x02\x10Bpmp::Engine::V1b\x06proto3"
@@ -4088,7 +4620,7 @@ func file_bpmp_engine_v1_engine_proto_rawDescGZIP() []byte {
 }
 
 var file_bpmp_engine_v1_engine_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_bpmp_engine_v1_engine_proto_msgTypes = make([]protoimpl.MessageInfo, 45)
+var file_bpmp_engine_v1_engine_proto_msgTypes = make([]protoimpl.MessageInfo, 52)
 var file_bpmp_engine_v1_engine_proto_goTypes = []any{
 	(MultiInstanceMode)(0),                  // 0: bpmp.engine.v1.MultiInstanceMode
 	(BoundaryTriggerKind)(0),                // 1: bpmp.engine.v1.BoundaryTriggerKind
@@ -4100,45 +4632,52 @@ var file_bpmp_engine_v1_engine_proto_goTypes = []any{
 	(*CompleteScriptTask)(nil),              // 7: bpmp.engine.v1.CompleteScriptTask
 	(*CompleteMultiInstanceIteration)(nil),  // 8: bpmp.engine.v1.CompleteMultiInstanceIteration
 	(*TriggerBoundaryEvent)(nil),            // 9: bpmp.engine.v1.TriggerBoundaryEvent
-	(*EventMetadata)(nil),                   // 10: bpmp.engine.v1.EventMetadata
-	(*EventEnvelope)(nil),                   // 11: bpmp.engine.v1.EventEnvelope
-	(*WorkflowStarted)(nil),                 // 12: bpmp.engine.v1.WorkflowStarted
-	(*ServiceTaskActivated)(nil),            // 13: bpmp.engine.v1.ServiceTaskActivated
-	(*ServiceTaskCompleted)(nil),            // 14: bpmp.engine.v1.ServiceTaskCompleted
-	(*UserTaskActivated)(nil),               // 15: bpmp.engine.v1.UserTaskActivated
-	(*UserTaskCompleted)(nil),               // 16: bpmp.engine.v1.UserTaskCompleted
-	(*CaseActivated)(nil),                   // 17: bpmp.engine.v1.CaseActivated
-	(*CasePlanItemTransitioned)(nil),        // 18: bpmp.engine.v1.CasePlanItemTransitioned
-	(*UserTaskCancelled)(nil),               // 19: bpmp.engine.v1.UserTaskCancelled
-	(*CommandReceipt)(nil),                  // 20: bpmp.engine.v1.CommandReceipt
-	(*ScriptTaskActivated)(nil),             // 21: bpmp.engine.v1.ScriptTaskActivated
-	(*ScriptTaskCompleted)(nil),             // 22: bpmp.engine.v1.ScriptTaskCompleted
-	(*WorkflowCompleted)(nil),               // 23: bpmp.engine.v1.WorkflowCompleted
-	(*DecisionTaskEvaluated)(nil),           // 24: bpmp.engine.v1.DecisionTaskEvaluated
-	(*GatewaySplitActivated)(nil),           // 25: bpmp.engine.v1.GatewaySplitActivated
-	(*GatewayTokenArrived)(nil),             // 26: bpmp.engine.v1.GatewayTokenArrived
-	(*GatewayJoined)(nil),                   // 27: bpmp.engine.v1.GatewayJoined
-	(*WorkflowVariable)(nil),                // 28: bpmp.engine.v1.WorkflowVariable
-	(*WorkflowValueList)(nil),               // 29: bpmp.engine.v1.WorkflowValueList
-	(*WorkflowValueItem)(nil),               // 30: bpmp.engine.v1.WorkflowValueItem
-	(*MultiInstanceStarted)(nil),            // 31: bpmp.engine.v1.MultiInstanceStarted
-	(*MultiInstanceIterationActivated)(nil), // 32: bpmp.engine.v1.MultiInstanceIterationActivated
-	(*MultiInstanceIterationCompleted)(nil), // 33: bpmp.engine.v1.MultiInstanceIterationCompleted
-	(*MultiInstanceCompleted)(nil),          // 34: bpmp.engine.v1.MultiInstanceCompleted
-	(*BoundaryEventTriggered)(nil),          // 35: bpmp.engine.v1.BoundaryEventTriggered
-	(*BoundaryEventArmed)(nil),              // 36: bpmp.engine.v1.BoundaryEventArmed
-	(*BoundaryEventsDisarmed)(nil),          // 37: bpmp.engine.v1.BoundaryEventsDisarmed
-	(*WorkflowBranchCompleted)(nil),         // 38: bpmp.engine.v1.WorkflowBranchCompleted
-	(*ScopeEntered)(nil),                    // 39: bpmp.engine.v1.ScopeEntered
-	(*ScopeCompleted)(nil),                  // 40: bpmp.engine.v1.ScopeCompleted
-	(*WorkflowSnapshot)(nil),                // 41: bpmp.engine.v1.WorkflowSnapshot
-	(*ActiveToken)(nil),                     // 42: bpmp.engine.v1.ActiveToken
-	(*PendingGatewayJoin)(nil),              // 43: bpmp.engine.v1.PendingGatewayJoin
-	(*ActiveMultiInstance)(nil),             // 44: bpmp.engine.v1.ActiveMultiInstance
-	(*ActiveBoundarySubscription)(nil),      // 45: bpmp.engine.v1.ActiveBoundarySubscription
-	(*ActiveExecutionScope)(nil),            // 46: bpmp.engine.v1.ActiveExecutionScope
-	(*ScopeInvocationCounter)(nil),          // 47: bpmp.engine.v1.ScopeInvocationCounter
-	(*v1.AuthorizationContext)(nil),         // 48: bpmp.authorization.v1.AuthorizationContext
+	(*ActivateCase)(nil),                    // 10: bpmp.engine.v1.ActivateCase
+	(*EvaluateCaseSentries)(nil),            // 11: bpmp.engine.v1.EvaluateCaseSentries
+	(*EventMetadata)(nil),                   // 12: bpmp.engine.v1.EventMetadata
+	(*EventEnvelope)(nil),                   // 13: bpmp.engine.v1.EventEnvelope
+	(*WorkflowStarted)(nil),                 // 14: bpmp.engine.v1.WorkflowStarted
+	(*ServiceTaskActivated)(nil),            // 15: bpmp.engine.v1.ServiceTaskActivated
+	(*ServiceTaskCompleted)(nil),            // 16: bpmp.engine.v1.ServiceTaskCompleted
+	(*UserTaskActivated)(nil),               // 17: bpmp.engine.v1.UserTaskActivated
+	(*UserTaskCompleted)(nil),               // 18: bpmp.engine.v1.UserTaskCompleted
+	(*CaseActivated)(nil),                   // 19: bpmp.engine.v1.CaseActivated
+	(*CasePlanItemTransitioned)(nil),        // 20: bpmp.engine.v1.CasePlanItemTransitioned
+	(*CaseSentrySatisfied)(nil),             // 21: bpmp.engine.v1.CaseSentrySatisfied
+	(*CaseCompleted)(nil),                   // 22: bpmp.engine.v1.CaseCompleted
+	(*UserTaskCancelled)(nil),               // 23: bpmp.engine.v1.UserTaskCancelled
+	(*CommandReceipt)(nil),                  // 24: bpmp.engine.v1.CommandReceipt
+	(*ScriptTaskActivated)(nil),             // 25: bpmp.engine.v1.ScriptTaskActivated
+	(*ScriptTaskCompleted)(nil),             // 26: bpmp.engine.v1.ScriptTaskCompleted
+	(*WorkflowCompleted)(nil),               // 27: bpmp.engine.v1.WorkflowCompleted
+	(*WorkflowTerminatedForCompliance)(nil), // 28: bpmp.engine.v1.WorkflowTerminatedForCompliance
+	(*DecisionTaskEvaluated)(nil),           // 29: bpmp.engine.v1.DecisionTaskEvaluated
+	(*GatewaySplitActivated)(nil),           // 30: bpmp.engine.v1.GatewaySplitActivated
+	(*GatewayTokenArrived)(nil),             // 31: bpmp.engine.v1.GatewayTokenArrived
+	(*GatewayJoined)(nil),                   // 32: bpmp.engine.v1.GatewayJoined
+	(*WorkflowVariable)(nil),                // 33: bpmp.engine.v1.WorkflowVariable
+	(*WorkflowValueList)(nil),               // 34: bpmp.engine.v1.WorkflowValueList
+	(*WorkflowValueItem)(nil),               // 35: bpmp.engine.v1.WorkflowValueItem
+	(*MultiInstanceStarted)(nil),            // 36: bpmp.engine.v1.MultiInstanceStarted
+	(*MultiInstanceIterationActivated)(nil), // 37: bpmp.engine.v1.MultiInstanceIterationActivated
+	(*MultiInstanceIterationCompleted)(nil), // 38: bpmp.engine.v1.MultiInstanceIterationCompleted
+	(*MultiInstanceCompleted)(nil),          // 39: bpmp.engine.v1.MultiInstanceCompleted
+	(*BoundaryEventTriggered)(nil),          // 40: bpmp.engine.v1.BoundaryEventTriggered
+	(*BoundaryEventArmed)(nil),              // 41: bpmp.engine.v1.BoundaryEventArmed
+	(*BoundaryEventsDisarmed)(nil),          // 42: bpmp.engine.v1.BoundaryEventsDisarmed
+	(*WorkflowBranchCompleted)(nil),         // 43: bpmp.engine.v1.WorkflowBranchCompleted
+	(*ScopeEntered)(nil),                    // 44: bpmp.engine.v1.ScopeEntered
+	(*ScopeCompleted)(nil),                  // 45: bpmp.engine.v1.ScopeCompleted
+	(*WorkflowSnapshot)(nil),                // 46: bpmp.engine.v1.WorkflowSnapshot
+	(*ActiveCase)(nil),                      // 47: bpmp.engine.v1.ActiveCase
+	(*CasePlanItemState)(nil),               // 48: bpmp.engine.v1.CasePlanItemState
+	(*ActiveToken)(nil),                     // 49: bpmp.engine.v1.ActiveToken
+	(*PendingGatewayJoin)(nil),              // 50: bpmp.engine.v1.PendingGatewayJoin
+	(*ActiveMultiInstance)(nil),             // 51: bpmp.engine.v1.ActiveMultiInstance
+	(*ActiveBoundarySubscription)(nil),      // 52: bpmp.engine.v1.ActiveBoundarySubscription
+	(*ActiveExecutionScope)(nil),            // 53: bpmp.engine.v1.ActiveExecutionScope
+	(*ScopeInvocationCounter)(nil),          // 54: bpmp.engine.v1.ScopeInvocationCounter
+	(*v1.AuthorizationContext)(nil),         // 55: bpmp.authorization.v1.AuthorizationContext
 }
 var file_bpmp_engine_v1_engine_proto_depIdxs = []int32{
 	4,  // 0: bpmp.engine.v1.CommandEnvelope.start_workflow:type_name -> bpmp.engine.v1.StartWorkflow
@@ -4147,59 +4686,67 @@ var file_bpmp_engine_v1_engine_proto_depIdxs = []int32{
 	9,  // 3: bpmp.engine.v1.CommandEnvelope.trigger_boundary_event:type_name -> bpmp.engine.v1.TriggerBoundaryEvent
 	6,  // 4: bpmp.engine.v1.CommandEnvelope.complete_user_task:type_name -> bpmp.engine.v1.CompleteUserTask
 	7,  // 5: bpmp.engine.v1.CommandEnvelope.complete_script_task:type_name -> bpmp.engine.v1.CompleteScriptTask
-	48, // 6: bpmp.engine.v1.CommandEnvelope.authorization_context:type_name -> bpmp.authorization.v1.AuthorizationContext
-	10, // 7: bpmp.engine.v1.EventEnvelope.metadata:type_name -> bpmp.engine.v1.EventMetadata
-	12, // 8: bpmp.engine.v1.EventEnvelope.workflow_started:type_name -> bpmp.engine.v1.WorkflowStarted
-	13, // 9: bpmp.engine.v1.EventEnvelope.service_task_activated:type_name -> bpmp.engine.v1.ServiceTaskActivated
-	14, // 10: bpmp.engine.v1.EventEnvelope.service_task_completed:type_name -> bpmp.engine.v1.ServiceTaskCompleted
-	23, // 11: bpmp.engine.v1.EventEnvelope.workflow_completed:type_name -> bpmp.engine.v1.WorkflowCompleted
-	24, // 12: bpmp.engine.v1.EventEnvelope.decision_task_evaluated:type_name -> bpmp.engine.v1.DecisionTaskEvaluated
-	25, // 13: bpmp.engine.v1.EventEnvelope.gateway_split_activated:type_name -> bpmp.engine.v1.GatewaySplitActivated
-	26, // 14: bpmp.engine.v1.EventEnvelope.gateway_token_arrived:type_name -> bpmp.engine.v1.GatewayTokenArrived
-	27, // 15: bpmp.engine.v1.EventEnvelope.gateway_joined:type_name -> bpmp.engine.v1.GatewayJoined
-	31, // 16: bpmp.engine.v1.EventEnvelope.multi_instance_started:type_name -> bpmp.engine.v1.MultiInstanceStarted
-	32, // 17: bpmp.engine.v1.EventEnvelope.multi_instance_iteration_activated:type_name -> bpmp.engine.v1.MultiInstanceIterationActivated
-	33, // 18: bpmp.engine.v1.EventEnvelope.multi_instance_iteration_completed:type_name -> bpmp.engine.v1.MultiInstanceIterationCompleted
-	34, // 19: bpmp.engine.v1.EventEnvelope.multi_instance_completed:type_name -> bpmp.engine.v1.MultiInstanceCompleted
-	35, // 20: bpmp.engine.v1.EventEnvelope.boundary_event_triggered:type_name -> bpmp.engine.v1.BoundaryEventTriggered
-	38, // 21: bpmp.engine.v1.EventEnvelope.workflow_branch_completed:type_name -> bpmp.engine.v1.WorkflowBranchCompleted
-	36, // 22: bpmp.engine.v1.EventEnvelope.boundary_event_armed:type_name -> bpmp.engine.v1.BoundaryEventArmed
-	37, // 23: bpmp.engine.v1.EventEnvelope.boundary_events_disarmed:type_name -> bpmp.engine.v1.BoundaryEventsDisarmed
-	39, // 24: bpmp.engine.v1.EventEnvelope.scope_entered:type_name -> bpmp.engine.v1.ScopeEntered
-	40, // 25: bpmp.engine.v1.EventEnvelope.scope_completed:type_name -> bpmp.engine.v1.ScopeCompleted
-	15, // 26: bpmp.engine.v1.EventEnvelope.user_task_activated:type_name -> bpmp.engine.v1.UserTaskActivated
-	16, // 27: bpmp.engine.v1.EventEnvelope.user_task_completed:type_name -> bpmp.engine.v1.UserTaskCompleted
-	21, // 28: bpmp.engine.v1.EventEnvelope.script_task_activated:type_name -> bpmp.engine.v1.ScriptTaskActivated
-	22, // 29: bpmp.engine.v1.EventEnvelope.script_task_completed:type_name -> bpmp.engine.v1.ScriptTaskCompleted
-	17, // 30: bpmp.engine.v1.EventEnvelope.case_activated:type_name -> bpmp.engine.v1.CaseActivated
-	18, // 31: bpmp.engine.v1.EventEnvelope.case_plan_item_transitioned:type_name -> bpmp.engine.v1.CasePlanItemTransitioned
-	19, // 32: bpmp.engine.v1.EventEnvelope.user_task_cancelled:type_name -> bpmp.engine.v1.UserTaskCancelled
-	28, // 33: bpmp.engine.v1.DecisionTaskEvaluated.outputs:type_name -> bpmp.engine.v1.WorkflowVariable
-	29, // 34: bpmp.engine.v1.WorkflowVariable.list_value:type_name -> bpmp.engine.v1.WorkflowValueList
-	30, // 35: bpmp.engine.v1.WorkflowValueList.items:type_name -> bpmp.engine.v1.WorkflowValueItem
-	29, // 36: bpmp.engine.v1.WorkflowValueItem.list_value:type_name -> bpmp.engine.v1.WorkflowValueList
-	0,  // 37: bpmp.engine.v1.MultiInstanceStarted.mode:type_name -> bpmp.engine.v1.MultiInstanceMode
-	30, // 38: bpmp.engine.v1.MultiInstanceStarted.items:type_name -> bpmp.engine.v1.WorkflowValueItem
-	30, // 39: bpmp.engine.v1.MultiInstanceIterationActivated.item:type_name -> bpmp.engine.v1.WorkflowValueItem
-	1,  // 40: bpmp.engine.v1.BoundaryEventArmed.trigger_kind:type_name -> bpmp.engine.v1.BoundaryTriggerKind
-	2,  // 41: bpmp.engine.v1.WorkflowSnapshot.lifecycle:type_name -> bpmp.engine.v1.WorkflowLifecycle
-	28, // 42: bpmp.engine.v1.WorkflowSnapshot.variables:type_name -> bpmp.engine.v1.WorkflowVariable
-	42, // 43: bpmp.engine.v1.WorkflowSnapshot.active_tokens:type_name -> bpmp.engine.v1.ActiveToken
-	43, // 44: bpmp.engine.v1.WorkflowSnapshot.pending_gateway_joins:type_name -> bpmp.engine.v1.PendingGatewayJoin
-	44, // 45: bpmp.engine.v1.WorkflowSnapshot.active_multi_instances:type_name -> bpmp.engine.v1.ActiveMultiInstance
-	45, // 46: bpmp.engine.v1.WorkflowSnapshot.active_boundary_subscriptions:type_name -> bpmp.engine.v1.ActiveBoundarySubscription
-	46, // 47: bpmp.engine.v1.WorkflowSnapshot.active_scopes:type_name -> bpmp.engine.v1.ActiveExecutionScope
-	47, // 48: bpmp.engine.v1.WorkflowSnapshot.scope_invocation_counters:type_name -> bpmp.engine.v1.ScopeInvocationCounter
-	0,  // 49: bpmp.engine.v1.ActiveMultiInstance.mode:type_name -> bpmp.engine.v1.MultiInstanceMode
-	30, // 50: bpmp.engine.v1.ActiveMultiInstance.items:type_name -> bpmp.engine.v1.WorkflowValueItem
-	1,  // 51: bpmp.engine.v1.ActiveBoundarySubscription.trigger_kind:type_name -> bpmp.engine.v1.BoundaryTriggerKind
-	3,  // 52: bpmp.engine.v1.EngineCommandService.HandleCommand:input_type -> bpmp.engine.v1.CommandEnvelope
-	20, // 53: bpmp.engine.v1.EngineCommandService.HandleCommand:output_type -> bpmp.engine.v1.CommandReceipt
-	53, // [53:54] is the sub-list for method output_type
-	52, // [52:53] is the sub-list for method input_type
-	52, // [52:52] is the sub-list for extension type_name
-	52, // [52:52] is the sub-list for extension extendee
-	0,  // [0:52] is the sub-list for field type_name
+	10, // 6: bpmp.engine.v1.CommandEnvelope.activate_case:type_name -> bpmp.engine.v1.ActivateCase
+	11, // 7: bpmp.engine.v1.CommandEnvelope.evaluate_case_sentries:type_name -> bpmp.engine.v1.EvaluateCaseSentries
+	55, // 8: bpmp.engine.v1.CommandEnvelope.authorization_context:type_name -> bpmp.authorization.v1.AuthorizationContext
+	33, // 9: bpmp.engine.v1.EvaluateCaseSentries.facts:type_name -> bpmp.engine.v1.WorkflowVariable
+	12, // 10: bpmp.engine.v1.EventEnvelope.metadata:type_name -> bpmp.engine.v1.EventMetadata
+	14, // 11: bpmp.engine.v1.EventEnvelope.workflow_started:type_name -> bpmp.engine.v1.WorkflowStarted
+	15, // 12: bpmp.engine.v1.EventEnvelope.service_task_activated:type_name -> bpmp.engine.v1.ServiceTaskActivated
+	16, // 13: bpmp.engine.v1.EventEnvelope.service_task_completed:type_name -> bpmp.engine.v1.ServiceTaskCompleted
+	27, // 14: bpmp.engine.v1.EventEnvelope.workflow_completed:type_name -> bpmp.engine.v1.WorkflowCompleted
+	29, // 15: bpmp.engine.v1.EventEnvelope.decision_task_evaluated:type_name -> bpmp.engine.v1.DecisionTaskEvaluated
+	30, // 16: bpmp.engine.v1.EventEnvelope.gateway_split_activated:type_name -> bpmp.engine.v1.GatewaySplitActivated
+	31, // 17: bpmp.engine.v1.EventEnvelope.gateway_token_arrived:type_name -> bpmp.engine.v1.GatewayTokenArrived
+	32, // 18: bpmp.engine.v1.EventEnvelope.gateway_joined:type_name -> bpmp.engine.v1.GatewayJoined
+	36, // 19: bpmp.engine.v1.EventEnvelope.multi_instance_started:type_name -> bpmp.engine.v1.MultiInstanceStarted
+	37, // 20: bpmp.engine.v1.EventEnvelope.multi_instance_iteration_activated:type_name -> bpmp.engine.v1.MultiInstanceIterationActivated
+	38, // 21: bpmp.engine.v1.EventEnvelope.multi_instance_iteration_completed:type_name -> bpmp.engine.v1.MultiInstanceIterationCompleted
+	39, // 22: bpmp.engine.v1.EventEnvelope.multi_instance_completed:type_name -> bpmp.engine.v1.MultiInstanceCompleted
+	40, // 23: bpmp.engine.v1.EventEnvelope.boundary_event_triggered:type_name -> bpmp.engine.v1.BoundaryEventTriggered
+	43, // 24: bpmp.engine.v1.EventEnvelope.workflow_branch_completed:type_name -> bpmp.engine.v1.WorkflowBranchCompleted
+	41, // 25: bpmp.engine.v1.EventEnvelope.boundary_event_armed:type_name -> bpmp.engine.v1.BoundaryEventArmed
+	42, // 26: bpmp.engine.v1.EventEnvelope.boundary_events_disarmed:type_name -> bpmp.engine.v1.BoundaryEventsDisarmed
+	44, // 27: bpmp.engine.v1.EventEnvelope.scope_entered:type_name -> bpmp.engine.v1.ScopeEntered
+	45, // 28: bpmp.engine.v1.EventEnvelope.scope_completed:type_name -> bpmp.engine.v1.ScopeCompleted
+	17, // 29: bpmp.engine.v1.EventEnvelope.user_task_activated:type_name -> bpmp.engine.v1.UserTaskActivated
+	18, // 30: bpmp.engine.v1.EventEnvelope.user_task_completed:type_name -> bpmp.engine.v1.UserTaskCompleted
+	25, // 31: bpmp.engine.v1.EventEnvelope.script_task_activated:type_name -> bpmp.engine.v1.ScriptTaskActivated
+	26, // 32: bpmp.engine.v1.EventEnvelope.script_task_completed:type_name -> bpmp.engine.v1.ScriptTaskCompleted
+	19, // 33: bpmp.engine.v1.EventEnvelope.case_activated:type_name -> bpmp.engine.v1.CaseActivated
+	20, // 34: bpmp.engine.v1.EventEnvelope.case_plan_item_transitioned:type_name -> bpmp.engine.v1.CasePlanItemTransitioned
+	23, // 35: bpmp.engine.v1.EventEnvelope.user_task_cancelled:type_name -> bpmp.engine.v1.UserTaskCancelled
+	21, // 36: bpmp.engine.v1.EventEnvelope.case_sentry_satisfied:type_name -> bpmp.engine.v1.CaseSentrySatisfied
+	22, // 37: bpmp.engine.v1.EventEnvelope.case_completed:type_name -> bpmp.engine.v1.CaseCompleted
+	28, // 38: bpmp.engine.v1.EventEnvelope.workflow_terminated_for_compliance:type_name -> bpmp.engine.v1.WorkflowTerminatedForCompliance
+	33, // 39: bpmp.engine.v1.DecisionTaskEvaluated.outputs:type_name -> bpmp.engine.v1.WorkflowVariable
+	34, // 40: bpmp.engine.v1.WorkflowVariable.list_value:type_name -> bpmp.engine.v1.WorkflowValueList
+	35, // 41: bpmp.engine.v1.WorkflowValueList.items:type_name -> bpmp.engine.v1.WorkflowValueItem
+	34, // 42: bpmp.engine.v1.WorkflowValueItem.list_value:type_name -> bpmp.engine.v1.WorkflowValueList
+	0,  // 43: bpmp.engine.v1.MultiInstanceStarted.mode:type_name -> bpmp.engine.v1.MultiInstanceMode
+	35, // 44: bpmp.engine.v1.MultiInstanceStarted.items:type_name -> bpmp.engine.v1.WorkflowValueItem
+	35, // 45: bpmp.engine.v1.MultiInstanceIterationActivated.item:type_name -> bpmp.engine.v1.WorkflowValueItem
+	1,  // 46: bpmp.engine.v1.BoundaryEventArmed.trigger_kind:type_name -> bpmp.engine.v1.BoundaryTriggerKind
+	2,  // 47: bpmp.engine.v1.WorkflowSnapshot.lifecycle:type_name -> bpmp.engine.v1.WorkflowLifecycle
+	33, // 48: bpmp.engine.v1.WorkflowSnapshot.variables:type_name -> bpmp.engine.v1.WorkflowVariable
+	49, // 49: bpmp.engine.v1.WorkflowSnapshot.active_tokens:type_name -> bpmp.engine.v1.ActiveToken
+	50, // 50: bpmp.engine.v1.WorkflowSnapshot.pending_gateway_joins:type_name -> bpmp.engine.v1.PendingGatewayJoin
+	51, // 51: bpmp.engine.v1.WorkflowSnapshot.active_multi_instances:type_name -> bpmp.engine.v1.ActiveMultiInstance
+	52, // 52: bpmp.engine.v1.WorkflowSnapshot.active_boundary_subscriptions:type_name -> bpmp.engine.v1.ActiveBoundarySubscription
+	53, // 53: bpmp.engine.v1.WorkflowSnapshot.active_scopes:type_name -> bpmp.engine.v1.ActiveExecutionScope
+	54, // 54: bpmp.engine.v1.WorkflowSnapshot.scope_invocation_counters:type_name -> bpmp.engine.v1.ScopeInvocationCounter
+	47, // 55: bpmp.engine.v1.WorkflowSnapshot.active_cases:type_name -> bpmp.engine.v1.ActiveCase
+	48, // 56: bpmp.engine.v1.ActiveCase.plan_items:type_name -> bpmp.engine.v1.CasePlanItemState
+	0,  // 57: bpmp.engine.v1.ActiveMultiInstance.mode:type_name -> bpmp.engine.v1.MultiInstanceMode
+	35, // 58: bpmp.engine.v1.ActiveMultiInstance.items:type_name -> bpmp.engine.v1.WorkflowValueItem
+	1,  // 59: bpmp.engine.v1.ActiveBoundarySubscription.trigger_kind:type_name -> bpmp.engine.v1.BoundaryTriggerKind
+	3,  // 60: bpmp.engine.v1.EngineCommandService.HandleCommand:input_type -> bpmp.engine.v1.CommandEnvelope
+	24, // 61: bpmp.engine.v1.EngineCommandService.HandleCommand:output_type -> bpmp.engine.v1.CommandReceipt
+	61, // [61:62] is the sub-list for method output_type
+	60, // [60:61] is the sub-list for method input_type
+	60, // [60:60] is the sub-list for extension type_name
+	60, // [60:60] is the sub-list for extension extendee
+	0,  // [0:60] is the sub-list for field type_name
 }
 
 func init() { file_bpmp_engine_v1_engine_proto_init() }
@@ -4214,8 +4761,10 @@ func file_bpmp_engine_v1_engine_proto_init() {
 		(*CommandEnvelope_TriggerBoundaryEvent)(nil),
 		(*CommandEnvelope_CompleteUserTask)(nil),
 		(*CommandEnvelope_CompleteScriptTask)(nil),
+		(*CommandEnvelope_ActivateCase)(nil),
+		(*CommandEnvelope_EvaluateCaseSentries)(nil),
 	}
-	file_bpmp_engine_v1_engine_proto_msgTypes[8].OneofWrappers = []any{
+	file_bpmp_engine_v1_engine_proto_msgTypes[10].OneofWrappers = []any{
 		(*EventEnvelope_WorkflowStarted)(nil),
 		(*EventEnvelope_ServiceTaskActivated)(nil),
 		(*EventEnvelope_ServiceTaskCompleted)(nil),
@@ -4241,28 +4790,31 @@ func file_bpmp_engine_v1_engine_proto_init() {
 		(*EventEnvelope_CaseActivated)(nil),
 		(*EventEnvelope_CasePlanItemTransitioned)(nil),
 		(*EventEnvelope_UserTaskCancelled)(nil),
+		(*EventEnvelope_CaseSentrySatisfied)(nil),
+		(*EventEnvelope_CaseCompleted)(nil),
+		(*EventEnvelope_WorkflowTerminatedForCompliance)(nil),
 	}
-	file_bpmp_engine_v1_engine_proto_msgTypes[25].OneofWrappers = []any{
+	file_bpmp_engine_v1_engine_proto_msgTypes[30].OneofWrappers = []any{
 		(*WorkflowVariable_BooleanValue)(nil),
 		(*WorkflowVariable_IntegerValue)(nil),
 		(*WorkflowVariable_StringValue)(nil),
 		(*WorkflowVariable_ListValue)(nil),
 	}
-	file_bpmp_engine_v1_engine_proto_msgTypes[27].OneofWrappers = []any{
+	file_bpmp_engine_v1_engine_proto_msgTypes[32].OneofWrappers = []any{
 		(*WorkflowValueItem_BooleanValue)(nil),
 		(*WorkflowValueItem_IntegerValue)(nil),
 		(*WorkflowValueItem_StringValue)(nil),
 		(*WorkflowValueItem_ListValue)(nil),
 	}
-	file_bpmp_engine_v1_engine_proto_msgTypes[36].OneofWrappers = []any{}
-	file_bpmp_engine_v1_engine_proto_msgTypes[43].OneofWrappers = []any{}
+	file_bpmp_engine_v1_engine_proto_msgTypes[41].OneofWrappers = []any{}
+	file_bpmp_engine_v1_engine_proto_msgTypes[50].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bpmp_engine_v1_engine_proto_rawDesc), len(file_bpmp_engine_v1_engine_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   45,
+			NumMessages:   52,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

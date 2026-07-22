@@ -3766,7 +3766,7 @@ fn parse_cmmn(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn inspect_cmmn_element(
     namespace: &ResolveResult<'_>,
     element: &BytesStart<'_>,
@@ -3859,11 +3859,36 @@ fn inspect_cmmn_element(
                     name: name(),
                     entry_sentry_ids: refs(b"entrySentryRefs"),
                 }),
-                "sentry" => model.sentries.push(CaseSentry {
-                    id: item_id,
-                    condition: optional_non_empty_attribute(element, decoder, b"condition")
-                        .unwrap_or_default(),
-                }),
+                "sentry" => {
+                    let condition = optional_non_empty_attribute(element, decoder, b"condition")
+                        .unwrap_or_default();
+                    let typed_condition = if condition.is_empty() {
+                        Some(boolean_expression_to_wire(
+                            ParsedBooleanExpression::Constant(true),
+                        ))
+                    } else {
+                        match parse_boolean_expression(&condition) {
+                            Ok(expression) => Some(boolean_expression_to_wire(expression)),
+                            Err(detail) => {
+                                diagnostics.push(locations.diagnostic(
+                                    offset,
+                                    DiagnosticKind::InvalidCaseModel {
+                                        case_id: model.id.clone(),
+                                        detail: format!(
+                                            "sentry {item_id} has invalid condition: {detail}"
+                                        ),
+                                    },
+                                ));
+                                None
+                            }
+                        }
+                    };
+                    model.sentries.push(CaseSentry {
+                        id: item_id,
+                        condition,
+                        typed_condition,
+                    });
+                }
                 _ => (),
             }
         }

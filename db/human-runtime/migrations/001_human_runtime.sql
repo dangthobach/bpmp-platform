@@ -145,4 +145,28 @@ CREATE TABLE escalation_outbox (
     UNIQUE (tenant_id, work_item_id, escalation_policy_ref)
 );
 
+CREATE TABLE human_tenant_security_profiles (
+    tenant_id text PRIMARY KEY,
+    encryption_key_scope text NOT NULL,
+    config_version text NOT NULL,
+    version bigint NOT NULL DEFAULT 1 CHECK (version > 0),
+    is_deleted boolean NOT NULL DEFAULT false,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CHECK (length(trim(encryption_key_scope)) > 0),
+    CHECK (length(trim(config_version)) > 0)
+);
+
+CREATE TABLE human_actor_revoke_epochs (
+    tenant_id text NOT NULL,
+    actor_id text NOT NULL,
+    revoke_epoch bigint NOT NULL CHECK (revoke_epoch >= 0),
+    config_version text NOT NULL,
+    version bigint NOT NULL DEFAULT 1 CHECK (version > 0),
+    is_deleted boolean NOT NULL DEFAULT false,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, actor_id)
+);
+
 COMMIT;

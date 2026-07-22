@@ -305,6 +305,522 @@ func (x *EncryptedAuthorizationAuditRecord) GetCiphertext() []byte {
 	return nil
 }
 
+type EncryptedGovernanceRecord struct {
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	StorageSchemaVersion uint32                 `protobuf:"varint,1,opt,name=storage_schema_version,json=storageSchemaVersion,proto3" json:"storage_schema_version,omitempty"`
+	KeyScope             string                 `protobuf:"bytes,2,opt,name=key_scope,json=keyScope,proto3" json:"key_scope,omitempty"`
+	KeyVersion           string                 `protobuf:"bytes,3,opt,name=key_version,json=keyVersion,proto3" json:"key_version,omitempty"`
+	KeyEpoch             uint64                 `protobuf:"varint,4,opt,name=key_epoch,json=keyEpoch,proto3" json:"key_epoch,omitempty"`
+	Algorithm            string                 `protobuf:"bytes,5,opt,name=algorithm,proto3" json:"algorithm,omitempty"`
+	Nonce                []byte                 `protobuf:"bytes,6,opt,name=nonce,proto3" json:"nonce,omitempty"`
+	Ciphertext           []byte                 `protobuf:"bytes,7,opt,name=ciphertext,proto3" json:"ciphertext,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *EncryptedGovernanceRecord) Reset() {
+	*x = EncryptedGovernanceRecord{}
+	mi := &file_bpmp_storage_v1_storage_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EncryptedGovernanceRecord) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EncryptedGovernanceRecord) ProtoMessage() {}
+
+func (x *EncryptedGovernanceRecord) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_storage_v1_storage_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EncryptedGovernanceRecord.ProtoReflect.Descriptor instead.
+func (*EncryptedGovernanceRecord) Descriptor() ([]byte, []int) {
+	return file_bpmp_storage_v1_storage_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *EncryptedGovernanceRecord) GetStorageSchemaVersion() uint32 {
+	if x != nil {
+		return x.StorageSchemaVersion
+	}
+	return 0
+}
+
+func (x *EncryptedGovernanceRecord) GetKeyScope() string {
+	if x != nil {
+		return x.KeyScope
+	}
+	return ""
+}
+
+func (x *EncryptedGovernanceRecord) GetKeyVersion() string {
+	if x != nil {
+		return x.KeyVersion
+	}
+	return ""
+}
+
+func (x *EncryptedGovernanceRecord) GetKeyEpoch() uint64 {
+	if x != nil {
+		return x.KeyEpoch
+	}
+	return 0
+}
+
+func (x *EncryptedGovernanceRecord) GetAlgorithm() string {
+	if x != nil {
+		return x.Algorithm
+	}
+	return ""
+}
+
+func (x *EncryptedGovernanceRecord) GetNonce() []byte {
+	if x != nil {
+		return x.Nonce
+	}
+	return nil
+}
+
+func (x *EncryptedGovernanceRecord) GetCiphertext() []byte {
+	if x != nil {
+		return x.Ciphertext
+	}
+	return nil
+}
+
+type CompensationLedgerRecord struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	TenantId           string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	InstanceId         string                 `protobuf:"bytes,2,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
+	SagaRef            string                 `protobuf:"bytes,3,opt,name=saga_ref,json=sagaRef,proto3" json:"saga_ref,omitempty"`
+	LedgerEntryId      string                 `protobuf:"bytes,4,opt,name=ledger_entry_id,json=ledgerEntryId,proto3" json:"ledger_entry_id,omitempty"`
+	EffectSequence     uint64                 `protobuf:"varint,5,opt,name=effect_sequence,json=effectSequence,proto3" json:"effect_sequence,omitempty"`
+	LedgerSequence     uint64                 `protobuf:"varint,6,opt,name=ledger_sequence,json=ledgerSequence,proto3" json:"ledger_sequence,omitempty"`
+	SideEffectType     string                 `protobuf:"bytes,7,opt,name=side_effect_type,json=sideEffectType,proto3" json:"side_effect_type,omitempty"`
+	TargetSystem       string                 `protobuf:"bytes,8,opt,name=target_system,json=targetSystem,proto3" json:"target_system,omitempty"`
+	HandlerRef         string                 `protobuf:"bytes,9,opt,name=handler_ref,json=handlerRef,proto3" json:"handler_ref,omitempty"`
+	OpaqueOperationRef string                 `protobuf:"bytes,10,opt,name=opaque_operation_ref,json=opaqueOperationRef,proto3" json:"opaque_operation_ref,omitempty"`
+	IdempotencyKey     string                 `protobuf:"bytes,11,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	Status             string                 `protobuf:"bytes,12,opt,name=status,proto3" json:"status,omitempty"`
+	UpdatedAtEpochMs   uint64                 `protobuf:"varint,13,opt,name=updated_at_epoch_ms,json=updatedAtEpochMs,proto3" json:"updated_at_epoch_ms,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *CompensationLedgerRecord) Reset() {
+	*x = CompensationLedgerRecord{}
+	mi := &file_bpmp_storage_v1_storage_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CompensationLedgerRecord) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CompensationLedgerRecord) ProtoMessage() {}
+
+func (x *CompensationLedgerRecord) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_storage_v1_storage_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CompensationLedgerRecord.ProtoReflect.Descriptor instead.
+func (*CompensationLedgerRecord) Descriptor() ([]byte, []int) {
+	return file_bpmp_storage_v1_storage_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *CompensationLedgerRecord) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *CompensationLedgerRecord) GetInstanceId() string {
+	if x != nil {
+		return x.InstanceId
+	}
+	return ""
+}
+
+func (x *CompensationLedgerRecord) GetSagaRef() string {
+	if x != nil {
+		return x.SagaRef
+	}
+	return ""
+}
+
+func (x *CompensationLedgerRecord) GetLedgerEntryId() string {
+	if x != nil {
+		return x.LedgerEntryId
+	}
+	return ""
+}
+
+func (x *CompensationLedgerRecord) GetEffectSequence() uint64 {
+	if x != nil {
+		return x.EffectSequence
+	}
+	return 0
+}
+
+func (x *CompensationLedgerRecord) GetLedgerSequence() uint64 {
+	if x != nil {
+		return x.LedgerSequence
+	}
+	return 0
+}
+
+func (x *CompensationLedgerRecord) GetSideEffectType() string {
+	if x != nil {
+		return x.SideEffectType
+	}
+	return ""
+}
+
+func (x *CompensationLedgerRecord) GetTargetSystem() string {
+	if x != nil {
+		return x.TargetSystem
+	}
+	return ""
+}
+
+func (x *CompensationLedgerRecord) GetHandlerRef() string {
+	if x != nil {
+		return x.HandlerRef
+	}
+	return ""
+}
+
+func (x *CompensationLedgerRecord) GetOpaqueOperationRef() string {
+	if x != nil {
+		return x.OpaqueOperationRef
+	}
+	return ""
+}
+
+func (x *CompensationLedgerRecord) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
+}
+
+func (x *CompensationLedgerRecord) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *CompensationLedgerRecord) GetUpdatedAtEpochMs() uint64 {
+	if x != nil {
+		return x.UpdatedAtEpochMs
+	}
+	return 0
+}
+
+type ReconciliationWorkItemRecord struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	TenantId           string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	InstanceId         string                 `protobuf:"bytes,2,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
+	ReconciliationId   string                 `protobuf:"bytes,3,opt,name=reconciliation_id,json=reconciliationId,proto3" json:"reconciliation_id,omitempty"`
+	LedgerEntryId      string                 `protobuf:"bytes,4,opt,name=ledger_entry_id,json=ledgerEntryId,proto3" json:"ledger_entry_id,omitempty"`
+	SideEffectType     string                 `protobuf:"bytes,5,opt,name=side_effect_type,json=sideEffectType,proto3" json:"side_effect_type,omitempty"`
+	TargetSystem       string                 `protobuf:"bytes,6,opt,name=target_system,json=targetSystem,proto3" json:"target_system,omitempty"`
+	HandlerRef         string                 `protobuf:"bytes,7,opt,name=handler_ref,json=handlerRef,proto3" json:"handler_ref,omitempty"`
+	OpaqueOperationRef string                 `protobuf:"bytes,8,opt,name=opaque_operation_ref,json=opaqueOperationRef,proto3" json:"opaque_operation_ref,omitempty"`
+	DeadlineEpochMs    uint64                 `protobuf:"varint,9,opt,name=deadline_epoch_ms,json=deadlineEpochMs,proto3" json:"deadline_epoch_ms,omitempty"`
+	Status             string                 `protobuf:"bytes,10,opt,name=status,proto3" json:"status,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *ReconciliationWorkItemRecord) Reset() {
+	*x = ReconciliationWorkItemRecord{}
+	mi := &file_bpmp_storage_v1_storage_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReconciliationWorkItemRecord) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReconciliationWorkItemRecord) ProtoMessage() {}
+
+func (x *ReconciliationWorkItemRecord) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_storage_v1_storage_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReconciliationWorkItemRecord.ProtoReflect.Descriptor instead.
+func (*ReconciliationWorkItemRecord) Descriptor() ([]byte, []int) {
+	return file_bpmp_storage_v1_storage_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *ReconciliationWorkItemRecord) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *ReconciliationWorkItemRecord) GetInstanceId() string {
+	if x != nil {
+		return x.InstanceId
+	}
+	return ""
+}
+
+func (x *ReconciliationWorkItemRecord) GetReconciliationId() string {
+	if x != nil {
+		return x.ReconciliationId
+	}
+	return ""
+}
+
+func (x *ReconciliationWorkItemRecord) GetLedgerEntryId() string {
+	if x != nil {
+		return x.LedgerEntryId
+	}
+	return ""
+}
+
+func (x *ReconciliationWorkItemRecord) GetSideEffectType() string {
+	if x != nil {
+		return x.SideEffectType
+	}
+	return ""
+}
+
+func (x *ReconciliationWorkItemRecord) GetTargetSystem() string {
+	if x != nil {
+		return x.TargetSystem
+	}
+	return ""
+}
+
+func (x *ReconciliationWorkItemRecord) GetHandlerRef() string {
+	if x != nil {
+		return x.HandlerRef
+	}
+	return ""
+}
+
+func (x *ReconciliationWorkItemRecord) GetOpaqueOperationRef() string {
+	if x != nil {
+		return x.OpaqueOperationRef
+	}
+	return ""
+}
+
+func (x *ReconciliationWorkItemRecord) GetDeadlineEpochMs() uint64 {
+	if x != nil {
+		return x.DeadlineEpochMs
+	}
+	return 0
+}
+
+func (x *ReconciliationWorkItemRecord) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+type GovernanceApprovalAuditRef struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	ActorId           string                 `protobuf:"bytes,1,opt,name=actor_id,json=actorId,proto3" json:"actor_id,omitempty"`
+	ApprovedAtEpochMs uint64                 `protobuf:"varint,2,opt,name=approved_at_epoch_ms,json=approvedAtEpochMs,proto3" json:"approved_at_epoch_ms,omitempty"`
+	KeyId             string                 `protobuf:"bytes,3,opt,name=key_id,json=keyId,proto3" json:"key_id,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *GovernanceApprovalAuditRef) Reset() {
+	*x = GovernanceApprovalAuditRef{}
+	mi := &file_bpmp_storage_v1_storage_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GovernanceApprovalAuditRef) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GovernanceApprovalAuditRef) ProtoMessage() {}
+
+func (x *GovernanceApprovalAuditRef) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_storage_v1_storage_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GovernanceApprovalAuditRef.ProtoReflect.Descriptor instead.
+func (*GovernanceApprovalAuditRef) Descriptor() ([]byte, []int) {
+	return file_bpmp_storage_v1_storage_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *GovernanceApprovalAuditRef) GetActorId() string {
+	if x != nil {
+		return x.ActorId
+	}
+	return ""
+}
+
+func (x *GovernanceApprovalAuditRef) GetApprovedAtEpochMs() uint64 {
+	if x != nil {
+		return x.ApprovedAtEpochMs
+	}
+	return 0
+}
+
+func (x *GovernanceApprovalAuditRef) GetKeyId() string {
+	if x != nil {
+		return x.KeyId
+	}
+	return ""
+}
+
+type GovernanceDecisionAuditRecord struct {
+	state             protoimpl.MessageState        `protogen:"open.v1"`
+	TenantId          string                        `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	InstanceId        string                        `protobuf:"bytes,2,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
+	CommandId         string                        `protobuf:"bytes,3,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
+	PolicyId          string                        `protobuf:"bytes,4,opt,name=policy_id,json=policyId,proto3" json:"policy_id,omitempty"`
+	RequestDigest     []byte                        `protobuf:"bytes,5,opt,name=request_digest,json=requestDigest,proto3" json:"request_digest,omitempty"`
+	ReasonCode        string                        `protobuf:"bytes,6,opt,name=reason_code,json=reasonCode,proto3" json:"reason_code,omitempty"`
+	Requester         *GovernanceApprovalAuditRef   `protobuf:"bytes,7,opt,name=requester,proto3" json:"requester,omitempty"`
+	Approvers         []*GovernanceApprovalAuditRef `protobuf:"bytes,8,rep,name=approvers,proto3" json:"approvers,omitempty"`
+	OccurredAtEpochMs uint64                        `protobuf:"varint,9,opt,name=occurred_at_epoch_ms,json=occurredAtEpochMs,proto3" json:"occurred_at_epoch_ms,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *GovernanceDecisionAuditRecord) Reset() {
+	*x = GovernanceDecisionAuditRecord{}
+	mi := &file_bpmp_storage_v1_storage_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GovernanceDecisionAuditRecord) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GovernanceDecisionAuditRecord) ProtoMessage() {}
+
+func (x *GovernanceDecisionAuditRecord) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_storage_v1_storage_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GovernanceDecisionAuditRecord.ProtoReflect.Descriptor instead.
+func (*GovernanceDecisionAuditRecord) Descriptor() ([]byte, []int) {
+	return file_bpmp_storage_v1_storage_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *GovernanceDecisionAuditRecord) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *GovernanceDecisionAuditRecord) GetInstanceId() string {
+	if x != nil {
+		return x.InstanceId
+	}
+	return ""
+}
+
+func (x *GovernanceDecisionAuditRecord) GetCommandId() string {
+	if x != nil {
+		return x.CommandId
+	}
+	return ""
+}
+
+func (x *GovernanceDecisionAuditRecord) GetPolicyId() string {
+	if x != nil {
+		return x.PolicyId
+	}
+	return ""
+}
+
+func (x *GovernanceDecisionAuditRecord) GetRequestDigest() []byte {
+	if x != nil {
+		return x.RequestDigest
+	}
+	return nil
+}
+
+func (x *GovernanceDecisionAuditRecord) GetReasonCode() string {
+	if x != nil {
+		return x.ReasonCode
+	}
+	return ""
+}
+
+func (x *GovernanceDecisionAuditRecord) GetRequester() *GovernanceApprovalAuditRef {
+	if x != nil {
+		return x.Requester
+	}
+	return nil
+}
+
+func (x *GovernanceDecisionAuditRecord) GetApprovers() []*GovernanceApprovalAuditRef {
+	if x != nil {
+		return x.Approvers
+	}
+	return nil
+}
+
+func (x *GovernanceDecisionAuditRecord) GetOccurredAtEpochMs() uint64 {
+	if x != nil {
+		return x.OccurredAtEpochMs
+	}
+	return 0
+}
+
 type StoredCommandResult struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	CommandId     string                 `protobuf:"bytes,1,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
@@ -318,7 +834,7 @@ type StoredCommandResult struct {
 
 func (x *StoredCommandResult) Reset() {
 	*x = StoredCommandResult{}
-	mi := &file_bpmp_storage_v1_storage_proto_msgTypes[3]
+	mi := &file_bpmp_storage_v1_storage_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -330,7 +846,7 @@ func (x *StoredCommandResult) String() string {
 func (*StoredCommandResult) ProtoMessage() {}
 
 func (x *StoredCommandResult) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_storage_v1_storage_proto_msgTypes[3]
+	mi := &file_bpmp_storage_v1_storage_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -343,7 +859,7 @@ func (x *StoredCommandResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StoredCommandResult.ProtoReflect.Descriptor instead.
 func (*StoredCommandResult) Descriptor() ([]byte, []int) {
-	return file_bpmp_storage_v1_storage_proto_rawDescGZIP(), []int{3}
+	return file_bpmp_storage_v1_storage_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *StoredCommandResult) GetCommandId() string {
@@ -394,7 +910,7 @@ type OutboxEntry struct {
 
 func (x *OutboxEntry) Reset() {
 	*x = OutboxEntry{}
-	mi := &file_bpmp_storage_v1_storage_proto_msgTypes[4]
+	mi := &file_bpmp_storage_v1_storage_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -406,7 +922,7 @@ func (x *OutboxEntry) String() string {
 func (*OutboxEntry) ProtoMessage() {}
 
 func (x *OutboxEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_storage_v1_storage_proto_msgTypes[4]
+	mi := &file_bpmp_storage_v1_storage_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -419,7 +935,7 @@ func (x *OutboxEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OutboxEntry.ProtoReflect.Descriptor instead.
 func (*OutboxEntry) Descriptor() ([]byte, []int) {
-	return file_bpmp_storage_v1_storage_proto_rawDescGZIP(), []int{4}
+	return file_bpmp_storage_v1_storage_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *OutboxEntry) GetTenantId() string {
@@ -486,7 +1002,7 @@ type BoundarySubscriptionRecord struct {
 
 func (x *BoundarySubscriptionRecord) Reset() {
 	*x = BoundarySubscriptionRecord{}
-	mi := &file_bpmp_storage_v1_storage_proto_msgTypes[5]
+	mi := &file_bpmp_storage_v1_storage_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -498,7 +1014,7 @@ func (x *BoundarySubscriptionRecord) String() string {
 func (*BoundarySubscriptionRecord) ProtoMessage() {}
 
 func (x *BoundarySubscriptionRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_storage_v1_storage_proto_msgTypes[5]
+	mi := &file_bpmp_storage_v1_storage_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -511,7 +1027,7 @@ func (x *BoundarySubscriptionRecord) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BoundarySubscriptionRecord.ProtoReflect.Descriptor instead.
 func (*BoundarySubscriptionRecord) Descriptor() ([]byte, []int) {
-	return file_bpmp_storage_v1_storage_proto_rawDescGZIP(), []int{5}
+	return file_bpmp_storage_v1_storage_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *BoundarySubscriptionRecord) GetStorageSchemaVersion() uint32 {
@@ -672,7 +1188,7 @@ type BoundaryTimerScheduleRecord struct {
 
 func (x *BoundaryTimerScheduleRecord) Reset() {
 	*x = BoundaryTimerScheduleRecord{}
-	mi := &file_bpmp_storage_v1_storage_proto_msgTypes[6]
+	mi := &file_bpmp_storage_v1_storage_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -684,7 +1200,7 @@ func (x *BoundaryTimerScheduleRecord) String() string {
 func (*BoundaryTimerScheduleRecord) ProtoMessage() {}
 
 func (x *BoundaryTimerScheduleRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_storage_v1_storage_proto_msgTypes[6]
+	mi := &file_bpmp_storage_v1_storage_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -697,7 +1213,7 @@ func (x *BoundaryTimerScheduleRecord) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BoundaryTimerScheduleRecord.ProtoReflect.Descriptor instead.
 func (*BoundaryTimerScheduleRecord) Descriptor() ([]byte, []int) {
-	return file_bpmp_storage_v1_storage_proto_rawDescGZIP(), []int{6}
+	return file_bpmp_storage_v1_storage_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *BoundaryTimerScheduleRecord) GetDueAtEpochMs() uint64 {
@@ -744,7 +1260,7 @@ type BoundarySignalRecord struct {
 
 func (x *BoundarySignalRecord) Reset() {
 	*x = BoundarySignalRecord{}
-	mi := &file_bpmp_storage_v1_storage_proto_msgTypes[7]
+	mi := &file_bpmp_storage_v1_storage_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -756,7 +1272,7 @@ func (x *BoundarySignalRecord) String() string {
 func (*BoundarySignalRecord) ProtoMessage() {}
 
 func (x *BoundarySignalRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_storage_v1_storage_proto_msgTypes[7]
+	mi := &file_bpmp_storage_v1_storage_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -769,7 +1285,7 @@ func (x *BoundarySignalRecord) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BoundarySignalRecord.ProtoReflect.Descriptor instead.
 func (*BoundarySignalRecord) Descriptor() ([]byte, []int) {
-	return file_bpmp_storage_v1_storage_proto_rawDescGZIP(), []int{7}
+	return file_bpmp_storage_v1_storage_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *BoundarySignalRecord) GetStorageSchemaVersion() uint32 {
@@ -915,7 +1431,66 @@ const file_bpmp_storage_v1_storage_proto_rawDesc = "" +
 	"\x05nonce\x18\x06 \x01(\fR\x05nonce\x12\x1e\n" +
 	"\n" +
 	"ciphertext\x18\a \x01(\fR\n" +
-	"ciphertext\"\xb9\x01\n" +
+	"ciphertext\"\x80\x02\n" +
+	"\x19EncryptedGovernanceRecord\x124\n" +
+	"\x16storage_schema_version\x18\x01 \x01(\rR\x14storageSchemaVersion\x12\x1b\n" +
+	"\tkey_scope\x18\x02 \x01(\tR\bkeyScope\x12\x1f\n" +
+	"\vkey_version\x18\x03 \x01(\tR\n" +
+	"keyVersion\x12\x1b\n" +
+	"\tkey_epoch\x18\x04 \x01(\x04R\bkeyEpoch\x12\x1c\n" +
+	"\talgorithm\x18\x05 \x01(\tR\talgorithm\x12\x14\n" +
+	"\x05nonce\x18\x06 \x01(\fR\x05nonce\x12\x1e\n" +
+	"\n" +
+	"ciphertext\x18\a \x01(\fR\n" +
+	"ciphertext\"\xff\x03\n" +
+	"\x18CompensationLedgerRecord\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x1f\n" +
+	"\vinstance_id\x18\x02 \x01(\tR\n" +
+	"instanceId\x12\x19\n" +
+	"\bsaga_ref\x18\x03 \x01(\tR\asagaRef\x12&\n" +
+	"\x0fledger_entry_id\x18\x04 \x01(\tR\rledgerEntryId\x12'\n" +
+	"\x0feffect_sequence\x18\x05 \x01(\x04R\x0eeffectSequence\x12'\n" +
+	"\x0fledger_sequence\x18\x06 \x01(\x04R\x0eledgerSequence\x12(\n" +
+	"\x10side_effect_type\x18\a \x01(\tR\x0esideEffectType\x12#\n" +
+	"\rtarget_system\x18\b \x01(\tR\ftargetSystem\x12\x1f\n" +
+	"\vhandler_ref\x18\t \x01(\tR\n" +
+	"handlerRef\x120\n" +
+	"\x14opaque_operation_ref\x18\n" +
+	" \x01(\tR\x12opaqueOperationRef\x12'\n" +
+	"\x0fidempotency_key\x18\v \x01(\tR\x0eidempotencyKey\x12\x16\n" +
+	"\x06status\x18\f \x01(\tR\x06status\x12-\n" +
+	"\x13updated_at_epoch_ms\x18\r \x01(\x04R\x10updatedAtEpochMs\"\x97\x03\n" +
+	"\x1cReconciliationWorkItemRecord\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x1f\n" +
+	"\vinstance_id\x18\x02 \x01(\tR\n" +
+	"instanceId\x12+\n" +
+	"\x11reconciliation_id\x18\x03 \x01(\tR\x10reconciliationId\x12&\n" +
+	"\x0fledger_entry_id\x18\x04 \x01(\tR\rledgerEntryId\x12(\n" +
+	"\x10side_effect_type\x18\x05 \x01(\tR\x0esideEffectType\x12#\n" +
+	"\rtarget_system\x18\x06 \x01(\tR\ftargetSystem\x12\x1f\n" +
+	"\vhandler_ref\x18\a \x01(\tR\n" +
+	"handlerRef\x120\n" +
+	"\x14opaque_operation_ref\x18\b \x01(\tR\x12opaqueOperationRef\x12*\n" +
+	"\x11deadline_epoch_ms\x18\t \x01(\x04R\x0fdeadlineEpochMs\x12\x16\n" +
+	"\x06status\x18\n" +
+	" \x01(\tR\x06status\"\x7f\n" +
+	"\x1aGovernanceApprovalAuditRef\x12\x19\n" +
+	"\bactor_id\x18\x01 \x01(\tR\aactorId\x12/\n" +
+	"\x14approved_at_epoch_ms\x18\x02 \x01(\x04R\x11approvedAtEpochMs\x12\x15\n" +
+	"\x06key_id\x18\x03 \x01(\tR\x05keyId\"\xa8\x03\n" +
+	"\x1dGovernanceDecisionAuditRecord\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x1f\n" +
+	"\vinstance_id\x18\x02 \x01(\tR\n" +
+	"instanceId\x12\x1d\n" +
+	"\n" +
+	"command_id\x18\x03 \x01(\tR\tcommandId\x12\x1b\n" +
+	"\tpolicy_id\x18\x04 \x01(\tR\bpolicyId\x12%\n" +
+	"\x0erequest_digest\x18\x05 \x01(\fR\rrequestDigest\x12\x1f\n" +
+	"\vreason_code\x18\x06 \x01(\tR\n" +
+	"reasonCode\x12I\n" +
+	"\trequester\x18\a \x01(\v2+.bpmp.storage.v1.GovernanceApprovalAuditRefR\trequester\x12I\n" +
+	"\tapprovers\x18\b \x03(\v2+.bpmp.storage.v1.GovernanceApprovalAuditRefR\tapprovers\x12/\n" +
+	"\x14occurred_at_epoch_ms\x18\t \x01(\x04R\x11occurredAtEpochMs\"\xb9\x01\n" +
 	"\x13StoredCommandResult\x12\x1d\n" +
 	"\n" +
 	"command_id\x18\x01 \x01(\tR\tcommandId\x12\x18\n" +
@@ -998,24 +1573,31 @@ func file_bpmp_storage_v1_storage_proto_rawDescGZIP() []byte {
 	return file_bpmp_storage_v1_storage_proto_rawDescData
 }
 
-var file_bpmp_storage_v1_storage_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_bpmp_storage_v1_storage_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_bpmp_storage_v1_storage_proto_goTypes = []any{
 	(*EncryptedEventRecord)(nil),              // 0: bpmp.storage.v1.EncryptedEventRecord
 	(*EncryptedSnapshotRecord)(nil),           // 1: bpmp.storage.v1.EncryptedSnapshotRecord
 	(*EncryptedAuthorizationAuditRecord)(nil), // 2: bpmp.storage.v1.EncryptedAuthorizationAuditRecord
-	(*StoredCommandResult)(nil),               // 3: bpmp.storage.v1.StoredCommandResult
-	(*OutboxEntry)(nil),                       // 4: bpmp.storage.v1.OutboxEntry
-	(*BoundarySubscriptionRecord)(nil),        // 5: bpmp.storage.v1.BoundarySubscriptionRecord
-	(*BoundaryTimerScheduleRecord)(nil),       // 6: bpmp.storage.v1.BoundaryTimerScheduleRecord
-	(*BoundarySignalRecord)(nil),              // 7: bpmp.storage.v1.BoundarySignalRecord
+	(*EncryptedGovernanceRecord)(nil),         // 3: bpmp.storage.v1.EncryptedGovernanceRecord
+	(*CompensationLedgerRecord)(nil),          // 4: bpmp.storage.v1.CompensationLedgerRecord
+	(*ReconciliationWorkItemRecord)(nil),      // 5: bpmp.storage.v1.ReconciliationWorkItemRecord
+	(*GovernanceApprovalAuditRef)(nil),        // 6: bpmp.storage.v1.GovernanceApprovalAuditRef
+	(*GovernanceDecisionAuditRecord)(nil),     // 7: bpmp.storage.v1.GovernanceDecisionAuditRecord
+	(*StoredCommandResult)(nil),               // 8: bpmp.storage.v1.StoredCommandResult
+	(*OutboxEntry)(nil),                       // 9: bpmp.storage.v1.OutboxEntry
+	(*BoundarySubscriptionRecord)(nil),        // 10: bpmp.storage.v1.BoundarySubscriptionRecord
+	(*BoundaryTimerScheduleRecord)(nil),       // 11: bpmp.storage.v1.BoundaryTimerScheduleRecord
+	(*BoundarySignalRecord)(nil),              // 12: bpmp.storage.v1.BoundarySignalRecord
 }
 var file_bpmp_storage_v1_storage_proto_depIdxs = []int32{
-	6, // 0: bpmp.storage.v1.BoundarySubscriptionRecord.timer_schedule:type_name -> bpmp.storage.v1.BoundaryTimerScheduleRecord
-	1, // [1:1] is the sub-list for method output_type
-	1, // [1:1] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	6,  // 0: bpmp.storage.v1.GovernanceDecisionAuditRecord.requester:type_name -> bpmp.storage.v1.GovernanceApprovalAuditRef
+	6,  // 1: bpmp.storage.v1.GovernanceDecisionAuditRecord.approvers:type_name -> bpmp.storage.v1.GovernanceApprovalAuditRef
+	11, // 2: bpmp.storage.v1.BoundarySubscriptionRecord.timer_schedule:type_name -> bpmp.storage.v1.BoundaryTimerScheduleRecord
+	3,  // [3:3] is the sub-list for method output_type
+	3,  // [3:3] is the sub-list for method input_type
+	3,  // [3:3] is the sub-list for extension type_name
+	3,  // [3:3] is the sub-list for extension extendee
+	0,  // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_bpmp_storage_v1_storage_proto_init() }
@@ -1023,15 +1605,15 @@ func file_bpmp_storage_v1_storage_proto_init() {
 	if File_bpmp_storage_v1_storage_proto != nil {
 		return
 	}
-	file_bpmp_storage_v1_storage_proto_msgTypes[6].OneofWrappers = []any{}
-	file_bpmp_storage_v1_storage_proto_msgTypes[7].OneofWrappers = []any{}
+	file_bpmp_storage_v1_storage_proto_msgTypes[11].OneofWrappers = []any{}
+	file_bpmp_storage_v1_storage_proto_msgTypes[12].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bpmp_storage_v1_storage_proto_rawDesc), len(file_bpmp_storage_v1_storage_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   8,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

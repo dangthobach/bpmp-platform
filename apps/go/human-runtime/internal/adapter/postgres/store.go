@@ -16,6 +16,24 @@ import (
 
 type Store struct{ pool *pgxpool.Pool }
 
+func (s *Store) KeyScope(ctx context.Context, tenantID string) (string, error) {
+	var scope string
+	err := s.pool.QueryRow(ctx, `SELECT encryption_key_scope FROM human_tenant_security_profiles WHERE tenant_id=$1 AND NOT is_deleted`, tenantID).Scan(&scope)
+	return scope, err
+}
+
+func (s *Store) RequiredEpoch(ctx context.Context, tenantID, actorID string) (uint64, error) {
+	var epoch int64
+	err := s.pool.QueryRow(ctx, `SELECT revoke_epoch FROM human_actor_revoke_epochs WHERE tenant_id=$1 AND actor_id=$2 AND NOT is_deleted`, tenantID, actorID).Scan(&epoch)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return uint64(epoch), nil
+}
+
 func NewStore(pool *pgxpool.Pool) (*Store, error) {
 	if pool == nil {
 		return nil, errors.New("PostgreSQL pool is required")
@@ -257,6 +275,38 @@ func (s *Store) CommitCaseTransition(ctx context.Context, event application.Comm
 	}
 	details := map[string]any{"event_id": event.EventID, "sequence": event.Sequence, "satisfied_sentry_ids": event.SatisfiedSentryIDs, "plan_item_version": itemVersion}
 	if err = appendAudit(ctx, tx, event.TenantID, "case-transition:"+event.EventID, "", event.CaseID, "engine", "CASE_"+event.PlanItemKind+"_"+string(event.Status), event.OccurredAt, "", "", caseVersion-1, caseVersion, details); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Store) CommitCaseCompletion(ctx context.Context, event application.CommittedCaseCompletion) error {
+	if event.TenantID == "" || event.EventID == "" || event.CaseID == "" || event.Sequence == 0 {
+		return errors.New("committed case completion metadata is incomplete")
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	duplicate, err := insertInbox(ctx, tx, event.TenantID, event.EventID, event.CaseID, event.Sequence, event.OccurredAt)
+	if err != nil || duplicate {
+		if duplicate {
+			return tx.Commit(ctx)
+		}
+		return err
+	}
+	var version int64
+	err = tx.QueryRow(ctx, `UPDATE human_cases SET status='COMPLETED',version=version+1,updated_at=$3
+		WHERE tenant_id=$1 AND case_id=$2 AND status='ACTIVE' AND NOT is_deleted RETURNING version`,
+		event.TenantID, event.CaseID, event.OccurredAt).Scan(&version)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return application.ErrProjectionDependency
+	}
+	if err != nil {
+		return err
+	}
+	if err = appendAudit(ctx, tx, event.TenantID, "case-completed:"+event.EventID, "", event.CaseID, "engine", "CASE_COMPLETED", event.OccurredAt, "", "", version-1, version, map[string]any{"event_id": event.EventID, "sequence": event.Sequence}); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

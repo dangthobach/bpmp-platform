@@ -3,8 +3,8 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use thiserror::Error;
 
 use crate::{
-    NodeId, ResolvedConfigSnapshot, ScopeInstanceId, TaskType, TenantId, WorkflowType,
-    WorkflowVersion,
+    CaseId, CaseModelId, NodeId, PlanItemId, ResolvedConfigSnapshot, ScopeInstanceId, SentryId,
+    TaskType, TenantId, WorkflowType, WorkflowVersion,
 };
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -139,6 +139,7 @@ pub struct WorkflowDefinition {
     boundary_events: BTreeMap<NodeId, Vec<BoundaryEventDefinition>>,
     node_metadata: BTreeMap<NodeId, NodeExecutionMetadata>,
     properties: Vec<ExtensionProperty>,
+    case_models: BTreeMap<CaseModelId, CaseDefinition>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -223,6 +224,70 @@ pub struct WorkflowExecutionContracts {
     pub boundary_events: Vec<(NodeId, BoundaryEventDefinition)>,
     pub node_metadata: Vec<(NodeId, NodeExecutionMetadata)>,
     pub properties: Vec<ExtensionProperty>,
+    pub case_models: Vec<CaseDefinition>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct CaseDefinition {
+    pub id: CaseModelId,
+    pub name: String,
+    pub stages: Vec<CaseStageDefinition>,
+    pub milestones: Vec<CaseMilestoneDefinition>,
+    pub sentries: Vec<CaseSentryDefinition>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct CaseStageDefinition {
+    pub id: PlanItemId,
+    pub name: String,
+    pub entry_sentry_ids: Vec<SentryId>,
+    pub exit_sentry_ids: Vec<SentryId>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct CaseMilestoneDefinition {
+    pub id: PlanItemId,
+    pub name: String,
+    pub entry_sentry_ids: Vec<SentryId>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct CaseSentryDefinition {
+    pub id: SentryId,
+    pub condition: BooleanExpression,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum CaseLifecycle {
+    Active,
+    Completed,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum CasePlanItemKind {
+    Stage,
+    Milestone,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum CasePlanItemStatus {
+    Available,
+    Active,
+    Completed,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct CasePlanItemState {
+    pub kind: CasePlanItemKind,
+    pub status: CasePlanItemStatus,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct ActiveCase {
+    pub model_id: CaseModelId,
+    pub lifecycle: CaseLifecycle,
+    pub satisfied_sentries: BTreeSet<SentryId>,
+    pub plan_items: BTreeMap<PlanItemId, CasePlanItemState>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
@@ -346,7 +411,7 @@ impl WorkflowDefinition {
     /// # Errors
     ///
     /// Returns a [`DomainError`] for invalid graph, decision, owner, or target data.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
     pub fn new_with_execution_contracts(
         tenant_id: TenantId,
         workflow_type: WorkflowType,
@@ -356,6 +421,12 @@ impl WorkflowDefinition {
         decision_tables: impl IntoIterator<Item = DecisionTable>,
         contracts: WorkflowExecutionContracts,
     ) -> Result<Self, DomainError> {
+        let WorkflowExecutionContracts {
+            boundary_events,
+            node_metadata,
+            properties,
+            case_models,
+        } = contracts;
         let mut indexed = BTreeMap::new();
         for (node_id, node) in nodes {
             if indexed.insert(node_id.clone(), node).is_some() {
@@ -402,7 +473,7 @@ impl WorkflowDefinition {
 
         let mut indexed_boundaries = BTreeMap::<NodeId, Vec<BoundaryEventDefinition>>::new();
         let mut boundary_ids = BTreeSet::new();
-        for (owner, boundary) in contracts.boundary_events {
+        for (owner, boundary) in boundary_events {
             if !indexed.contains_key(&owner) {
                 return Err(DomainError::UnknownBoundaryOwner(owner));
             }
@@ -418,7 +489,7 @@ impl WorkflowDefinition {
             indexed_boundaries.entry(owner).or_default().push(boundary);
         }
         let mut indexed_metadata = BTreeMap::new();
-        for (owner, metadata) in contracts.node_metadata {
+        for (owner, metadata) in node_metadata {
             if !indexed.contains_key(&owner) {
                 return Err(DomainError::UnknownNodeMetadataOwner(owner));
             }
@@ -444,7 +515,17 @@ impl WorkflowDefinition {
             }
         }
         validate_scope_ownership(&indexed, &indexed_metadata)?;
-        validate_extension_properties(&contracts.properties)?;
+        validate_extension_properties(&properties)?;
+        let mut indexed_case_models = BTreeMap::new();
+        for model in case_models {
+            validate_case_definition(&model)?;
+            if indexed_case_models
+                .insert(model.id.clone(), model)
+                .is_some()
+            {
+                return Err(DomainError::DuplicateCaseModel);
+            }
+        }
         let definition = Self {
             tenant_id,
             workflow_type,
@@ -454,7 +535,8 @@ impl WorkflowDefinition {
             decision_tables: indexed_tables,
             boundary_events: indexed_boundaries,
             node_metadata: indexed_metadata,
-            properties: contracts.properties,
+            properties,
+            case_models: indexed_case_models,
         };
         definition.validate_reachability()?;
         Ok(definition)
@@ -529,6 +611,17 @@ impl WorkflowDefinition {
         &self.properties
     }
 
+    /// Resolves a validated compiled CMMN model.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DomainError::UnknownCaseModel`] when the model is absent.
+    pub fn case_model(&self, id: &CaseModelId) -> Result<&CaseDefinition, DomainError> {
+        self.case_models
+            .get(id)
+            .ok_or_else(|| DomainError::UnknownCaseModel(id.clone()))
+    }
+
     pub fn boundary_events(&self, node_id: &NodeId) -> &[BoundaryEventDefinition] {
         self.boundary_events.get(node_id).map_or(&[], Vec::as_slice)
     }
@@ -544,6 +637,45 @@ impl WorkflowDefinition {
                 .map(|boundary| (owner, boundary))
         })
     }
+}
+
+fn validate_case_definition(model: &CaseDefinition) -> Result<(), DomainError> {
+    let sentry_ids = model
+        .sentries
+        .iter()
+        .map(|sentry| sentry.id.clone())
+        .collect::<BTreeSet<_>>();
+    if sentry_ids.len() != model.sentries.len() {
+        return Err(DomainError::DuplicateCaseSentry(model.id.clone()));
+    }
+    let mut plan_item_ids = BTreeSet::new();
+    for stage in &model.stages {
+        if !plan_item_ids.insert(stage.id.clone()) {
+            return Err(DomainError::DuplicateCasePlanItem(stage.id.clone()));
+        }
+        for sentry_id in stage.entry_sentry_ids.iter().chain(&stage.exit_sentry_ids) {
+            if !sentry_ids.contains(sentry_id) {
+                return Err(DomainError::UnknownCaseSentry {
+                    model: model.id.clone(),
+                    sentry: sentry_id.clone(),
+                });
+            }
+        }
+    }
+    for milestone in &model.milestones {
+        if !plan_item_ids.insert(milestone.id.clone()) {
+            return Err(DomainError::DuplicateCasePlanItem(milestone.id.clone()));
+        }
+        for sentry_id in &milestone.entry_sentry_ids {
+            if !sentry_ids.contains(sentry_id) {
+                return Err(DomainError::UnknownCaseSentry {
+                    model: model.id.clone(),
+                    sentry: sentry_id.clone(),
+                });
+            }
+        }
+    }
+    Ok(())
 }
 
 fn validate_node_metadata(
@@ -1109,6 +1241,15 @@ fn validate_inclusive_gateway(
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Command {
+    ActivateCase {
+        case_id: CaseId,
+        case_model_id: CaseModelId,
+        occurred_at_epoch_ms: u64,
+    },
+    EvaluateCaseSentries {
+        case_id: CaseId,
+        occurred_at_epoch_ms: u64,
+    },
     StartWorkflow {
         tenant_id: TenantId,
         occurred_at_epoch_ms: u64,
@@ -1139,6 +1280,30 @@ pub enum Command {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum DomainEvent {
+    CaseActivated {
+        case_id: CaseId,
+        case_model_id: CaseModelId,
+        stage_ids: Vec<PlanItemId>,
+        milestone_ids: Vec<PlanItemId>,
+        occurred_at_epoch_ms: u64,
+    },
+    CaseSentrySatisfied {
+        case_id: CaseId,
+        sentry_id: SentryId,
+        occurred_at_epoch_ms: u64,
+    },
+    CasePlanItemTransitioned {
+        case_id: CaseId,
+        plan_item_id: PlanItemId,
+        kind: CasePlanItemKind,
+        status: CasePlanItemStatus,
+        satisfied_sentry_ids: Vec<SentryId>,
+        occurred_at_epoch_ms: u64,
+    },
+    CaseCompleted {
+        case_id: CaseId,
+        occurred_at_epoch_ms: u64,
+    },
     WorkflowStarted {
         tenant_id: TenantId,
         workflow_type: WorkflowType,
@@ -1166,6 +1331,11 @@ pub enum DomainEvent {
         node_id: NodeId,
         decision: String,
         result_variable: String,
+        occurred_at_epoch_ms: u64,
+    },
+    UserTaskCancelled {
+        node_id: NodeId,
+        reason: String,
         occurred_at_epoch_ms: u64,
     },
     ScriptTaskActivated {
@@ -1270,6 +1440,13 @@ pub enum DomainEvent {
     WorkflowCompleted {
         occurred_at_epoch_ms: u64,
     },
+    WorkflowTerminatedForCompliance {
+        policy_id: String,
+        request_digest: [u8; 32],
+        reason_code: String,
+        reconciliation_count: u32,
+        occurred_at_epoch_ms: u64,
+    },
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -1277,6 +1454,7 @@ pub enum Lifecycle {
     Initial,
     Active { active_node: NodeId },
     Completed,
+    TerminatedForCompliance,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -1290,6 +1468,7 @@ pub struct InstanceState {
     pub active_boundary_subscriptions: BTreeMap<NodeId, ActiveBoundarySubscription>,
     pub active_scopes: BTreeMap<ScopeInstanceId, ActiveExecutionScope>,
     pub scope_invocation_counts: BTreeMap<NodeId, u64>,
+    pub active_cases: BTreeMap<CaseId, ActiveCase>,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -1310,6 +1489,7 @@ impl Default for InstanceState {
             active_boundary_subscriptions: BTreeMap::new(),
             active_scopes: BTreeMap::new(),
             scope_invocation_counts: BTreeMap::new(),
+            active_cases: BTreeMap::new(),
         }
     }
 }
@@ -1334,6 +1514,33 @@ pub fn decide(
     context: DecisionContext<'_>,
 ) -> Result<Vec<DomainEvent>, DomainError> {
     let events = match (command, &state.lifecycle) {
+        (
+            Command::ActivateCase {
+                case_id,
+                case_model_id,
+                occurred_at_epoch_ms,
+            },
+            _,
+        ) => activate_case(
+            definition,
+            state,
+            case_id,
+            case_model_id,
+            *occurred_at_epoch_ms,
+        )?,
+        (
+            Command::EvaluateCaseSentries {
+                case_id,
+                occurred_at_epoch_ms,
+            },
+            _,
+        ) => evaluate_case_sentries(
+            definition,
+            state,
+            case_id,
+            context.variables,
+            *occurred_at_epoch_ms,
+        )?,
         (
             Command::StartWorkflow {
                 tenant_id,
@@ -1549,6 +1756,16 @@ pub fn decide(
         ) => {
             return Err(DomainError::AlreadyCompleted);
         }
+        (
+            Command::CompleteServiceTask { .. }
+            | Command::CompleteUserTask { .. }
+            | Command::CompleteScriptTask { .. }
+            | Command::CompleteMultiInstanceIteration { .. }
+            | Command::TriggerBoundaryEvent { .. },
+            Lifecycle::TerminatedForCompliance,
+        ) => {
+            return Err(DomainError::TerminatedForCompliance);
+        }
     };
 
     let event_count =
@@ -1563,6 +1780,179 @@ pub fn decide(
         });
     }
     Ok(events)
+}
+
+fn activate_case(
+    definition: &WorkflowDefinition,
+    state: &InstanceState,
+    case_id: &CaseId,
+    case_model_id: &CaseModelId,
+    occurred_at_epoch_ms: u64,
+) -> Result<Vec<DomainEvent>, DomainError> {
+    if state.active_cases.contains_key(case_id) {
+        return Err(DomainError::CaseAlreadyActivated(case_id.clone()));
+    }
+    let model = definition.case_model(case_model_id)?;
+    let mut events = vec![DomainEvent::CaseActivated {
+        case_id: case_id.clone(),
+        case_model_id: case_model_id.clone(),
+        stage_ids: model.stages.iter().map(|stage| stage.id.clone()).collect(),
+        milestone_ids: model
+            .milestones
+            .iter()
+            .map(|milestone| milestone.id.clone())
+            .collect(),
+        occurred_at_epoch_ms,
+    }];
+    for stage in &model.stages {
+        if stage.entry_sentry_ids.is_empty() {
+            events.push(DomainEvent::CasePlanItemTransitioned {
+                case_id: case_id.clone(),
+                plan_item_id: stage.id.clone(),
+                kind: CasePlanItemKind::Stage,
+                status: CasePlanItemStatus::Active,
+                satisfied_sentry_ids: Vec::new(),
+                occurred_at_epoch_ms,
+            });
+        }
+    }
+    Ok(events)
+}
+
+fn evaluate_case_sentries(
+    definition: &WorkflowDefinition,
+    state: &InstanceState,
+    case_id: &CaseId,
+    facts: &BTreeMap<String, WorkflowValue>,
+    occurred_at_epoch_ms: u64,
+) -> Result<Vec<DomainEvent>, DomainError> {
+    let active = state
+        .active_cases
+        .get(case_id)
+        .ok_or_else(|| DomainError::CaseNotActive(case_id.clone()))?;
+    if active.lifecycle == CaseLifecycle::Completed {
+        return Err(DomainError::CaseAlreadyCompleted(case_id.clone()));
+    }
+    let model = definition.case_model(&active.model_id)?;
+    let variables = state_variables_with_context(state, facts);
+    let mut satisfied = active.satisfied_sentries.clone();
+    let mut events = Vec::new();
+    for sentry in &model.sentries {
+        if !satisfied.contains(&sentry.id) && sentry.condition.evaluate(&variables)? {
+            satisfied.insert(sentry.id.clone());
+            events.push(DomainEvent::CaseSentrySatisfied {
+                case_id: case_id.clone(),
+                sentry_id: sentry.id.clone(),
+                occurred_at_epoch_ms,
+            });
+        }
+    }
+    if events.is_empty() {
+        return Err(DomainError::NoCaseSentrySatisfied(case_id.clone()));
+    }
+
+    let mut projected = active.plan_items.clone();
+    for stage in &model.stages {
+        let current = projected
+            .get(&stage.id)
+            .map(|item| item.status)
+            .ok_or_else(|| DomainError::UnknownCasePlanItem(stage.id.clone()))?;
+        if current == CasePlanItemStatus::Available
+            && any_sentry_satisfied(&stage.entry_sentry_ids, &satisfied)
+        {
+            push_case_transition(
+                &mut events,
+                &mut projected,
+                case_id,
+                &stage.id,
+                CasePlanItemKind::Stage,
+                CasePlanItemStatus::Active,
+                &stage.entry_sentry_ids,
+                &satisfied,
+                occurred_at_epoch_ms,
+            );
+        }
+        if projected.get(&stage.id).map(|item| item.status) == Some(CasePlanItemStatus::Active)
+            && !stage.exit_sentry_ids.is_empty()
+            && any_sentry_satisfied(&stage.exit_sentry_ids, &satisfied)
+        {
+            push_case_transition(
+                &mut events,
+                &mut projected,
+                case_id,
+                &stage.id,
+                CasePlanItemKind::Stage,
+                CasePlanItemStatus::Completed,
+                &stage.exit_sentry_ids,
+                &satisfied,
+                occurred_at_epoch_ms,
+            );
+        }
+    }
+    for milestone in &model.milestones {
+        let current = projected
+            .get(&milestone.id)
+            .map(|item| item.status)
+            .ok_or_else(|| DomainError::UnknownCasePlanItem(milestone.id.clone()))?;
+        if current == CasePlanItemStatus::Available
+            && !milestone.entry_sentry_ids.is_empty()
+            && any_sentry_satisfied(&milestone.entry_sentry_ids, &satisfied)
+        {
+            push_case_transition(
+                &mut events,
+                &mut projected,
+                case_id,
+                &milestone.id,
+                CasePlanItemKind::Milestone,
+                CasePlanItemStatus::Completed,
+                &milestone.entry_sentry_ids,
+                &satisfied,
+                occurred_at_epoch_ms,
+            );
+        }
+    }
+    if !projected.is_empty()
+        && projected
+            .values()
+            .all(|item| item.status == CasePlanItemStatus::Completed)
+    {
+        events.push(DomainEvent::CaseCompleted {
+            case_id: case_id.clone(),
+            occurred_at_epoch_ms,
+        });
+    }
+    Ok(events)
+}
+
+fn any_sentry_satisfied(ids: &[SentryId], satisfied: &BTreeSet<SentryId>) -> bool {
+    ids.iter().any(|id| satisfied.contains(id))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn push_case_transition(
+    events: &mut Vec<DomainEvent>,
+    projected: &mut BTreeMap<PlanItemId, CasePlanItemState>,
+    case_id: &CaseId,
+    plan_item_id: &PlanItemId,
+    kind: CasePlanItemKind,
+    status: CasePlanItemStatus,
+    governing_sentries: &[SentryId],
+    satisfied: &BTreeSet<SentryId>,
+    occurred_at_epoch_ms: u64,
+) {
+    projected.insert(plan_item_id.clone(), CasePlanItemState { kind, status });
+    events.push(DomainEvent::CasePlanItemTransitioned {
+        case_id: case_id.clone(),
+        plan_item_id: plan_item_id.clone(),
+        kind,
+        status,
+        satisfied_sentry_ids: governing_sentries
+            .iter()
+            .filter(|id| satisfied.contains(*id))
+            .cloned()
+            .collect(),
+        occurred_at_epoch_ms,
+    });
 }
 
 fn complete_multi_instance_iteration(
@@ -1745,6 +2135,13 @@ fn trigger_boundary_event(
         cancelled_task_tokens,
         occurred_at_epoch_ms,
     }];
+    if boundary.cancel_activity && matches!(definition.node(owner)?, Node::UserTask { .. }) {
+        events.push(DomainEvent::UserTaskCancelled {
+            node_id: owner.clone(),
+            reason: format!("boundary:{}", boundary.id),
+            occurred_at_epoch_ms,
+        });
+    }
     let mut routing = RoutingState::from(state);
     if boundary.cancel_activity {
         routing.cancel_activity(owner, cancelled_task_tokens)?;
@@ -2748,7 +3145,16 @@ impl GuardedTransition {
 }
 
 impl BooleanExpression {
-    fn evaluate(&self, variables: &BTreeMap<String, WorkflowValue>) -> Result<bool, DomainError> {
+    /// Evaluates a typed expression against explicitly supplied values.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`DomainError`] when a required value is missing or has a
+    /// different type from the compiled expression.
+    pub fn evaluate(
+        &self,
+        variables: &BTreeMap<String, WorkflowValue>,
+    ) -> Result<bool, DomainError> {
         match self {
             Self::Comparison(guard) => guard.evaluate(variables),
             Self::Conjunction(operands) => {
@@ -2836,6 +3242,75 @@ fn complete_active_token(active_tokens: &mut BTreeMap<NodeId, u32>, node_id: &No
 pub fn evolve(mut state: InstanceState, event: &DomainEvent) -> InstanceState {
     state.sequence = state.sequence.saturating_add(1);
     state.lifecycle = match event {
+        DomainEvent::CaseActivated {
+            case_id,
+            case_model_id,
+            stage_ids,
+            milestone_ids,
+            ..
+        } => {
+            let mut plan_items = BTreeMap::new();
+            plan_items.extend(stage_ids.iter().cloned().map(|id| {
+                (
+                    id,
+                    CasePlanItemState {
+                        kind: CasePlanItemKind::Stage,
+                        status: CasePlanItemStatus::Available,
+                    },
+                )
+            }));
+            plan_items.extend(milestone_ids.iter().cloned().map(|id| {
+                (
+                    id,
+                    CasePlanItemState {
+                        kind: CasePlanItemKind::Milestone,
+                        status: CasePlanItemStatus::Available,
+                    },
+                )
+            }));
+            state.active_cases.insert(
+                case_id.clone(),
+                ActiveCase {
+                    model_id: case_model_id.clone(),
+                    lifecycle: CaseLifecycle::Active,
+                    satisfied_sentries: BTreeSet::new(),
+                    plan_items,
+                },
+            );
+            state.lifecycle.clone()
+        }
+        DomainEvent::CaseSentrySatisfied {
+            case_id, sentry_id, ..
+        } => {
+            if let Some(active) = state.active_cases.get_mut(case_id) {
+                active.satisfied_sentries.insert(sentry_id.clone());
+            }
+            state.lifecycle.clone()
+        }
+        DomainEvent::CasePlanItemTransitioned {
+            case_id,
+            plan_item_id,
+            kind,
+            status,
+            ..
+        } => {
+            if let Some(active) = state.active_cases.get_mut(case_id) {
+                active.plan_items.insert(
+                    plan_item_id.clone(),
+                    CasePlanItemState {
+                        kind: *kind,
+                        status: *status,
+                    },
+                );
+            }
+            state.lifecycle.clone()
+        }
+        DomainEvent::CaseCompleted { case_id, .. } => {
+            if let Some(active) = state.active_cases.get_mut(case_id) {
+                active.lifecycle = CaseLifecycle::Completed;
+            }
+            state.lifecycle.clone()
+        }
         DomainEvent::WorkflowStarted { start_node_id, .. } => Lifecycle::Active {
             active_node: start_node_id.clone(),
         },
@@ -2869,6 +3344,7 @@ pub fn evolve(mut state: InstanceState, event: &DomainEvent) -> InstanceState {
             );
             complete_active_token(&mut state.active_tokens, node_id)
         }
+        DomainEvent::UserTaskCancelled { .. } => state.lifecycle.clone(),
         DomainEvent::DecisionTaskEvaluated { outputs, .. } => {
             state.variables.extend(outputs.clone());
             state.lifecycle.clone()
@@ -3061,6 +3537,15 @@ pub fn evolve(mut state: InstanceState, event: &DomainEvent) -> InstanceState {
             state.active_scopes.clear();
             Lifecycle::Completed
         }
+        DomainEvent::WorkflowTerminatedForCompliance { .. } => {
+            state.active_tokens.clear();
+            state.pending_gateway_joins.clear();
+            state.active_multi_instances.clear();
+            state.active_boundary_subscriptions.clear();
+            state.active_scopes.clear();
+            state.active_cases.clear();
+            Lifecycle::TerminatedForCompliance
+        }
     };
     state
 }
@@ -3071,6 +3556,29 @@ pub fn rehydrate(snapshot: Option<InstanceState>, events: &[DomainEvent]) -> Ins
 
 #[derive(Debug, Error, Clone, Eq, PartialEq)]
 pub enum DomainError {
+    #[error("workflow contains duplicate CMMN case model")]
+    DuplicateCaseModel,
+    #[error("CMMN case model {0} does not exist")]
+    UnknownCaseModel(CaseModelId),
+    #[error("CMMN case model {0} contains duplicate sentry identifiers")]
+    DuplicateCaseSentry(CaseModelId),
+    #[error("CMMN case model {model} references missing sentry {sentry}")]
+    UnknownCaseSentry {
+        model: CaseModelId,
+        sentry: SentryId,
+    },
+    #[error("CMMN plan item {0} is duplicated")]
+    DuplicateCasePlanItem(PlanItemId),
+    #[error("CMMN plan item {0} does not exist in active case state")]
+    UnknownCasePlanItem(PlanItemId),
+    #[error("CMMN case instance {0} has already been activated")]
+    CaseAlreadyActivated(CaseId),
+    #[error("CMMN case instance {0} is not active")]
+    CaseNotActive(CaseId),
+    #[error("CMMN case instance {0} has already completed")]
+    CaseAlreadyCompleted(CaseId),
+    #[error("no new CMMN sentry was satisfied for case instance {0}")]
+    NoCaseSentrySatisfied(CaseId),
     #[error("workflow contains duplicate node {0}")]
     DuplicateNode(NodeId),
     #[error("workflow start node {0} is missing or is not a start node")]
@@ -3109,6 +3617,8 @@ pub enum DomainError {
     NotStarted,
     #[error("workflow instance has already completed")]
     AlreadyCompleted,
+    #[error("workflow instance was terminated for compliance and is permanently fenced")]
+    TerminatedForCompliance,
     #[error("command tenant {actual} does not match workflow definition tenant {expected}")]
     TenantMismatch {
         expected: TenantId,
@@ -3989,6 +4499,7 @@ mod tests {
                     .into_iter()
                     .collect(),
                 properties: Vec::new(),
+                case_models: Vec::new(),
             },
         )
         .unwrap()
@@ -4227,6 +4738,102 @@ mod tests {
     }
 
     #[test]
+    fn interrupting_user_task_boundary_emits_authoritative_cancellation() {
+        let start = id(NodeId::new, "start");
+        let review = id(NodeId::new, "review");
+        let normal_end = id(NodeId::new, "normal-end");
+        let recovery = id(NodeId::new, "recovery");
+        let recovery_end = id(NodeId::new, "recovery-end");
+        let definition = WorkflowDefinition::new_with_execution_contracts(
+            id(TenantId::new, "tenant-a"),
+            id(WorkflowType::new, "approval"),
+            id(WorkflowVersion::new, "1"),
+            start.clone(),
+            [
+                (
+                    start,
+                    Node::Start {
+                        next: review.clone(),
+                    },
+                ),
+                (
+                    review.clone(),
+                    Node::UserTask {
+                        task_type: id(TaskType::new, "review"),
+                        assignment_policy_ref: "reviewers".into(),
+                        form_key: None,
+                        result_variable: "decision".into(),
+                        next: normal_end.clone(),
+                    },
+                ),
+                (normal_end, Node::End),
+                (
+                    recovery.clone(),
+                    Node::ServiceTask {
+                        task_type: id(TaskType::new, "recover"),
+                        next: recovery_end.clone(),
+                    },
+                ),
+                (recovery_end, Node::End),
+            ],
+            std::iter::empty(),
+            WorkflowExecutionContracts {
+                boundary_events: vec![(
+                    review.clone(),
+                    BoundaryEventDefinition {
+                        id: id(NodeId::new, "review-timeout"),
+                        cancel_activity: true,
+                        target: recovery,
+                        trigger: BoundaryTrigger::Timer {
+                            kind: BoundaryTimerKind::Duration,
+                            expression: "PT5M".into(),
+                        },
+                    },
+                )],
+                ..WorkflowExecutionContracts::default()
+            },
+        )
+        .unwrap();
+        let configuration = configuration(16);
+        let empty = BTreeMap::new();
+        let started = decide(
+            &definition,
+            &InstanceState::default(),
+            &Command::StartWorkflow {
+                tenant_id: id(TenantId::new, "tenant-a"),
+                occurred_at_epoch_ms: 1,
+            },
+            DecisionContext {
+                configuration: &configuration,
+                variables: &empty,
+            },
+        )
+        .unwrap();
+        let active = rehydrate(None, &started);
+        let triggered = decide(
+            &definition,
+            &active,
+            &Command::TriggerBoundaryEvent {
+                boundary_event_id: id(NodeId::new, "review-timeout"),
+                occurred_at_epoch_ms: 2,
+            },
+            DecisionContext {
+                configuration: &configuration,
+                variables: &empty,
+            },
+        )
+        .unwrap();
+
+        assert!(triggered.iter().any(|event| matches!(
+            event,
+            DomainEvent::UserTaskCancelled { node_id, reason, .. }
+                if node_id == &review && reason == "boundary:review-timeout"
+        )));
+        let replayed = rehydrate(Some(active), &triggered);
+        assert!(!replayed.active_tokens.contains_key(&review));
+    }
+
+    #[test]
     #[allow(clippy::too_many_lines)]
     fn retained_subprocess_scope_lifecycle_is_durable_and_replay_deterministic() {
         let start = id(NodeId::new, "start");
@@ -4280,6 +4887,7 @@ mod tests {
                     (inner_end, child_metadata(scope.clone())),
                 ],
                 properties: Vec::new(),
+                case_models: Vec::new(),
             },
         )
         .unwrap();
@@ -4585,6 +5193,133 @@ mod tests {
         assert_eq!(once.lifecycle, Lifecycle::Completed);
     }
 
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn service_and_user_task_illegal_transitions_fail_closed() {
+        let configuration = configuration(8);
+        let variables = BTreeMap::new();
+        let context = DecisionContext {
+            configuration: &configuration,
+            variables: &variables,
+        };
+        let service = definition();
+        assert!(matches!(
+            decide(
+                &service,
+                &InstanceState::default(),
+                &Command::StartWorkflow {
+                    tenant_id: id(TenantId::new, "tenant-b"),
+                    occurred_at_epoch_ms: 1,
+                },
+                context,
+            ),
+            Err(DomainError::TenantMismatch { .. })
+        ));
+        assert_eq!(
+            decide(
+                &service,
+                &InstanceState::default(),
+                &Command::CompleteServiceTask {
+                    node_id: id(NodeId::new, "task"),
+                    occurred_at_epoch_ms: 1,
+                },
+                context,
+            ),
+            Err(DomainError::NotStarted)
+        );
+        let started = decide(
+            &service,
+            &InstanceState::default(),
+            &Command::StartWorkflow {
+                tenant_id: id(TenantId::new, "tenant-a"),
+                occurred_at_epoch_ms: 1,
+            },
+            context,
+        )
+        .unwrap();
+        let active = rehydrate(None, &started);
+        let completed = decide(
+            &service,
+            &active,
+            &Command::CompleteServiceTask {
+                node_id: id(NodeId::new, "task"),
+                occurred_at_epoch_ms: 2,
+            },
+            context,
+        )
+        .unwrap();
+        let terminal = rehydrate(Some(active), &completed);
+        assert_eq!(
+            decide(
+                &service,
+                &terminal,
+                &Command::CompleteServiceTask {
+                    node_id: id(NodeId::new, "task"),
+                    occurred_at_epoch_ms: 3,
+                },
+                context,
+            ),
+            Err(DomainError::AlreadyCompleted)
+        );
+
+        let start = id(NodeId::new, "start");
+        let review = id(NodeId::new, "review");
+        let end = id(NodeId::new, "end");
+        let user = WorkflowDefinition::new(
+            id(TenantId::new, "tenant-a"),
+            id(WorkflowType::new, "approval"),
+            id(WorkflowVersion::new, "1"),
+            start.clone(),
+            [
+                (
+                    start,
+                    Node::Start {
+                        next: review.clone(),
+                    },
+                ),
+                (
+                    review.clone(),
+                    Node::UserTask {
+                        task_type: id(TaskType::new, "review"),
+                        assignment_policy_ref: "reviewers".into(),
+                        form_key: None,
+                        result_variable: "decision".into(),
+                        next: end.clone(),
+                    },
+                ),
+                (end, Node::End),
+            ],
+        )
+        .unwrap();
+        let user_started = decide(
+            &user,
+            &InstanceState::default(),
+            &Command::StartWorkflow {
+                tenant_id: id(TenantId::new, "tenant-a"),
+                occurred_at_epoch_ms: 1,
+            },
+            context,
+        )
+        .unwrap();
+        let user_active = rehydrate(None, &user_started);
+        assert_eq!(
+            decide(
+                &user,
+                &user_active,
+                &Command::CompleteUserTask {
+                    node_id: review,
+                    decision: "   ".into(),
+                    occurred_at_epoch_ms: 2,
+                },
+                context,
+            ),
+            Err(DomainError::InvalidUserTaskDecision(id(
+                NodeId::new,
+                "review"
+            )))
+        );
+    }
+
     fn configuration(max_events_per_decision: u32) -> ResolvedConfigSnapshot {
         ResolvedConfigSnapshot::new(
             id(ConfigId::new, "engine"),
@@ -4633,6 +5368,7 @@ mod tests {
                     max_memories: 1,
                     fuel: 100_000,
                 },
+                event_payload_key_scope: id(KeyScope::new, "tenant-a/operational"),
                 authorization_audit_key_scope: id(KeyScope::new, "tenant-a/compliance-audit"),
             },
         )
@@ -4656,6 +5392,161 @@ mod tests {
             ],
         );
         assert_eq!(result, Err(DomainError::UnreachableNode(unreachable)));
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn compiled_cmmn_sentries_drive_durable_case_lifecycle() {
+        let start = id(NodeId::new, "start");
+        let end = id(NodeId::new, "end");
+        let model_id = id(CaseModelId::new, "claim");
+        let stage_id = id(PlanItemId::new, "assessment");
+        let milestone_id = id(PlanItemId::new, "approved");
+        let documents_ready = id(SentryId::new, "documents-ready");
+        let approved = id(SentryId::new, "approved-sentry");
+        let definition = WorkflowDefinition::new_with_execution_contracts(
+            id(TenantId::new, "tenant-a"),
+            id(WorkflowType::new, "claim-workflow"),
+            id(WorkflowVersion::new, "1"),
+            start.clone(),
+            [(start, Node::Start { next: end.clone() }), (end, Node::End)],
+            std::iter::empty(),
+            WorkflowExecutionContracts {
+                case_models: vec![CaseDefinition {
+                    id: model_id.clone(),
+                    name: "Claim".into(),
+                    stages: vec![CaseStageDefinition {
+                        id: stage_id.clone(),
+                        name: "Assessment".into(),
+                        entry_sentry_ids: vec![documents_ready.clone()],
+                        exit_sentry_ids: vec![approved.clone()],
+                    }],
+                    milestones: vec![CaseMilestoneDefinition {
+                        id: milestone_id.clone(),
+                        name: "Approved".into(),
+                        entry_sentry_ids: vec![approved.clone()],
+                    }],
+                    sentries: vec![
+                        CaseSentryDefinition {
+                            id: documents_ready,
+                            condition: BooleanExpression::Comparison(GuardExpression {
+                                variable: "documents".into(),
+                                operator: ComparisonOperator::Equal,
+                                literal: WorkflowValue::Boolean(true),
+                            }),
+                        },
+                        CaseSentryDefinition {
+                            id: approved,
+                            condition: BooleanExpression::Comparison(GuardExpression {
+                                variable: "approved".into(),
+                                operator: ComparisonOperator::Equal,
+                                literal: WorkflowValue::Boolean(true),
+                            }),
+                        },
+                    ],
+                }],
+                ..WorkflowExecutionContracts::default()
+            },
+        )
+        .unwrap();
+        let configuration = configuration(16);
+        let empty = BTreeMap::new();
+        let case_id = id(CaseId::new, "case-1");
+        let activated = decide(
+            &definition,
+            &InstanceState::default(),
+            &Command::ActivateCase {
+                case_id: case_id.clone(),
+                case_model_id: model_id,
+                occurred_at_epoch_ms: 10,
+            },
+            DecisionContext {
+                configuration: &configuration,
+                variables: &empty,
+            },
+        )
+        .unwrap();
+        let active = rehydrate(None, &activated);
+        let facts = BTreeMap::from([
+            ("approved".into(), WorkflowValue::Boolean(true)),
+            ("documents".into(), WorkflowValue::Boolean(true)),
+        ]);
+        let completed = decide(
+            &definition,
+            &active,
+            &Command::EvaluateCaseSentries {
+                case_id: case_id.clone(),
+                occurred_at_epoch_ms: 20,
+            },
+            DecisionContext {
+                configuration: &configuration,
+                variables: &facts,
+            },
+        )
+        .unwrap();
+        assert!(matches!(
+            completed.last(),
+            Some(DomainEvent::CaseCompleted { .. })
+        ));
+        let history = [activated, completed].concat();
+        let replayed = rehydrate(None, &history);
+        assert_eq!(
+            replayed,
+            history.iter().fold(InstanceState::default(), evolve)
+        );
+        assert_eq!(
+            replayed.active_cases[&case_id].lifecycle,
+            CaseLifecycle::Completed
+        );
+    }
+
+    #[test]
+    fn compliance_termination_clears_executable_state_and_is_terminal() {
+        let definition = definition();
+        let configuration = configuration(8);
+        let variables = BTreeMap::new();
+        let started = decide(
+            &definition,
+            &InstanceState::default(),
+            &Command::StartWorkflow {
+                tenant_id: id(TenantId::new, "tenant-a"),
+                occurred_at_epoch_ms: 1,
+            },
+            DecisionContext {
+                configuration: &configuration,
+                variables: &variables,
+            },
+        )
+        .unwrap();
+        let active = rehydrate(None, &started);
+        let terminated = evolve(
+            active,
+            &DomainEvent::WorkflowTerminatedForCompliance {
+                policy_id: "policy-1".into(),
+                request_digest: [7; 32],
+                reason_code: "legal-deadline".into(),
+                reconciliation_count: 1,
+                occurred_at_epoch_ms: 2,
+            },
+        );
+
+        assert_eq!(terminated.lifecycle, Lifecycle::TerminatedForCompliance);
+        assert!(terminated.active_tokens.is_empty());
+        assert_eq!(
+            decide(
+                &definition,
+                &terminated,
+                &Command::CompleteServiceTask {
+                    node_id: id(NodeId::new, "task"),
+                    occurred_at_epoch_ms: 3,
+                },
+                DecisionContext {
+                    configuration: &configuration,
+                    variables: &variables,
+                },
+            ),
+            Err(DomainError::TerminatedForCompliance)
+        );
     }
 
     proptest! {

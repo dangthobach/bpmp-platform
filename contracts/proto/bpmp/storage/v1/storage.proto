@@ -33,6 +33,63 @@ message EncryptedAuthorizationAuditRecord {
   bytes ciphertext = 7;
 }
 
+message EncryptedGovernanceRecord {
+  uint32 storage_schema_version = 1;
+  string key_scope = 2;
+  string key_version = 3;
+  uint64 key_epoch = 4;
+  string algorithm = 5;
+  bytes nonce = 6;
+  bytes ciphertext = 7;
+}
+
+message CompensationLedgerRecord {
+  string tenant_id = 1;
+  string instance_id = 2;
+  string saga_ref = 3;
+  string ledger_entry_id = 4;
+  uint64 effect_sequence = 5;
+  uint64 ledger_sequence = 6;
+  string side_effect_type = 7;
+  string target_system = 8;
+  string handler_ref = 9;
+  string opaque_operation_ref = 10;
+  string idempotency_key = 11;
+  string status = 12;
+  uint64 updated_at_epoch_ms = 13;
+}
+
+message ReconciliationWorkItemRecord {
+  string tenant_id = 1;
+  string instance_id = 2;
+  string reconciliation_id = 3;
+  string ledger_entry_id = 4;
+  string side_effect_type = 5;
+  string target_system = 6;
+  string handler_ref = 7;
+  string opaque_operation_ref = 8;
+  uint64 deadline_epoch_ms = 9;
+  string status = 10;
+}
+
+message GovernanceApprovalAuditRef {
+  string actor_id = 1;
+  uint64 approved_at_epoch_ms = 2;
+  string key_id = 3;
+}
+
+message GovernanceDecisionAuditRecord {
+  string tenant_id = 1;
+  string instance_id = 2;
+  string command_id = 3;
+  string policy_id = 4;
+  bytes request_digest = 5;
+  string reason_code = 6;
+  GovernanceApprovalAuditRef requester = 7;
+  repeated GovernanceApprovalAuditRef approvers = 8;
+  uint64 occurred_at_epoch_ms = 9;
+}
+
 message StoredCommandResult {
   string command_id = 1;
   uint64 version = 2;

@@ -8,9 +8,12 @@ mod application;
 mod authorization;
 mod boundary_runtime;
 mod event_codec;
+mod governance;
+mod local_task_runtime;
 pub mod memory;
 mod outbox;
 mod ports;
+mod runtime_registry;
 mod snapshot_codec;
 mod transport;
 mod wir_loader;
@@ -31,6 +34,15 @@ pub use boundary_runtime::{
     WorkflowDefinitionProviderPort,
 };
 pub use event_codec::{EventCodec, EventCodecError};
+pub use governance::{
+    GovernanceCommandContext, GovernanceTransitionError, GovernanceTransitionPlan,
+    prepare_abort_and_reconcile,
+};
+pub use local_task_runtime::{
+    LocalTaskActivation, LocalTaskCompletionDispatcherPort, LocalTaskExecutionOutcome,
+    LocalTaskExecutorPort, LocalTaskKind, LocalTaskRunOutcome, LocalTaskRuntime,
+    LocalTaskRuntimeError, LocalTaskRuntimeStorePort,
+};
 pub use outbox::{
     IntegrationEventPublisherPort, OutboxError, OutboxPublisher, OutboxPublisherConfig,
     OutboxRecord, OutboxStorePort, PublishAcknowledgement, PublishBatchOutcome, RetryDelayPort,
@@ -40,6 +52,7 @@ pub use ports::{
     AuthorizedPrincipal, CommitOutcome, CommitRequest, ConfigurationLookup,
     ConfigurationProviderPort, LoadedInstance, StoreError, WorkflowStorePort,
 };
+pub use runtime_registry::{RuntimeRegistry, RuntimeRegistryError};
 pub use snapshot_codec::{SNAPSHOT_SCHEMA_VERSION, SnapshotCodec, SnapshotCodecError};
 pub use transport::{
     AuthoritativeCommandHandler, CommandDefinitionProviderPort, EngineCommandHandlerPort,

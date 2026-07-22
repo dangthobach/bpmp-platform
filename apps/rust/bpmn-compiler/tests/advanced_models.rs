@@ -187,6 +187,7 @@ fn cmmn_subset_is_embedded_in_canonical_wir() {
         wir.case_models[0].stages[0].entry_sentry_ids,
         ["documents-ready"]
     );
+    assert!(wir.case_models[0].sentries[0].typed_condition.is_some());
 }
 
 #[test]

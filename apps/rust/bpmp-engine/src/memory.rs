@@ -14,8 +14,9 @@ use crate::ports::{
 use crate::{
     AuthorizationAudit, BoundaryProjectionMutation, BoundaryRuntimeError, BoundaryRuntimeStorePort,
     BoundarySignal, BoundarySignalKind, BoundarySubscriptionKey, ClaimedCorrelation, ClaimedTimer,
-    CommittedResult, EventCodec, EventEnvelope, OutboxError, OutboxRecord, OutboxStorePort,
-    ProjectedBoundarySubscription, SignalEnqueueOutcome, SnapshotEnvelope, TimerDispatchCompletion,
+    CommittedResult, EventCodec, EventEnvelope, LocalTaskRuntimeError, LocalTaskRuntimeStorePort,
+    OutboxError, OutboxRecord, OutboxStorePort, ProjectedBoundarySubscription,
+    SignalEnqueueOutcome, SnapshotEnvelope, TimerDispatchCompletion,
 };
 
 #[derive(Default)]
@@ -75,6 +76,7 @@ struct MemoryState {
     authorization_audits: BTreeMap<AuthorizationAuditKey, AuthorizationAudit>,
     outbox: Vec<OutboxRecord>,
     outbox_checkpoint: u64,
+    local_task_checkpoint: u64,
 }
 
 #[derive(Default)]
@@ -274,6 +276,13 @@ impl WorkflowStorePort for InMemoryWorkflowStore {
 }
 
 impl OutboxStorePort for InMemoryWorkflowStore {
+    fn publisher_checkpoint(&self) -> Result<u64, OutboxError> {
+        self.state
+            .lock()
+            .map(|state| state.outbox_checkpoint)
+            .map_err(|error| OutboxError::StoreUnavailable(error.to_string()))
+    }
+
     fn read_after(&self, cursor: u64, limit: usize) -> Result<Vec<OutboxRecord>, OutboxError> {
         if limit == 0 {
             return Err(OutboxError::InvalidConfiguration);
@@ -307,6 +316,36 @@ impl OutboxStorePort for InMemoryWorkflowStore {
             ));
         }
         state.outbox_checkpoint = committed;
+        Ok(())
+    }
+}
+
+impl LocalTaskRuntimeStorePort for InMemoryWorkflowStore {
+    fn local_task_checkpoint(&self) -> Result<u64, LocalTaskRuntimeError> {
+        self.state
+            .lock()
+            .map(|state| state.local_task_checkpoint)
+            .map_err(|error| LocalTaskRuntimeError::Store(error.to_string()))
+    }
+
+    fn checkpoint_local_task(
+        &self,
+        expected: u64,
+        committed: u64,
+    ) -> Result<(), LocalTaskRuntimeError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|error| LocalTaskRuntimeError::Store(error.to_string()))?;
+        if state.local_task_checkpoint != expected {
+            return Err(LocalTaskRuntimeError::CheckpointConflict);
+        }
+        if committed <= expected || committed > state.outbox.len() as u64 {
+            return Err(LocalTaskRuntimeError::Store(
+                "local task checkpoint is outside the committed outbox range".into(),
+            ));
+        }
+        state.local_task_checkpoint = committed;
         Ok(())
     }
 }

@@ -1,13 +1,15 @@
+use std::collections::BTreeSet;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use bpmp_authz_contracts::authorization::v1::{
     AuthorizationAuditRecord as ContractAuthorizationAuditRecord, AuthorizationDecisionType,
 };
 use bpmp_contracts::storage::v1::{
     BoundarySignalRecord, BoundarySubscriptionRecord, BoundaryTimerScheduleRecord,
-    EncryptedAuthorizationAuditRecord, EncryptedEventRecord, EncryptedSnapshotRecord, OutboxEntry,
-    StoredCommandResult,
+    CompensationLedgerRecord, EncryptedAuthorizationAuditRecord, EncryptedEventRecord,
+    EncryptedGovernanceRecord, EncryptedSnapshotRecord, GovernanceApprovalAuditRef,
+    GovernanceDecisionAuditRecord, OutboxEntry, ReconciliationWorkItemRecord, StoredCommandResult,
 };
 use bpmp_domain_core::{
     ActorId, BoundaryTimerKind, BoundaryTrigger, CommandId, ConfigVersion, IdempotencyKey,
@@ -16,16 +18,22 @@ use bpmp_domain_core::{
 use bpmp_engine::{
     BoundaryProjectionMutation, BoundaryRuntimeError, BoundaryRuntimeStorePort, BoundarySignal,
     BoundarySignalKind, BoundarySubscriptionKey, ClaimedCorrelation, ClaimedTimer, CommitOutcome,
-    CommitRequest, CommittedResult, EventCodec, EventEnvelope, LoadedInstance, OutboxError,
-    OutboxRecord, OutboxStorePort, ProjectedBoundarySubscription, SignalEnqueueOutcome,
-    SnapshotCodec, SnapshotEnvelope, StoreError, TimerDispatchCompletion, TimerSchedule,
-    WorkflowStorePort,
+    CommitRequest, CommittedResult, EventCodec, EventEnvelope, GovernanceTransitionPlan,
+    LoadedInstance, LocalTaskRuntimeError, LocalTaskRuntimeStorePort, OutboxError, OutboxRecord,
+    OutboxStorePort, ProjectedBoundarySubscription, SignalEnqueueOutcome, SnapshotCodec,
+    SnapshotEnvelope, StoreError, TimerDispatchCompletion, TimerSchedule, WorkflowStorePort,
 };
+use bpmp_governance_domain::{CompensationLedgerEntry, CompensationStatus, GovernanceAuditRef};
 use bpmp_payload_crypto::{EncryptedPayload, EncryptionContext, PayloadCryptoPort};
+use bpmp_raft_state_machine::{
+    ApplyOutcome, ApplyResponse, AtomicStateStorage, AtomicStorageError, ExpectedValue, Mutation,
+    PreparedAtomicBatch, StateMachineLimits, StorageKey, value_digest,
+};
 use prost::Message;
 use rocksdb::{
     ColumnFamilyDescriptor, DB, Direction, IteratorMode, Options, WriteBatch, WriteOptions,
 };
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 const EVENTS_CF: &str = "events";
@@ -41,10 +49,39 @@ const BOUNDARY_TIMER_INDEX_CF: &str = "boundary_timer_index";
 const BOUNDARY_SIGNALS_CF: &str = "boundary_signals";
 const BOUNDARY_SIGNAL_INDEX_CF: &str = "boundary_signal_index";
 const BOUNDARY_META_CF: &str = "boundary_meta";
+const LOCAL_TASK_META_CF: &str = "local_task_meta";
+const COMPENSATION_LEDGER_CF: &str = "compensation_ledger";
+const RECONCILIATION_WORK_ITEMS_CF: &str = "reconciliation_work_items";
+const GOVERNANCE_AUDIT_CF: &str = "governance_audit";
+const RAFT_APPLIED_COMMANDS_CF: &str = "raft_applied_commands";
 const STORAGE_SCHEMA_VERSION: u32 = 1;
 const OUTBOX_TAIL_KEY: &[u8] = b"tail";
 const OUTBOX_CHECKPOINT_KEY: &[u8] = b"publisher-checkpoint";
 const BOUNDARY_PROJECTION_CHECKPOINT_KEY: &[u8] = b"projection-checkpoint";
+const LOCAL_TASK_CHECKPOINT_KEY: &[u8] = b"checkpoint";
+
+const fn authoritative_column_families() -> &'static [&'static str] {
+    &[
+        EVENTS_CF,
+        SNAPSHOTS_CF,
+        STREAM_META_CF,
+        DEDUP_CF,
+        OUTBOX_CF,
+        IDEMPOTENCY_CF,
+        AUTHORIZATION_AUDIT_CF,
+        OUTBOX_META_CF,
+        BOUNDARY_SUBSCRIPTIONS_CF,
+        BOUNDARY_TIMER_INDEX_CF,
+        BOUNDARY_SIGNALS_CF,
+        BOUNDARY_SIGNAL_INDEX_CF,
+        BOUNDARY_META_CF,
+        LOCAL_TASK_META_CF,
+        COMPENSATION_LEDGER_CF,
+        RECONCILIATION_WORK_ITEMS_CF,
+        GOVERNANCE_AUDIT_CF,
+        RAFT_APPLIED_COMMANDS_CF,
+    ]
+}
 
 #[derive(Debug, Clone)]
 pub struct RocksDbConfig {
@@ -82,11 +119,19 @@ impl RocksDbConfig {
 }
 
 pub struct RocksDbWorkflowStore<C> {
-    db: DB,
+    db: Arc<DB>,
     crypto: C,
     max_replay_events: usize,
     // P0 single-node commits serialize here so version/dedup checks and WriteBatch are atomic.
-    commit_lock: Mutex<()>,
+    commit_lock: Arc<Mutex<()>>,
+}
+
+#[derive(Clone)]
+pub struct RocksDbAtomicStateStorage {
+    db: Arc<DB>,
+    write_lock: Arc<Mutex<()>>,
+    snapshot_column_families: Arc<[String]>,
+    max_snapshot_bytes: u64,
 }
 
 impl<C: PayloadCryptoPort> RocksDbWorkflowStore<C> {
@@ -118,17 +163,397 @@ impl<C: PayloadCryptoPort> RocksDbWorkflowStore<C> {
             BOUNDARY_SIGNALS_CF,
             BOUNDARY_SIGNAL_INDEX_CF,
             BOUNDARY_META_CF,
+            LOCAL_TASK_META_CF,
+            COMPENSATION_LEDGER_CF,
+            RECONCILIATION_WORK_ITEMS_CF,
+            GOVERNANCE_AUDIT_CF,
+            RAFT_APPLIED_COMMANDS_CF,
         ]
         .into_iter()
         .map(|name| ColumnFamilyDescriptor::new(name, Options::default()));
         let db = DB::open_cf_descriptors(&options, &config.path, descriptors)
             .map_err(|error| RocksDbOpenError::Open(error.to_string()))?;
         Ok(Self {
-            db,
+            db: Arc::new(db),
             crypto,
             max_replay_events: config.max_replay_events,
-            commit_lock: Mutex::new(()),
+            commit_lock: Arc::new(Mutex::new(())),
         })
+    }
+
+    /// Creates the local durable apply half of the `OpenRaft` state machine.
+    ///
+    /// `max_snapshot_bytes` is resolved from versioned operational configuration;
+    /// snapshots fail closed before unbounded memory growth.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AtomicStorageError`] for a zero snapshot bound.
+    pub fn authoritative_state_storage(
+        &self,
+        max_snapshot_bytes: u64,
+    ) -> Result<RocksDbAtomicStateStorage, AtomicStorageError> {
+        if max_snapshot_bytes == 0 {
+            return Err(AtomicStorageError(
+                "max_snapshot_bytes must be positive".into(),
+            ));
+        }
+        Ok(RocksDbAtomicStateStorage {
+            db: Arc::clone(&self.db),
+            write_lock: Arc::clone(&self.commit_lock),
+            snapshot_column_families: Arc::from(
+                authoritative_column_families()
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
+            ),
+            max_snapshot_bytes,
+        })
+    }
+
+    /// Materializes an engine-approved governance plan into exact bytes for one
+    /// `OpenRaft` log entry. All randomness (encryption nonce) is resolved before
+    /// proposal; followers apply these bytes unchanged.
+    ///
+    /// # Errors
+    ///
+    /// Fails closed when ledger state changed, scope is inconsistent, crypto is
+    /// unavailable, or a bounded sequence cannot be represented.
+    #[allow(clippy::too_many_lines)]
+    pub fn prepare_governance_batch(
+        &self,
+        plan: &GovernanceTransitionPlan,
+        idempotency_scope: Vec<u8>,
+    ) -> Result<PreparedAtomicBatch, StoreError> {
+        if idempotency_scope.is_empty()
+            || plan.event.metadata.sequence != plan.snapshot.state.sequence
+            || plan.event.metadata.tenant_id != plan.snapshot.tenant_id
+            || plan.event.metadata.instance_id != plan.snapshot.instance_id
+            || plan.event.metadata.encryption_key_scope != plan.snapshot.encryption_key_scope
+            || plan.ledger_updates.len() != plan.decision.work_items.len()
+        {
+            return Err(StoreError::InvalidGovernanceTransition(
+                "plan scope, sequence, key scope, or obligation count is inconsistent".into(),
+            ));
+        }
+        let bpmp_domain_core::DomainEvent::WorkflowTerminatedForCompliance {
+            policy_id,
+            request_digest,
+            reason_code,
+            reconciliation_count,
+            ..
+        } = &plan.event.event
+        else {
+            return Err(StoreError::InvalidGovernanceTransition(
+                "plan does not contain the compliance terminal event".into(),
+            ));
+        };
+        if request_digest != &plan.decision.request_digest
+            || usize::try_from(*reconciliation_count).ok() != Some(plan.decision.work_items.len())
+        {
+            return Err(StoreError::InvalidGovernanceTransition(
+                "terminal event is not bound to the governance decision".into(),
+            ));
+        }
+
+        let tenant = &plan.event.metadata.tenant_id;
+        let instance = &plan.event.metadata.instance_id;
+        let key_scope = &plan.event.metadata.encryption_key_scope;
+        let command = &plan.event.metadata.causation_command_id;
+        let expected_version = plan.event.metadata.sequence.checked_sub(1).ok_or_else(|| {
+            StoreError::InvalidGovernanceTransition(
+                "terminal event sequence must be positive".into(),
+            )
+        })?;
+        let event_key = event_storage_key(tenant, instance, plan.event.metadata.sequence);
+        let encrypted_event = self
+            .crypto
+            .encrypt(
+                EncryptionContext {
+                    key_scope,
+                    associated_data: &event_key,
+                },
+                &EventCodec::encode(&plan.event),
+            )
+            .map_err(|_| StoreError::CryptoUnavailable)?;
+        let snapshot_key = snapshot_storage_key(tenant, instance);
+        let encrypted_snapshot = self
+            .crypto
+            .encrypt(
+                EncryptionContext {
+                    key_scope,
+                    associated_data: &snapshot_key,
+                },
+                &SnapshotCodec::encode(&plan.snapshot),
+            )
+            .map_err(|_| StoreError::CryptoUnavailable)?;
+
+        let mut preconditions = Vec::new();
+        let mut mutations = Vec::new();
+        add_current_value_precondition(
+            &mut preconditions,
+            STREAM_META_CF,
+            stream_meta_key(tenant, instance),
+            Some(expected_version.to_be_bytes().as_slice()).filter(|_| expected_version > 0),
+        );
+        add_missing_precondition(&mut preconditions, EVENTS_CF, event_key.clone());
+        let dedup_key = dedup_storage_key(tenant, &plan.event.metadata.event_id);
+        add_missing_precondition(&mut preconditions, DEDUP_CF, dedup_key.clone());
+        add_current_db_precondition(
+            &self.db,
+            &mut preconditions,
+            SNAPSHOTS_CF,
+            snapshot_key.clone(),
+        )?;
+
+        let outbox_tail = read_u64_value(&self.db, OUTBOX_META_CF, OUTBOX_TAIL_KEY)?;
+        let next_outbox = outbox_tail
+            .checked_add(1)
+            .ok_or_else(|| StoreError::Unavailable("outbox sequence overflow".into()))?;
+        add_current_db_precondition(
+            &self.db,
+            &mut preconditions,
+            OUTBOX_META_CF,
+            OUTBOX_TAIL_KEY.to_vec(),
+        )?;
+        add_missing_precondition(
+            &mut preconditions,
+            OUTBOX_CF,
+            next_outbox.to_be_bytes().to_vec(),
+        );
+
+        mutations.push(Mutation::Put {
+            storage_key: raft_storage_key(EVENTS_CF, event_key),
+            value: encrypted_record(encrypted_event).encode_to_vec(),
+        });
+        mutations.push(Mutation::Put {
+            storage_key: raft_storage_key(DEDUP_CF, dedup_key),
+            value: Vec::new(),
+        });
+        mutations.push(Mutation::Put {
+            storage_key: raft_storage_key(SNAPSHOTS_CF, snapshot_key),
+            value: EncryptedSnapshotRecord {
+                storage_schema_version: STORAGE_SCHEMA_VERSION,
+                snapshot_sequence: plan.snapshot.state.sequence,
+                key_scope: encrypted_snapshot.key_scope.to_string(),
+                key_version: encrypted_snapshot.key_version,
+                key_epoch: encrypted_snapshot.key_epoch,
+                algorithm: encrypted_snapshot.algorithm,
+                nonce: encrypted_snapshot.nonce,
+                ciphertext: encrypted_snapshot.ciphertext,
+            }
+            .encode_to_vec(),
+        });
+        mutations.push(Mutation::Put {
+            storage_key: raft_storage_key(STREAM_META_CF, stream_meta_key(tenant, instance)),
+            value: plan.event.metadata.sequence.to_be_bytes().to_vec(),
+        });
+        mutations.push(Mutation::Put {
+            storage_key: raft_storage_key(OUTBOX_CF, next_outbox.to_be_bytes().to_vec()),
+            value: OutboxEntry {
+                tenant_id: tenant.to_string(),
+                instance_id: instance.to_string(),
+                sequence: plan.event.metadata.sequence,
+                event_id: plan.event.metadata.event_id.clone(),
+                outbox_sequence: next_outbox,
+            }
+            .encode_to_vec(),
+        });
+        mutations.push(Mutation::Put {
+            storage_key: raft_storage_key(OUTBOX_META_CF, OUTBOX_TAIL_KEY.to_vec()),
+            value: next_outbox.to_be_bytes().to_vec(),
+        });
+
+        for update in &plan.ledger_updates {
+            let previous_sequence = update.ledger_sequence.checked_sub(1).ok_or_else(|| {
+                StoreError::InvalidGovernanceTransition(
+                    "ledger update sequence must follow a pending record".into(),
+                )
+            })?;
+            let previous_key = compensation_ledger_storage_key(
+                tenant,
+                &update.saga_ref,
+                update.effect_sequence,
+                previous_sequence,
+            );
+            let previous_bytes = self
+                .db
+                .get_cf(cf(&self.db, COMPENSATION_LEDGER_CF)?, &previous_key)
+                .map_err(unavailable)?
+                .ok_or_else(|| {
+                    StoreError::InvalidGovernanceTransition(format!(
+                        "pending ledger record {} is missing",
+                        update.ledger_entry_id
+                    ))
+                })?;
+            let previous = decrypt_governance_record(&self.crypto, &previous_key, &previous_bytes)
+                .and_then(|bytes| {
+                    CompensationLedgerRecord::decode(bytes.as_slice())
+                        .map_err(|error| StoreError::CorruptData(error.to_string()))
+                })?;
+            validate_pending_ledger_record(&previous, update, previous_sequence)?;
+            preconditions.push(bpmp_raft_state_machine::Precondition {
+                storage_key: raft_storage_key(COMPENSATION_LEDGER_CF, previous_key),
+                expected: ExpectedValue::Digest(value_digest(&previous_bytes)),
+            });
+            let update_key = compensation_ledger_storage_key(
+                tenant,
+                &update.saga_ref,
+                update.effect_sequence,
+                update.ledger_sequence,
+            );
+            add_missing_precondition(
+                &mut preconditions,
+                COMPENSATION_LEDGER_CF,
+                update_key.clone(),
+            );
+            let record = compensation_record(update, "RECONCILIATION_REQUIRED");
+            mutations.push(Mutation::Put {
+                storage_key: raft_storage_key(COMPENSATION_LEDGER_CF, update_key.clone()),
+                value: encrypt_governance_record(
+                    &self.crypto,
+                    key_scope,
+                    &update_key,
+                    &record.encode_to_vec(),
+                )?
+                .encode_to_vec(),
+            });
+        }
+
+        for work_item in &plan.decision.work_items {
+            let key = reconciliation_storage_key(tenant, &work_item.reconciliation_id);
+            add_missing_precondition(
+                &mut preconditions,
+                RECONCILIATION_WORK_ITEMS_CF,
+                key.clone(),
+            );
+            let record = ReconciliationWorkItemRecord {
+                tenant_id: work_item.tenant_id.clone(),
+                instance_id: work_item.instance_id.clone(),
+                reconciliation_id: work_item.reconciliation_id.clone(),
+                ledger_entry_id: work_item.ledger_entry_id.clone(),
+                side_effect_type: work_item.side_effect_type.clone(),
+                target_system: work_item.target_system.clone(),
+                handler_ref: work_item.handler_ref.clone(),
+                opaque_operation_ref: work_item.opaque_operation_ref.clone(),
+                deadline_epoch_ms: work_item.deadline_epoch_ms,
+                status: "OPEN".into(),
+            };
+            mutations.push(Mutation::Put {
+                storage_key: raft_storage_key(RECONCILIATION_WORK_ITEMS_CF, key.clone()),
+                value: encrypt_governance_record(
+                    &self.crypto,
+                    key_scope,
+                    &key,
+                    &record.encode_to_vec(),
+                )?
+                .encode_to_vec(),
+            });
+        }
+
+        let audit_key = governance_audit_storage_key(tenant, command);
+        add_missing_precondition(&mut preconditions, GOVERNANCE_AUDIT_CF, audit_key.clone());
+        let audit = GovernanceDecisionAuditRecord {
+            tenant_id: tenant.to_string(),
+            instance_id: instance.to_string(),
+            command_id: command.to_string(),
+            policy_id: policy_id.clone(),
+            request_digest: plan.decision.request_digest.to_vec(),
+            reason_code: reason_code.clone(),
+            requester: Some(governance_audit_ref(&plan.decision.requester_audit)),
+            approvers: plan
+                .decision
+                .approver_audits
+                .iter()
+                .map(governance_audit_ref)
+                .collect(),
+            occurred_at_epoch_ms: plan.event.metadata.occurred_at_epoch_ms,
+        };
+        mutations.push(Mutation::Put {
+            storage_key: raft_storage_key(GOVERNANCE_AUDIT_CF, audit_key.clone()),
+            value: encrypt_governance_record(
+                &self.crypto,
+                key_scope,
+                &audit_key,
+                &audit.encode_to_vec(),
+            )?
+            .encode_to_vec(),
+        });
+
+        let result = StoredCommandResult {
+            command_id: command.to_string(),
+            version: plan.event.metadata.sequence,
+            event_ids: vec![plan.event.metadata.event_id.clone()],
+            config_version: plan.event.metadata.config_version.to_string(),
+            policy_version: plan.event.metadata.policy_version.to_string(),
+        };
+        Ok(PreparedAtomicBatch::new(
+            command.to_string(),
+            idempotency_scope,
+            preconditions,
+            mutations,
+            result.encode_to_vec(),
+        ))
+    }
+
+    /// Prepares one append-only compensation-ledger record for Raft proposal.
+    /// External side-effect completion and compensation progress use this same
+    /// path; direct local writes are intentionally not exposed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] for invalid scope, crypto failure, or an empty
+    /// command/idempotency identity.
+    pub fn prepare_compensation_ledger_batch(
+        &self,
+        entry: &CompensationLedgerEntry,
+        operational_key_scope: &KeyScope,
+        command_id: &CommandId,
+        idempotency_scope: Vec<u8>,
+    ) -> Result<PreparedAtomicBatch, StoreError> {
+        if entry.tenant_id.trim().is_empty()
+            || entry.instance_id.trim().is_empty()
+            || entry.saga_ref.trim().is_empty()
+            || entry.ledger_entry_id.trim().is_empty()
+            || entry.opaque_operation_ref.trim().is_empty()
+            || idempotency_scope.is_empty()
+        {
+            return Err(StoreError::InvalidGovernanceTransition(
+                "compensation ledger entry or command identity is incomplete".into(),
+            ));
+        }
+        let tenant = TenantId::new(entry.tenant_id.clone()).map_err(|error| {
+            StoreError::InvalidGovernanceTransition(format!("invalid ledger tenant: {error}"))
+        })?;
+        InstanceId::new(entry.instance_id.clone()).map_err(|error| {
+            StoreError::InvalidGovernanceTransition(format!("invalid ledger instance: {error}"))
+        })?;
+        let key = compensation_ledger_storage_key(
+            &tenant,
+            &entry.saga_ref,
+            entry.effect_sequence,
+            entry.ledger_sequence,
+        );
+        let status = compensation_status_name(entry.status);
+        let encrypted = encrypt_governance_record(
+            &self.crypto,
+            operational_key_scope,
+            &key,
+            &compensation_record(entry, status).encode_to_vec(),
+        )?;
+        Ok(PreparedAtomicBatch::new(
+            command_id.to_string(),
+            idempotency_scope,
+            vec![bpmp_raft_state_machine::Precondition {
+                storage_key: raft_storage_key(COMPENSATION_LEDGER_CF, key.clone()),
+                expected: ExpectedValue::Missing,
+            }],
+            vec![Mutation::Put {
+                storage_key: raft_storage_key(COMPENSATION_LEDGER_CF, key),
+                value: encrypted.encode_to_vec(),
+            }],
+            entry.ledger_entry_id.as_bytes().to_vec(),
+        ))
     }
 
     fn load_result(
@@ -289,7 +714,217 @@ impl<C: PayloadCryptoPort> WorkflowStorePort for RocksDbWorkflowStore<C> {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct RocksStateSnapshot {
+    column_families: Vec<String>,
+    records: Vec<RocksStateSnapshotRecord>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct RocksStateSnapshotRecord {
+    column_family: String,
+    key: Vec<u8>,
+    value: Vec<u8>,
+}
+
+impl AtomicStateStorage for RocksDbAtomicStateStorage {
+    fn apply(
+        &self,
+        batch: &PreparedAtomicBatch,
+        limits: &StateMachineLimits,
+    ) -> Result<ApplyResponse, AtomicStorageError> {
+        if let Err(error) = batch.validate(limits) {
+            return Ok(raft_rejected(batch, error.to_string()));
+        }
+        let _guard = self.write_lock.lock().map_err(raft_lock_error)?;
+        let applied_cf = raft_cf(&self.db, RAFT_APPLIED_COMMANDS_CF)?;
+        if let Some(bytes) = self
+            .db
+            .get_cf(applied_cf, &batch.idempotency_scope)
+            .map_err(raft_unavailable)?
+        {
+            let previous: ApplyResponse = serde_json::from_slice(&bytes)
+                .map_err(|error| AtomicStorageError(error.to_string()))?;
+            if previous.command_id == batch.command_id
+                && previous.batch_digest == batch.batch_digest
+            {
+                return Ok(ApplyResponse {
+                    outcome: ApplyOutcome::Duplicate,
+                    ..previous
+                });
+            }
+            return Ok(raft_rejected(batch, "idempotency-scope-conflict".into()));
+        }
+
+        for (index, condition) in batch.preconditions.iter().enumerate() {
+            let family = raft_cf(&self.db, &condition.storage_key.column_family)?;
+            let actual = self
+                .db
+                .get_cf(family, &condition.storage_key.key)
+                .map_err(raft_unavailable)?;
+            let satisfied = match (&condition.expected, actual.as_deref()) {
+                (ExpectedValue::Missing, None) => true,
+                (ExpectedValue::Digest(expected), Some(value)) => value_digest(value) == *expected,
+                _ => false,
+            };
+            if !satisfied {
+                return Ok(ApplyResponse {
+                    command_id: batch.command_id.clone(),
+                    batch_digest: batch.batch_digest,
+                    outcome: ApplyOutcome::PreconditionFailed {
+                        condition_index: u32::try_from(index).unwrap_or(u32::MAX),
+                    },
+                    response_payload: Vec::new(),
+                });
+            }
+        }
+
+        let response = ApplyResponse {
+            command_id: batch.command_id.clone(),
+            batch_digest: batch.batch_digest,
+            outcome: ApplyOutcome::Applied,
+            response_payload: batch.response_payload.clone(),
+        };
+        let mut write_batch = WriteBatch::default();
+        for mutation in &batch.mutations {
+            match mutation {
+                Mutation::Put { storage_key, value } => write_batch.put_cf(
+                    raft_cf(&self.db, &storage_key.column_family)?,
+                    &storage_key.key,
+                    value,
+                ),
+                Mutation::Delete { storage_key } => write_batch.delete_cf(
+                    raft_cf(&self.db, &storage_key.column_family)?,
+                    &storage_key.key,
+                ),
+            }
+        }
+        write_batch.put_cf(
+            applied_cf,
+            &batch.idempotency_scope,
+            serde_json::to_vec(&response).map_err(|error| AtomicStorageError(error.to_string()))?,
+        );
+        let mut options = WriteOptions::default();
+        options.set_sync(true);
+        self.db
+            .write_opt(write_batch, &options)
+            .map_err(raft_unavailable)?;
+        Ok(response)
+    }
+
+    fn export_snapshot(&self) -> Result<Vec<u8>, AtomicStorageError> {
+        let _guard = self.write_lock.lock().map_err(raft_lock_error)?;
+        let mut estimated_bytes = 0_u64;
+        let mut records = Vec::new();
+        for family_name in self.snapshot_column_families.iter() {
+            let family = raft_cf(&self.db, family_name)?;
+            for item in self.db.iterator_cf(family, IteratorMode::Start) {
+                let (key, value) = item.map_err(raft_unavailable)?;
+                estimated_bytes = estimated_bytes
+                    .checked_add(family_name.len() as u64)
+                    .and_then(|size| size.checked_add(key.len() as u64))
+                    .and_then(|size| size.checked_add(value.len() as u64))
+                    .ok_or_else(|| AtomicStorageError("snapshot size overflow".into()))?;
+                if estimated_bytes > self.max_snapshot_bytes {
+                    return Err(AtomicStorageError(format!(
+                        "snapshot exceeds configured byte limit {}",
+                        self.max_snapshot_bytes
+                    )));
+                }
+                records.push(RocksStateSnapshotRecord {
+                    column_family: family_name.clone(),
+                    key: key.to_vec(),
+                    value: value.to_vec(),
+                });
+            }
+        }
+        let snapshot = serde_json::to_vec(&RocksStateSnapshot {
+            column_families: self.snapshot_column_families.to_vec(),
+            records,
+        })
+        .map_err(|error| AtomicStorageError(error.to_string()))?;
+        if snapshot.len() as u64 > self.max_snapshot_bytes {
+            return Err(AtomicStorageError(format!(
+                "serialized snapshot exceeds configured byte limit {}",
+                self.max_snapshot_bytes
+            )));
+        }
+        Ok(snapshot)
+    }
+
+    fn install_snapshot(&self, snapshot: &[u8]) -> Result<(), AtomicStorageError> {
+        if snapshot.len() as u64 > self.max_snapshot_bytes {
+            return Err(AtomicStorageError(format!(
+                "snapshot exceeds configured byte limit {}",
+                self.max_snapshot_bytes
+            )));
+        }
+        let snapshot: RocksStateSnapshot = serde_json::from_slice(snapshot)
+            .map_err(|error| AtomicStorageError(error.to_string()))?;
+        let configured = self
+            .snapshot_column_families
+            .iter()
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        let supplied = snapshot
+            .column_families
+            .iter()
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        if configured != supplied || supplied.len() != snapshot.column_families.len() {
+            return Err(AtomicStorageError(
+                "snapshot column-family schema mismatch".into(),
+            ));
+        }
+        if snapshot
+            .records
+            .iter()
+            .any(|record| !configured.contains(&record.column_family))
+        {
+            return Err(AtomicStorageError(
+                "snapshot contains an unknown column family".into(),
+            ));
+        }
+
+        let _guard = self.write_lock.lock().map_err(raft_lock_error)?;
+        let mut write_batch = WriteBatch::default();
+        let mut current_bytes = 0_u64;
+        for family_name in self.snapshot_column_families.iter() {
+            let family = raft_cf(&self.db, family_name)?;
+            for item in self.db.iterator_cf(family, IteratorMode::Start) {
+                let (key, value) = item.map_err(raft_unavailable)?;
+                current_bytes = current_bytes
+                    .checked_add(key.len() as u64)
+                    .and_then(|size| size.checked_add(value.len() as u64))
+                    .ok_or_else(|| AtomicStorageError("current state size overflow".into()))?;
+                if current_bytes > self.max_snapshot_bytes {
+                    return Err(AtomicStorageError(
+                        "current state exceeds configured snapshot install bound".into(),
+                    ));
+                }
+                write_batch.delete_cf(family, key);
+            }
+        }
+        for record in snapshot.records {
+            write_batch.put_cf(
+                raft_cf(&self.db, &record.column_family)?,
+                record.key,
+                record.value,
+            );
+        }
+        let mut options = WriteOptions::default();
+        options.set_sync(true);
+        self.db
+            .write_opt(write_batch, &options)
+            .map_err(raft_unavailable)
+    }
+}
+
 impl<C: PayloadCryptoPort> OutboxStorePort for RocksDbWorkflowStore<C> {
+    fn publisher_checkpoint(&self) -> Result<u64, OutboxError> {
+        read_outbox_u64(&self.db, OUTBOX_CHECKPOINT_KEY)
+    }
+
     fn read_after(&self, cursor: u64, limit: usize) -> Result<Vec<OutboxRecord>, OutboxError> {
         if limit == 0 {
             return Err(OutboxError::InvalidConfiguration);
@@ -345,6 +980,47 @@ impl<C: PayloadCryptoPort> OutboxStorePort for RocksDbWorkflowStore<C> {
                 &options,
             )
             .map_err(outbox_unavailable)
+    }
+}
+
+impl<C: PayloadCryptoPort> LocalTaskRuntimeStorePort for RocksDbWorkflowStore<C> {
+    fn local_task_checkpoint(&self) -> Result<u64, LocalTaskRuntimeError> {
+        read_meta_u64(&self.db, LOCAL_TASK_META_CF, LOCAL_TASK_CHECKPOINT_KEY)
+            .map_err(|error| LocalTaskRuntimeError::Store(error.clone()))
+    }
+
+    fn checkpoint_local_task(
+        &self,
+        expected: u64,
+        committed: u64,
+    ) -> Result<(), LocalTaskRuntimeError> {
+        let _guard = self
+            .commit_lock
+            .lock()
+            .map_err(|error| LocalTaskRuntimeError::Store(error.to_string()))?;
+        let current = read_meta_u64(&self.db, LOCAL_TASK_META_CF, LOCAL_TASK_CHECKPOINT_KEY)
+            .map_err(|error| LocalTaskRuntimeError::Store(error.clone()))?;
+        let tail = read_outbox_u64(&self.db, OUTBOX_TAIL_KEY)
+            .map_err(|error| LocalTaskRuntimeError::Store(error.to_string()))?;
+        if current != expected {
+            return Err(LocalTaskRuntimeError::CheckpointConflict);
+        }
+        if committed <= expected || committed > tail {
+            return Err(LocalTaskRuntimeError::Store(
+                "local task checkpoint is outside the committed outbox range".into(),
+            ));
+        }
+        let mut options = WriteOptions::default();
+        options.set_sync(true);
+        self.db
+            .put_cf_opt(
+                cf(&self.db, LOCAL_TASK_META_CF)
+                    .map_err(|error| LocalTaskRuntimeError::Store(error.to_string()))?,
+                LOCAL_TASK_CHECKPOINT_KEY,
+                committed.to_be_bytes(),
+                &options,
+            )
+            .map_err(|error| LocalTaskRuntimeError::Store(error.to_string()))
     }
 }
 
@@ -1331,6 +2007,12 @@ fn read_outbox_u64(db: &DB, key: &[u8]) -> Result<u64, OutboxError> {
     decode_u64_value(value.as_deref()).map_err(OutboxError::StoreUnavailable)
 }
 
+fn read_meta_u64(db: &DB, column_family: &str, key: &[u8]) -> Result<u64, String> {
+    let family = cf(db, column_family).map_err(|error| error.to_string())?;
+    let value = db.get_cf(family, key).map_err(|error| error.to_string())?;
+    decode_u64_value(value.as_deref())
+}
+
 fn decode_u64_value(value: Option<&[u8]>) -> Result<u64, String> {
     let Some(value) = value else {
         return Ok(0);
@@ -1500,6 +2182,199 @@ fn load_snapshot<C: PayloadCryptoPort>(
     Ok(Some(snapshot))
 }
 
+fn raft_storage_key(column_family: &str, key: Vec<u8>) -> StorageKey {
+    StorageKey {
+        column_family: column_family.into(),
+        key,
+    }
+}
+
+fn add_missing_precondition(
+    preconditions: &mut Vec<bpmp_raft_state_machine::Precondition>,
+    column_family: &str,
+    key: Vec<u8>,
+) {
+    preconditions.push(bpmp_raft_state_machine::Precondition {
+        storage_key: raft_storage_key(column_family, key),
+        expected: ExpectedValue::Missing,
+    });
+}
+
+fn add_current_value_precondition(
+    preconditions: &mut Vec<bpmp_raft_state_machine::Precondition>,
+    column_family: &str,
+    key: Vec<u8>,
+    expected: Option<&[u8]>,
+) {
+    preconditions.push(bpmp_raft_state_machine::Precondition {
+        storage_key: raft_storage_key(column_family, key),
+        expected: expected.map_or(ExpectedValue::Missing, |value| {
+            ExpectedValue::Digest(value_digest(value))
+        }),
+    });
+}
+
+fn add_current_db_precondition(
+    db: &DB,
+    preconditions: &mut Vec<bpmp_raft_state_machine::Precondition>,
+    column_family: &str,
+    key: Vec<u8>,
+) -> Result<(), StoreError> {
+    let current = db
+        .get_cf(cf(db, column_family)?, &key)
+        .map_err(unavailable)?;
+    preconditions.push(bpmp_raft_state_machine::Precondition {
+        storage_key: raft_storage_key(column_family, key),
+        expected: current.as_deref().map_or(ExpectedValue::Missing, |value| {
+            ExpectedValue::Digest(value_digest(value))
+        }),
+    });
+    Ok(())
+}
+
+fn compensation_ledger_storage_key(
+    tenant: &TenantId,
+    saga_ref: &str,
+    effect_sequence: u64,
+    ledger_sequence: u64,
+) -> Vec<u8> {
+    let mut key = Vec::new();
+    push_component(&mut key, tenant.as_str());
+    push_component(&mut key, saga_ref);
+    key.extend_from_slice(&effect_sequence.to_be_bytes());
+    key.extend_from_slice(&ledger_sequence.to_be_bytes());
+    key
+}
+
+fn reconciliation_storage_key(tenant: &TenantId, reconciliation_id: &str) -> Vec<u8> {
+    let mut key = Vec::new();
+    push_component(&mut key, tenant.as_str());
+    push_component(&mut key, reconciliation_id);
+    key
+}
+
+fn governance_audit_storage_key(tenant: &TenantId, command: &CommandId) -> Vec<u8> {
+    let mut key = Vec::new();
+    push_component(&mut key, tenant.as_str());
+    push_component(&mut key, command.as_str());
+    key
+}
+
+fn compensation_record(entry: &CompensationLedgerEntry, status: &str) -> CompensationLedgerRecord {
+    CompensationLedgerRecord {
+        tenant_id: entry.tenant_id.clone(),
+        instance_id: entry.instance_id.clone(),
+        saga_ref: entry.saga_ref.clone(),
+        ledger_entry_id: entry.ledger_entry_id.clone(),
+        effect_sequence: entry.effect_sequence,
+        ledger_sequence: entry.ledger_sequence,
+        side_effect_type: entry.side_effect_type.clone(),
+        target_system: entry.target_system.clone(),
+        handler_ref: entry.handler_ref.clone(),
+        opaque_operation_ref: entry.opaque_operation_ref.clone(),
+        idempotency_key: entry.idempotency_key.clone(),
+        status: status.into(),
+        updated_at_epoch_ms: entry.updated_at_epoch_ms,
+    }
+}
+
+const fn compensation_status_name(status: CompensationStatus) -> &'static str {
+    match status {
+        CompensationStatus::Pending => "PENDING",
+        CompensationStatus::Compensated => "COMPENSATED",
+        CompensationStatus::ReconciliationRequired => "RECONCILIATION_REQUIRED",
+    }
+}
+
+fn validate_pending_ledger_record(
+    previous: &CompensationLedgerRecord,
+    update: &CompensationLedgerEntry,
+    previous_sequence: u64,
+) -> Result<(), StoreError> {
+    if previous.tenant_id != update.tenant_id
+        || previous.instance_id != update.instance_id
+        || previous.saga_ref != update.saga_ref
+        || previous.ledger_entry_id != update.ledger_entry_id
+        || previous.effect_sequence != update.effect_sequence
+        || previous.ledger_sequence != previous_sequence
+        || previous.side_effect_type != update.side_effect_type
+        || previous.target_system != update.target_system
+        || previous.handler_ref != update.handler_ref
+        || previous.opaque_operation_ref != update.opaque_operation_ref
+        || previous.idempotency_key != update.idempotency_key
+        || previous.status != "PENDING"
+        || update.status != CompensationStatus::ReconciliationRequired
+    {
+        return Err(StoreError::InvalidGovernanceTransition(format!(
+            "pending ledger record {} changed after approval",
+            update.ledger_entry_id
+        )));
+    }
+    Ok(())
+}
+
+fn encrypt_governance_record<C: PayloadCryptoPort>(
+    crypto: &C,
+    key_scope: &KeyScope,
+    storage_key: &[u8],
+    plaintext: &[u8],
+) -> Result<EncryptedGovernanceRecord, StoreError> {
+    let encrypted = crypto
+        .encrypt(
+            EncryptionContext {
+                key_scope,
+                associated_data: storage_key,
+            },
+            plaintext,
+        )
+        .map_err(|_| StoreError::CryptoUnavailable)?;
+    Ok(EncryptedGovernanceRecord {
+        storage_schema_version: STORAGE_SCHEMA_VERSION,
+        key_scope: encrypted.key_scope.to_string(),
+        key_version: encrypted.key_version,
+        key_epoch: encrypted.key_epoch,
+        algorithm: encrypted.algorithm,
+        nonce: encrypted.nonce,
+        ciphertext: encrypted.ciphertext,
+    })
+}
+
+fn decrypt_governance_record<C: PayloadCryptoPort>(
+    crypto: &C,
+    storage_key: &[u8],
+    bytes: &[u8],
+) -> Result<Vec<u8>, StoreError> {
+    let record = EncryptedGovernanceRecord::decode(bytes)
+        .map_err(|error| StoreError::CorruptData(error.to_string()))?;
+    if record.storage_schema_version != STORAGE_SCHEMA_VERSION {
+        return Err(StoreError::CorruptData(
+            "unsupported governance storage schema version".into(),
+        ));
+    }
+    crypto
+        .decrypt(
+            storage_key,
+            &EncryptedPayload {
+                key_scope: KeyScope::new(record.key_scope)
+                    .map_err(|error| StoreError::CorruptData(error.to_string()))?,
+                key_version: record.key_version,
+                key_epoch: record.key_epoch,
+                algorithm: record.algorithm,
+                nonce: record.nonce,
+                ciphertext: record.ciphertext,
+            },
+        )
+        .map_err(|_| StoreError::CryptoUnavailable)
+}
+
+fn governance_audit_ref(reference: &GovernanceAuditRef) -> GovernanceApprovalAuditRef {
+    GovernanceApprovalAuditRef {
+        actor_id: reference.actor_id.clone(),
+        approved_at_epoch_ms: reference.approved_at_epoch_ms,
+        key_id: reference.key_id.clone(),
+    }
+}
+
 fn encrypted_record(payload: EncryptedPayload) -> EncryptedEventRecord {
     EncryptedEventRecord {
         storage_schema_version: STORAGE_SCHEMA_VERSION,
@@ -1637,6 +2512,30 @@ fn unavailable(error: rocksdb::Error) -> StoreError {
     StoreError::Unavailable(error.to_string())
 }
 
+fn raft_cf<'a>(db: &'a DB, name: &str) -> Result<&'a rocksdb::ColumnFamily, AtomicStorageError> {
+    db.cf_handle(name)
+        .ok_or_else(|| AtomicStorageError(format!("missing RocksDB column family {name}")))
+}
+
+#[allow(clippy::needless_pass_by_value)]
+fn raft_unavailable(error: rocksdb::Error) -> AtomicStorageError {
+    AtomicStorageError(error.to_string())
+}
+
+#[allow(clippy::needless_pass_by_value)]
+fn raft_lock_error<T>(error: std::sync::PoisonError<T>) -> AtomicStorageError {
+    AtomicStorageError(error.to_string())
+}
+
+fn raft_rejected(batch: &PreparedAtomicBatch, reason: String) -> ApplyResponse {
+    ApplyResponse {
+        command_id: batch.command_id.clone(),
+        batch_digest: batch.batch_digest,
+        outcome: ApplyOutcome::Rejected { reason },
+        response_payload: Vec::new(),
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum RocksDbConfigError {
     #[error("RocksDB path must not be empty")]
@@ -1663,7 +2562,13 @@ mod tests {
         KeyScope, Lifecycle, NodeId, PolicyVersion, TenantId, WorkflowType, WorkflowVersion,
         rehydrate,
     };
-    use bpmp_engine::{AuthorizationAudit, EVENT_SCHEMA_VERSION, EventMetadata};
+    use bpmp_engine::{
+        AuthorizationAudit, EVENT_SCHEMA_VERSION, EventMetadata, GovernanceTransitionPlan,
+    };
+    use bpmp_governance_domain::{
+        AbortAndReconcileDecision, CompensationLedgerEntry, CompensationStatus, GovernanceAuditRef,
+        ReconciliationWorkItem,
+    };
     use bpmp_payload_crypto::CryptoError;
 
     use super::*;
@@ -1714,6 +2619,22 @@ mod tests {
         }
     }
 
+    fn raft_limits() -> StateMachineLimits {
+        StateMachineLimits {
+            max_conditions: 64,
+            max_mutations: 64,
+            max_batch_bytes: 1024 * 1024,
+            append_only_column_families: BTreeSet::from([
+                EVENTS_CF.into(),
+                DEDUP_CF.into(),
+                OUTBOX_CF.into(),
+                COMPENSATION_LEDGER_CF.into(),
+                RECONCILIATION_WORK_ITEMS_CF.into(),
+                GOVERNANCE_AUDIT_CF.into(),
+            ]),
+        }
+    }
+
     fn event() -> EventEnvelope {
         EventEnvelope {
             metadata: EventMetadata {
@@ -1738,6 +2659,100 @@ mod tests {
                 workflow_version: WorkflowVersion::new("1").unwrap(),
                 start_node_id: NodeId::new("start").unwrap(),
                 occurred_at_epoch_ms: 42,
+            },
+        }
+    }
+
+    fn pending_ledger_entry() -> CompensationLedgerEntry {
+        CompensationLedgerEntry {
+            tenant_id: "tenant-a".into(),
+            instance_id: "instance-1".into(),
+            saga_ref: "saga-1".into(),
+            ledger_entry_id: "ledger-1".into(),
+            effect_sequence: 1,
+            ledger_sequence: 1,
+            side_effect_type: "payment".into(),
+            target_system: "bank".into(),
+            handler_ref: "refund-v1".into(),
+            opaque_operation_ref: "opaque-operation".into(),
+            idempotency_key: "effect-idempotency".into(),
+            status: CompensationStatus::Pending,
+            updated_at_epoch_ms: 40,
+        }
+    }
+
+    fn governance_plan() -> GovernanceTransitionPlan {
+        let mut update = pending_ledger_entry();
+        update.ledger_sequence = 2;
+        update.status = CompensationStatus::ReconciliationRequired;
+        update.updated_at_epoch_ms = 50;
+        let state = bpmp_domain_core::InstanceState {
+            lifecycle: Lifecycle::TerminatedForCompliance,
+            sequence: 1,
+            ..bpmp_domain_core::InstanceState::default()
+        };
+        let event = EventEnvelope {
+            metadata: EventMetadata {
+                event_id: "governance-command:1".into(),
+                tenant_id: TenantId::new("tenant-a").unwrap(),
+                instance_id: InstanceId::new("instance-1").unwrap(),
+                sequence: 1,
+                schema_version: EVENT_SCHEMA_VERSION,
+                correlation_id: CorrelationId::new("governance-correlation").unwrap(),
+                causation_command_id: CommandId::new("governance-command").unwrap(),
+                occurred_at_epoch_ms: 50,
+                config_version: ConfigVersion::new("config-1").unwrap(),
+                policy_version: PolicyVersion::new("policy-1").unwrap(),
+                actor_id: ActorId::new("requester").unwrap(),
+                encryption_key_scope: KeyScope::new("tenant-a/governance").unwrap(),
+                workflow_type: WorkflowType::new("order").unwrap(),
+                workflow_version: WorkflowVersion::new("1").unwrap(),
+            },
+            event: DomainEvent::WorkflowTerminatedForCompliance {
+                policy_id: "erasure-policy".into(),
+                request_digest: [8; 32],
+                reason_code: "legal-deadline".into(),
+                reconciliation_count: 1,
+                occurred_at_epoch_ms: 50,
+            },
+        };
+        GovernanceTransitionPlan {
+            snapshot: SnapshotEnvelope {
+                tenant_id: TenantId::new("tenant-a").unwrap(),
+                instance_id: InstanceId::new("instance-1").unwrap(),
+                workflow_type: WorkflowType::new("order").unwrap(),
+                workflow_version: WorkflowVersion::new("1").unwrap(),
+                state,
+                config_version: ConfigVersion::new("config-1").unwrap(),
+                policy_version: PolicyVersion::new("policy-1").unwrap(),
+                encryption_key_scope: KeyScope::new("tenant-a/governance").unwrap(),
+            },
+            event,
+            ledger_updates: vec![update],
+            decision: AbortAndReconcileDecision {
+                request_digest: [8; 32],
+                ledger_digest: [9; 32],
+                requester_audit: GovernanceAuditRef {
+                    actor_id: "requester".into(),
+                    approved_at_epoch_ms: 45,
+                    key_id: "requester-key".into(),
+                },
+                approver_audits: vec![GovernanceAuditRef {
+                    actor_id: "approver".into(),
+                    approved_at_epoch_ms: 46,
+                    key_id: "approver-key".into(),
+                }],
+                work_items: vec![ReconciliationWorkItem {
+                    tenant_id: "tenant-a".into(),
+                    instance_id: "instance-1".into(),
+                    reconciliation_id: "reconciliation-1".into(),
+                    ledger_entry_id: "ledger-1".into(),
+                    side_effect_type: "payment".into(),
+                    target_system: "bank".into(),
+                    handler_ref: "refund-v1".into(),
+                    opaque_operation_ref: "opaque-operation".into(),
+                    deadline_epoch_ms: 500,
+                }],
             },
         }
     }
@@ -1789,6 +2804,9 @@ mod tests {
                     pending_gateway_joins: BTreeMap::default(),
                     active_multi_instances: BTreeMap::default(),
                     active_boundary_subscriptions: BTreeMap::default(),
+                    active_scopes: BTreeMap::default(),
+                    scope_invocation_counts: BTreeMap::default(),
+                    active_cases: BTreeMap::default(),
                 },
                 config_version: ConfigVersion::new("config-1").unwrap(),
                 policy_version: PolicyVersion::new("policy-1").unwrap(),
@@ -2069,6 +3087,233 @@ mod tests {
                     .count(),
                 0,
                 "column family {name} must remain empty"
+            );
+        }
+    }
+
+    #[test]
+    fn raft_state_machine_batch_is_atomic_idempotent_and_snapshot_restorable() {
+        let directory = tempfile::tempdir().unwrap();
+        let store =
+            RocksDbWorkflowStore::open(config(directory.path()), TestCrypto { fail: false })
+                .unwrap();
+        let raft = store.authoritative_state_storage(1024 * 1024).unwrap();
+        let limits = StateMachineLimits {
+            max_conditions: 16,
+            max_mutations: 16,
+            max_batch_bytes: 64 * 1024,
+            append_only_column_families: BTreeSet::from([
+                EVENTS_CF.into(),
+                COMPENSATION_LEDGER_CF.into(),
+                RECONCILIATION_WORK_ITEMS_CF.into(),
+                GOVERNANCE_AUDIT_CF.into(),
+            ]),
+        };
+        let storage_key = |column_family: &str, key: &[u8]| StorageKey {
+            column_family: column_family.into(),
+            key: key.to_vec(),
+        };
+        let immutable_keys = [
+            storage_key(EVENTS_CF, b"tenant/instance/1"),
+            storage_key(COMPENSATION_LEDGER_CF, b"tenant/saga/effect/2"),
+            storage_key(RECONCILIATION_WORK_ITEMS_CF, b"tenant/reconcile/1"),
+            storage_key(GOVERNANCE_AUDIT_CF, b"tenant/command/requester"),
+        ];
+        let batch = PreparedAtomicBatch::new(
+            "abort-command".into(),
+            b"tenant/requester/idempotency".to_vec(),
+            immutable_keys
+                .iter()
+                .cloned()
+                .map(|storage_key| bpmp_raft_state_machine::Precondition {
+                    storage_key,
+                    expected: ExpectedValue::Missing,
+                })
+                .collect(),
+            immutable_keys
+                .iter()
+                .cloned()
+                .zip([
+                    b"terminated-event".as_slice(),
+                    b"reconciliation-required".as_slice(),
+                    b"work-item".as_slice(),
+                    b"dual-control-audit".as_slice(),
+                ])
+                .map(|(storage_key, value)| Mutation::Put {
+                    storage_key,
+                    value: value.to_vec(),
+                })
+                .collect(),
+            b"committed-version-1".to_vec(),
+        );
+
+        let applied = raft.apply(&batch, &limits).unwrap();
+        let duplicate = raft.apply(&batch, &limits).unwrap();
+        let snapshot = raft.export_snapshot().unwrap();
+
+        assert_eq!(applied.outcome, ApplyOutcome::Applied);
+        assert_eq!(duplicate.outcome, ApplyOutcome::Duplicate);
+        for key in &immutable_keys {
+            assert!(
+                store
+                    .db
+                    .get_cf(cf(&store.db, &key.column_family).unwrap(), &key.key)
+                    .unwrap()
+                    .is_some()
+            );
+        }
+
+        let later_key = storage_key(RECONCILIATION_WORK_ITEMS_CF, b"tenant/reconcile/later");
+        let later = PreparedAtomicBatch::new(
+            "later-command".into(),
+            b"tenant/requester/later".to_vec(),
+            vec![bpmp_raft_state_machine::Precondition {
+                storage_key: later_key.clone(),
+                expected: ExpectedValue::Missing,
+            }],
+            vec![Mutation::Put {
+                storage_key: later_key.clone(),
+                value: b"later".to_vec(),
+            }],
+            Vec::new(),
+        );
+        assert_eq!(
+            raft.apply(&later, &limits).unwrap().outcome,
+            ApplyOutcome::Applied
+        );
+        raft.install_snapshot(&snapshot).unwrap();
+        assert!(
+            store
+                .db
+                .get_cf(
+                    cf(&store.db, &later_key.column_family).unwrap(),
+                    &later_key.key,
+                )
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            raft.apply(&batch, &limits).unwrap().outcome,
+            ApplyOutcome::Duplicate
+        );
+    }
+
+    #[test]
+    fn governance_plan_commits_terminal_event_ledger_work_item_and_audit_atomically() {
+        let directory = tempfile::tempdir().unwrap();
+        let store =
+            RocksDbWorkflowStore::open(config(directory.path()), TestCrypto { fail: false })
+                .unwrap();
+        let raft = store.authoritative_state_storage(2 * 1024 * 1024).unwrap();
+        let ledger = pending_ledger_entry();
+        let ledger_batch = store
+            .prepare_compensation_ledger_batch(
+                &ledger,
+                &KeyScope::new("tenant-a/governance").unwrap(),
+                &CommandId::new("record-effect").unwrap(),
+                b"tenant/record-effect".to_vec(),
+            )
+            .unwrap();
+        assert_eq!(
+            raft.apply(&ledger_batch, &raft_limits()).unwrap().outcome,
+            ApplyOutcome::Applied
+        );
+        let plan = governance_plan();
+        let governance_batch = store
+            .prepare_governance_batch(&plan, b"tenant/governance-command".to_vec())
+            .unwrap();
+
+        let response = raft.apply(&governance_batch, &raft_limits()).unwrap();
+
+        assert_eq!(response.outcome, ApplyOutcome::Applied);
+        let loaded = store
+            .load(
+                &TenantId::new("tenant-a").unwrap(),
+                &InstanceId::new("instance-1").unwrap(),
+            )
+            .unwrap();
+        assert_eq!(loaded.version, 1);
+        assert_eq!(
+            loaded.snapshot.unwrap().state.lifecycle,
+            Lifecycle::TerminatedForCompliance
+        );
+        assert_eq!(
+            store
+                .db
+                .iterator_cf(
+                    cf(&store.db, COMPENSATION_LEDGER_CF).unwrap(),
+                    IteratorMode::Start,
+                )
+                .count(),
+            2
+        );
+        assert_eq!(
+            store
+                .db
+                .iterator_cf(
+                    cf(&store.db, RECONCILIATION_WORK_ITEMS_CF).unwrap(),
+                    IteratorMode::Start,
+                )
+                .count(),
+            1
+        );
+        assert_eq!(
+            store
+                .db
+                .iterator_cf(
+                    cf(&store.db, GOVERNANCE_AUDIT_CF).unwrap(),
+                    IteratorMode::Start,
+                )
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn ledger_change_after_governance_prepare_prevents_every_governance_effect() {
+        let directory = tempfile::tempdir().unwrap();
+        let store =
+            RocksDbWorkflowStore::open(config(directory.path()), TestCrypto { fail: false })
+                .unwrap();
+        let raft = store.authoritative_state_storage(2 * 1024 * 1024).unwrap();
+        let ledger = pending_ledger_entry();
+        let ledger_batch = store
+            .prepare_compensation_ledger_batch(
+                &ledger,
+                &KeyScope::new("tenant-a/governance").unwrap(),
+                &CommandId::new("record-effect").unwrap(),
+                b"tenant/record-effect".to_vec(),
+            )
+            .unwrap();
+        raft.apply(&ledger_batch, &raft_limits()).unwrap();
+        let governance_batch = store
+            .prepare_governance_batch(&governance_plan(), b"tenant/governance-command".to_vec())
+            .unwrap();
+        let ledger_key =
+            compensation_ledger_storage_key(&TenantId::new("tenant-a").unwrap(), "saga-1", 1, 1);
+        store
+            .db
+            .put_cf(
+                cf(&store.db, COMPENSATION_LEDGER_CF).unwrap(),
+                ledger_key,
+                b"injected-concurrent-change",
+            )
+            .unwrap();
+
+        let response = raft.apply(&governance_batch, &raft_limits()).unwrap();
+
+        assert!(matches!(
+            response.outcome,
+            ApplyOutcome::PreconditionFailed { .. }
+        ));
+        for family in [EVENTS_CF, RECONCILIATION_WORK_ITEMS_CF, GOVERNANCE_AUDIT_CF] {
+            assert_eq!(
+                store
+                    .db
+                    .iterator_cf(cf(&store.db, family).unwrap(), IteratorMode::Start)
+                    .count(),
+                0,
+                "column family {family} must remain unchanged"
             );
         }
     }

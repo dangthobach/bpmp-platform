@@ -65,6 +65,15 @@ fn every_known_unsupported_executable_element_fails_closed_with_a_span() {
         ("subChoreography", "<b:subChoreography id=\"candidate\"/>"),
         ("conversation", "<b:conversation id=\"candidate\"/>"),
         ("conversationNode", "<b:conversationNode id=\"candidate\"/>"),
+        ("collaboration", "<b:collaboration id=\"candidate\"/>"),
+        ("choreography", "<b:choreography id=\"candidate\"/>"),
+        (
+            "globalChoreographyTask",
+            "<b:globalChoreographyTask id=\"candidate\"/>",
+        ),
+        ("participant", "<b:participant id=\"candidate\"/>"),
+        ("messageFlow", "<b:messageFlow id=\"candidate\"/>"),
+        ("conversationLink", "<b:conversationLink id=\"candidate\"/>"),
     ];
 
     for (expected, candidate) in cases {

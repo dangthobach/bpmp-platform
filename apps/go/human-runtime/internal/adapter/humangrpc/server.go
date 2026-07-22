@@ -73,7 +73,11 @@ func (s *Server) CompleteWorkItem(ctx context.Context, r *humanv1.CompleteWorkIt
 	if err != nil {
 		return nil, err
 	}
-	err = s.service.Complete(ctx, application.CompleteRequest{TenantID: r.GetTenantId(), WorkItemID: r.GetWorkItemId(), CommandID: r.GetCommandId(), CorrelationID: r.GetCorrelationId(), Decision: r.GetDecision(), ExpectedVersion: r.GetExpectedVersion(), Actor: credential, ActorGroups: identity.Groups, OccurredAt: now})
+	idempotencyKey := r.GetIdempotencyKey()
+	if idempotencyKey == "" {
+		idempotencyKey = r.GetCommandId()
+	}
+	err = s.service.Complete(ctx, application.CompleteRequest{TenantID: r.GetTenantId(), WorkItemID: r.GetWorkItemId(), CommandID: r.GetCommandId(), IdempotencyKey: idempotencyKey, CorrelationID: r.GetCorrelationId(), Decision: r.GetDecision(), ExpectedVersion: r.GetExpectedVersion(), Actor: credential, ActorGroups: identity.Groups, OccurredAt: now})
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -85,7 +89,11 @@ func (s *Server) DelegateWorkItem(ctx context.Context, r *humanv1.DelegateWorkIt
 	if err != nil {
 		return nil, err
 	}
-	err = s.service.Delegate(ctx, application.DelegateRequest{TenantID: r.GetTenantId(), WorkItemID: r.GetWorkItemId(), CommandID: r.GetCommandId(), CorrelationID: r.GetCorrelationId(), ExpectedVersion: r.GetExpectedVersion(), Actor: credential, ActorGroups: identity.Groups, Assignment: domain.Assignment{AssigneeID: r.GetAssigneeId(), CandidateGroup: r.GetCandidateGroup()}, OccurredAt: now})
+	idempotencyKey := r.GetIdempotencyKey()
+	if idempotencyKey == "" {
+		idempotencyKey = r.GetCommandId()
+	}
+	err = s.service.Delegate(ctx, application.DelegateRequest{TenantID: r.GetTenantId(), WorkItemID: r.GetWorkItemId(), CommandID: r.GetCommandId(), IdempotencyKey: idempotencyKey, CorrelationID: r.GetCorrelationId(), ExpectedVersion: r.GetExpectedVersion(), Actor: credential, ActorGroups: identity.Groups, Assignment: domain.Assignment{AssigneeID: r.GetAssigneeId(), CandidateGroup: r.GetCandidateGroup()}, OccurredAt: now})
 	if err != nil {
 		return nil, mapError(err)
 	}

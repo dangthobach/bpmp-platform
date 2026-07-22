@@ -54,6 +54,9 @@ func (benchmarkStore) ProjectCase(context.Context, application.CommittedCase) (b
 func (benchmarkStore) CommitCaseTransition(context.Context, application.CommittedCaseTransition) error {
 	return nil
 }
+func (benchmarkStore) CommitCaseCompletion(context.Context, application.CommittedCaseCompletion) error {
+	return nil
+}
 func (benchmarkStore) TransitionCaseStage(context.Context, string, string, string, domain.PlanItemStatus, string, time.Time) error {
 	return nil
 }

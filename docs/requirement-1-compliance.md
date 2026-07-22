@@ -23,7 +23,7 @@ Requirement 1 must therefore not be reported as 100% complete.
 | AC | Implementation and executable evidence | Profile | Full requirement | Residual gap |
 | --- | --- | --- | --- | --- |
 | 1 | Namespace-aware bounded parser, centralized executable catalog, semantic graph, WIR lowering; AC1, `unsupported_bpmn`, and `human_script_tasks` corpora | Pass | Partial | User and pinned-WASM script tasks now have typed WIR, canonical printing, Rust codegen, signed loading, durable activation/completion, and replay. The remaining accepted BPMN catalog is still a deliberate subset; unsupported and unknown model elements fail closed with source spans. |
-| 2 | Typed DMN tables and CMMN case metadata; `ac2_dmn_and_cmmn_are_integrated_in_one_wir` | Pass | Partial | DMN supports boolean/integer/string decision-table IR. CMMN supports case/stage/milestone/sentry metadata, not the complete CMMN catalog or executable case semantics. |
+| 2 | Typed DMN tables and executable typed CMMN stage/milestone/sentry IR; `ac2_dmn_and_cmmn_are_integrated_in_one_wir` and compiler-to-engine sentry test | Pass | Partial | The supported CMMN profile now executes deterministically in the authoritative Rust engine with durable replay. The complete CMMN catalog remains outside the accepted profile. |
 | 3 | Standalone Rust generation without XML; `ac3_generated_rust_has_no_runtime_xml_dependency_and_compiles` | Pass | Partial | Compilation is proven, but behavioral equivalence is not proven for multi-instance, boundary, retained scope, compensation, and child call orchestration. |
 | 4 | Static and bounded-symbolic coverage for boolean, enum/string and integer intervals; AC4 and gateway unit tests | Pass | Complete | Solver complexity is bounded by configuration and fails closed above the budget. |
 | 5 | Forward/reverse reachability, dead paths, cycles and inclusive/parallel structural validation; AC5 and advanced gateway tests | Pass | Complete | Applies to the accepted and lowered graph profile. |
@@ -52,7 +52,7 @@ in dependency order:
 4. Expand data contracts beyond scalar values to versioned deep structural
    typing and schema references.
 5. Expand DMN FEEL/type/hit-policy coverage and CMMN lowering beyond the current
-   stage/milestone/sentry metadata subset.
+   executable stage/milestone/if-part sentry subset.
 
 ## Component Coverage
 
@@ -60,8 +60,9 @@ in dependency order:
   input-size/depth limits, DTD rejection, forward references, and source spans.
 - Semantic validation: reachability, dead paths, cycles, exclusive/inclusive/
   parallel gateways, compensation, cumulative SLA, and transitive data contracts.
-- Model integration: typed DMN IR/evaluation and the supported CMMN
-  stage/milestone/sentry subset, including negative model validation.
+- Model integration: typed DMN IR/evaluation and the supported executable CMMN
+  stage/milestone/sentry subset, including negative model validation and direct
+  authoritative-engine loading.
 - Outputs: canonical printer, generated Rust compilation, signed WIR artifact,
   CLI behavior, and compiler-to-engine loading.
 
@@ -97,3 +98,7 @@ The compiler now also rejects every unclassified element in the BPMN model
 namespace. Dedicated corpus tests cover the remaining unsupported task variants, complex/event-based
 gateways, intermediate events, scope variants, unsupported event definitions,
 event sub-process discrimination, and choreography/conversation constructs.
+The catalog is now represented by explicit supported and unsupported arrays;
+tests iterate every entry. Interrupting User Task boundaries additionally prove
+authoritative cancellation through event log, codec, outbox, idempotent dispatch,
+and Human Runtime projection.

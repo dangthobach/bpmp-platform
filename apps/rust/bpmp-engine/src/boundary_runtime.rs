@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use bpmp_domain_core::{
@@ -256,6 +257,85 @@ pub trait BoundaryRuntimeStorePort: Send + Sync {
     ) -> Result<(), BoundaryRuntimeError>;
 }
 
+impl<T: BoundaryRuntimeStorePort + ?Sized> BoundaryRuntimeStorePort for Arc<T> {
+    fn projection_checkpoint(&self) -> Result<u64, BoundaryRuntimeError> {
+        (**self).projection_checkpoint()
+    }
+
+    fn apply_projection(
+        &self,
+        expected_checkpoint: u64,
+        committed_checkpoint: u64,
+        mutations: &[BoundaryProjectionMutation],
+    ) -> Result<(), BoundaryRuntimeError> {
+        (**self).apply_projection(expected_checkpoint, committed_checkpoint, mutations)
+    }
+
+    fn claim_due_timers(
+        &self,
+        now_epoch_ms: u64,
+        lease_until_epoch_ms: u64,
+        worker_id: &str,
+        limit: usize,
+    ) -> Result<Vec<ClaimedTimer>, BoundaryRuntimeError> {
+        (**self).claim_due_timers(now_epoch_ms, lease_until_epoch_ms, worker_id, limit)
+    }
+
+    fn complete_timer(
+        &self,
+        claim: &ClaimedTimer,
+        completion: TimerDispatchCompletion,
+    ) -> Result<(), BoundaryRuntimeError> {
+        (**self).complete_timer(claim, completion)
+    }
+
+    fn fail_timer(
+        &self,
+        claim: &ClaimedTimer,
+        retry_at_epoch_ms: u64,
+        dead_letter: bool,
+    ) -> Result<(), BoundaryRuntimeError> {
+        (**self).fail_timer(claim, retry_at_epoch_ms, dead_letter)
+    }
+
+    fn enqueue_signal(
+        &self,
+        signal: &BoundarySignal,
+    ) -> Result<SignalEnqueueOutcome, BoundaryRuntimeError> {
+        (**self).enqueue_signal(signal)
+    }
+
+    fn claim_correlations(
+        &self,
+        now_epoch_ms: u64,
+        lease_until_epoch_ms: u64,
+        worker_id: &str,
+        limit: usize,
+        max_subscriptions_per_instance: usize,
+    ) -> Result<Vec<ClaimedCorrelation>, BoundaryRuntimeError> {
+        (**self).claim_correlations(
+            now_epoch_ms,
+            lease_until_epoch_ms,
+            worker_id,
+            limit,
+            max_subscriptions_per_instance,
+        )
+    }
+
+    fn complete_correlation(&self, claim: &ClaimedCorrelation) -> Result<(), BoundaryRuntimeError> {
+        (**self).complete_correlation(claim)
+    }
+
+    fn fail_correlation(
+        &self,
+        claim: &ClaimedCorrelation,
+        retry_at_epoch_ms: u64,
+        dead_letter: bool,
+    ) -> Result<(), BoundaryRuntimeError> {
+        (**self).fail_correlation(claim, retry_at_epoch_ms, dead_letter)
+    }
+}
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum BoundaryDispatchSource {
     Timer,
@@ -301,6 +381,17 @@ pub trait WorkflowDefinitionProviderPort: Send + Sync {
         workflow_type: &WorkflowType,
         workflow_version: &WorkflowVersion,
     ) -> Result<WorkflowDefinition, BoundaryRuntimeError>;
+}
+
+impl<T: WorkflowDefinitionProviderPort + ?Sized> WorkflowDefinitionProviderPort for Arc<T> {
+    fn resolve(
+        &self,
+        tenant_id: &TenantId,
+        workflow_type: &WorkflowType,
+        workflow_version: &WorkflowVersion,
+    ) -> Result<WorkflowDefinition, BoundaryRuntimeError> {
+        (**self).resolve(tenant_id, workflow_type, workflow_version)
+    }
 }
 
 #[allow(clippy::missing_errors_doc)]
@@ -674,10 +765,13 @@ fn projection_mutation(
             instance_id: metadata.instance_id.clone(),
             attached_node_id: attached_node_id.clone(),
         },
-        DomainEvent::WorkflowCompleted { .. } => BoundaryProjectionMutation::RemoveInstance {
-            tenant_id: metadata.tenant_id.clone(),
-            instance_id: metadata.instance_id.clone(),
-        },
+        DomainEvent::WorkflowCompleted { .. }
+        | DomainEvent::WorkflowTerminatedForCompliance { .. } => {
+            BoundaryProjectionMutation::RemoveInstance {
+                tenant_id: metadata.tenant_id.clone(),
+                instance_id: metadata.instance_id.clone(),
+            }
+        }
         _ => return Ok(None),
     };
     Ok(Some(mutation))
@@ -988,6 +1082,8 @@ pub enum BoundaryRuntimeError {
     InvalidDispatchIdentity,
     #[error("resolved workflow definition does not match the boundary subscription scope")]
     DefinitionScopeMismatch,
+    #[error("workflow definition is unavailable: {0}")]
+    DefinitionUnavailable(String),
     #[error("boundary dispatch credentials are empty")]
     InvalidDispatchCredentials,
     #[error("boundary command dispatch failed: {0}")]

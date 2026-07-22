@@ -54,6 +54,105 @@ pub struct EncryptedAuthorizationAuditRecord {
     pub ciphertext: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct EncryptedGovernanceRecord {
+    #[prost(uint32, tag="1")]
+    pub storage_schema_version: u32,
+    #[prost(string, tag="2")]
+    pub key_scope: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub key_version: ::prost::alloc::string::String,
+    #[prost(uint64, tag="4")]
+    pub key_epoch: u64,
+    #[prost(string, tag="5")]
+    pub algorithm: ::prost::alloc::string::String,
+    #[prost(bytes="vec", tag="6")]
+    pub nonce: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes="vec", tag="7")]
+    pub ciphertext: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct CompensationLedgerRecord {
+    #[prost(string, tag="1")]
+    pub tenant_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub instance_id: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub saga_ref: ::prost::alloc::string::String,
+    #[prost(string, tag="4")]
+    pub ledger_entry_id: ::prost::alloc::string::String,
+    #[prost(uint64, tag="5")]
+    pub effect_sequence: u64,
+    #[prost(uint64, tag="6")]
+    pub ledger_sequence: u64,
+    #[prost(string, tag="7")]
+    pub side_effect_type: ::prost::alloc::string::String,
+    #[prost(string, tag="8")]
+    pub target_system: ::prost::alloc::string::String,
+    #[prost(string, tag="9")]
+    pub handler_ref: ::prost::alloc::string::String,
+    #[prost(string, tag="10")]
+    pub opaque_operation_ref: ::prost::alloc::string::String,
+    #[prost(string, tag="11")]
+    pub idempotency_key: ::prost::alloc::string::String,
+    #[prost(string, tag="12")]
+    pub status: ::prost::alloc::string::String,
+    #[prost(uint64, tag="13")]
+    pub updated_at_epoch_ms: u64,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ReconciliationWorkItemRecord {
+    #[prost(string, tag="1")]
+    pub tenant_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub instance_id: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub reconciliation_id: ::prost::alloc::string::String,
+    #[prost(string, tag="4")]
+    pub ledger_entry_id: ::prost::alloc::string::String,
+    #[prost(string, tag="5")]
+    pub side_effect_type: ::prost::alloc::string::String,
+    #[prost(string, tag="6")]
+    pub target_system: ::prost::alloc::string::String,
+    #[prost(string, tag="7")]
+    pub handler_ref: ::prost::alloc::string::String,
+    #[prost(string, tag="8")]
+    pub opaque_operation_ref: ::prost::alloc::string::String,
+    #[prost(uint64, tag="9")]
+    pub deadline_epoch_ms: u64,
+    #[prost(string, tag="10")]
+    pub status: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct GovernanceApprovalAuditRef {
+    #[prost(string, tag="1")]
+    pub actor_id: ::prost::alloc::string::String,
+    #[prost(uint64, tag="2")]
+    pub approved_at_epoch_ms: u64,
+    #[prost(string, tag="3")]
+    pub key_id: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GovernanceDecisionAuditRecord {
+    #[prost(string, tag="1")]
+    pub tenant_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub instance_id: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub command_id: ::prost::alloc::string::String,
+    #[prost(string, tag="4")]
+    pub policy_id: ::prost::alloc::string::String,
+    #[prost(bytes="vec", tag="5")]
+    pub request_digest: ::prost::alloc::vec::Vec<u8>,
+    #[prost(string, tag="6")]
+    pub reason_code: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="7")]
+    pub requester: ::core::option::Option<GovernanceApprovalAuditRef>,
+    #[prost(message, repeated, tag="8")]
+    pub approvers: ::prost::alloc::vec::Vec<GovernanceApprovalAuditRef>,
+    #[prost(uint64, tag="9")]
+    pub occurred_at_epoch_ms: u64,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct StoredCommandResult {
     #[prost(string, tag="1")]
     pub command_id: ::prost::alloc::string::String,

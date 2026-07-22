@@ -34,6 +34,7 @@ type CompleteRequest struct {
 	TenantID        string
 	WorkItemID      string
 	CommandID       string
+	IdempotencyKey  string
 	CorrelationID   string
 	Decision        string
 	ExpectedVersion int64
@@ -46,6 +47,7 @@ type DelegateRequest struct {
 	TenantID        string
 	WorkItemID      string
 	CommandID       string
+	IdempotencyKey  string
 	CorrelationID   string
 	ExpectedVersion int64
 	Actor           ActorCredential
@@ -59,6 +61,7 @@ type EngineCompleteCommand struct {
 	InstanceID         string
 	NodeID             string
 	CommandID          string
+	IdempotencyKey     string
 	CorrelationID      string
 	Decision           string
 	WorkflowType       string
@@ -97,6 +100,14 @@ type CommittedCaseTransition struct {
 	OccurredAt         time.Time
 }
 
+type CommittedCaseCompletion struct {
+	TenantID   string
+	EventID    string
+	Sequence   uint64
+	CaseID     string
+	OccurredAt time.Time
+}
+
 type CommittedCancellation struct {
 	TenantID   string
 	EventID    string
@@ -120,6 +131,7 @@ type Store interface {
 	Delegate(context.Context, domain.WorkItem, string, string, string) error
 	ProjectCase(context.Context, CommittedCase) (bool, error)
 	CommitCaseTransition(context.Context, CommittedCaseTransition) error
+	CommitCaseCompletion(context.Context, CommittedCaseCompletion) error
 	TransitionCaseStage(context.Context, string, string, string, domain.PlanItemStatus, string, time.Time) error
 	AchieveCaseMilestone(context.Context, string, string, string, string, time.Time) error
 }
@@ -154,6 +166,9 @@ func (s *Service) Complete(ctx context.Context, request CompleteRequest) error {
 	if request.CommandID == "" {
 		return errors.New("command id must not be empty")
 	}
+	if request.IdempotencyKey == "" {
+		request.IdempotencyKey = request.CommandID
+	}
 	if item.Status == domain.WorkItemCompletionRequested {
 		if item.CompletionCommandID != request.CommandID || item.Decision != request.Decision {
 			return ErrIdempotencyConflict
@@ -173,7 +188,7 @@ func (s *Service) Complete(ctx context.Context, request CompleteRequest) error {
 	}
 	command := EngineCompleteCommand{
 		TenantID: request.TenantID, InstanceID: item.InstanceID, NodeID: item.NodeID,
-		CommandID: request.CommandID, CorrelationID: request.CorrelationID,
+		CommandID: request.CommandID, IdempotencyKey: request.IdempotencyKey, CorrelationID: request.CorrelationID,
 		Decision: request.Decision, ActorID: request.Actor.ActorID,
 		OccurredAt:   request.OccurredAt,
 		WorkflowType: item.WorkflowType, WorkflowVersion: item.WorkflowVersion,
@@ -189,6 +204,12 @@ func (s *Service) Complete(ctx context.Context, request CompleteRequest) error {
 func (s *Service) Delegate(ctx context.Context, request DelegateRequest) error {
 	if err := request.Actor.Validate(); err != nil {
 		return err
+	}
+	if request.CommandID == "" {
+		return errors.New("command id must not be empty")
+	}
+	if request.IdempotencyKey == "" {
+		request.IdempotencyKey = request.CommandID
 	}
 	item, err := s.store.GetWorkItem(ctx, request.TenantID, request.WorkItemID)
 	if err != nil {
@@ -221,4 +242,8 @@ func (s *Service) ProjectCase(ctx context.Context, event CommittedCase) (bool, e
 
 func (s *Service) ProjectCommittedCaseTransition(ctx context.Context, event CommittedCaseTransition) error {
 	return s.store.CommitCaseTransition(ctx, event)
+}
+
+func (s *Service) ProjectCommittedCaseCompletion(ctx context.Context, event CommittedCaseCompletion) error {
+	return s.store.CommitCaseCompletion(ctx, event)
 }

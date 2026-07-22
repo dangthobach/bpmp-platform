@@ -87,6 +87,10 @@ message subscription and acknowledge semantics.
   multi-instance iteration indexes before routing to the boundary target.
   Non-interrupting branches retain the owner subscription and emit a branch-end
   audit event without completing the workflow while other work remains.
+- Interrupting boundaries on a user task also commit a typed
+  `UserTaskCancelled` event in the same authoritative engine transaction. Human
+  Runtime closes the PostgreSQL work item only from that committed event; retry
+  uses the boundary command idempotency key and cannot cancel twice.
 - A bounded boundary runtime projects committed subscription events into
   RocksDB, schedules due timers with reclaimable leases, and persists
   message/error signals before acknowledging ingress. Projection checkpoints,
@@ -121,6 +125,10 @@ message subscription and acknowledge semantics.
   policy by tenant/workflow/version/node/config version, and submit authorized
   `CompleteUserTask` commands. Assignment, claim/delegate, forms, and SLA state
   are not owned by the compiler or deterministic engine core.
+- Multi-instance user tasks still need iteration identity in the Human Runtime
+  work-item and completion contracts. Core fan-out/fan-in is durable, but this
+  combination remains outside the end-to-end human-task profile and must not be
+  presented as fully integrated.
 - A deployment adapter must resolve the signed/pinned script artifact, execute
   it through the Wasmtime port, durably persist its result, and only then submit
   `CompleteScriptTask`. The compiler and core do not perform registry, network,

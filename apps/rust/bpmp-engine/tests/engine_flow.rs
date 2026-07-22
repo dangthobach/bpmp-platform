@@ -13,20 +13,24 @@ use bpmp_authz_contracts::{
 };
 use bpmp_contracts::engine::v1::{CommandEnvelope, CompleteUserTask, command_envelope};
 use bpmp_domain_core::{
-    BoundaryEventDefinition, BoundaryRuntimePolicy, BoundaryTrigger, Command, CommandId, ConfigId,
-    ConfigVersion, ConfigurationScope, CorrelationId, DomainEvent, EnginePolicy, IdempotencyKey,
-    InstanceId, KeyScope, LocalWasmPolicy, Node, NodeId, PolicyVersion, ResolvedConfigSnapshot,
-    RetryPolicy, ScopeKind, TaskType, TenantId, WorkflowDefinition, WorkflowExecutionContracts,
-    WorkflowType, WorkflowVersion,
+    BooleanExpression, BoundaryEventDefinition, BoundaryRuntimePolicy, BoundaryTrigger,
+    CaseDefinition, CaseId, CaseLifecycle, CaseMilestoneDefinition, CaseModelId,
+    CaseSentryDefinition, CaseStageDefinition, Command, CommandId, ComparisonOperator, ConfigId,
+    ConfigVersion, ConfigurationScope, CorrelationId, DomainEvent, EnginePolicy, GuardExpression,
+    IdempotencyKey, InstanceId, KeyScope, LocalWasmPolicy, Node, NodeId, PlanItemId, PolicyVersion,
+    ResolvedConfigSnapshot, RetryPolicy, ScopeKind, SentryId, TaskType, TenantId,
+    WorkflowDefinition, WorkflowExecutionContracts, WorkflowType, WorkflowValue, WorkflowVersion,
+    rehydrate,
 };
 use bpmp_engine::memory::{InMemoryConfigurationProvider, InMemoryWorkflowStore};
 use bpmp_engine::{
-    ActorProofKind, AuthoritativeCommandHandler, AuthorizedCommand, BoundaryCommandDispatcherPort,
+    ActorProofKind, AuthoritativeCommandHandler, AuthorizationError, AuthorizationProviderPort,
+    AuthorizationRequest, AuthorizedCommand, AuthorizedPrincipal, BoundaryCommandDispatcherPort,
     BoundaryDispatchCredentials, BoundaryDispatchCredentialsPort, BoundaryDispatchRequest,
     BoundaryDispatchSource, BoundaryRuntimeError, CommandDefinitionProviderPort,
     ConfigurationLookup, EmbeddedAuthorizationProvider, Engine, EngineBoundaryCommandDispatcher,
-    EngineCommandHandlerPort, HandleOutcome, OutboxStorePort, WorkflowDefinitionProviderPort,
-    WorkflowStorePort,
+    EngineCommandHandlerPort, EngineError, HandleOutcome, OutboxStorePort,
+    WorkflowDefinitionProviderPort, WorkflowStorePort,
 };
 
 const KEY_ID: &str = "test-key";
@@ -130,6 +134,92 @@ fn definition() -> WorkflowDefinition {
     .unwrap()
 }
 
+fn cmmn_definition() -> WorkflowDefinition {
+    let start = NodeId::new("start").unwrap();
+    let end = NodeId::new("end").unwrap();
+    WorkflowDefinition::new_with_execution_contracts(
+        TenantId::new("tenant-a").unwrap(),
+        WorkflowType::new("order").unwrap(),
+        WorkflowVersion::new("1").unwrap(),
+        start.clone(),
+        [(start, Node::Start { next: end.clone() }), (end, Node::End)],
+        std::iter::empty(),
+        WorkflowExecutionContracts {
+            case_models: vec![CaseDefinition {
+                id: CaseModelId::new("claim").unwrap(),
+                name: "Claim".into(),
+                stages: vec![CaseStageDefinition {
+                    id: PlanItemId::new("assessment").unwrap(),
+                    name: "Assessment".into(),
+                    entry_sentry_ids: vec![SentryId::new("documents-ready").unwrap()],
+                    exit_sentry_ids: vec![SentryId::new("approved-sentry").unwrap()],
+                }],
+                milestones: vec![CaseMilestoneDefinition {
+                    id: PlanItemId::new("approved").unwrap(),
+                    name: "Approved".into(),
+                    entry_sentry_ids: vec![SentryId::new("approved-sentry").unwrap()],
+                }],
+                sentries: vec![
+                    CaseSentryDefinition {
+                        id: SentryId::new("documents-ready").unwrap(),
+                        condition: BooleanExpression::Comparison(GuardExpression {
+                            variable: "documents".into(),
+                            operator: ComparisonOperator::Equal,
+                            literal: WorkflowValue::Boolean(true),
+                        }),
+                    },
+                    CaseSentryDefinition {
+                        id: SentryId::new("approved-sentry").unwrap(),
+                        condition: BooleanExpression::Comparison(GuardExpression {
+                            variable: "approved".into(),
+                            operator: ComparisonOperator::Equal,
+                            literal: WorkflowValue::Boolean(true),
+                        }),
+                    },
+                ],
+            }],
+            ..WorkflowExecutionContracts::default()
+        },
+    )
+    .unwrap()
+}
+
+struct AllowCaseAuthorization;
+
+impl AuthorizationProviderPort for AllowCaseAuthorization {
+    fn authorize(
+        &self,
+        _request: &AuthorizationRequest<'_>,
+    ) -> Result<AuthorizedPrincipal, AuthorizationError> {
+        Ok(AuthorizedPrincipal {
+            actor_id: bpmp_domain_core::ActorId::new("case-worker").unwrap(),
+            roles: vec!["case-manager".into()],
+            workload_id: "case-api".into(),
+            policy_version: PolicyVersion::new("policy-v3").unwrap(),
+            bundle_sequence: 1,
+            revoke_epoch: 0,
+            matched_grant_ids: vec!["allow-case-lifecycle".into()],
+        })
+    }
+}
+
+fn case_request(command_id: &str, idempotency_key: &str, command: Command) -> AuthorizedCommand {
+    AuthorizedCommand {
+        tenant_id: TenantId::new("tenant-a").unwrap(),
+        instance_id: InstanceId::new("case-stream-1").unwrap(),
+        command_id: CommandId::new(command_id).unwrap(),
+        idempotency_key: IdempotencyKey::new(idempotency_key).unwrap(),
+        correlation_id: CorrelationId::new("case-correlation-1").unwrap(),
+        evaluated_at_epoch_ms: 42,
+        actor_proof: vec![1],
+        actor_proof_kind: ActorProofKind::SignedInternalContext,
+        workload_proof: vec![2],
+        encryption_key_scope: KeyScope::new("tenant-a/operational").unwrap(),
+        variables: BTreeMap::new(),
+        command,
+    }
+}
+
 fn boundary_definition() -> WorkflowDefinition {
     let start = NodeId::new("start").unwrap();
     let task = NodeId::new("charge-card").unwrap();
@@ -164,6 +254,63 @@ fn boundary_definition() -> WorkflowDefinition {
         WorkflowExecutionContracts {
             boundary_events: vec![(
                 task,
+                BoundaryEventDefinition {
+                    id: NodeId::new("cancel-message").unwrap(),
+                    cancel_activity: true,
+                    target: recovery,
+                    trigger: BoundaryTrigger::Message {
+                        message_ref: "order.cancelled".into(),
+                    },
+                },
+            )],
+            ..WorkflowExecutionContracts::default()
+        },
+    )
+    .unwrap()
+}
+
+fn user_boundary_definition() -> WorkflowDefinition {
+    let start = NodeId::new("start").unwrap();
+    let review = NodeId::new("review").unwrap();
+    let normal_end = NodeId::new("end").unwrap();
+    let recovery = NodeId::new("cancel-order").unwrap();
+    let recovery_end = NodeId::new("cancelled").unwrap();
+    WorkflowDefinition::new_with_execution_contracts(
+        TenantId::new("tenant-a").unwrap(),
+        WorkflowType::new("order").unwrap(),
+        WorkflowVersion::new("1").unwrap(),
+        start.clone(),
+        [
+            (
+                start,
+                Node::Start {
+                    next: review.clone(),
+                },
+            ),
+            (
+                review.clone(),
+                Node::UserTask {
+                    task_type: TaskType::new("review").unwrap(),
+                    assignment_policy_ref: "reviewers".into(),
+                    form_key: Some("review-form".into()),
+                    result_variable: "decision".into(),
+                    next: normal_end.clone(),
+                },
+            ),
+            (normal_end, Node::End),
+            (
+                recovery.clone(),
+                Node::ServiceTask {
+                    task_type: TaskType::new("cancel-order").unwrap(),
+                    next: recovery_end.clone(),
+                },
+            ),
+            (recovery_end, Node::End),
+        ],
+        std::iter::empty(),
+        WorkflowExecutionContracts {
+            boundary_events: vec![(
+                review,
                 BoundaryEventDefinition {
                     id: NodeId::new("cancel-message").unwrap(),
                     cancel_activity: true,
@@ -328,6 +475,7 @@ fn configuration(snapshot_interval_events: u32) -> ResolvedConfigSnapshot {
                 multiplier_millis: 2_000,
             },
             local_wasm: local_wasm_policy(),
+            event_payload_key_scope: KeyScope::new("tenant-a/operational").unwrap(),
             authorization_audit_key_scope: KeyScope::new("tenant-a/compliance-audit").unwrap(),
         },
     )
@@ -409,6 +557,94 @@ fn start_request() -> AuthorizedCommand {
 }
 
 #[test]
+fn cmmn_sentry_evaluation_commits_through_authoritative_engine_lifecycle() {
+    let definition = cmmn_definition();
+    let mut provider = InMemoryConfigurationProvider::default();
+    provider.insert(
+        ConfigurationLookup {
+            tenant_id: TenantId::new("tenant-a").unwrap(),
+            workflow_type: definition.workflow_type.clone(),
+            workflow_version: definition.workflow_version.clone(),
+        },
+        configuration(100),
+    );
+    let engine = Engine::new(
+        provider,
+        InMemoryWorkflowStore::default(),
+        AllowCaseAuthorization,
+    );
+    let case_id = CaseId::new("case-1").unwrap();
+    let activate = case_request(
+        "case-command-1",
+        "activate-case-1",
+        Command::ActivateCase {
+            case_id: case_id.clone(),
+            case_model_id: CaseModelId::new("claim").unwrap(),
+            occurred_at_epoch_ms: 42,
+        },
+    );
+    assert!(matches!(
+        engine.handle(&definition, activate).unwrap(),
+        HandleOutcome::Committed(_)
+    ));
+
+    let mut evaluate = case_request(
+        "case-command-2",
+        "evaluate-case-1",
+        Command::EvaluateCaseSentries {
+            case_id: case_id.clone(),
+            occurred_at_epoch_ms: 43,
+        },
+    );
+    evaluate.variables = BTreeMap::from([
+        ("approved".into(), WorkflowValue::Boolean(true)),
+        ("documents".into(), WorkflowValue::Boolean(true)),
+    ]);
+    let committed = engine.handle(&definition, evaluate.clone()).unwrap();
+    assert!(matches!(committed, HandleOutcome::Committed(_)));
+    assert!(matches!(
+        engine.handle(&definition, evaluate).unwrap(),
+        HandleOutcome::Duplicate(_)
+    ));
+
+    let loaded = engine
+        .store()
+        .load(
+            &TenantId::new("tenant-a").unwrap(),
+            &InstanceId::new("case-stream-1").unwrap(),
+        )
+        .unwrap();
+    assert!(loaded.events.iter().any(|event| {
+        matches!(
+            event.event,
+            DomainEvent::CaseSentrySatisfied { ref sentry_id, .. }
+                if sentry_id.as_str() == "documents-ready"
+        )
+    }));
+    assert!(matches!(
+        loaded.events.last().map(|event| &event.event),
+        Some(DomainEvent::CaseCompleted { .. })
+    ));
+    let replayed = rehydrate(
+        loaded.snapshot.map(|snapshot| snapshot.state),
+        &loaded
+            .events
+            .iter()
+            .map(|event| event.event.clone())
+            .collect::<Vec<_>>(),
+    );
+    assert_eq!(
+        replayed.active_cases[&case_id].lifecycle,
+        CaseLifecycle::Completed
+    );
+    assert_eq!(
+        engine.store().read_after(0, 32).unwrap().len(),
+        usize::try_from(loaded.version).unwrap()
+    );
+    assert_eq!(engine.store().authorization_audit_count().unwrap(), 2);
+}
+
+#[test]
 fn commits_configuration_metadata_and_returns_duplicate_result() {
     let definition = definition();
     let mut provider = InMemoryConfigurationProvider::default();
@@ -474,6 +710,29 @@ fn commits_configuration_metadata_and_returns_duplicate_result() {
     assert_eq!(outbox[1].cursor, 2);
     assert_eq!(outbox[0].event_id, committed.event_ids[0]);
     assert_eq!(outbox[1].event_id, committed.event_ids[1]);
+}
+
+#[test]
+fn rejects_caller_selected_payload_key_scope_before_loading_or_committing() {
+    let definition = definition();
+    let mut provider = InMemoryConfigurationProvider::default();
+    provider.insert(
+        ConfigurationLookup {
+            tenant_id: TenantId::new("tenant-a").unwrap(),
+            workflow_type: definition.workflow_type.clone(),
+            workflow_version: definition.workflow_version.clone(),
+        },
+        configuration(100),
+    );
+    let engine = Engine::new(provider, InMemoryWorkflowStore::default(), authorization());
+    let mut request = start_request();
+    request.encryption_key_scope = KeyScope::new("tenant-b/operational").unwrap();
+
+    assert!(matches!(
+        engine.handle(&definition, request),
+        Err(EngineError::EncryptionKeyScopeMismatch)
+    ));
+    assert_eq!(engine.store().read_after(0, 1).unwrap(), Vec::new());
 }
 
 #[test]
@@ -644,6 +903,70 @@ fn boundary_dispatcher_reauthorizes_and_commits_idempotently_through_engine() {
     assert_eq!(audit.actor_id.as_str(), "user-1");
     assert_eq!(audit.workload_id, "boundary-runtime");
     assert_eq!(audit.action, "TRIGGER_BOUNDARY_EVENT");
+}
+
+#[test]
+fn interrupting_user_boundary_commits_cancellation_to_event_log_and_outbox() {
+    let definition = user_boundary_definition();
+    let tenant_id = TenantId::new("tenant-a").unwrap();
+    let instance_id = InstanceId::new("instance-1").unwrap();
+    let mut provider = InMemoryConfigurationProvider::default();
+    provider.insert(
+        ConfigurationLookup {
+            tenant_id: tenant_id.clone(),
+            workflow_type: definition.workflow_type.clone(),
+            workflow_version: definition.workflow_version.clone(),
+        },
+        configuration(100),
+    );
+    let engine = Engine::new(provider, InMemoryWorkflowStore::default(), authorization());
+    engine.handle(&definition, start_request()).unwrap();
+    let dispatcher = EngineBoundaryCommandDispatcher::new(
+        engine,
+        StaticDefinitionProvider(definition.clone()),
+        SignedBoundaryCredentials,
+    );
+    let request = BoundaryDispatchRequest {
+        tenant_id: tenant_id.clone(),
+        instance_id: instance_id.clone(),
+        command_id: CommandId::new("message-1:boundary:cancel-message").unwrap(),
+        idempotency_key: IdempotencyKey::new("message-1:boundary:cancel-message").unwrap(),
+        correlation_id: CorrelationId::new("message-1:boundary:cancel-message").unwrap(),
+        command: Command::TriggerBoundaryEvent {
+            boundary_event_id: NodeId::new("cancel-message").unwrap(),
+            occurred_at_epoch_ms: 50,
+        },
+        source: BoundaryDispatchSource::Message,
+        occurred_at_epoch_ms: 50,
+        workflow_type: definition.workflow_type.clone(),
+        workflow_version: definition.workflow_version.clone(),
+        authorization_context_ref: Some("auth-context/message-1".into()),
+    };
+
+    dispatcher.dispatch(&request).unwrap();
+    dispatcher.dispatch(&request).unwrap();
+    let loaded = dispatcher
+        .engine()
+        .store()
+        .load(&tenant_id, &instance_id)
+        .unwrap();
+    let cancellations = loaded
+        .events
+        .iter()
+        .filter(|event| matches!(event.event, DomainEvent::UserTaskCancelled { .. }))
+        .count();
+    assert_eq!(cancellations, 1);
+    let outbox = dispatcher.engine().store().read_after(0, 32).unwrap();
+    assert_eq!(
+        outbox
+            .iter()
+            .filter(|record| {
+                bpmp_engine::EventCodec::decode(&record.payload)
+                    .is_ok_and(|event| matches!(event.event, DomainEvent::UserTaskCancelled { .. }))
+            })
+            .count(),
+        1
+    );
 }
 
 #[test]

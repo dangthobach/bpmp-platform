@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use thiserror::Error;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -14,7 +16,11 @@ pub struct PublishAcknowledgement {
     pub event_id: String,
 }
 
+#[allow(clippy::missing_errors_doc)]
 pub trait OutboxStorePort: Send + Sync {
+    /// Reads the durable publisher checkpoint used for crash recovery.
+    fn publisher_checkpoint(&self) -> Result<u64, OutboxError>;
+
     /// Returns records strictly after `cursor`, ordered by ascending cursor.
     ///
     /// # Errors
@@ -29,6 +35,20 @@ pub trait OutboxStorePort: Send + Sync {
     /// Returns [`OutboxError::CheckpointConflict`] when another publisher has
     /// advanced the cursor, or another storage error on failure.
     fn checkpoint(&self, expected: u64, committed: u64) -> Result<(), OutboxError>;
+}
+
+impl<T: OutboxStorePort + ?Sized> OutboxStorePort for Arc<T> {
+    fn publisher_checkpoint(&self) -> Result<u64, OutboxError> {
+        (**self).publisher_checkpoint()
+    }
+
+    fn read_after(&self, cursor: u64, limit: usize) -> Result<Vec<OutboxRecord>, OutboxError> {
+        (**self).read_after(cursor, limit)
+    }
+
+    fn checkpoint(&self, expected: u64, committed: u64) -> Result<(), OutboxError> {
+        (**self).checkpoint(expected, committed)
+    }
 }
 
 pub trait IntegrationEventPublisherPort: Send + Sync {
@@ -214,6 +234,10 @@ mod tests {
     }
 
     impl OutboxStorePort for Store {
+        fn publisher_checkpoint(&self) -> Result<u64, OutboxError> {
+            Ok(*self.checkpoint.lock().unwrap())
+        }
+
         fn read_after(&self, cursor: u64, limit: usize) -> Result<Vec<OutboxRecord>, OutboxError> {
             Ok(self
                 .records

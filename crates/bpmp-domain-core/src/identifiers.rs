@@ -43,6 +43,8 @@ macro_rules! identifier {
 }
 
 identifier!(ActorId);
+identifier!(CaseId);
+identifier!(CaseModelId);
 identifier!(CommandId);
 identifier!(ConfigId);
 identifier!(ConfigVersion);
@@ -52,7 +54,9 @@ identifier!(InstanceId);
 identifier!(KeyScope);
 identifier!(NodeId);
 identifier!(PolicyVersion);
+identifier!(PlanItemId);
 identifier!(ScopeInstanceId);
+identifier!(SentryId);
 identifier!(TaskType);
 identifier!(TenantId);
 identifier!(WorkflowType);

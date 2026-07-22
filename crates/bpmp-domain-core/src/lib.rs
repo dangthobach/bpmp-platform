@@ -12,13 +12,15 @@ pub use configuration::{
     ResolvedConfigSnapshot, RetryPolicy, ScopeKind,
 };
 pub use identifiers::{
-    ActorId, CommandId, ConfigId, ConfigVersion, CorrelationId, IdempotencyKey, IdentifierError,
-    InstanceId, KeyScope, NodeId, PolicyVersion, ScopeInstanceId, TaskType, TenantId, WorkflowType,
-    WorkflowVersion,
+    ActorId, CaseId, CaseModelId, CommandId, ConfigId, ConfigVersion, CorrelationId,
+    IdempotencyKey, IdentifierError, InstanceId, KeyScope, NodeId, PlanItemId, PolicyVersion,
+    ScopeInstanceId, SentryId, TaskType, TenantId, WorkflowType, WorkflowVersion,
 };
 pub use workflow::{
-    ActiveBoundarySubscription, ActiveExecutionScope, ActiveMultiInstance, BooleanExpression,
-    BoundaryEventDefinition, BoundaryTimerKind, BoundaryTrigger, Command, ComparisonOperator,
+    ActiveBoundarySubscription, ActiveCase, ActiveExecutionScope, ActiveMultiInstance,
+    BooleanExpression, BoundaryEventDefinition, BoundaryTimerKind, BoundaryTrigger, CaseDefinition,
+    CaseLifecycle, CaseMilestoneDefinition, CasePlanItemKind, CasePlanItemState,
+    CasePlanItemStatus, CaseSentryDefinition, CaseStageDefinition, Command, ComparisonOperator,
     DecisionContext, DecisionInput, DecisionOutput, DecisionRule, DecisionTable, DomainError,
     DomainEvent, ExtensionProperty, ExtensionPropertyValue, GatewayCoverage, GatewayCoverageDomain,
     GuardExpression, GuardedTransition, HitPolicy, InstanceState, IntegerInterval, Lifecycle,

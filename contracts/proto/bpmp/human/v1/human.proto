@@ -43,6 +43,7 @@ message CompleteWorkItemRequest {
   string decision = 5;
   int64 expected_version = 6;
   bpmp.authorization.v1.ActorProof actor_proof = 7;
+  string idempotency_key = 8;
 }
 
 message DelegateWorkItemRequest {
@@ -54,6 +55,7 @@ message DelegateWorkItemRequest {
   string assignee_id = 6;
   string candidate_group = 7;
   bpmp.authorization.v1.ActorProof actor_proof = 8;
+  string idempotency_key = 9;
 }
 
 message CompleteWorkItemResponse {

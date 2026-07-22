@@ -255,6 +255,7 @@ type CompleteWorkItemRequest struct {
 	Decision        string                 `protobuf:"bytes,5,opt,name=decision,proto3" json:"decision,omitempty"`
 	ExpectedVersion int64                  `protobuf:"varint,6,opt,name=expected_version,json=expectedVersion,proto3" json:"expected_version,omitempty"`
 	ActorProof      *v1.ActorProof         `protobuf:"bytes,7,opt,name=actor_proof,json=actorProof,proto3" json:"actor_proof,omitempty"`
+	IdempotencyKey  string                 `protobuf:"bytes,8,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -338,6 +339,13 @@ func (x *CompleteWorkItemRequest) GetActorProof() *v1.ActorProof {
 	return nil
 }
 
+func (x *CompleteWorkItemRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
+}
+
 type DelegateWorkItemRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	TenantId        string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
@@ -348,6 +356,7 @@ type DelegateWorkItemRequest struct {
 	AssigneeId      string                 `protobuf:"bytes,6,opt,name=assignee_id,json=assigneeId,proto3" json:"assignee_id,omitempty"`
 	CandidateGroup  string                 `protobuf:"bytes,7,opt,name=candidate_group,json=candidateGroup,proto3" json:"candidate_group,omitempty"`
 	ActorProof      *v1.ActorProof         `protobuf:"bytes,8,opt,name=actor_proof,json=actorProof,proto3" json:"actor_proof,omitempty"`
+	IdempotencyKey  string                 `protobuf:"bytes,9,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -436,6 +445,13 @@ func (x *DelegateWorkItemRequest) GetActorProof() *v1.ActorProof {
 		return x.ActorProof
 	}
 	return nil
+}
+
+func (x *DelegateWorkItemRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
 }
 
 type CompleteWorkItemResponse struct {
@@ -1229,7 +1245,7 @@ const file_bpmp_human_v1_human_proto_rawDesc = "" +
 	"\x15ListWorkItemsResponse\x126\n" +
 	"\n" +
 	"work_items\x18\x01 \x03(\v2\x17.bpmp.human.v1.WorkItemR\tworkItems\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\xa9\x02\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\xd2\x02\n" +
 	"\x17CompleteWorkItemRequest\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12 \n" +
 	"\fwork_item_id\x18\x02 \x01(\tR\n" +
@@ -1240,7 +1256,8 @@ const file_bpmp_human_v1_human_proto_rawDesc = "" +
 	"\bdecision\x18\x05 \x01(\tR\bdecision\x12)\n" +
 	"\x10expected_version\x18\x06 \x01(\x03R\x0fexpectedVersion\x12B\n" +
 	"\vactor_proof\x18\a \x01(\v2!.bpmp.authorization.v1.ActorProofR\n" +
-	"actorProof\"\xd7\x02\n" +
+	"actorProof\x12'\n" +
+	"\x0fidempotency_key\x18\b \x01(\tR\x0eidempotencyKey\"\x80\x03\n" +
 	"\x17DelegateWorkItemRequest\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12 \n" +
 	"\fwork_item_id\x18\x02 \x01(\tR\n" +
@@ -1253,7 +1270,8 @@ const file_bpmp_human_v1_human_proto_rawDesc = "" +
 	"assigneeId\x12'\n" +
 	"\x0fcandidate_group\x18\a \x01(\tR\x0ecandidateGroup\x12B\n" +
 	"\vactor_proof\x18\b \x01(\v2!.bpmp.authorization.v1.ActorProofR\n" +
-	"actorProof\"e\n" +
+	"actorProof\x12'\n" +
+	"\x0fidempotency_key\x18\t \x01(\tR\x0eidempotencyKey\"e\n" +
 	"\x18CompleteWorkItemResponse\x12\x1d\n" +
 	"\n" +
 	"command_id\x18\x01 \x01(\tR\tcommandId\x12*\n" +

@@ -4,4 +4,4 @@
 mod rocks;
 
 #[cfg(target_os = "linux")]
-pub use rocks::{RocksDbConfig, RocksDbWorkflowStore};
+pub use rocks::{RocksDbAtomicStateStorage, RocksDbConfig, RocksDbWorkflowStore};

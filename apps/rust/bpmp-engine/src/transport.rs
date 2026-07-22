@@ -8,8 +8,8 @@ use bpmp_contracts::engine::v1::engine_command_service_server::{
 };
 use bpmp_contracts::engine::v1::{CommandEnvelope, CommandReceipt};
 use bpmp_domain_core::{
-    Command, CommandId, CorrelationId, IdempotencyKey, InstanceId, KeyScope, NodeId, TenantId,
-    WorkflowDefinition, WorkflowType, WorkflowVersion,
+    CaseId, CaseModelId, Command, CommandId, CorrelationId, IdempotencyKey, InstanceId, KeyScope,
+    NodeId, TenantId, WorkflowDefinition, WorkflowType, WorkflowValue, WorkflowVersion,
 };
 use thiserror::Error;
 use tonic::{Request, Response, Status};
@@ -57,6 +57,17 @@ impl<C, S, A, D> AuthoritativeCommandHandler<C, S, A, D> {
 
     pub const fn engine(&self) -> &Engine<C, S, A> {
         &self.engine
+    }
+}
+
+impl<T: CommandDefinitionProviderPort + ?Sized> CommandDefinitionProviderPort for Arc<T> {
+    fn resolve(
+        &self,
+        tenant_id: &TenantId,
+        workflow_type: &WorkflowType,
+        workflow_version: &WorkflowVersion,
+    ) -> Result<WorkflowDefinition, String> {
+        (**self).resolve(tenant_id, workflow_type, workflow_version)
     }
 }
 
@@ -199,7 +210,7 @@ fn map_authorized_command(
         CorrelationId::new(envelope.correlation_id.clone()).map_err(invalid("correlation_id"))?;
     let encryption_key_scope = KeyScope::new(envelope.encryption_key_scope.clone())
         .map_err(invalid("encryption_key_scope"))?;
-    let command = map_command(
+    let (command, variables) = map_command(
         envelope
             .command
             .as_ref()
@@ -257,7 +268,7 @@ fn map_authorized_command(
         actor_proof_kind,
         workload_proof: workload_proof.signed_proof.clone(),
         encryption_key_scope,
-        variables: BTreeMap::new(),
+        variables,
         command,
     })
 }
@@ -266,8 +277,22 @@ fn map_command(
     command: &WireCommand,
     tenant_id: &TenantId,
     occurred_at_epoch_ms: u64,
-) -> Result<Command, TransportError> {
-    Ok(match command {
+) -> Result<(Command, BTreeMap<String, WorkflowValue>), TransportError> {
+    let mut variables = BTreeMap::new();
+    let command = match command {
+        WireCommand::ActivateCase(value) => Command::ActivateCase {
+            case_id: CaseId::new(value.case_id.clone()).map_err(invalid("case_id"))?,
+            case_model_id: CaseModelId::new(value.case_model_id.clone())
+                .map_err(invalid("case_model_id"))?,
+            occurred_at_epoch_ms,
+        },
+        WireCommand::EvaluateCaseSentries(value) => {
+            variables = map_case_facts(&value.facts)?;
+            Command::EvaluateCaseSentries {
+                case_id: CaseId::new(value.case_id.clone()).map_err(invalid("case_id"))?,
+                occurred_at_epoch_ms,
+            }
+        }
         WireCommand::StartWorkflow(_) => Command::StartWorkflow {
             tenant_id: tenant_id.clone(),
             occurred_at_epoch_ms,
@@ -296,7 +321,8 @@ fn map_command(
             boundary_event_id: node_id(&value.boundary_event_id)?,
             occurred_at_epoch_ms,
         },
-    })
+    };
+    Ok((command, variables))
 }
 
 fn command_resource<'a>(
@@ -304,6 +330,10 @@ fn command_resource<'a>(
     command: &'a Command,
 ) -> (&'a str, &'static str) {
     match command {
+        Command::ActivateCase { case_id, .. } => (case_id.as_str(), "ACTIVATE_CASE"),
+        Command::EvaluateCaseSentries { case_id, .. } => {
+            (case_id.as_str(), "EVALUATE_CASE_SENTRIES")
+        }
         Command::StartWorkflow { .. } => (definition.start_node.as_str(), "START"),
         Command::CompleteServiceTask { node_id, .. } => (node_id.as_str(), "COMPLETE_SERVICE_TASK"),
         Command::CompleteUserTask { node_id, .. } => (node_id.as_str(), "COMPLETE_USER_TASK"),
@@ -315,6 +345,39 @@ fn command_resource<'a>(
             boundary_event_id, ..
         } => (boundary_event_id.as_str(), "TRIGGER_BOUNDARY_EVENT"),
     }
+}
+
+fn workflow_variable_from_wire(
+    variable: &bpmp_contracts::engine::v1::WorkflowVariable,
+) -> Result<(String, WorkflowValue), TransportError> {
+    use bpmp_contracts::engine::v1::workflow_variable::Value;
+    if variable.name.trim().is_empty() {
+        return Err(TransportError::InvalidField("case_fact.name"));
+    }
+    let value = match variable
+        .value
+        .as_ref()
+        .ok_or(TransportError::InvalidField("case_fact.value"))?
+    {
+        Value::BooleanValue(value) => WorkflowValue::Boolean(*value),
+        Value::IntegerValue(value) => WorkflowValue::Integer(*value),
+        Value::StringValue(value) => WorkflowValue::String(value.clone()),
+        Value::ListValue(_) => return Err(TransportError::InvalidField("case_fact.value")),
+    };
+    Ok((variable.name.clone(), value))
+}
+
+fn map_case_facts(
+    facts: &[bpmp_contracts::engine::v1::WorkflowVariable],
+) -> Result<BTreeMap<String, WorkflowValue>, TransportError> {
+    let mut mapped = BTreeMap::new();
+    for fact in facts {
+        let (name, value) = workflow_variable_from_wire(fact)?;
+        if mapped.insert(name, value).is_some() {
+            return Err(TransportError::DuplicateCaseFact);
+        }
+    }
+    Ok(mapped)
 }
 
 fn node_id(value: &str) -> Result<NodeId, TransportError> {
@@ -331,6 +394,8 @@ pub enum TransportError {
     InvalidField(&'static str),
     #[error("command payload is missing")]
     MissingCommand,
+    #[error("CMMN sentry evaluation contains a duplicate fact name")]
+    DuplicateCaseFact,
     #[error("authorization context is missing")]
     MissingAuthorizationContext,
     #[error("authorization resource is missing")]
@@ -374,7 +439,10 @@ mod tests {
         ActorProof, ActorProofType, AuthorizationContext, TransitionResource, WorkloadProof,
     };
     use bpmp_contracts::engine::v1::engine_command_service_client::EngineCommandServiceClient;
-    use bpmp_contracts::engine::v1::{CompleteUserTask, command_envelope};
+    use bpmp_contracts::engine::v1::{
+        CompleteUserTask, EvaluateCaseSentries, WorkflowVariable, command_envelope,
+        workflow_variable,
+    };
     use bpmp_domain_core::{Node, TaskType};
     use tokio::net::TcpListener;
     use tokio::sync::oneshot;
@@ -441,6 +509,31 @@ mod tests {
         assert!(matches!(
             map_authorized_command(&envelope, &definition, scope),
             Err(TransportError::AuthorizationScopeMismatch)
+        ));
+    }
+
+    #[test]
+    fn cmmn_wire_command_maps_typed_facts_and_rejects_duplicates() {
+        let fact = WorkflowVariable {
+            name: "documents".into(),
+            value: Some(workflow_variable::Value::BooleanValue(true)),
+        };
+        let command = command_envelope::Command::EvaluateCaseSentries(EvaluateCaseSentries {
+            case_id: "case-1".into(),
+            facts: vec![fact.clone()],
+        });
+        let (mapped, facts) =
+            map_command(&command, &TenantId::new("tenant-a").unwrap(), 10).unwrap();
+        assert!(matches!(mapped, Command::EvaluateCaseSentries { .. }));
+        assert_eq!(facts["documents"], WorkflowValue::Boolean(true));
+
+        let duplicate = command_envelope::Command::EvaluateCaseSentries(EvaluateCaseSentries {
+            case_id: "case-1".into(),
+            facts: vec![fact.clone(), fact],
+        });
+        assert!(matches!(
+            map_command(&duplicate, &TenantId::new("tenant-a").unwrap(), 10),
+            Err(TransportError::DuplicateCaseFact)
         ));
     }
 

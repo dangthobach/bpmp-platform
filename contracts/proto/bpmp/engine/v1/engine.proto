@@ -21,6 +21,8 @@ message CommandEnvelope {
     TriggerBoundaryEvent trigger_boundary_event = 15;
     CompleteUserTask complete_user_task = 16;
     CompleteScriptTask complete_script_task = 17;
+    ActivateCase activate_case = 18;
+    EvaluateCaseSentries evaluate_case_sentries = 19;
   }
   string encryption_key_scope = 12;
   bpmp.authorization.v1.AuthorizationContext authorization_context = 13;
@@ -48,6 +50,16 @@ message CompleteMultiInstanceIteration {
 
 message TriggerBoundaryEvent {
   string boundary_event_id = 1;
+}
+
+message ActivateCase {
+  string case_id = 1;
+  string case_model_id = 2;
+}
+
+message EvaluateCaseSentries {
+  string case_id = 1;
+  repeated WorkflowVariable facts = 2;
 }
 
 message EventMetadata {
@@ -95,6 +107,9 @@ message EventEnvelope {
     CaseActivated case_activated = 32;
     CasePlanItemTransitioned case_plan_item_transitioned = 33;
     UserTaskCancelled user_task_cancelled = 34;
+    CaseSentrySatisfied case_sentry_satisfied = 35;
+    CaseCompleted case_completed = 36;
+    WorkflowTerminatedForCompliance workflow_terminated_for_compliance = 37;
   }
 }
 
@@ -142,6 +157,15 @@ message CasePlanItemTransitioned {
   repeated string satisfied_sentry_ids = 5;
 }
 
+message CaseSentrySatisfied {
+  string case_id = 1;
+  string sentry_id = 2;
+}
+
+message CaseCompleted {
+  string case_id = 1;
+}
+
 message UserTaskCancelled {
   string node_id = 1;
   string reason = 2;
@@ -171,6 +195,13 @@ message ScriptTaskCompleted {
 }
 
 message WorkflowCompleted {}
+
+message WorkflowTerminatedForCompliance {
+  string policy_id = 1;
+  bytes request_digest = 2;
+  string reason_code = 3;
+  uint32 reconciliation_count = 4;
+}
 
 message DecisionTaskEvaluated {
   string node_id = 1;
@@ -304,6 +335,7 @@ enum WorkflowLifecycle {
   WORKFLOW_LIFECYCLE_INITIAL = 1;
   WORKFLOW_LIFECYCLE_ACTIVE = 2;
   WORKFLOW_LIFECYCLE_COMPLETED = 3;
+  WORKFLOW_LIFECYCLE_TERMINATED_FOR_COMPLIANCE = 4;
 }
 
 message WorkflowSnapshot {
@@ -325,6 +357,21 @@ message WorkflowSnapshot {
   repeated ActiveBoundarySubscription active_boundary_subscriptions = 16;
   repeated ActiveExecutionScope active_scopes = 17;
   repeated ScopeInvocationCounter scope_invocation_counters = 18;
+  repeated ActiveCase active_cases = 19;
+}
+
+message ActiveCase {
+  string case_id = 1;
+  string status = 2;
+  repeated string satisfied_sentry_ids = 3;
+  repeated CasePlanItemState plan_items = 4;
+  string case_model_id = 5;
+}
+
+message CasePlanItemState {
+  string plan_item_id = 1;
+  string kind = 2;
+  string status = 3;
 }
 
 message ActiveToken {

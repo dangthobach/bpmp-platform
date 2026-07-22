@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use bpmp_domain_core::{
     ActorId, CommandId, ConfigError, IdempotencyKey, InstanceId, PolicyVersion,
     ResolvedConfigSnapshot, TenantId, WorkflowType, WorkflowVersion,
@@ -180,6 +182,45 @@ pub trait WorkflowStorePort: Send + Sync {
     fn commit(&self, request: CommitRequest) -> Result<CommitOutcome, StoreError>;
 }
 
+impl<T: WorkflowStorePort + ?Sized> WorkflowStorePort for Arc<T> {
+    fn lookup_idempotency(
+        &self,
+        tenant_id: &TenantId,
+        actor_id: &ActorId,
+        idempotency_key: &IdempotencyKey,
+        command_id: &CommandId,
+    ) -> Result<Option<CommittedResult>, StoreError> {
+        (**self).lookup_idempotency(tenant_id, actor_id, idempotency_key, command_id)
+    }
+
+    fn load(
+        &self,
+        tenant_id: &TenantId,
+        instance_id: &InstanceId,
+    ) -> Result<LoadedInstance, StoreError> {
+        (**self).load(tenant_id, instance_id)
+    }
+
+    fn commit(&self, request: CommitRequest) -> Result<CommitOutcome, StoreError> {
+        (**self).commit(request)
+    }
+}
+
+impl<T: ConfigurationProviderPort + ?Sized> ConfigurationProviderPort for Arc<T> {
+    fn resolve(&self, lookup: &ConfigurationLookup) -> Result<ResolvedConfigSnapshot, ConfigError> {
+        (**self).resolve(lookup)
+    }
+}
+
+impl<T: AuthorizationProviderPort + ?Sized> AuthorizationProviderPort for Arc<T> {
+    fn authorize(
+        &self,
+        request: &AuthorizationRequest<'_>,
+    ) -> Result<AuthorizedPrincipal, AuthorizationError> {
+        (**self).authorize(request)
+    }
+}
+
 #[derive(Debug, Error, Clone, Eq, PartialEq)]
 pub enum StoreError {
     #[error("workflow stream version conflict: expected {expected}, actual {actual}")]
@@ -194,6 +235,8 @@ pub enum StoreError {
     InvalidSnapshot,
     #[error("authorization audit does not match the committed command")]
     InvalidAuthorizationAudit,
+    #[error("governance transition is stale, malformed, or inconsistent: {0}")]
+    InvalidGovernanceTransition(String),
     #[error("payload cryptography is unavailable or rejected the payload")]
     CryptoUnavailable,
     #[error("durable event data is corrupt or incompatible: {0}")]

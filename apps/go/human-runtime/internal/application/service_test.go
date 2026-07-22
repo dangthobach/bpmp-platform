@@ -35,6 +35,7 @@ func (f *fakeStore) Delegate(_ context.Context, item domain.WorkItem, _, _, _ st
 }
 func (*fakeStore) ProjectCase(context.Context, CommittedCase) (bool, error)            { return false, nil }
 func (*fakeStore) CommitCaseTransition(context.Context, CommittedCaseTransition) error { return nil }
+func (*fakeStore) CommitCaseCompletion(context.Context, CommittedCaseCompletion) error { return nil }
 func (*fakeStore) TransitionCaseStage(context.Context, string, string, string, domain.PlanItemStatus, string, time.Time) error {
 	return nil
 }

@@ -1,7 +1,9 @@
 use bpmn_compiler::{BpmnCompiler, CompilerLimits, SourceDocument};
 use bpmp_contracts::{Ed25519Signer, Ed25519Verifier, WirCodec};
+use bpmp_domain_core::{CaseModelId, WorkflowValue};
 use bpmp_engine::WirLoader;
 use proptest::prelude::*;
+use std::collections::BTreeMap;
 
 const TENANT_ID: &str = "tenant-a";
 
@@ -14,6 +16,14 @@ const BPMN: &str = r#"<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN
     <bpmn:sequenceFlow id="f2" sourceRef="dispatch" targetRef="end" />
   </bpmn:process>
 </bpmn:definitions>"#;
+
+const CMMN: &str = r#"<cmmn:definitions xmlns:cmmn="https://www.omg.org/spec/CMMN/20151109/MODEL">
+  <cmmn:case id="claim">
+    <cmmn:stage id="assessment" entrySentryRefs="documents-ready" />
+    <cmmn:milestone id="accepted" entrySentryRefs="documents-ready" />
+    <cmmn:sentry id="documents-ready" condition="documents == true and score >= 80" />
+  </cmmn:case>
+</cmmn:definitions>"#;
 
 const GATEWAY_BPMN: &str = r#"<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL">
   <bpmn:process id="routing">
@@ -63,6 +73,38 @@ fn compiler_artifact_loads_into_the_authoritative_engine_domain() {
     assert_eq!(definition.workflow_type.as_str(), "shipment");
     assert_eq!(definition.workflow_version.as_str(), "2026-07-18.1");
     assert_eq!(definition.tenant_id.as_str(), TENANT_ID);
+}
+
+#[test]
+fn compiled_cmmn_sentry_loads_as_executable_typed_expression() {
+    let compiler = BpmnCompiler::new(CompilerLimits::new(64 * 1024, 32).unwrap());
+    let wir = compiler
+        .compile_with_models(
+            SourceDocument {
+                name: "shipment.bpmn",
+                bytes: BPMN.as_bytes(),
+            },
+            &[],
+            &[SourceDocument {
+                name: "claim.cmmn",
+                bytes: CMMN.as_bytes(),
+            }],
+            TENANT_ID,
+            "1",
+        )
+        .unwrap();
+    let signer = Ed25519Signer::from_bytes(&[19; 32]);
+    let verifier = Ed25519Verifier::from_bytes(&signer.verifying_key_bytes()).unwrap();
+    let definition = WirLoader::load(&WirCodec::seal(wir, &signer).unwrap(), &verifier).unwrap();
+    let model = definition
+        .case_model(&CaseModelId::new("claim").unwrap())
+        .unwrap();
+    let facts = BTreeMap::from([
+        ("documents".into(), WorkflowValue::Boolean(true)),
+        ("score".into(), WorkflowValue::Integer(90)),
+    ]);
+
+    assert!(model.sentries[0].condition.evaluate(&facts).unwrap());
 }
 
 #[test]

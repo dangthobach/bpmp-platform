@@ -154,6 +154,14 @@ func TestPostgresProjectionAuditLockingAndLeaseRecovery(t *testing.T) {
 	if err != nil || caseView.Case.Stages["assessment"] != domain.PlanActive {
 		t.Fatalf("committed CMMN sentry transition was not projected: %#v err=%v", caseView, err)
 	}
+	projectCommittedEvent(t, consumer, &enginev1.EventEnvelope{
+		Metadata: &enginev1.EventMetadata{TenantId: "tenant-a", EventId: "case-event-3", InstanceId: "case-1", Sequence: 3, OccurredAtEpochMs: uint64(now.Add(2 * time.Second).UnixMilli())},
+		Event:    &enginev1.EventEnvelope_CaseCompleted{CaseCompleted: &enginev1.CaseCompleted{CaseId: "case-1"}},
+	})
+	caseView, err = store.GetCase(ctx, "tenant-a", "case-1")
+	if err != nil || caseView.Case.Status != domain.CaseCompleted {
+		t.Fatalf("committed CMMN completion was not projected: %#v err=%v", caseView, err)
+	}
 	activation2 := activation
 	activation2.EventID = "cancel-activation"
 	activation2.InstanceID = "instance-2"
@@ -170,7 +178,7 @@ func TestPostgresProjectionAuditLockingAndLeaseRecovery(t *testing.T) {
 		t.Fatalf("committed cancellation was not projected: %#v err=%v", cancelled, err)
 	}
 	var lifecycleAudits int
-	if err = pool.QueryRow(ctx, `SELECT count(*) FROM human_audit_log WHERE tenant_id='tenant-a' AND action IN ('CASE_ACTIVATED','CASE_STAGE_ACTIVE','CANCELLED')`).Scan(&lifecycleAudits); err != nil || lifecycleAudits != 3 {
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM human_audit_log WHERE tenant_id='tenant-a' AND action IN ('CASE_ACTIVATED','CASE_STAGE_ACTIVE','CASE_COMPLETED','CANCELLED')`).Scan(&lifecycleAudits); err != nil || lifecycleAudits != 4 {
 		t.Fatalf("CMMN/cancellation audit coverage failed: count=%d err=%v", lifecycleAudits, err)
 	}
 	auditPage, nextAudit, err := store.ListAuditRecords(ctx, "tenant-a", "", "case-1", 1, nil)

@@ -10,11 +10,15 @@ bpmp-authz-contracts.workspace = true
 bpmp-contracts.workspace = true
 bpmp-domain-core.workspace = true
 bpmp-engine = { path = "../../apps/rust/bpmp-engine" }
+bpmp-governance-domain.workspace = true
 bpmp-payload-crypto.workspace = true
 prost.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
+bpmp-raft-state-machine.workspace = true
 rocksdb = { version = "0.24.0", default-features = false, features = ["bindgen-runtime", "lz4"] }
 
 [dev-dependencies]

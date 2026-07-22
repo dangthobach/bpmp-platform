@@ -48,6 +48,8 @@ pub struct CompleteWorkItemRequest {
     pub expected_version: i64,
     #[prost(message, optional, tag="7")]
     pub actor_proof: ::core::option::Option<super::super::authorization::v1::ActorProof>,
+    #[prost(string, tag="8")]
+    pub idempotency_key: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct DelegateWorkItemRequest {
@@ -67,6 +69,8 @@ pub struct DelegateWorkItemRequest {
     pub candidate_group: ::prost::alloc::string::String,
     #[prost(message, optional, tag="8")]
     pub actor_proof: ::core::option::Option<super::super::authorization::v1::ActorProof>,
+    #[prost(string, tag="9")]
+    pub idempotency_key: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct CompleteWorkItemResponse {

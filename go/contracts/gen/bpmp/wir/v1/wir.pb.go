@@ -3159,11 +3159,12 @@ func (x *CaseMilestone) GetEntrySentryIds() []string {
 }
 
 type CaseSentry struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Condition     string                 `protobuf:"bytes,2,opt,name=condition,proto3" json:"condition,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Id             string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Condition      string                 `protobuf:"bytes,2,opt,name=condition,proto3" json:"condition,omitempty"`
+	TypedCondition *BooleanExpression     `protobuf:"bytes,3,opt,name=typed_condition,json=typedCondition,proto3" json:"typed_condition,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *CaseSentry) Reset() {
@@ -3208,6 +3209,13 @@ func (x *CaseSentry) GetCondition() string {
 		return x.Condition
 	}
 	return ""
+}
+
+func (x *CaseSentry) GetTypedCondition() *BooleanExpression {
+	if x != nil {
+		return x.TypedCondition
+	}
+	return nil
 }
 
 var File_bpmp_wir_v1_wir_proto protoreflect.FileDescriptor
@@ -3438,11 +3446,12 @@ const file_bpmp_wir_v1_wir_proto_rawDesc = "" +
 	"\rCaseMilestone\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12(\n" +
-	"\x10entry_sentry_ids\x18\x03 \x03(\tR\x0eentrySentryIds\":\n" +
+	"\x10entry_sentry_ids\x18\x03 \x03(\tR\x0eentrySentryIds\"\x83\x01\n" +
 	"\n" +
 	"CaseSentry\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1c\n" +
-	"\tcondition\x18\x02 \x01(\tR\tcondition*n\n" +
+	"\tcondition\x18\x02 \x01(\tR\tcondition\x12G\n" +
+	"\x0ftyped_condition\x18\x03 \x01(\v2\x1e.bpmp.wir.v1.BooleanExpressionR\x0etypedCondition*n\n" +
 	"\x10GatewayDirection\x12!\n" +
 	"\x1dGATEWAY_DIRECTION_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17GATEWAY_DIRECTION_SPLIT\x10\x01\x12\x1a\n" +
@@ -3593,11 +3602,12 @@ var file_bpmp_wir_v1_wir_proto_depIdxs = []int32{
 	41, // 53: bpmp.wir.v1.CaseModel.stages:type_name -> bpmp.wir.v1.CaseStage
 	42, // 54: bpmp.wir.v1.CaseModel.milestones:type_name -> bpmp.wir.v1.CaseMilestone
 	43, // 55: bpmp.wir.v1.CaseModel.sentries:type_name -> bpmp.wir.v1.CaseSentry
-	56, // [56:56] is the sub-list for method output_type
-	56, // [56:56] is the sub-list for method input_type
-	56, // [56:56] is the sub-list for extension type_name
-	56, // [56:56] is the sub-list for extension extendee
-	0,  // [0:56] is the sub-list for field type_name
+	20, // 56: bpmp.wir.v1.CaseSentry.typed_condition:type_name -> bpmp.wir.v1.BooleanExpression
+	57, // [57:57] is the sub-list for method output_type
+	57, // [57:57] is the sub-list for method input_type
+	57, // [57:57] is the sub-list for extension type_name
+	57, // [57:57] is the sub-list for extension extendee
+	0,  // [0:57] is the sub-list for field type_name
 }
 
 func init() { file_bpmp_wir_v1_wir_proto_init() }

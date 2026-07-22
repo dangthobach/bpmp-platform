@@ -82,6 +82,7 @@ pub struct EnginePolicy {
     pub command_timeout_ms: u64,
     pub optimistic_conflict_retry: RetryPolicy,
     pub local_wasm: LocalWasmPolicy,
+    pub event_payload_key_scope: KeyScope,
     pub authorization_audit_key_scope: KeyScope,
 }
 

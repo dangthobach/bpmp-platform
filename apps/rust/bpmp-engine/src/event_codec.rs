@@ -1,8 +1,9 @@
 use bpmp_contracts::engine::v1 as wire;
 use bpmp_domain_core::{
-    ActorId, BoundaryTimerKind, BoundaryTrigger, CommandId, ConfigVersion, CorrelationId,
-    DomainEvent, IdentifierError, InstanceId, KeyScope, MultiInstanceMode, NodeId, PolicyVersion,
-    ScopeInstanceId, TaskType, TenantId, WorkflowType, WorkflowValue, WorkflowVersion,
+    ActorId, BoundaryTimerKind, BoundaryTrigger, CaseId, CaseModelId, CasePlanItemKind,
+    CasePlanItemStatus, CommandId, ConfigVersion, CorrelationId, DomainEvent, IdentifierError,
+    InstanceId, KeyScope, MultiInstanceMode, NodeId, PlanItemId, PolicyVersion, ScopeInstanceId,
+    SentryId, TaskType, TenantId, WorkflowType, WorkflowValue, WorkflowVersion,
 };
 use prost::Message;
 use thiserror::Error;
@@ -33,6 +34,48 @@ impl EventCodec {
 fn to_wire(envelope: &EventEnvelope) -> wire::EventEnvelope {
     let metadata = &envelope.metadata;
     let event = match &envelope.event {
+        DomainEvent::CaseActivated {
+            case_id,
+            case_model_id,
+            stage_ids,
+            milestone_ids,
+            ..
+        } => wire::event_envelope::Event::CaseActivated(wire::CaseActivated {
+            case_id: case_id.to_string(),
+            case_type: case_model_id.to_string(),
+            stage_ids: stage_ids.iter().map(ToString::to_string).collect(),
+            milestone_ids: milestone_ids.iter().map(ToString::to_string).collect(),
+        }),
+        DomainEvent::CaseSentrySatisfied {
+            case_id, sentry_id, ..
+        } => wire::event_envelope::Event::CaseSentrySatisfied(wire::CaseSentrySatisfied {
+            case_id: case_id.to_string(),
+            sentry_id: sentry_id.to_string(),
+        }),
+        DomainEvent::CasePlanItemTransitioned {
+            case_id,
+            plan_item_id,
+            kind,
+            status,
+            satisfied_sentry_ids,
+            ..
+        } => {
+            wire::event_envelope::Event::CasePlanItemTransitioned(wire::CasePlanItemTransitioned {
+                case_id: case_id.to_string(),
+                plan_item_id: plan_item_id.to_string(),
+                plan_item_kind: case_plan_item_kind_name(*kind).into(),
+                status: case_plan_item_status_name(*status).into(),
+                satisfied_sentry_ids: satisfied_sentry_ids
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect(),
+            })
+        }
+        DomainEvent::CaseCompleted { case_id, .. } => {
+            wire::event_envelope::Event::CaseCompleted(wire::CaseCompleted {
+                case_id: case_id.to_string(),
+            })
+        }
         DomainEvent::WorkflowStarted {
             tenant_id,
             workflow_type,
@@ -77,6 +120,12 @@ fn to_wire(envelope: &EventEnvelope) -> wire::EventEnvelope {
             node_id: node_id.to_string(),
             decision: decision.clone(),
             result_variable: result_variable.clone(),
+        }),
+        DomainEvent::UserTaskCancelled {
+            node_id, reason, ..
+        } => wire::event_envelope::Event::UserTaskCancelled(wire::UserTaskCancelled {
+            node_id: node_id.to_string(),
+            reason: reason.clone(),
         }),
         DomainEvent::ScriptTaskActivated {
             node_id,
@@ -255,6 +304,20 @@ fn to_wire(envelope: &EventEnvelope) -> wire::EventEnvelope {
         DomainEvent::WorkflowCompleted { .. } => {
             wire::event_envelope::Event::WorkflowCompleted(wire::WorkflowCompleted {})
         }
+        DomainEvent::WorkflowTerminatedForCompliance {
+            policy_id,
+            request_digest,
+            reason_code,
+            reconciliation_count,
+            ..
+        } => wire::event_envelope::Event::WorkflowTerminatedForCompliance(
+            wire::WorkflowTerminatedForCompliance {
+                policy_id: policy_id.clone(),
+                request_digest: request_digest.to_vec(),
+                reason_code: reason_code.clone(),
+                reconciliation_count: *reconciliation_count,
+            },
+        ),
     };
     wire::EventEnvelope {
         metadata: Some(wire::EventMetadata {
@@ -517,16 +580,68 @@ fn from_wire(envelope: wire::EventEnvelope) -> Result<EventEnvelope, EventCodecE
         wire::event_envelope::Event::WorkflowCompleted(_) => DomainEvent::WorkflowCompleted {
             occurred_at_epoch_ms,
         },
-        wire::event_envelope::Event::CaseActivated(_) => {
-            return Err(EventCodecError::ProjectionOnlyEvent("case_activated"));
+        wire::event_envelope::Event::WorkflowTerminatedForCompliance(terminated) => {
+            DomainEvent::WorkflowTerminatedForCompliance {
+                policy_id: non_empty(terminated.policy_id, "termination.policy_id")?,
+                request_digest: terminated
+                    .request_digest
+                    .try_into()
+                    .map_err(|_| EventCodecError::InvalidDigestLength)?,
+                reason_code: non_empty(terminated.reason_code, "termination.reason_code")?,
+                reconciliation_count: terminated.reconciliation_count,
+                occurred_at_epoch_ms,
+            }
         }
-        wire::event_envelope::Event::CasePlanItemTransitioned(_) => {
-            return Err(EventCodecError::ProjectionOnlyEvent(
-                "case_plan_item_transitioned",
-            ));
+        wire::event_envelope::Event::CaseActivated(activated) => DomainEvent::CaseActivated {
+            case_id: identifier(CaseId::new, activated.case_id, "case_id")?,
+            case_model_id: identifier(CaseModelId::new, activated.case_type, "case_type")?,
+            stage_ids: activated
+                .stage_ids
+                .into_iter()
+                .map(|id| identifier(PlanItemId::new, id, "stage_id"))
+                .collect::<Result<_, _>>()?,
+            milestone_ids: activated
+                .milestone_ids
+                .into_iter()
+                .map(|id| identifier(PlanItemId::new, id, "milestone_id"))
+                .collect::<Result<_, _>>()?,
+            occurred_at_epoch_ms,
+        },
+        wire::event_envelope::Event::CaseSentrySatisfied(satisfied) => {
+            DomainEvent::CaseSentrySatisfied {
+                case_id: identifier(CaseId::new, satisfied.case_id, "case_id")?,
+                sentry_id: identifier(SentryId::new, satisfied.sentry_id, "sentry_id")?,
+                occurred_at_epoch_ms,
+            }
         }
-        wire::event_envelope::Event::UserTaskCancelled(_) => {
-            return Err(EventCodecError::ProjectionOnlyEvent("user_task_cancelled"));
+        wire::event_envelope::Event::CasePlanItemTransitioned(transitioned) => {
+            DomainEvent::CasePlanItemTransitioned {
+                case_id: identifier(CaseId::new, transitioned.case_id, "case_id")?,
+                plan_item_id: identifier(
+                    PlanItemId::new,
+                    transitioned.plan_item_id,
+                    "plan_item_id",
+                )?,
+                kind: case_plan_item_kind_from_name(&transitioned.plan_item_kind)?,
+                status: case_plan_item_status_from_name(&transitioned.status)?,
+                satisfied_sentry_ids: transitioned
+                    .satisfied_sentry_ids
+                    .into_iter()
+                    .map(|id| identifier(SentryId::new, id, "satisfied_sentry_id"))
+                    .collect::<Result<_, _>>()?,
+                occurred_at_epoch_ms,
+            }
+        }
+        wire::event_envelope::Event::CaseCompleted(completed) => DomainEvent::CaseCompleted {
+            case_id: identifier(CaseId::new, completed.case_id, "case_id")?,
+            occurred_at_epoch_ms,
+        },
+        wire::event_envelope::Event::UserTaskCancelled(cancelled) => {
+            DomainEvent::UserTaskCancelled {
+                node_id: identifier(NodeId::new, cancelled.node_id, "node_id")?,
+                reason: non_empty(cancelled.reason, "cancellation.reason")?,
+                occurred_at_epoch_ms,
+            }
         }
     };
     if let DomainEvent::WorkflowStarted { tenant_id, .. } = &event
@@ -715,6 +830,44 @@ fn boundary_trigger_from_wire(
     }
 }
 
+const fn case_plan_item_kind_name(kind: CasePlanItemKind) -> &'static str {
+    match kind {
+        CasePlanItemKind::Stage => "STAGE",
+        CasePlanItemKind::Milestone => "MILESTONE",
+    }
+}
+
+fn case_plan_item_kind_from_name(value: &str) -> Result<CasePlanItemKind, EventCodecError> {
+    match value {
+        "STAGE" => Ok(CasePlanItemKind::Stage),
+        "MILESTONE" => Ok(CasePlanItemKind::Milestone),
+        _ => Err(EventCodecError::InvalidCaseEnum {
+            field: "plan_item_kind",
+            value: value.to_owned(),
+        }),
+    }
+}
+
+const fn case_plan_item_status_name(status: CasePlanItemStatus) -> &'static str {
+    match status {
+        CasePlanItemStatus::Available => "AVAILABLE",
+        CasePlanItemStatus::Active => "ACTIVE",
+        CasePlanItemStatus::Completed => "COMPLETED",
+    }
+}
+
+fn case_plan_item_status_from_name(value: &str) -> Result<CasePlanItemStatus, EventCodecError> {
+    match value {
+        "AVAILABLE" => Ok(CasePlanItemStatus::Available),
+        "ACTIVE" => Ok(CasePlanItemStatus::Active),
+        "COMPLETED" => Ok(CasePlanItemStatus::Completed),
+        _ => Err(EventCodecError::InvalidCaseEnum {
+            field: "plan_item_status",
+            value: value.to_owned(),
+        }),
+    }
+}
+
 fn optional_non_empty(value: String) -> Option<String> {
     (!value.trim().is_empty()).then_some(value)
 }
@@ -769,12 +922,14 @@ pub enum EventCodecError {
     InvalidMultiInstanceMode(i32),
     #[error("event field {0} must be greater than zero")]
     InvalidPositiveField(&'static str),
+    #[error("governance request digest must contain exactly 32 bytes")]
+    InvalidDigestLength,
     #[error("event contains unknown boundary trigger kind {0}")]
     InvalidBoundaryTriggerKind(i32),
     #[error("unsupported event schema version {0}")]
     UnsupportedSchema(u32),
-    #[error("integration projection event {0} is not a workflow event-log payload")]
-    ProjectionOnlyEvent(&'static str),
+    #[error("event field {field} has invalid CMMN enum value {value}")]
+    InvalidCaseEnum { field: &'static str, value: String },
     #[error("invalid event identifier in field {field}: {source}")]
     Identifier {
         field: &'static str,
@@ -851,6 +1006,75 @@ mod tests {
     }
 
     #[test]
+    fn compliance_termination_event_round_trips_without_pii() {
+        let expected = EventEnvelope {
+            metadata: EventMetadata {
+                event_id: "event-termination".into(),
+                tenant_id: TenantId::new("tenant-a").unwrap(),
+                instance_id: InstanceId::new("instance-1").unwrap(),
+                sequence: 9,
+                schema_version: EVENT_SCHEMA_VERSION,
+                correlation_id: CorrelationId::new("correlation-1").unwrap(),
+                causation_command_id: CommandId::new("command-termination").unwrap(),
+                occurred_at_epoch_ms: 123,
+                config_version: ConfigVersion::new("config-7").unwrap(),
+                policy_version: PolicyVersion::new("policy-3").unwrap(),
+                actor_id: ActorId::new("requester-ref").unwrap(),
+                encryption_key_scope: KeyScope::new("tenant-a/compliance-audit").unwrap(),
+                workflow_type: WorkflowType::new("order").unwrap(),
+                workflow_version: WorkflowVersion::new("1").unwrap(),
+            },
+            event: DomainEvent::WorkflowTerminatedForCompliance {
+                policy_id: "erasure-policy-7".into(),
+                request_digest: [9; 32],
+                reason_code: "legal-deadline".into(),
+                reconciliation_count: 3,
+                occurred_at_epoch_ms: 123,
+            },
+        };
+
+        assert_eq!(
+            EventCodec::decode(&EventCodec::encode(&expected)).unwrap(),
+            expected
+        );
+    }
+
+    #[test]
+    fn authoritative_cmmn_event_round_trips() {
+        let expected = EventEnvelope {
+            metadata: EventMetadata {
+                event_id: "event-case-1".into(),
+                tenant_id: TenantId::new("tenant-a").unwrap(),
+                instance_id: InstanceId::new("instance-1").unwrap(),
+                sequence: 3,
+                schema_version: EVENT_SCHEMA_VERSION,
+                correlation_id: CorrelationId::new("correlation-1").unwrap(),
+                causation_command_id: CommandId::new("command-1").unwrap(),
+                occurred_at_epoch_ms: 123,
+                config_version: ConfigVersion::new("config-7").unwrap(),
+                policy_version: PolicyVersion::new("policy-3").unwrap(),
+                actor_id: ActorId::new("actor-1").unwrap(),
+                encryption_key_scope: KeyScope::new("tenant-a/operational").unwrap(),
+                workflow_type: WorkflowType::new("claim-workflow").unwrap(),
+                workflow_version: WorkflowVersion::new("1").unwrap(),
+            },
+            event: DomainEvent::CasePlanItemTransitioned {
+                case_id: CaseId::new("case-1").unwrap(),
+                plan_item_id: PlanItemId::new("assessment").unwrap(),
+                kind: CasePlanItemKind::Stage,
+                status: CasePlanItemStatus::Active,
+                satisfied_sentry_ids: vec![SentryId::new("documents-ready").unwrap()],
+                occurred_at_epoch_ms: 123,
+            },
+        };
+
+        assert_eq!(
+            EventCodec::decode(&EventCodec::encode(&expected)).unwrap(),
+            expected
+        );
+    }
+
+    #[test]
     fn user_and_script_task_events_round_trip_typed_execution_contracts() {
         let metadata = EventMetadata {
             event_id: "event-task".into(),
@@ -880,6 +1104,11 @@ mod tests {
                 node_id: NodeId::new("review").unwrap(),
                 decision: "approved".into(),
                 result_variable: "review_result".into(),
+                occurred_at_epoch_ms: 123,
+            },
+            DomainEvent::UserTaskCancelled {
+                node_id: NodeId::new("review").unwrap(),
+                reason: "boundary:review-timeout".into(),
                 occurred_at_epoch_ms: 123,
             },
             DomainEvent::ScriptTaskActivated {
