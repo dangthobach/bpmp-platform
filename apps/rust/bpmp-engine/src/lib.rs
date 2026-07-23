@@ -7,6 +7,7 @@
 mod application;
 mod authorization;
 mod boundary_runtime;
+mod dispatch_credit;
 mod event_codec;
 mod governance;
 mod local_task_runtime;
@@ -33,6 +34,7 @@ pub use boundary_runtime::{
     SignalEnqueueOutcome, SystemClock, TimerDispatchCompletion, TimerSchedule,
     WorkflowDefinitionProviderPort,
 };
+pub use dispatch_credit::{CreditController, CreditError, DispatchLimits};
 pub use event_codec::{EventCodec, EventCodecError};
 pub use governance::{
     GovernanceCommandContext, GovernanceTransitionError, GovernanceTransitionPlan,

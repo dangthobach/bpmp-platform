@@ -1,9 +1,11 @@
 /target/
+/target-linux/
 *.log
 .env
 .env.*
 !.env.example
 /artifacts/
 /secrets/
+/.agents/
 clippy_output.txt
 check_output.txt

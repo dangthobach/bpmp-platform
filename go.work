@@ -4,4 +4,5 @@ use (
 	./apps/go/human-runtime
 	./apps/go/api-gateway
 	./go/contracts
+	./go/platform
 )

@@ -8,6 +8,7 @@ import (
 	"github.com/dangthobach/bpmp-platform/apps/go/human-runtime/internal/application"
 	authv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/authorization/v1"
 	enginev1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/engine/v1"
+	"github.com/dangthobach/bpmp-platform/go/platform/requestmeta"
 )
 
 type SecuritySnapshot struct {
@@ -63,7 +64,15 @@ func (c *Client) CompleteUserTask(ctx context.Context, command application.Engin
 			},
 		},
 	}
-	receipt, err := c.client.HandleCommand(ctx, envelope)
+	traceParent, traceState := requestmeta.TraceFromIncomingContext(ctx)
+	outgoing := requestmeta.OutgoingContext(ctx, requestmeta.Values{
+		CorrelationID: command.CorrelationID,
+		TenantID:      command.TenantID,
+		CommandID:     command.CommandID,
+		TraceParent:   traceParent,
+		TraceState:    traceState,
+	})
+	receipt, err := c.client.HandleCommand(outgoing, envelope)
 	if err != nil {
 		return err
 	}

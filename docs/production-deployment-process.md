@@ -13,11 +13,13 @@ data, not a compile-time constant.
 The current repository implements the `functional-single-node` composition
 root plus an `OpenRaft` authoritative state-machine crate and Linux RocksDB
 atomic apply adapter. The three-node partition/failover test and atomic
-governance race tests pass, but the server composition root still writes normal
-workflow commands through the single-node store. It must not be labeled
-`production-ha`, and production PII must not be enabled, until persistent Raft
-log storage, peer transport, membership operations, `client_write` routing and
-the remaining P2 gates are connected in the deployable.
+governance race tests pass. Persistent Raft log, vote, committed index,
+last-purged index and state-machine metadata now survive a real node shutdown
+and RocksDB reopen test. The server composition root still writes normal
+workflow commands through the single-node store, however. It must not be
+labeled `production-ha`, and production PII must not be enabled, until peer
+transport, membership operations, leader forwarding, `client_write` routing
+and the remaining P2 gates are connected in the deployable.
 
 ## 1.1 Current consensus and governance evidence
 
@@ -34,6 +36,11 @@ the remaining P2 gates are connected in the deployable.
   permanently fenced after replay.
 - The three-node chaos test proves an isolated minority leader cannot commit,
   the majority elects and commits, and all nodes converge after healing.
+- The bounded `stateright` model checks minority-commit exclusion, committed
+  prefix preservation, ordered apply and one-node crash durability.
+- The Linux persistent-store test performs a real `Raft::client_write`,
+  shuts the node down, reopens the same RocksDB, observes the old command as a
+  duplicate and commits a new command.
 - A Linux race test changes a pending ledger record after governance prepare and
   proves event, work item and governance audit all remain absent.
 

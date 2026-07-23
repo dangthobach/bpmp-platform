@@ -1,32 +1,37 @@
 package gateway
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 	"unicode"
 
 	"github.com/dangthobach/bpmp-platform/apps/go/api-gateway/internal/config"
+	"github.com/dangthobach/bpmp-platform/apps/go/api-gateway/internal/core/ports"
 	authv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/authorization/v1"
 	enginev1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/engine/v1"
 	humanv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/human/v1"
+	"github.com/dangthobach/bpmp-platform/go/platform/requestmeta"
 )
 
 type Handler struct {
-	engine    enginev1.EngineCommandServiceClient
-	human     humanv1.HumanRuntimeServiceClient
+	engine    ports.Engine
+	human     ports.HumanRuntime
 	verifier  *verifier
 	workload  *workloadSigner
-	limiter   *rateLimiter
+	limiter   ports.RateLimiter
 	keyScopes map[string]string
 	maxBody   int64
 	now       func() time.Time
 }
 
-func New(engine enginev1.EngineCommandServiceClient, human humanv1.HumanRuntimeServiceClient, value config.Config) (*Handler, error) {
+func New(engine ports.Engine, human ports.HumanRuntime, limiter ports.RateLimiter, value config.Config) (*Handler, error) {
 	identity, err := newVerifier(value.Identity)
 	if err != nil {
 		return nil, err
@@ -35,11 +40,10 @@ func New(engine enginev1.EngineCommandServiceClient, human humanv1.HumanRuntimeS
 	if err != nil {
 		return nil, err
 	}
-	limiter := newRateLimiter(value.RateLimit.Requests, time.Duration(value.RateLimit.WindowMS)*time.Millisecond, value.RateLimit.MaxSubjects)
 	return NewHandler(engine, human, identity, workload, limiter, value.TenantKeyScopes, value.HTTP.MaxBodyBytes)
 }
 
-func NewHandler(engine enginev1.EngineCommandServiceClient, human humanv1.HumanRuntimeServiceClient, verifier *verifier, workload *workloadSigner, limiter *rateLimiter, keyScopes map[string]string, maxBody int64) (*Handler, error) {
+func NewHandler(engine ports.Engine, human ports.HumanRuntime, verifier *verifier, workload *workloadSigner, limiter ports.RateLimiter, keyScopes map[string]string, maxBody int64) (*Handler, error) {
 	if engine == nil || human == nil || verifier == nil || workload == nil || limiter == nil || len(keyScopes) == 0 || maxBody <= 0 {
 		return nil, errors.New("gateway dependencies are incomplete")
 	}
@@ -63,6 +67,7 @@ func (h *Handler) Routes() http.Handler {
 
 type requestScope struct {
 	tenantID, commandID, idempotencyKey, correlationID, rawToken, actorID string
+	traceParent, traceState                                               string
 	occurredAt                                                            time.Time
 }
 
@@ -71,8 +76,13 @@ func (h *Handler) authenticate(r *http.Request) (requestScope, error) {
 	command := r.Header.Get("X-Command-ID")
 	idempotency := r.Header.Get("Idempotency-Key")
 	correlation := r.Header.Get("X-Correlation-ID")
+	traceParent := r.Header.Get("traceparent")
+	traceState := r.Header.Get("tracestate")
 	if !validID(tenant) || !validID(command) || !validID(idempotency) || !validID(correlation) {
 		return requestScope{}, errors.New("request scope headers are invalid")
+	}
+	if len(traceParent) > 512 || len(traceState) > 512 || strings.ContainsAny(traceParent+traceState, "\r\n") {
+		return requestScope{}, errors.New("trace propagation headers are invalid")
 	}
 	authorization := r.Header.Get("Authorization")
 	if !strings.HasPrefix(authorization, "Bearer ") {
@@ -84,10 +94,14 @@ func (h *Handler) authenticate(r *http.Request) (requestScope, error) {
 	if err != nil {
 		return requestScope{}, err
 	}
-	if !h.limiter.allow(tenant+"\x00"+actor.ID, now) {
+	allowed, err := h.limiter.Allow(r.Context(), tenant+"\x00"+actor.ID)
+	if err != nil {
+		return requestScope{}, errUpstream
+	}
+	if !allowed {
 		return requestScope{}, errRateLimited
 	}
-	return requestScope{tenantID: tenant, commandID: command, idempotencyKey: idempotency, correlationID: correlation, rawToken: raw, actorID: actor.ID, occurredAt: now}, nil
+	return requestScope{tenantID: tenant, commandID: command, idempotencyKey: idempotency, correlationID: correlation, rawToken: raw, actorID: actor.ID, traceParent: traceParent, traceState: traceState, occurredAt: now}, nil
 }
 
 type startRequest struct {
@@ -123,7 +137,7 @@ func (h *Handler) startWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	envelope := &enginev1.CommandEnvelope{TenantId: scope.tenantID, InstanceId: body.InstanceID, CommandId: scope.commandID, IdempotencyKey: scope.idempotencyKey, CorrelationId: scope.correlationID, ActorId: scope.actorID, WorkflowType: workflowType, WorkflowVersion: body.WorkflowVersion, OccurredAtEpochMs: uint64(scope.occurredAt.UnixMilli()), EncryptionKeyScope: keyScope, Command: &enginev1.CommandEnvelope_StartWorkflow{StartWorkflow: &enginev1.StartWorkflow{}}, AuthorizationContext: &authv1.AuthorizationContext{TenantId: scope.tenantID, CommandId: scope.commandID, CorrelationId: scope.correlationID, EvaluatedAtEpochMs: uint64(scope.occurredAt.UnixMilli()), ActorProof: &authv1.ActorProof{Type: authv1.ActorProofType_ACTOR_PROOF_TYPE_ORIGINAL_JWT, SignedProof: []byte(scope.rawToken)}, WorkloadProof: &authv1.WorkloadProof{SignedProof: workload}, Resource: &authv1.TransitionResource{WorkflowType: workflowType, WorkflowVersion: body.WorkflowVersion, InstanceId: body.InstanceID, ActiveNodeId: body.StartNodeID, Action: "START"}}}
-	receipt, err := h.engine.HandleCommand(r.Context(), envelope)
+	receipt, err := h.engine.HandleCommand(upstreamContext(r, scope), envelope)
 	if err != nil {
 		writeError(w, errUpstream)
 		return
@@ -148,7 +162,7 @@ func (h *Handler) completeWorkItem(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid)
 		return
 	}
-	response, err := h.human.CompleteWorkItem(r.Context(), &humanv1.CompleteWorkItemRequest{TenantId: scope.tenantID, WorkItemId: id, CommandId: scope.commandID, IdempotencyKey: scope.idempotencyKey, CorrelationId: scope.correlationID, Decision: body.Decision, ExpectedVersion: body.ExpectedVersion, ActorProof: &authv1.ActorProof{Type: authv1.ActorProofType_ACTOR_PROOF_TYPE_ORIGINAL_JWT, SignedProof: []byte(scope.rawToken)}})
+	response, err := h.human.CompleteWorkItem(upstreamContext(r, scope), &humanv1.CompleteWorkItemRequest{TenantId: scope.tenantID, WorkItemId: id, CommandId: scope.commandID, IdempotencyKey: scope.idempotencyKey, CorrelationId: scope.correlationID, Decision: body.Decision, ExpectedVersion: body.ExpectedVersion, ActorProof: &authv1.ActorProof{Type: authv1.ActorProofType_ACTOR_PROOF_TYPE_ORIGINAL_JWT, SignedProof: []byte(scope.rawToken)}})
 	if err != nil {
 		writeError(w, errUpstream)
 		return
@@ -174,7 +188,7 @@ func (h *Handler) delegateWorkItem(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid)
 		return
 	}
-	response, err := h.human.DelegateWorkItem(r.Context(), &humanv1.DelegateWorkItemRequest{TenantId: scope.tenantID, WorkItemId: id, CommandId: scope.commandID, IdempotencyKey: scope.idempotencyKey, CorrelationId: scope.correlationID, ExpectedVersion: body.ExpectedVersion, AssigneeId: body.AssigneeID, CandidateGroup: body.CandidateGroup, ActorProof: &authv1.ActorProof{Type: authv1.ActorProofType_ACTOR_PROOF_TYPE_ORIGINAL_JWT, SignedProof: []byte(scope.rawToken)}})
+	response, err := h.human.DelegateWorkItem(upstreamContext(r, scope), &humanv1.DelegateWorkItemRequest{TenantId: scope.tenantID, WorkItemId: id, CommandId: scope.commandID, IdempotencyKey: scope.idempotencyKey, CorrelationId: scope.correlationID, ExpectedVersion: body.ExpectedVersion, AssigneeId: body.AssigneeID, CandidateGroup: body.CandidateGroup, ActorProof: &authv1.ActorProof{Type: authv1.ActorProofType_ACTOR_PROOF_TYPE_ORIGINAL_JWT, SignedProof: []byte(scope.rawToken)}})
 	if err != nil {
 		writeError(w, errUpstream)
 		return
@@ -206,6 +220,16 @@ func validID(value string) bool {
 	return true
 }
 
+func upstreamContext(r *http.Request, scope requestScope) context.Context {
+	return requestmeta.OutgoingContext(r.Context(), requestmeta.Values{
+		CorrelationID: scope.correlationID,
+		TenantID:      scope.tenantID,
+		CommandID:     scope.commandID,
+		TraceParent:   scope.traceParent,
+		TraceState:    scope.traceState,
+	})
+}
+
 var (
 	errInvalid     = errors.New("invalid request")
 	errForbidden   = errors.New("tenant is not configured")
@@ -226,7 +250,15 @@ func writeError(w http.ResponseWriter, err error) {
 	writeJSON(w, status, map[string]string{"error": err.Error()})
 }
 func writeJSON(w http.ResponseWriter, status int, value any) {
+	var body bytes.Buffer
+	if err := json.NewEncoder(&body).Encode(value); err != nil {
+		slog.Error("encode HTTP response", "error", err)
+		http.Error(w, "response encoding failed", http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(value)
+	if _, err := w.Write(body.Bytes()); err != nil {
+		slog.Warn("write HTTP response", "error", err)
+	}
 }

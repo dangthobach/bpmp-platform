@@ -10,17 +10,20 @@ import (
 )
 
 type runtimeConfig struct {
-	ListenAddress   string           `json:"listen_address"`
-	PostgresDSN     string           `json:"postgres_dsn"`
-	ApplyMigrations bool             `json:"apply_migrations"`
-	MigrationPath   string           `json:"migration_path"`
-	EngineAddress   string           `json:"engine_address"`
-	TLS             tlsConfig        `json:"tls"`
-	Kafka           kafkaConfig      `json:"kafka"`
-	Identity        identityConfig   `json:"identity"`
-	Workload        workloadConfig   `json:"workload"`
-	GRPC            grpcConfig       `json:"grpc"`
-	Escalation      escalationConfig `json:"escalation"`
+	ListenAddress   string            `json:"listen_address"`
+	PostgresDSN     string            `json:"postgres_dsn"`
+	ApplyMigrations bool              `json:"apply_migrations"`
+	MigrationPath   string            `json:"migration_path"`
+	EngineAddress   string            `json:"engine_address"`
+	TLS             tlsConfig         `json:"tls"`
+	Kafka           kafkaConfig       `json:"kafka"`
+	Identity        identityConfig    `json:"identity"`
+	Workload        workloadConfig    `json:"workload"`
+	GRPC            grpcConfig        `json:"grpc"`
+	Reliability     reliabilityConfig `json:"reliability"`
+	Health          healthConfig      `json:"health"`
+	Telemetry       telemetryConfig   `json:"telemetry"`
+	Escalation      escalationConfig  `json:"escalation"`
 }
 
 type tlsConfig struct {
@@ -67,6 +70,30 @@ type grpcConfig struct {
 	MaxSendBytes    int `json:"max_send_bytes"`
 }
 
+type reliabilityConfig struct {
+	MaxAttempts      uint32   `json:"max_attempts"`
+	InitialBackoffMS int64    `json:"initial_backoff_ms"`
+	MaxBackoffMS     int64    `json:"max_backoff_ms"`
+	AttemptTimeoutMS int64    `json:"attempt_timeout_ms"`
+	FailureThreshold uint32   `json:"failure_threshold"`
+	OpenDurationMS   int64    `json:"open_duration_ms"`
+	RetryableCodes   []string `json:"retryable_codes"`
+}
+
+type healthConfig struct {
+	ListenAddress      string `json:"listen_address"`
+	ReadinessTimeoutMS int64  `json:"readiness_timeout_ms"`
+}
+
+type telemetryConfig struct {
+	ServiceName     string  `json:"service_name"`
+	ServiceVersion  string  `json:"service_version"`
+	Endpoint        string  `json:"endpoint"`
+	Insecure        bool    `json:"insecure"`
+	SampleRatio     float64 `json:"sample_ratio"`
+	ExportTimeoutMS int64   `json:"export_timeout_ms"`
+}
+
 type escalationConfig struct {
 	WorkerID  string `json:"worker_id"`
 	BatchSize int    `json:"batch_size"`
@@ -102,9 +129,34 @@ func (c runtimeConfig) validate() error {
 	if c.GRPC.MaxReceiveBytes <= 0 || c.GRPC.MaxSendBytes <= 0 || c.Kafka.BatchSize <= 0 || c.Escalation.BatchSize <= 0 || c.Workload.ProofTTLMS <= 0 || c.Escalation.LeaseMS <= 0 || c.Escalation.RetryMS <= 0 || c.Escalation.PollMS <= 0 {
 		return errors.New("human-runtime bounds and durations must be positive")
 	}
+	if _, _, err := net.SplitHostPort(c.Health.ListenAddress); err != nil {
+		return err
+	}
+	if c.Reliability.MaxAttempts == 0 ||
+		c.Reliability.InitialBackoffMS <= 0 ||
+		c.Reliability.MaxBackoffMS < c.Reliability.InitialBackoffMS ||
+		c.Reliability.AttemptTimeoutMS <= 0 ||
+		c.Reliability.FailureThreshold == 0 ||
+		c.Reliability.OpenDurationMS <= 0 ||
+		len(c.Reliability.RetryableCodes) == 0 ||
+		c.Health.ReadinessTimeoutMS <= 0 ||
+		c.Telemetry.ServiceName == "" ||
+		c.Telemetry.ServiceVersion == "" ||
+		c.Telemetry.Endpoint == "" ||
+		c.Telemetry.SampleRatio < 0 ||
+		c.Telemetry.SampleRatio > 1 ||
+		c.Telemetry.ExportTimeoutMS <= 0 {
+		return errors.New("human-runtime reliability and health configuration is invalid")
+	}
 	return nil
 }
 
 func (c escalationConfig) lease() time.Duration { return time.Duration(c.LeaseMS) * time.Millisecond }
 func (c escalationConfig) retry() time.Duration { return time.Duration(c.RetryMS) * time.Millisecond }
 func (c escalationConfig) poll() time.Duration  { return time.Duration(c.PollMS) * time.Millisecond }
+func (c healthConfig) readinessTimeout() time.Duration {
+	return time.Duration(c.ReadinessTimeoutMS) * time.Millisecond
+}
+func (c telemetryConfig) exportTimeout() time.Duration {
+	return time.Duration(c.ExportTimeoutMS) * time.Millisecond
+}

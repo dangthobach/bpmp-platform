@@ -13,6 +13,7 @@ sha2.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+stateright = "=0.31.0"
 tokio.workspace = true
 
 [lints]

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -18,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
 
 	"github.com/dangthobach/bpmp-platform/apps/go/human-runtime/internal/adapter/actorverifier"
@@ -31,6 +33,9 @@ import (
 	"github.com/dangthobach/bpmp-platform/apps/go/human-runtime/internal/application"
 	enginev1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/engine/v1"
 	humanv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/human/v1"
+	platformgrpc "github.com/dangthobach/bpmp-platform/go/platform/grpcclient"
+	platformhealth "github.com/dangthobach/bpmp-platform/go/platform/health"
+	platformtelemetry "github.com/dangthobach/bpmp-platform/go/platform/telemetry"
 )
 
 func main() {
@@ -53,6 +58,24 @@ func run(configPath string) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	tracerProvider, err := platformtelemetry.Start(ctx, platformtelemetry.Config{
+		ServiceName:    config.Telemetry.ServiceName,
+		ServiceVersion: config.Telemetry.ServiceVersion,
+		Endpoint:       config.Telemetry.Endpoint,
+		Insecure:       config.Telemetry.Insecure,
+		SampleRatio:    config.Telemetry.SampleRatio,
+		ExportTimeout:  config.Telemetry.exportTimeout(),
+	})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), config.Telemetry.exportTimeout())
+		defer cancel()
+		if shutdownErr := tracerProvider.Shutdown(shutdownCtx); shutdownErr != nil {
+			slog.Error("flush OpenTelemetry", "error", shutdownErr)
+		}
+	}()
 
 	pool, err := pgxpool.New(ctx, config.PostgresDSN)
 	if err != nil {
@@ -80,14 +103,21 @@ func run(configPath string) error {
 	if err != nil {
 		return err
 	}
+	engineInterceptor, err := reliabilityInterceptor(config.Reliability)
+	if err != nil {
+		return err
+	}
 	engineConn, err := grpc.NewClient(config.EngineAddress,
 		grpc.WithTransportCredentials(credentials.NewTLS(clientTLS)),
+		grpc.WithUnaryInterceptor(engineInterceptor),
+		grpc.WithStatsHandler(platformtelemetry.GRPCClientStatsHandler()),
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(config.GRPC.MaxReceiveBytes), grpc.MaxCallSendMsgSize(config.GRPC.MaxSendBytes)),
 	)
 	if err != nil {
 		return fmt.Errorf("connect engine: %w", err)
 	}
 	defer engineConn.Close()
+	engineConn.Connect()
 
 	privateKey, err := readPrivateKey(config.Workload.PrivateKeyPath)
 	if err != nil {
@@ -127,6 +157,25 @@ func run(configPath string) error {
 		return err
 	}
 	defer kafkaClient.Close()
+	healthHandler := platformhealth.Handler(
+		config.Health.readinessTimeout(),
+		func(ctx context.Context) error { return pool.Ping(ctx) },
+		func(ctx context.Context) error { return kafkaClient.Ping(ctx) },
+		func(context.Context) error {
+			if engineConn.GetState() != connectivity.Ready {
+				return fmt.Errorf("engine connection state is %s", engineConn.GetState())
+			}
+			return nil
+		},
+	)
+	healthServer := &http.Server{
+		Addr:              config.Health.ListenAddress,
+		Handler:           healthHandler,
+		ReadHeaderTimeout: config.Health.readinessTimeout(),
+		ReadTimeout:       config.Health.readinessTimeout(),
+		WriteTimeout:      config.Health.readinessTimeout(),
+		IdleTimeout:       config.Health.readinessTimeout(),
+	}
 	projection, err := eventprojection.New(service)
 	if err != nil {
 		return err
@@ -150,24 +199,52 @@ func run(configPath string) error {
 	}
 	grpcServer := grpc.NewServer(
 		grpc.Creds(credentials.NewTLS(serverTLS)),
+		grpc.StatsHandler(platformtelemetry.GRPCServerStatsHandler()),
 		grpc.MaxRecvMsgSize(config.GRPC.MaxReceiveBytes),
 		grpc.MaxSendMsgSize(config.GRPC.MaxSendBytes),
 	)
 	humanv1.RegisterHumanRuntimeServiceServer(grpcServer, humanServer)
 
-	errorsChannel := make(chan error, 3)
+	errorsChannel := make(chan error, 4)
 	go func() { errorsChannel <- consumer.Run(ctx) }()
 	go func() { errorsChannel <- runEscalations(ctx, escalationWorker, config.Escalation.poll()) }()
 	go func() { errorsChannel <- grpcServer.Serve(listener) }()
+	go func() { errorsChannel <- healthServer.ListenAndServe() }()
 	slog.Info("human-runtime started", "listen_address", config.ListenAddress)
 	select {
 	case <-ctx.Done():
 		grpcServer.GracefulStop()
-		return nil
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), config.Health.readinessTimeout())
+		defer cancel()
+		return healthServer.Shutdown(shutdownCtx)
 	case runErr := <-errorsChannel:
 		grpcServer.GracefulStop()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), config.Health.readinessTimeout())
+		defer cancel()
+		if shutdownErr := healthServer.Shutdown(shutdownCtx); shutdownErr != nil {
+			return errors.Join(runErr, shutdownErr)
+		}
+		if errors.Is(runErr, http.ErrServerClosed) {
+			return nil
+		}
 		return runErr
 	}
+}
+
+func reliabilityInterceptor(value reliabilityConfig) (grpc.UnaryClientInterceptor, error) {
+	retryable, err := platformgrpc.RetryableCodes(value.RetryableCodes)
+	if err != nil {
+		return nil, err
+	}
+	return platformgrpc.UnaryClientInterceptor(platformgrpc.Config{
+		MaxAttempts:      value.MaxAttempts,
+		InitialBackoff:   time.Duration(value.InitialBackoffMS) * time.Millisecond,
+		MaxBackoff:       time.Duration(value.MaxBackoffMS) * time.Millisecond,
+		AttemptTimeout:   time.Duration(value.AttemptTimeoutMS) * time.Millisecond,
+		FailureThreshold: value.FailureThreshold,
+		OpenDuration:     time.Duration(value.OpenDurationMS) * time.Millisecond,
+		RetryableCodes:   retryable,
+	})
 }
 
 func runEscalations(ctx context.Context, worker *application.EscalationWorker, interval time.Duration) error {

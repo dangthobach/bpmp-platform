@@ -261,7 +261,35 @@ pub enum BatchValidationError {
 #[error("authoritative state storage failed: {0}")]
 pub struct AtomicStorageError(pub String);
 
+#[derive(Debug, Clone, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct StateMachineMetadata {
+    pub last_applied: Option<LogId<NodeId>>,
+    pub membership: StoredMembership<NodeId, BasicNode>,
+}
+
+#[derive(Debug, Error, Clone, Eq, PartialEq)]
+pub enum StateMachineInitializationError {
+    #[error(transparent)]
+    InvalidLimits(#[from] BatchValidationError),
+    #[error(transparent)]
+    Storage(#[from] AtomicStorageError),
+}
+
 pub trait AtomicStateStorage: Clone + Send + Sync + 'static {
+    /// Loads the last durably applied Raft position and membership.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AtomicStorageError`] when metadata cannot be read or decoded.
+    fn load_metadata(&self) -> Result<StateMachineMetadata, AtomicStorageError>;
+
+    /// Persists metadata for a blank or membership entry.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AtomicStorageError`] when local durable storage is unavailable.
+    fn persist_metadata(&self, metadata: &StateMachineMetadata) -> Result<(), AtomicStorageError>;
+
     /// Applies a complete batch under one local atomic durability boundary.
     ///
     /// # Errors
@@ -271,6 +299,7 @@ pub trait AtomicStateStorage: Clone + Send + Sync + 'static {
         &self,
         batch: &PreparedAtomicBatch,
         limits: &StateMachineLimits,
+        metadata: &StateMachineMetadata,
     ) -> Result<ApplyResponse, AtomicStorageError>;
 
     /// Exports one bounded, internally consistent application snapshot.
@@ -285,7 +314,11 @@ pub trait AtomicStateStorage: Clone + Send + Sync + 'static {
     /// # Errors
     ///
     /// Returns [`AtomicStorageError`] when the snapshot is invalid or cannot be installed.
-    fn install_snapshot(&self, snapshot: &[u8]) -> Result<(), AtomicStorageError>;
+    fn install_snapshot(
+        &self,
+        snapshot: &[u8],
+        metadata: &StateMachineMetadata,
+    ) -> Result<(), AtomicStorageError>;
 }
 
 #[derive(Debug, Clone, Default)]
@@ -297,6 +330,7 @@ pub struct InMemoryAtomicStateStorage {
 struct InMemoryState {
     records: BTreeMap<StorageKey, Vec<u8>>,
     applied: BTreeMap<Vec<u8>, AppliedCommand>,
+    metadata: StateMachineMetadata,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -327,26 +361,44 @@ impl InMemoryAtomicStateStorage {
 }
 
 impl AtomicStateStorage for InMemoryAtomicStateStorage {
+    fn load_metadata(&self) -> Result<StateMachineMetadata, AtomicStorageError> {
+        self.inner
+            .lock()
+            .map_err(lock_error)
+            .map(|state| state.metadata.clone())
+    }
+
+    fn persist_metadata(&self, metadata: &StateMachineMetadata) -> Result<(), AtomicStorageError> {
+        self.inner.lock().map_err(lock_error)?.metadata = metadata.clone();
+        Ok(())
+    }
+
     fn apply(
         &self,
         batch: &PreparedAtomicBatch,
         limits: &StateMachineLimits,
+        metadata: &StateMachineMetadata,
     ) -> Result<ApplyResponse, AtomicStorageError> {
+        let mut state = self.inner.lock().map_err(lock_error)?;
         if let Err(error) = batch.validate(limits) {
+            state.metadata = metadata.clone();
             return Ok(rejected(batch, error.to_string()));
         }
-        let mut state = self.inner.lock().map_err(lock_error)?;
         if let Some(applied) = state.applied.get(&batch.idempotency_scope) {
-            if applied.command_id == batch.command_id && applied.batch_digest == batch.batch_digest
+            let response = if applied.command_id == batch.command_id
+                && applied.batch_digest == batch.batch_digest
             {
-                return Ok(ApplyResponse {
+                ApplyResponse {
                     command_id: applied.command_id.clone(),
                     batch_digest: applied.batch_digest,
                     outcome: ApplyOutcome::Duplicate,
                     response_payload: applied.response_payload.clone(),
-                });
-            }
-            return Ok(rejected(batch, "idempotency-scope-conflict".into()));
+                }
+            } else {
+                rejected(batch, "idempotency-scope-conflict".into())
+            };
+            state.metadata = metadata.clone();
+            return Ok(response);
         }
         for (index, condition) in batch.preconditions.iter().enumerate() {
             let actual = state.records.get(&condition.storage_key);
@@ -356,6 +408,7 @@ impl AtomicStateStorage for InMemoryAtomicStateStorage {
                 _ => false,
             };
             if !satisfied {
+                state.metadata = metadata.clone();
                 return Ok(ApplyResponse {
                     command_id: batch.command_id.clone(),
                     batch_digest: batch.batch_digest,
@@ -389,6 +442,7 @@ impl AtomicStateStorage for InMemoryAtomicStateStorage {
                 response_payload: batch.response_payload.clone(),
             },
         );
+        state.metadata = metadata.clone();
         Ok(ApplyResponse {
             command_id: batch.command_id.clone(),
             batch_digest: batch.batch_digest,
@@ -414,12 +468,17 @@ impl AtomicStateStorage for InMemoryAtomicStateStorage {
         serde_json::to_vec(&serializable).map_err(|error| AtomicStorageError(error.to_string()))
     }
 
-    fn install_snapshot(&self, snapshot: &[u8]) -> Result<(), AtomicStorageError> {
+    fn install_snapshot(
+        &self,
+        snapshot: &[u8],
+        metadata: &StateMachineMetadata,
+    ) -> Result<(), AtomicStorageError> {
         let serializable: SerializableInMemoryState = serde_json::from_slice(snapshot)
             .map_err(|error| AtomicStorageError(error.to_string()))?;
         let replacement = InMemoryState {
             records: serializable.records.into_iter().collect(),
             applied: serializable.applied.into_iter().collect(),
+            metadata: metadata.clone(),
         };
         let mut state = self.inner.lock().map_err(lock_error)?;
         *state = replacement;
@@ -429,8 +488,7 @@ impl AtomicStateStorage for InMemoryAtomicStateStorage {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PersistedSnapshot {
-    last_applied: Option<LogId<NodeId>>,
-    membership: StoredMembership<NodeId, BasicNode>,
+    metadata: StateMachineMetadata,
     application_state: Vec<u8>,
 }
 
@@ -455,14 +513,19 @@ impl<S: AtomicStateStorage> AuthoritativeStateMachine<S> {
     ///
     /// # Errors
     ///
-    /// Returns [`BatchValidationError`] for unsafe dynamic bounds.
-    pub fn new(storage: S, limits: StateMachineLimits) -> Result<Self, BatchValidationError> {
+    /// Returns [`StateMachineInitializationError`] for unsafe dynamic bounds or
+    /// unreadable durable metadata.
+    pub fn new(
+        storage: S,
+        limits: StateMachineLimits,
+    ) -> Result<Self, StateMachineInitializationError> {
         limits.validate()?;
+        let metadata = storage.load_metadata()?;
         Ok(Self {
             storage,
             limits,
-            last_applied: None,
-            membership: StoredMembership::default(),
+            last_applied: metadata.last_applied,
+            membership: metadata.membership,
             snapshot_index: 0,
             current_snapshot: None,
         })
@@ -476,8 +539,10 @@ impl<S: AtomicStateStorage> AuthoritativeStateMachine<S> {
 impl<S: AtomicStateStorage> RaftSnapshotBuilder<TypeConfig> for AuthoritativeStateMachine<S> {
     async fn build_snapshot(&mut self) -> Result<Snapshot<TypeConfig>, StorageError<NodeId>> {
         let persisted = PersistedSnapshot {
-            last_applied: self.last_applied,
-            membership: self.membership.clone(),
+            metadata: StateMachineMetadata {
+                last_applied: self.last_applied,
+                membership: self.membership.clone(),
+            },
             application_state: self
                 .storage
                 .export_snapshot()
@@ -526,20 +591,31 @@ impl<S: AtomicStateStorage> RaftStateMachine<TypeConfig> for AuthoritativeStateM
         let entries = entries.into_iter();
         let mut responses = Vec::with_capacity(entries.size_hint().0);
         for entry in entries {
-            self.last_applied = Some(entry.log_id);
+            let mut metadata = StateMachineMetadata {
+                last_applied: Some(entry.log_id),
+                membership: self.membership.clone(),
+            };
             let response = match entry.payload {
-                EntryPayload::Blank => ApplyResponse {
-                    command_id: String::new(),
-                    batch_digest: [0; 32],
-                    outcome: ApplyOutcome::Applied,
-                    response_payload: Vec::new(),
-                },
+                EntryPayload::Blank => {
+                    self.storage
+                        .persist_metadata(&metadata)
+                        .map_err(|error| StorageIOError::write_state_machine(&error))?;
+                    ApplyResponse {
+                        command_id: String::new(),
+                        batch_digest: [0; 32],
+                        outcome: ApplyOutcome::Applied,
+                        response_payload: Vec::new(),
+                    }
+                }
                 EntryPayload::Normal(batch) => self
                     .storage
-                    .apply(&batch, &self.limits)
+                    .apply(&batch, &self.limits, &metadata)
                     .map_err(|error| StorageIOError::write_state_machine(&error))?,
                 EntryPayload::Membership(membership) => {
-                    self.membership = StoredMembership::new(Some(entry.log_id), membership);
+                    metadata.membership = StoredMembership::new(Some(entry.log_id), membership);
+                    self.storage
+                        .persist_metadata(&metadata)
+                        .map_err(|error| StorageIOError::write_state_machine(&error))?;
                     ApplyResponse {
                         command_id: String::new(),
                         batch_digest: [0; 32],
@@ -548,6 +624,8 @@ impl<S: AtomicStateStorage> RaftStateMachine<TypeConfig> for AuthoritativeStateM
                     }
                 }
             };
+            self.last_applied = metadata.last_applied;
+            self.membership = metadata.membership;
             responses.push(response);
         }
         Ok(responses)
@@ -572,8 +650,8 @@ impl<S: AtomicStateStorage> RaftStateMachine<TypeConfig> for AuthoritativeStateM
         let bytes = snapshot.into_inner();
         let persisted: PersistedSnapshot = serde_json::from_slice(&bytes)
             .map_err(|error| StorageIOError::read_snapshot(Some(meta.signature()), &error))?;
-        if persisted.last_applied != meta.last_log_id
-            || persisted.membership != meta.last_membership
+        if persisted.metadata.last_applied != meta.last_log_id
+            || persisted.metadata.membership != meta.last_membership
         {
             return Err(StorageIOError::read_snapshot(
                 Some(meta.signature()),
@@ -582,10 +660,10 @@ impl<S: AtomicStateStorage> RaftStateMachine<TypeConfig> for AuthoritativeStateM
             .into());
         }
         self.storage
-            .install_snapshot(&persisted.application_state)
+            .install_snapshot(&persisted.application_state, &persisted.metadata)
             .map_err(|error| StorageIOError::write_snapshot(Some(meta.signature()), &error))?;
-        self.last_applied = persisted.last_applied;
-        self.membership = persisted.membership;
+        self.last_applied = persisted.metadata.last_applied;
+        self.membership = persisted.metadata.membership;
         self.current_snapshot = Some(CurrentSnapshot {
             meta: meta.clone(),
             bytes,
@@ -643,6 +721,10 @@ fn lock_error<T>(error: std::sync::PoisonError<T>) -> AtomicStorageError {
 mod tests {
     use super::*;
 
+    fn metadata() -> StateMachineMetadata {
+        StateMachineMetadata::default()
+    }
+
     fn limits() -> StateMachineLimits {
         StateMachineLimits {
             max_conditions: 16,
@@ -682,8 +764,8 @@ mod tests {
             b"version-1".to_vec(),
         );
 
-        let first = storage.apply(&batch, &limits()).unwrap();
-        let duplicate = storage.apply(&batch, &limits()).unwrap();
+        let first = storage.apply(&batch, &limits(), &metadata()).unwrap();
+        let duplicate = storage.apply(&batch, &limits(), &metadata()).unwrap();
 
         assert_eq!(first.outcome, ApplyOutcome::Applied);
         assert_eq!(duplicate.outcome, ApplyOutcome::Duplicate);
@@ -707,7 +789,7 @@ mod tests {
             }],
             Vec::new(),
         );
-        storage.apply(&seed, &limits()).unwrap();
+        storage.apply(&seed, &limits(), &metadata()).unwrap();
         let stale = PreparedAtomicBatch::new(
             "stale".into(),
             b"stale-scope".to_vec(),
@@ -722,7 +804,7 @@ mod tests {
             Vec::new(),
         );
 
-        let response = storage.apply(&stale, &limits()).unwrap();
+        let response = storage.apply(&stale, &limits(), &metadata()).unwrap();
 
         assert_eq!(
             response.outcome,
@@ -763,18 +845,21 @@ mod tests {
             }],
             b"response".to_vec(),
         );
-        storage.apply(&batch, &limits()).unwrap();
+        storage.apply(&batch, &limits(), &metadata()).unwrap();
         let snapshot = storage.export_snapshot().unwrap();
         let restored = InMemoryAtomicStateStorage::default();
 
-        restored.install_snapshot(&snapshot).unwrap();
+        restored.install_snapshot(&snapshot, &metadata()).unwrap();
 
         assert_eq!(
             restored.get(&key("stream_meta", b"stream")).unwrap(),
             Some(b"state".to_vec())
         );
         assert_eq!(
-            restored.apply(&batch, &limits()).unwrap().outcome,
+            restored
+                .apply(&batch, &limits(), &metadata())
+                .unwrap()
+                .outcome,
             ApplyOutcome::Duplicate
         );
     }
@@ -802,6 +887,14 @@ mod tests {
         let responses = RaftStateMachine::apply(&mut state_machine, [entry])
             .await
             .unwrap();
+        let mut reopened = AuthoritativeStateMachine::new(storage.clone(), limits()).unwrap();
+        assert_eq!(
+            RaftStateMachine::applied_state(&mut reopened)
+                .await
+                .unwrap()
+                .0,
+            Some(log_id)
+        );
         let mut builder = RaftStateMachine::get_snapshot_builder(&mut state_machine).await;
         let snapshot = RaftSnapshotBuilder::build_snapshot(&mut builder)
             .await
@@ -821,7 +914,10 @@ mod tests {
             Some(7_u64.to_be_bytes().to_vec())
         );
         assert_eq!(
-            restored_storage.apply(&batch, &limits()).unwrap().outcome,
+            restored_storage
+                .apply(&batch, &limits(), &metadata())
+                .unwrap()
+                .outcome,
             ApplyOutcome::Duplicate
         );
         assert_eq!(

@@ -27,7 +27,7 @@ use bpmp_governance_domain::{CompensationLedgerEntry, CompensationStatus, Govern
 use bpmp_payload_crypto::{EncryptedPayload, EncryptionContext, PayloadCryptoPort};
 use bpmp_raft_state_machine::{
     ApplyOutcome, ApplyResponse, AtomicStateStorage, AtomicStorageError, ExpectedValue, Mutation,
-    PreparedAtomicBatch, StateMachineLimits, StorageKey, value_digest,
+    PreparedAtomicBatch, StateMachineLimits, StateMachineMetadata, StorageKey, value_digest,
 };
 use prost::Message;
 use rocksdb::{
@@ -54,11 +54,15 @@ const COMPENSATION_LEDGER_CF: &str = "compensation_ledger";
 const RECONCILIATION_WORK_ITEMS_CF: &str = "reconciliation_work_items";
 const GOVERNANCE_AUDIT_CF: &str = "governance_audit";
 const RAFT_APPLIED_COMMANDS_CF: &str = "raft_applied_commands";
+const RAFT_STATE_META_CF: &str = "raft_state_meta";
+pub(crate) const RAFT_LOG_CF: &str = "raft_log";
+pub(crate) const RAFT_META_CF: &str = "raft_meta";
 const STORAGE_SCHEMA_VERSION: u32 = 1;
 const OUTBOX_TAIL_KEY: &[u8] = b"tail";
 const OUTBOX_CHECKPOINT_KEY: &[u8] = b"publisher-checkpoint";
 const BOUNDARY_PROJECTION_CHECKPOINT_KEY: &[u8] = b"projection-checkpoint";
 const LOCAL_TASK_CHECKPOINT_KEY: &[u8] = b"checkpoint";
+const RAFT_STATE_METADATA_KEY: &[u8] = b"metadata";
 
 const fn authoritative_column_families() -> &'static [&'static str] {
     &[
@@ -168,6 +172,9 @@ impl<C: PayloadCryptoPort> RocksDbWorkflowStore<C> {
             RECONCILIATION_WORK_ITEMS_CF,
             GOVERNANCE_AUDIT_CF,
             RAFT_APPLIED_COMMANDS_CF,
+            RAFT_STATE_META_CF,
+            RAFT_LOG_CF,
+            RAFT_META_CF,
         ]
         .into_iter()
         .map(|name| ColumnFamilyDescriptor::new(name, Options::default()));
@@ -209,6 +216,12 @@ impl<C: PayloadCryptoPort> RocksDbWorkflowStore<C> {
             ),
             max_snapshot_bytes,
         })
+    }
+
+    /// Creates the persistent `OpenRaft` log half backed by this node's `RocksDB`.
+    #[must_use]
+    pub fn raft_log_storage(&self) -> crate::RocksDbRaftLogStorage {
+        crate::RocksDbRaftLogStorage::new(Arc::clone(&self.db), Arc::clone(&self.commit_lock))
     }
 
     /// Materializes an engine-approved governance plan into exact bytes for one
@@ -728,15 +741,40 @@ struct RocksStateSnapshotRecord {
 }
 
 impl AtomicStateStorage for RocksDbAtomicStateStorage {
+    fn load_metadata(&self) -> Result<StateMachineMetadata, AtomicStorageError> {
+        let family = raft_cf(&self.db, RAFT_STATE_META_CF)?;
+        self.db
+            .get_cf(family, RAFT_STATE_METADATA_KEY)
+            .map_err(raft_unavailable)?
+            .map_or_else(
+                || Ok(StateMachineMetadata::default()),
+                |bytes| {
+                    serde_json::from_slice(&bytes)
+                        .map_err(|error| AtomicStorageError(error.to_string()))
+                },
+            )
+    }
+
+    fn persist_metadata(&self, metadata: &StateMachineMetadata) -> Result<(), AtomicStorageError> {
+        let _guard = self.write_lock.lock().map_err(raft_lock_error)?;
+        let mut write_batch = WriteBatch::default();
+        put_raft_state_metadata(&self.db, &mut write_batch, metadata)?;
+        sync_raft_write(&self.db, write_batch)
+    }
+
     fn apply(
         &self,
         batch: &PreparedAtomicBatch,
         limits: &StateMachineLimits,
+        metadata: &StateMachineMetadata,
     ) -> Result<ApplyResponse, AtomicStorageError> {
+        let _guard = self.write_lock.lock().map_err(raft_lock_error)?;
+        let mut write_batch = WriteBatch::default();
+        put_raft_state_metadata(&self.db, &mut write_batch, metadata)?;
         if let Err(error) = batch.validate(limits) {
+            sync_raft_write(&self.db, write_batch)?;
             return Ok(raft_rejected(batch, error.to_string()));
         }
-        let _guard = self.write_lock.lock().map_err(raft_lock_error)?;
         let applied_cf = raft_cf(&self.db, RAFT_APPLIED_COMMANDS_CF)?;
         if let Some(bytes) = self
             .db
@@ -748,11 +786,13 @@ impl AtomicStateStorage for RocksDbAtomicStateStorage {
             if previous.command_id == batch.command_id
                 && previous.batch_digest == batch.batch_digest
             {
+                sync_raft_write(&self.db, write_batch)?;
                 return Ok(ApplyResponse {
                     outcome: ApplyOutcome::Duplicate,
                     ..previous
                 });
             }
+            sync_raft_write(&self.db, write_batch)?;
             return Ok(raft_rejected(batch, "idempotency-scope-conflict".into()));
         }
 
@@ -768,6 +808,7 @@ impl AtomicStateStorage for RocksDbAtomicStateStorage {
                 _ => false,
             };
             if !satisfied {
+                sync_raft_write(&self.db, write_batch)?;
                 return Ok(ApplyResponse {
                     command_id: batch.command_id.clone(),
                     batch_digest: batch.batch_digest,
@@ -785,7 +826,6 @@ impl AtomicStateStorage for RocksDbAtomicStateStorage {
             outcome: ApplyOutcome::Applied,
             response_payload: batch.response_payload.clone(),
         };
-        let mut write_batch = WriteBatch::default();
         for mutation in &batch.mutations {
             match mutation {
                 Mutation::Put { storage_key, value } => write_batch.put_cf(
@@ -804,11 +844,7 @@ impl AtomicStateStorage for RocksDbAtomicStateStorage {
             &batch.idempotency_scope,
             serde_json::to_vec(&response).map_err(|error| AtomicStorageError(error.to_string()))?,
         );
-        let mut options = WriteOptions::default();
-        options.set_sync(true);
-        self.db
-            .write_opt(write_batch, &options)
-            .map_err(raft_unavailable)?;
+        sync_raft_write(&self.db, write_batch)?;
         Ok(response)
     }
 
@@ -852,7 +888,11 @@ impl AtomicStateStorage for RocksDbAtomicStateStorage {
         Ok(snapshot)
     }
 
-    fn install_snapshot(&self, snapshot: &[u8]) -> Result<(), AtomicStorageError> {
+    fn install_snapshot(
+        &self,
+        snapshot: &[u8],
+        metadata: &StateMachineMetadata,
+    ) -> Result<(), AtomicStorageError> {
         if snapshot.len() as u64 > self.max_snapshot_bytes {
             return Err(AtomicStorageError(format!(
                 "snapshot exceeds configured byte limit {}",
@@ -912,11 +952,8 @@ impl AtomicStateStorage for RocksDbAtomicStateStorage {
                 record.value,
             );
         }
-        let mut options = WriteOptions::default();
-        options.set_sync(true);
-        self.db
-            .write_opt(write_batch, &options)
-            .map_err(raft_unavailable)
+        put_raft_state_metadata(&self.db, &mut write_batch, metadata)?;
+        sync_raft_write(&self.db, write_batch)
     }
 }
 
@@ -2517,6 +2554,27 @@ fn raft_cf<'a>(db: &'a DB, name: &str) -> Result<&'a rocksdb::ColumnFamily, Atom
         .ok_or_else(|| AtomicStorageError(format!("missing RocksDB column family {name}")))
 }
 
+fn put_raft_state_metadata(
+    db: &DB,
+    batch: &mut WriteBatch,
+    metadata: &StateMachineMetadata,
+) -> Result<(), AtomicStorageError> {
+    let bytes =
+        serde_json::to_vec(metadata).map_err(|error| AtomicStorageError(error.to_string()))?;
+    batch.put_cf(
+        raft_cf(db, RAFT_STATE_META_CF)?,
+        RAFT_STATE_METADATA_KEY,
+        bytes,
+    );
+    Ok(())
+}
+
+fn sync_raft_write(db: &DB, batch: WriteBatch) -> Result<(), AtomicStorageError> {
+    let mut options = WriteOptions::default();
+    options.set_sync(true);
+    db.write_opt(batch, &options).map_err(raft_unavailable)
+}
+
 #[allow(clippy::needless_pass_by_value)]
 fn raft_unavailable(error: rocksdb::Error) -> AtomicStorageError {
     AtomicStorageError(error.to_string())
@@ -2633,6 +2691,10 @@ mod tests {
                 GOVERNANCE_AUDIT_CF.into(),
             ]),
         }
+    }
+
+    fn raft_metadata() -> StateMachineMetadata {
+        StateMachineMetadata::default()
     }
 
     fn event() -> EventEnvelope {
@@ -3092,6 +3154,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn raft_state_machine_batch_is_atomic_idempotent_and_snapshot_restorable() {
         let directory = tempfile::tempdir().unwrap();
         let store =
@@ -3147,8 +3210,8 @@ mod tests {
             b"committed-version-1".to_vec(),
         );
 
-        let applied = raft.apply(&batch, &limits).unwrap();
-        let duplicate = raft.apply(&batch, &limits).unwrap();
+        let applied = raft.apply(&batch, &limits, &raft_metadata()).unwrap();
+        let duplicate = raft.apply(&batch, &limits, &raft_metadata()).unwrap();
         let snapshot = raft.export_snapshot().unwrap();
 
         assert_eq!(applied.outcome, ApplyOutcome::Applied);
@@ -3178,10 +3241,12 @@ mod tests {
             Vec::new(),
         );
         assert_eq!(
-            raft.apply(&later, &limits).unwrap().outcome,
+            raft.apply(&later, &limits, &raft_metadata())
+                .unwrap()
+                .outcome,
             ApplyOutcome::Applied
         );
-        raft.install_snapshot(&snapshot).unwrap();
+        raft.install_snapshot(&snapshot, &raft_metadata()).unwrap();
         assert!(
             store
                 .db
@@ -3193,9 +3258,79 @@ mod tests {
                 .is_none()
         );
         assert_eq!(
-            raft.apply(&batch, &limits).unwrap().outcome,
+            raft.apply(&batch, &limits, &raft_metadata())
+                .unwrap()
+                .outcome,
             ApplyOutcome::Duplicate
         );
+    }
+
+    #[test]
+    fn raft_state_and_applied_metadata_survive_database_restart() {
+        let directory = tempfile::tempdir().unwrap();
+        let log_id = openraft::LogId::new(openraft::CommittedLeaderId::new(4, 7), 19);
+        let metadata = StateMachineMetadata {
+            last_applied: Some(log_id),
+            membership: openraft::StoredMembership::default(),
+        };
+        let state_key = StorageKey {
+            column_family: STREAM_META_CF.into(),
+            key: b"tenant-a/instance-a".to_vec(),
+        };
+        let batch = PreparedAtomicBatch::new(
+            "restart-command".into(),
+            b"tenant-a/restart-command".to_vec(),
+            vec![bpmp_raft_state_machine::Precondition {
+                storage_key: state_key.clone(),
+                expected: ExpectedValue::Missing,
+            }],
+            vec![Mutation::Put {
+                storage_key: state_key.clone(),
+                value: b"committed-state".to_vec(),
+            }],
+            b"committed-response".to_vec(),
+        );
+
+        {
+            let store =
+                RocksDbWorkflowStore::open(config(directory.path()), TestCrypto { fail: false })
+                    .unwrap();
+            let raft = store.authoritative_state_storage(1024 * 1024).unwrap();
+            assert_eq!(
+                raft.apply(&batch, &raft_limits(), &metadata)
+                    .unwrap()
+                    .outcome,
+                ApplyOutcome::Applied
+            );
+        }
+
+        let reopened =
+            RocksDbWorkflowStore::open(config(directory.path()), TestCrypto { fail: false })
+                .unwrap();
+        let raft = reopened.authoritative_state_storage(1024 * 1024).unwrap();
+        let duplicate_metadata = StateMachineMetadata {
+            last_applied: Some(openraft::LogId::new(
+                openraft::CommittedLeaderId::new(4, 7),
+                20,
+            )),
+            membership: openraft::StoredMembership::default(),
+        };
+
+        assert_eq!(raft.load_metadata().unwrap(), metadata);
+        assert_eq!(
+            reopened
+                .db
+                .get_cf(cf(&reopened.db, STREAM_META_CF).unwrap(), &state_key.key)
+                .unwrap(),
+            Some(b"committed-state".to_vec())
+        );
+        assert_eq!(
+            raft.apply(&batch, &raft_limits(), &duplicate_metadata)
+                .unwrap()
+                .outcome,
+            ApplyOutcome::Duplicate
+        );
+        assert_eq!(raft.load_metadata().unwrap(), duplicate_metadata);
     }
 
     #[test]
@@ -3215,7 +3350,9 @@ mod tests {
             )
             .unwrap();
         assert_eq!(
-            raft.apply(&ledger_batch, &raft_limits()).unwrap().outcome,
+            raft.apply(&ledger_batch, &raft_limits(), &raft_metadata())
+                .unwrap()
+                .outcome,
             ApplyOutcome::Applied
         );
         let plan = governance_plan();
@@ -3223,7 +3360,9 @@ mod tests {
             .prepare_governance_batch(&plan, b"tenant/governance-command".to_vec())
             .unwrap();
 
-        let response = raft.apply(&governance_batch, &raft_limits()).unwrap();
+        let response = raft
+            .apply(&governance_batch, &raft_limits(), &raft_metadata())
+            .unwrap();
 
         assert_eq!(response.outcome, ApplyOutcome::Applied);
         let loaded = store
@@ -3285,7 +3424,8 @@ mod tests {
                 b"tenant/record-effect".to_vec(),
             )
             .unwrap();
-        raft.apply(&ledger_batch, &raft_limits()).unwrap();
+        raft.apply(&ledger_batch, &raft_limits(), &raft_metadata())
+            .unwrap();
         let governance_batch = store
             .prepare_governance_batch(&governance_plan(), b"tenant/governance-command".to_vec())
             .unwrap();
@@ -3300,7 +3440,9 @@ mod tests {
             )
             .unwrap();
 
-        let response = raft.apply(&governance_batch, &raft_limits()).unwrap();
+        let response = raft
+            .apply(&governance_batch, &raft_limits(), &raft_metadata())
+            .unwrap();
 
         assert!(matches!(
             response.outcome,
