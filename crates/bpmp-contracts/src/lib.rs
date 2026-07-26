@@ -13,10 +13,23 @@ pub mod engine {
     #[allow(
         clippy::default_trait_access,
         clippy::doc_markdown,
-        clippy::missing_errors_doc
+        clippy::missing_errors_doc,
+        clippy::too_many_lines
     )]
     pub mod v1 {
         include!(concat!(env!("OUT_DIR"), "/bpmp.engine.v1.rs"));
+    }
+}
+
+pub mod raft {
+    #[allow(
+        clippy::default_trait_access,
+        clippy::doc_markdown,
+        clippy::missing_errors_doc,
+        clippy::too_many_lines
+    )]
+    pub mod v1 {
+        include!(concat!(env!("OUT_DIR"), "/bpmp.raft.v1.rs"));
     }
 }
 

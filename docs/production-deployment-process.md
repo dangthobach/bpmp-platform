@@ -10,16 +10,18 @@ data, not a compile-time constant.
 | `functional-single-node` | One encrypted RocksDB node | Synthetic/non-PII only | Compiler, engine, Rust-Go contract and process E2E pass |
 | `production-ha` | Three- or five-member Raft group, RocksDB per member | Production data | P23 and P46-P52, model checking, partition/crash/KMS chaos and restore drill pass |
 
-The current repository implements the `functional-single-node` composition
-root plus an `OpenRaft` authoritative state-machine crate and Linux RocksDB
-atomic apply adapter. The three-node partition/failover test and atomic
-governance race tests pass. Persistent Raft log, vote, committed index,
-last-purged index and state-machine metadata now survive a real node shutdown
-and RocksDB reopen test. The server composition root still writes normal
-workflow commands through the single-node store, however. It must not be
-labeled `production-ha`, and production PII must not be enabled, until peer
-transport, membership operations, leader forwarding, `client_write` routing
-and the remaining P2 gates are connected in the deployable.
+The current repository implements an `OpenRaft` composition root with
+persistent RocksDB log/state-machine storage, mTLS peer RPC, explicit
+membership operations and one-hop leader forwarding. API commands, boundary
+scheduler transitions and local WASM completions all commit through
+`Raft::client_write`; followers do not run side-effect workers. Workflow event,
+idempotency result, encrypted authorization audit and outbox records are one
+atomic replicated batch.
+
+This is not yet sufficient to label a release `production-ha`. The
+broker-backed multi-process harness with Kafka, PostgreSQL, three engine
+processes, Human Runtime and API Gateway is still a release blocker, as are the
+incomplete P1-P53 property catalog and P46-P52 production governance gates.
 
 ## 1.1 Current consensus and governance evidence
 
@@ -36,6 +38,10 @@ and the remaining P2 gates are connected in the deployable.
   permanently fenced after replay.
 - The three-node chaos test proves an isolated minority leader cannot commit,
   the majority elects and commits, and all nodes converge after healing.
+- The deployable peer transport test forms a real three-node group over tonic,
+  replicates a quorum write, waits for all applied indexes, and verifies local
+  RocksDB state. A separate test verifies one-hop forwarding of the original
+  command envelope.
 - The bounded `stateright` model checks minority-commit exclusion, committed
   prefix preservation, ordered apply and one-node crash durability.
 - The Linux persistent-store test performs a real `Raft::client_write`,

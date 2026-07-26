@@ -20,9 +20,11 @@ bpmp-contracts.workspace = true
 bpmp-domain-core.workspace = true
 bpmp-engine = { path = "../bpmp-engine" }
 bpmp-payload-crypto.workspace = true
+bpmp-raft-state-machine.workspace = true
 clap.workspace = true
 futures.workspace = true
 jsonwebtoken.workspace = true
+openraft.workspace = true
 prost.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -37,6 +39,11 @@ zeroize.workspace = true
 [target.'cfg(target_os = "linux")'.dependencies]
 bpmp-adapter-rocksdb.workspace = true
 rdkafka = { version = "0.39.0", features = ["cmake-build"] }
+
+[dev-dependencies]
+proptest.workspace = true
+tempfile.workspace = true
+tokio-stream.workspace = true
 
 [lints]
 workspace = true

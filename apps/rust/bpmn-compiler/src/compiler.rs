@@ -4953,7 +4953,8 @@ mod tests {
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
 
-        // Feature: rust-bpm-platform, Property 1: BPMN to WIR canonical round-trip
+        // Additional BPMN-to-WIR canonical round-trip coverage; the acceptance
+        // suite owns the single canonical Property 1 tag.
         #[test]
         fn compile_print_compile_is_equivalent(
             process_suffix in "[a-z][a-z0-9]{0,10}",

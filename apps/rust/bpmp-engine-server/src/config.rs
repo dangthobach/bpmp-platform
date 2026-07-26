@@ -1,5 +1,6 @@
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -18,6 +19,7 @@ pub struct RuntimeConfig {
     pub authorization: AuthorizationConfig,
     pub payload_keys: Vec<PayloadKeyConfig>,
     pub rocksdb: RocksDbRuntimeConfig,
+    pub raft: RaftRuntimeConfig,
     pub grpc: GrpcConfig,
     pub workers: WorkerConfig,
     pub kafka: KafkaConfig,
@@ -122,6 +124,7 @@ impl RuntimeConfig {
                 "outbox retry policy is invalid",
             ));
         }
+        self.raft.validate()?;
         validate_wasm_modules(&self.wasm_modules)?;
         Ok(())
     }
@@ -223,6 +226,92 @@ pub struct RocksDbRuntimeConfig {
     pub write_buffer_size_bytes: usize,
     pub max_background_jobs: i32,
     pub max_replay_events: usize,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RaftRuntimeConfig {
+    pub cluster_name: String,
+    pub node_id: u64,
+    pub peer_listen_addr: SocketAddr,
+    pub peers: Vec<RaftPeerConfig>,
+    pub bootstrap: bool,
+    pub heartbeat_interval_ms: u64,
+    pub election_timeout_min_ms: u64,
+    pub election_timeout_max_ms: u64,
+    pub rpc_timeout_ms: u64,
+    pub max_conditions: u32,
+    pub max_mutations: u32,
+    pub max_batch_bytes: u64,
+    pub max_snapshot_bytes: u64,
+    pub append_only_column_families: BTreeSet<String>,
+}
+
+impl RaftRuntimeConfig {
+    fn validate(&self) -> Result<(), RuntimeConfigError> {
+        if self.cluster_name.trim().is_empty()
+            || self.node_id == 0
+            || self.heartbeat_interval_ms == 0
+            || self.election_timeout_min_ms <= self.heartbeat_interval_ms
+            || self.election_timeout_max_ms <= self.election_timeout_min_ms
+            || self.rpc_timeout_ms == 0
+            || self.max_conditions == 0
+            || self.max_mutations == 0
+            || self.max_batch_bytes == 0
+            || self.max_snapshot_bytes == 0
+            || self.peers.is_empty()
+        {
+            return Err(RuntimeConfigError::Invalid(
+                "Raft identities, timeouts, bounds, and peers must be valid",
+            ));
+        }
+        let mut node_ids = BTreeSet::new();
+        let mut addresses = BTreeSet::new();
+        for peer in &self.peers {
+            if peer.node_id == 0
+                || peer.raft_address.trim().is_empty()
+                || peer.tls_domain.trim().is_empty()
+                || !node_ids.insert(peer.node_id)
+                || !addresses.insert(peer.raft_address.as_str())
+            {
+                return Err(RuntimeConfigError::Invalid(
+                    "Raft peer identities and addresses must be unique and non-empty",
+                ));
+            }
+        }
+        if !node_ids.contains(&self.node_id) {
+            return Err(RuntimeConfigError::Invalid(
+                "Raft peer directory must include the local node",
+            ));
+        }
+        let required_append_only = [
+            "events",
+            "dedup",
+            "outbox",
+            "idempotency",
+            "authorization_audit",
+            "compensation_ledger",
+            "governance_audit",
+            "raft_applied_commands",
+        ];
+        if required_append_only
+            .iter()
+            .any(|name| !self.append_only_column_families.contains(*name))
+        {
+            return Err(RuntimeConfigError::Invalid(
+                "Raft append-only column families omit required authoritative records",
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RaftPeerConfig {
+    pub node_id: u64,
+    pub raft_address: String,
+    pub tls_domain: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]

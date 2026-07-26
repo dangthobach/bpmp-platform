@@ -170,8 +170,10 @@ where
         &self,
         request: Request<CommandEnvelope>,
     ) -> Result<Response<CommandReceipt>, Status> {
-        self.handler
-            .handle(request.into_inner())
+        let handler = Arc::clone(&self.handler);
+        tokio::task::spawn_blocking(move || handler.handle(request.into_inner()))
+            .await
+            .map_err(|error| Status::internal(format!("command worker failed: {error}")))?
             .map(Response::new)
             .map_err(Status::from)
     }

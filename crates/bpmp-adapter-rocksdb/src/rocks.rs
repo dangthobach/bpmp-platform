@@ -138,6 +138,12 @@ pub struct RocksDbAtomicStateStorage {
     max_snapshot_bytes: u64,
 }
 
+#[derive(Debug)]
+pub enum WorkflowCommitPreparation {
+    AlreadyCommitted(CommittedResult),
+    Proposal(PreparedAtomicBatch),
+}
+
 impl<C: PayloadCryptoPort> RocksDbWorkflowStore<C> {
     /// Opens the authoritative local `RocksDB` with all required column families.
     ///
@@ -222,6 +228,100 @@ impl<C: PayloadCryptoPort> RocksDbWorkflowStore<C> {
     #[must_use]
     pub fn raft_log_storage(&self) -> crate::RocksDbRaftLogStorage {
         crate::RocksDbRaftLogStorage::new(Arc::clone(&self.db), Arc::clone(&self.commit_lock))
+    }
+
+    /// Prepares one complete workflow commit for authoritative Raft proposal.
+    ///
+    /// Encryption and all reads used to construct compare-and-set preconditions
+    /// happen before proposal. Followers only validate and apply these exact
+    /// ciphertext bytes; they never call KMS, network, clock, or random sources.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the request is inconsistent, encryption is
+    /// unavailable, durable precondition state is corrupt, or a bounded sequence
+    /// cannot be represented.
+    pub fn prepare_workflow_batch(
+        &self,
+        request: &CommitRequest,
+    ) -> Result<WorkflowCommitPreparation, StoreError> {
+        request.validate_authorization_audit()?;
+        validate_sequences(request)?;
+        if let Some(result) = self.load_result(
+            &request.tenant_id,
+            &request.actor_id,
+            &request.idempotency_key,
+            &request.command_id,
+        )? {
+            return Ok(WorkflowCommitPreparation::AlreadyCommitted(result));
+        }
+        let prepared_events = prepare_encrypted_events(&self.crypto, request)?;
+        let prepared_snapshot = prepare_encrypted_snapshot(&self.crypto, request)?;
+        let prepared_audit = prepare_encrypted_authorization_audit(&self.crypto, request)?;
+        build_prepared_workflow_batch(
+            &self.db,
+            request,
+            prepared_events,
+            prepared_snapshot,
+            prepared_audit,
+        )
+        .map(WorkflowCommitPreparation::Proposal)
+    }
+
+    /// Interprets a committed Raft state-machine response as the workflow-store
+    /// contract expected by the engine.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] for response corruption, an idempotency conflict,
+    /// or a failed authoritative compare-and-set.
+    pub fn resolve_workflow_apply(
+        &self,
+        request: &CommitRequest,
+        response: &ApplyResponse,
+    ) -> Result<CommitOutcome, StoreError> {
+        if response.command_id != request.command_id.as_str() {
+            return Err(StoreError::CorruptData(
+                "Raft response command identity does not match request".into(),
+            ));
+        }
+        match response.outcome {
+            ApplyOutcome::Applied | ApplyOutcome::Duplicate => {
+                let stored = StoredCommandResult::decode(response.response_payload.as_slice())
+                    .map_err(|error| StoreError::CorruptData(error.to_string()))?;
+                if stored.command_id != request.command_id.as_str() {
+                    return Err(StoreError::CorruptData(
+                        "Raft response payload command identity does not match request".into(),
+                    ));
+                }
+                let result = stored_result(stored)?;
+                if matches!(response.outcome, ApplyOutcome::Applied) {
+                    Ok(CommitOutcome::Committed(result))
+                } else {
+                    Ok(CommitOutcome::Duplicate(result))
+                }
+            }
+            ApplyOutcome::PreconditionFailed { .. } | ApplyOutcome::Rejected { .. } => {
+                if let Some(result) = self.load_result(
+                    &request.tenant_id,
+                    &request.actor_id,
+                    &request.idempotency_key,
+                    &request.command_id,
+                )? {
+                    return Ok(CommitOutcome::Duplicate(result));
+                }
+                let actual = read_version(&self.db, &request.tenant_id, &request.instance_id)?;
+                if actual != request.expected_version {
+                    return Err(StoreError::VersionConflict {
+                        expected: request.expected_version,
+                        actual,
+                    });
+                }
+                Err(StoreError::Unavailable(
+                    "authoritative workflow precondition failed".into(),
+                ))
+            }
+        }
     }
 
     /// Materializes an engine-approved governance plan into exact bytes for one
@@ -1949,6 +2049,113 @@ fn build_commit_batch(
     Ok(batch)
 }
 
+fn build_prepared_workflow_batch(
+    db: &DB,
+    request: &CommitRequest,
+    prepared_events: Vec<(EventEnvelope, EncryptedEventRecord, Vec<u8>)>,
+    prepared_snapshot: Option<(Vec<u8>, EncryptedSnapshotRecord)>,
+    prepared_audit: (Vec<u8>, EncryptedAuthorizationAuditRecord),
+) -> Result<PreparedAtomicBatch, StoreError> {
+    let idempotency_key = idempotency_storage_key(
+        &request.tenant_id,
+        &request.actor_id,
+        &request.idempotency_key,
+    );
+    let stream_key = stream_meta_key(&request.tenant_id, &request.instance_id);
+    let mut preconditions =
+        Vec::with_capacity(prepared_events.len().saturating_mul(3).saturating_add(6));
+    let mut mutations =
+        Vec::with_capacity(prepared_events.len().saturating_mul(3).saturating_add(5));
+    add_current_value_precondition(
+        &mut preconditions,
+        STREAM_META_CF,
+        stream_key.clone(),
+        Some(request.expected_version.to_be_bytes().as_slice())
+            .filter(|_| request.expected_version > 0),
+    );
+    add_missing_precondition(&mut preconditions, IDEMPOTENCY_CF, idempotency_key.clone());
+    add_missing_precondition(
+        &mut preconditions,
+        AUTHORIZATION_AUDIT_CF,
+        prepared_audit.0.clone(),
+    );
+    add_current_db_precondition(
+        db,
+        &mut preconditions,
+        OUTBOX_META_CF,
+        OUTBOX_TAIL_KEY.to_vec(),
+    )?;
+    if let Some((snapshot_key, _)) = &prepared_snapshot {
+        add_current_db_precondition(db, &mut preconditions, SNAPSHOTS_CF, snapshot_key.clone())?;
+    }
+
+    let mut outbox_sequence = read_u64_value(db, OUTBOX_META_CF, OUTBOX_TAIL_KEY)?;
+    let mut event_ids = BTreeSet::new();
+    for (event, record, event_key) in prepared_events {
+        if !event_ids.insert(event.metadata.event_id.clone()) {
+            return Err(StoreError::DuplicateEvent);
+        }
+        add_missing_precondition(&mut preconditions, EVENTS_CF, event_key.clone());
+        let dedup_key = dedup_storage_key(&request.tenant_id, &event.metadata.event_id);
+        add_missing_precondition(&mut preconditions, DEDUP_CF, dedup_key.clone());
+        outbox_sequence = outbox_sequence
+            .checked_add(1)
+            .ok_or_else(|| StoreError::Unavailable("outbox sequence overflow".into()))?;
+        let outbox_key = outbox_sequence.to_be_bytes().to_vec();
+        add_missing_precondition(&mut preconditions, OUTBOX_CF, outbox_key.clone());
+
+        mutations.push(Mutation::Put {
+            storage_key: raft_storage_key(EVENTS_CF, event_key),
+            value: record.encode_to_vec(),
+        });
+        mutations.push(Mutation::Put {
+            storage_key: raft_storage_key(DEDUP_CF, dedup_key),
+            value: Vec::new(),
+        });
+        mutations.push(Mutation::Put {
+            storage_key: raft_storage_key(OUTBOX_CF, outbox_key),
+            value: OutboxEntry {
+                tenant_id: request.tenant_id.to_string(),
+                instance_id: request.instance_id.to_string(),
+                sequence: event.metadata.sequence,
+                event_id: event.metadata.event_id,
+                outbox_sequence,
+            }
+            .encode_to_vec(),
+        });
+    }
+    mutations.push(Mutation::Put {
+        storage_key: raft_storage_key(OUTBOX_META_CF, OUTBOX_TAIL_KEY.to_vec()),
+        value: outbox_sequence.to_be_bytes().to_vec(),
+    });
+    if let Some((snapshot_key, snapshot)) = prepared_snapshot {
+        mutations.push(Mutation::Put {
+            storage_key: raft_storage_key(SNAPSHOTS_CF, snapshot_key),
+            value: snapshot.encode_to_vec(),
+        });
+    }
+    mutations.push(Mutation::Put {
+        storage_key: raft_storage_key(STREAM_META_CF, stream_key),
+        value: request.result.version.to_be_bytes().to_vec(),
+    });
+    let result = command_result(request);
+    mutations.push(Mutation::Put {
+        storage_key: raft_storage_key(IDEMPOTENCY_CF, idempotency_key.clone()),
+        value: result.encode_to_vec(),
+    });
+    mutations.push(Mutation::Put {
+        storage_key: raft_storage_key(AUTHORIZATION_AUDIT_CF, prepared_audit.0),
+        value: prepared_audit.1.encode_to_vec(),
+    });
+    Ok(PreparedAtomicBatch::new(
+        request.command_id.to_string(),
+        idempotency_key,
+        preconditions,
+        mutations,
+        result.encode_to_vec(),
+    ))
+}
+
 fn prepare_encrypted_authorization_audit<C: PayloadCryptoPort>(
     crypto: &C,
     request: &CommitRequest,
@@ -2686,6 +2893,8 @@ mod tests {
                 EVENTS_CF.into(),
                 DEDUP_CF.into(),
                 OUTBOX_CF.into(),
+                IDEMPOTENCY_CF.into(),
+                AUTHORIZATION_AUDIT_CF.into(),
                 COMPENSATION_LEDGER_CF.into(),
                 RECONCILIATION_WORK_ITEMS_CF.into(),
                 GOVERNANCE_AUDIT_CF.into(),
@@ -2902,6 +3111,51 @@ mod tests {
                 policy_version: PolicyVersion::new("policy-1").unwrap(),
             },
         }
+    }
+
+    #[test]
+    fn workflow_raft_batch_atomically_commits_encrypted_state_idempotency_audit_and_outbox() {
+        let directory = tempfile::tempdir().unwrap();
+        let store =
+            RocksDbWorkflowStore::open(config(directory.path()), TestCrypto { fail: false })
+                .unwrap();
+        let request = request();
+        let WorkflowCommitPreparation::Proposal(batch) =
+            store.prepare_workflow_batch(&request).unwrap()
+        else {
+            panic!("new command must produce a Raft proposal");
+        };
+        batch.validate(&raft_limits()).unwrap();
+        let state = store.authoritative_state_storage(1024 * 1024).unwrap();
+
+        let response = state
+            .apply(&batch, &raft_limits(), &raft_metadata())
+            .unwrap();
+        let outcome = store.resolve_workflow_apply(&request, &response).unwrap();
+
+        assert_eq!(outcome, CommitOutcome::Committed(request.result.clone()));
+        assert_eq!(
+            store
+                .load(&request.tenant_id, &request.instance_id)
+                .unwrap()
+                .version,
+            1
+        );
+        assert_eq!(store.read_after(0, 10).unwrap().len(), 1);
+        assert!(
+            store
+                .db
+                .get_cf(
+                    cf(&store.db, AUTHORIZATION_AUDIT_CF).unwrap(),
+                    authorization_audit_storage_key(&request.tenant_id, &request.command_id),
+                )
+                .unwrap()
+                .is_some()
+        );
+        assert!(matches!(
+            store.prepare_workflow_batch(&request).unwrap(),
+            WorkflowCommitPreparation::AlreadyCommitted(result) if result == request.result
+        ));
     }
 
     #[test]

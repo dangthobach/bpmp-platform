@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -35,7 +36,9 @@ use bpmp_engine::{
     RetryDelayPort, RuntimeRegistry, SystemClock, WirLoader, WorkflowDefinitionProviderPort,
 };
 use bpmp_payload_crypto::{AesGcmPayloadCrypto, CryptoError, DataKeyResolverPort, ResolvedDataKey};
+use bpmp_raft_state_machine::{AuthoritativeStateMachine, StateMachineLimits, TypeConfig};
 use jsonwebtoken::Algorithm;
+use openraft::Raft;
 use rdkafka::ClientConfig;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
@@ -50,7 +53,12 @@ use crate::config::{
     BoundaryWorkerConfig, KafkaConfig, PayloadKeyConfig, RuntimeConfig, VerificationKeyConfig,
     WasmModuleConfig,
 };
+use crate::raft_runtime::{
+    ForwardingCommandHandler, PeerDirectory, RaftPeer, RaftWorkflowStore, TonicRaftNetworkFactory,
+    TonicRaftPeerService,
+};
 
+#[allow(clippy::too_many_lines)]
 pub async fn run(path: PathBuf) -> Result<()> {
     init_tracing();
     let config = RuntimeConfig::load(&path)?;
@@ -68,16 +76,93 @@ pub async fn run(path: PathBuf) -> Result<()> {
         },
         crypto,
     )?);
+    let server_certificate = fs::read(&config.tls.server_certificate)?;
+    let server_private_key = fs::read(&config.tls.server_private_key)?;
+    let client_ca = fs::read(&config.tls.client_ca)?;
+    let peer_directory = PeerDirectory::new(
+        config.raft.peers.iter().map(|peer| RaftPeer {
+            node_id: peer.node_id,
+            address: peer.raft_address.clone(),
+            tls_domain: peer.tls_domain.clone(),
+        }),
+        client_ca.clone(),
+        server_certificate.clone(),
+        server_private_key.clone(),
+        Duration::from_millis(config.raft.rpc_timeout_ms),
+    )
+    .map_err(anyhow::Error::msg)?;
+    let raft_config = Arc::new(
+        openraft::Config {
+            cluster_name: config.raft.cluster_name.clone(),
+            heartbeat_interval: config.raft.heartbeat_interval_ms,
+            election_timeout_min: config.raft.election_timeout_min_ms,
+            election_timeout_max: config.raft.election_timeout_max_ms,
+            ..Default::default()
+        }
+        .validate()?,
+    );
+    let raft = Raft::<TypeConfig>::new(
+        config.raft.node_id,
+        raft_config,
+        TonicRaftNetworkFactory::new(config.raft.node_id, peer_directory.clone()),
+        store.raft_log_storage(),
+        AuthoritativeStateMachine::new(
+            store.authoritative_state_storage(config.raft.max_snapshot_bytes)?,
+            StateMachineLimits {
+                max_conditions: config.raft.max_conditions,
+                max_mutations: config.raft.max_mutations,
+                max_batch_bytes: config.raft.max_batch_bytes,
+                append_only_column_families: config.raft.append_only_column_families.clone(),
+            },
+        )?,
+    )
+    .await?;
+    let raft_store = Arc::new(RaftWorkflowStore::new(
+        store.clone(),
+        raft.clone(),
+        tokio::runtime::Handle::current(),
+    ));
 
-    let command_engine = Engine::new(registry.clone(), store.clone(), authorization.clone());
-    let handler = AuthoritativeCommandHandler::new(command_engine, registry.clone());
-    let grpc = GrpcEngineCommandService::new(handler).into_server(GrpcTransportConfig::new(
+    let command_engine = Engine::new(registry.clone(), raft_store.clone(), authorization.clone());
+    let local_handler = Arc::new(AuthoritativeCommandHandler::new(
+        command_engine,
+        registry.clone(),
+    ));
+    let grpc = GrpcEngineCommandService::new(ForwardingCommandHandler::new(
+        local_handler.clone(),
+        peer_directory.clone(),
+        tokio::runtime::Handle::current(),
+    ))
+    .into_server(GrpcTransportConfig::new(
         config.grpc.max_decoding_bytes,
         config.grpc.max_encoding_bytes,
     )?);
+    let peer_grpc = TonicRaftPeerService::new(raft.clone(), local_handler, peer_directory.clone())
+        .into_server(
+            config.grpc.max_decoding_bytes,
+            config.grpc.max_encoding_bytes,
+        );
+    let peer_tls = ServerTlsConfig::new()
+        .identity(Identity::from_pem(
+            server_certificate.clone(),
+            server_private_key.clone(),
+        ))
+        .client_ca_root(Certificate::from_pem(client_ca.clone()));
+    let peer_listen_addr = config.raft.peer_listen_addr;
+    let peer_server = tokio::spawn(async move {
+        Server::builder()
+            .tls_config(peer_tls)?
+            .add_service(peer_grpc)
+            .serve(peer_listen_addr)
+            .await
+            .context("serve Raft peer gRPC")
+    });
+    if config.raft.bootstrap && !raft.is_initialized().await? {
+        raft.initialize(peer_directory.membership()).await?;
+    }
 
     let dispatch_credentials = DispatchCredentialProvider::load(&config, registry.clone())?;
-    let scheduler_engine = Engine::new(registry.clone(), store.clone(), authorization.clone());
+    let scheduler_engine = Engine::new(registry.clone(), raft_store.clone(), authorization.clone());
     let dispatcher = EngineBoundaryCommandDispatcher::new(
         scheduler_engine,
         registry.clone(),
@@ -91,7 +176,7 @@ pub async fn run(path: PathBuf) -> Result<()> {
         boundary_policy(&config.workers.boundary),
     ));
     let local_task_credentials = DispatchCredentialProvider::load(&config, registry.clone())?;
-    let local_task_engine = Engine::new(registry.clone(), store.clone(), authorization.clone());
+    let local_task_engine = Engine::new(registry.clone(), raft_store, authorization.clone());
     let local_tasks = Arc::new(LocalTaskRuntime::new(
         store.clone(),
         store.clone(),
@@ -117,9 +202,15 @@ pub async fn run(path: PathBuf) -> Result<()> {
     ));
 
     let interval = config.poll_interval();
+    let local_node_id = config.raft.node_id;
     let outbox_store = store;
+    let outbox_raft = raft.clone();
     let outbox_worker = tokio::spawn(async move {
         loop {
+            if !is_current_leader(&outbox_raft, local_node_id) {
+                tokio::time::sleep(interval).await;
+                continue;
+            }
             let checkpoint = match outbox_store.publisher_checkpoint() {
                 Ok(value) => value,
                 Err(error) => {
@@ -145,8 +236,13 @@ pub async fn run(path: PathBuf) -> Result<()> {
         }
     });
 
+    let boundary_raft = raft.clone();
     let boundary_worker = tokio::spawn(async move {
         loop {
+            if !is_current_leader(&boundary_raft, local_node_id) {
+                tokio::time::sleep(interval).await;
+                continue;
+            }
             let runtime = boundary.clone();
             match tokio::task::spawn_blocking(move || {
                 runtime.project_once()?;
@@ -163,8 +259,13 @@ pub async fn run(path: PathBuf) -> Result<()> {
         }
     });
 
+    let local_task_raft = raft.clone();
     let local_task_worker = tokio::spawn(async move {
         loop {
+            if !is_current_leader(&local_task_raft, local_node_id) {
+                tokio::time::sleep(interval).await;
+                continue;
+            }
             let runtime = local_tasks.clone();
             match tokio::task::spawn_blocking(move || runtime.run_once()).await {
                 Ok(Ok(outcome)) if outcome.executed > 0 => info!(
@@ -182,11 +283,8 @@ pub async fn run(path: PathBuf) -> Result<()> {
 
     info!(listen_addr = %config.listen_addr, "starting bpmp-engine");
     let tls = ServerTlsConfig::new()
-        .identity(Identity::from_pem(
-            fs::read(&config.tls.server_certificate)?,
-            fs::read(&config.tls.server_private_key)?,
-        ))
-        .client_ca_root(Certificate::from_pem(fs::read(&config.tls.client_ca)?));
+        .identity(Identity::from_pem(server_certificate, server_private_key))
+        .client_ca_root(Certificate::from_pem(client_ca));
     let result = Server::builder()
         .tls_config(tls)?
         .add_service(grpc)
@@ -195,7 +293,12 @@ pub async fn run(path: PathBuf) -> Result<()> {
     outbox_worker.abort();
     boundary_worker.abort();
     local_task_worker.abort();
+    peer_server.abort();
     result.context("serve engine gRPC")
+}
+
+fn is_current_leader(raft: &Raft<TypeConfig>, local_node_id: u64) -> bool {
+    raft.metrics().borrow().current_leader == Some(local_node_id)
 }
 
 struct ConfiguredWasmExecutor {
@@ -239,10 +342,13 @@ fn verify_module_digest(bytes: &[u8], version: &str) -> Result<()> {
     let expected = version
         .strip_prefix("sha256:")
         .context("WASM implementation version must use sha256:<digest>")?;
-    let actual = Sha256::digest(bytes)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
+    let actual =
+        Sha256::digest(bytes)
+            .iter()
+            .fold(String::with_capacity(64), |mut output, byte| {
+                let _ = write!(output, "{byte:02x}");
+                output
+            });
     if actual != expected.to_ascii_lowercase() {
         anyhow::bail!("WASM module digest does not match implementation_version");
     }

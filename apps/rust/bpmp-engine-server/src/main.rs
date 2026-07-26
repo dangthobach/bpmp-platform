@@ -4,6 +4,8 @@ mod config;
 
 #[cfg(target_os = "linux")]
 mod linux_runtime;
+#[cfg(target_os = "linux")]
+mod raft_runtime;
 
 use std::path::PathBuf;
 
