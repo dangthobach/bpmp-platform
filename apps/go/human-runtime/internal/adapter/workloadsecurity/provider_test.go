@@ -19,11 +19,11 @@ func TestProviderSignsCommandBoundWorkloadProof(t *testing.T) {
 	seed := make([]byte, ed25519.SeedSize)
 	privateKey := ed25519.NewKeyFromSeed(seed)
 	now := time.Unix(100, 0).UTC()
-	provider, err := New(Config{WorkloadID: "human-runtime", SigningKeyID: "workload-1", PrivateKey: privateKey, ProofTTL: time.Minute}, scopes{}, func() time.Time { return now })
+	provider, err := New(Config{WorkloadID: "human-runtime", SigningKeyID: "workload-1", PrivateKey: privateKey, ProofTTL: time.Minute}, scopes{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := provider.ForTenant(context.Background(), "tenant-a", "command-1")
+	snapshot, err := provider.ForTenant(context.Background(), "tenant-a", "command-1", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,5 +38,8 @@ func TestProviderSignsCommandBoundWorkloadProof(t *testing.T) {
 	digest := sha256.Sum256(unsigned)
 	if proof.CommandId != "command-1" || !ed25519.Verify(privateKey.Public().(ed25519.PublicKey), digest[:], signature) {
 		t.Fatal("proof is not bound to the requested command")
+	}
+	if proof.IssuedAtEpochMs != uint64(now.UnixMilli()) {
+		t.Fatalf("proof evaluation time changed: got %d", proof.IssuedAtEpochMs)
 	}
 }

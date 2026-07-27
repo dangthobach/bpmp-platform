@@ -1,0 +1,16 @@
+.git
+.github
+target
+target-linux
+**/target
+**/target-linux
+**/node_modules
+**/dist
+**/.angular
+artifacts
+secrets
+platform/e2e/runtime
+**/*.log
+.env
+.env.*
+!.env.example

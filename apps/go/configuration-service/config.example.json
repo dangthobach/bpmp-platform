@@ -1,0 +1,46 @@
+{
+  "listen_address": "127.0.0.1:8090",
+  "postgres_dsn": "postgres://bpmp_configuration:change-me@127.0.0.1:5432/bpmp_configuration",
+  "apply_migrations": true,
+  "migration_path": "../../../db/configuration-service/migrations/001_configuration.sql",
+  "tls": {
+    "certificate": "runtime/tls.pem",
+    "private_key": "runtime/tls-key.pem",
+    "client_ca": "runtime/ca.pem"
+  },
+  "grpc": {
+    "listen_address": "127.0.0.1:8091",
+    "max_receive_bytes": 1048576,
+    "max_send_bytes": 1048576
+  },
+  "identity": {
+    "jwks_path": "runtime/jwks.json",
+    "issuers": ["bpmp-e2e"],
+    "audiences": ["bpmp-api"],
+    "algorithms": ["EdDSA"],
+    "max_token_bytes": 8192,
+    "max_jwks_keys": 32,
+    "clock_skew_ms": 30000,
+    "read_capability": "configuration.read",
+    "manage_capability": "configuration.manage"
+  },
+  "api": {
+    "default_page_size": 50,
+    "max_page_size": 200,
+    "max_body_bytes": 1048576,
+    "read_header_timeout_ms": 5000,
+    "read_timeout_ms": 15000,
+    "write_timeout_ms": 15000,
+    "idle_timeout_ms": 60000,
+    "shutdown_timeout_ms": 10000,
+    "readiness_timeout_ms": 2000
+  },
+  "telemetry": {
+    "service_name": "configuration-service",
+    "service_version": "0.1.0",
+    "endpoint": "127.0.0.1:4317",
+    "insecure": true,
+    "sample_ratio": 1.0,
+    "export_timeout_ms": 3000
+  }
+}

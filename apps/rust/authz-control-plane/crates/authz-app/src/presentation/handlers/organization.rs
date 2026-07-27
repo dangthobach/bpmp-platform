@@ -11,7 +11,10 @@ use crate::application::commands::{
     handle_add_node, handle_create_organization, handle_move_node, AddNodeCommand,
     CreateOrganizationCommand, MoveNodeCommand,
 };
-use crate::application::queries::{handle_list_organizations, ListOrganizationsQuery};
+use crate::application::queries::{
+    handle_get_organization, handle_list_organizations, GetOrganizationQuery,
+    ListOrganizationsQuery,
+};
 use crate::bootstrap::AppContainer;
 use crate::domain::organization::NodeKind;
 use crate::presentation::envelope::{created, ok, EnvelopeReply};
@@ -170,6 +173,60 @@ pub struct OrgListRow {
     pub root_path: String,
     pub node_count: i64,
     pub version: i64,
+}
+
+#[derive(Serialize)]
+pub struct OrgNodeResponse {
+    pub id: Uuid,
+    pub parent_id: Option<Uuid>,
+    pub code: String,
+    pub name: String,
+    pub kind: String,
+    pub path: String,
+    pub is_active: bool,
+}
+
+#[derive(Serialize)]
+pub struct OrganizationResponse {
+    pub id: Uuid,
+    pub root_node_id: Uuid,
+    pub version: i64,
+    pub nodes: Vec<OrgNodeResponse>,
+}
+
+pub async fn get_organization(
+    State(app): State<AppContainer>,
+    SubjectExt(sub): SubjectExt,
+    Path(org_id): Path<Uuid>,
+) -> ApiResult<EnvelopeReply<OrganizationResponse>> {
+    let organization =
+        handle_get_organization(GetOrganizationQuery { org_id }, &sub, &app.get_org_deps())
+            .await
+            .map_err(|e| ApiError::from_app(e, &sub.request_id))?;
+
+    let mut nodes = organization
+        .nodes()
+        .map(|node| OrgNodeResponse {
+            id: node.id.0,
+            parent_id: node.parent_id.map(|parent| parent.0),
+            code: node.code.clone(),
+            name: node.name.clone(),
+            kind: node.kind.as_str().to_owned(),
+            path: node.path.as_str().to_owned(),
+            is_active: node.is_active,
+        })
+        .collect::<Vec<_>>();
+    nodes.sort_unstable_by(|left, right| left.path.cmp(&right.path));
+
+    Ok(ok(
+        OrganizationResponse {
+            id: organization.id().0,
+            root_node_id: organization.root_id().0,
+            version: organization.version(),
+            nodes,
+        },
+        sub.request_id,
+    ))
 }
 
 pub async fn list_organizations(

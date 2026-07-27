@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bpmp_domain_core::{DomainEvent, NodeId, TenantId, WorkflowType, WorkflowVersion};
 use thiserror::Error;
 
-use crate::{EventCodec, OutboxError, OutboxStorePort};
+use crate::{EventCodec, OutboxError, OutboxStorePort, RetryDelayPort};
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum LocalTaskKind {
@@ -67,6 +67,85 @@ pub trait LocalTaskExecutorPort: Send + Sync {
         &self,
         activation: &LocalTaskActivation,
     ) -> Result<LocalTaskExecutionOutcome, LocalTaskRuntimeError>;
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct LocalTaskRetryPolicy {
+    pub max_attempts: u32,
+    pub initial_backoff_ms: u64,
+    pub max_backoff_ms: u64,
+    pub multiplier_millis: u32,
+}
+
+impl LocalTaskRetryPolicy {
+    /// Validates a deployment-supplied local-task retry policy.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for zero attempts/delay/multiplier or an inverted range.
+    pub const fn validate(self) -> Result<Self, LocalTaskRuntimeError> {
+        if self.max_attempts == 0
+            || self.initial_backoff_ms == 0
+            || self.max_backoff_ms < self.initial_backoff_ms
+            || self.multiplier_millis == 0
+        {
+            Err(LocalTaskRuntimeError::InvalidConfiguration)
+        } else {
+            Ok(self)
+        }
+    }
+}
+
+pub struct RetryingLocalTaskExecutor<E, D> {
+    inner: E,
+    delay: D,
+    policy: LocalTaskRetryPolicy,
+}
+
+impl<E, D> RetryingLocalTaskExecutor<E, D> {
+    /// Creates a bounded retry decorator.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the supplied policy is invalid.
+    pub fn new(
+        inner: E,
+        delay: D,
+        policy: LocalTaskRetryPolicy,
+    ) -> Result<Self, LocalTaskRuntimeError> {
+        Ok(Self {
+            inner,
+            delay,
+            policy: policy.validate()?,
+        })
+    }
+}
+
+impl<E, D> LocalTaskExecutorPort for RetryingLocalTaskExecutor<E, D>
+where
+    E: LocalTaskExecutorPort,
+    D: RetryDelayPort,
+{
+    fn execute(
+        &self,
+        activation: &LocalTaskActivation,
+    ) -> Result<LocalTaskExecutionOutcome, LocalTaskRuntimeError> {
+        let mut backoff_ms = self.policy.initial_backoff_ms;
+        for attempt in 1..=self.policy.max_attempts {
+            match self.inner.execute(activation) {
+                Ok(outcome) => return Ok(outcome),
+                Err(error) if attempt == self.policy.max_attempts => return Err(error),
+                Err(_) => {
+                    self.delay.wait(backoff_ms);
+                    backoff_ms = backoff_ms
+                        .saturating_mul(u64::from(self.policy.multiplier_millis))
+                        .saturating_div(1_000)
+                        .min(self.policy.max_backoff_ms);
+                }
+            }
+        }
+        Err(LocalTaskRuntimeError::InvalidConfiguration)
+    }
 }
 
 #[allow(clippy::missing_errors_doc)]
@@ -322,6 +401,68 @@ mod tests {
             _: &LocalTaskActivation,
         ) -> Result<LocalTaskExecutionOutcome, LocalTaskRuntimeError> {
             Ok(LocalTaskExecutionOutcome::NotHandled)
+        }
+    }
+
+    struct FailingExecutor(Mutex<u32>);
+    impl LocalTaskExecutorPort for &FailingExecutor {
+        fn execute(
+            &self,
+            _: &LocalTaskActivation,
+        ) -> Result<LocalTaskExecutionOutcome, LocalTaskRuntimeError> {
+            *self.0.lock().unwrap() += 1;
+            Err(LocalTaskRuntimeError::Execution("transient".into()))
+        }
+    }
+
+    #[derive(Default)]
+    struct Delay(Mutex<Vec<u64>>);
+    impl RetryDelayPort for &Delay {
+        fn wait(&self, delay_ms: u64) {
+            self.0.lock().unwrap().push(delay_ms);
+        }
+    }
+
+    fn activation_fixture() -> LocalTaskActivation {
+        LocalTaskActivation {
+            cursor: 1,
+            event_id: "event-1".into(),
+            tenant_id: TenantId::new("tenant-a").unwrap(),
+            instance_id: "instance-a".into(),
+            workflow_type: WorkflowType::new("order").unwrap(),
+            workflow_version: WorkflowVersion::new("1").unwrap(),
+            node_id: NodeId::new("service").unwrap(),
+            kind: LocalTaskKind::Service,
+            task_type: "payment".into(),
+            implementation_ref: "wasm://payment".into(),
+            implementation_version: "sha256:abc".into(),
+            occurred_at_epoch_ms: 1,
+        }
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::test_runner::Config::with_cases(100))]
+
+        // Feature: rust-bpm-platform, Property 10: Service-task retry stops at the configured attempt bound
+        #[test]
+        fn service_retry_uses_exact_configured_attempts(max_attempts in 1_u32..20) {
+            let executor = FailingExecutor(Mutex::new(0));
+            let delay = Delay::default();
+            let retrying = RetryingLocalTaskExecutor::new(
+                &executor,
+                &delay,
+                LocalTaskRetryPolicy {
+                    max_attempts,
+                    initial_backoff_ms: 1,
+                    max_backoff_ms: 8,
+                    multiplier_millis: 2_000,
+                },
+            )
+            .unwrap();
+            let result = retrying.execute(&activation_fixture());
+            proptest::prop_assert!(result.is_err());
+            proptest::prop_assert_eq!(*executor.0.lock().unwrap(), max_attempts);
+            proptest::prop_assert_eq!(delay.0.lock().unwrap().len(), max_attempts.saturating_sub(1) as usize);
         }
     }
 

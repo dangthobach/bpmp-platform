@@ -5552,6 +5552,108 @@ mod tests {
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
 
+        // Feature: rust-bpm-platform, Property 4: approval decision follows the WIR branch
+        #[test]
+        fn approval_completion_activates_the_declared_decision_branch(approved in any::<bool>()) {
+            let start = id(NodeId::new, "start");
+            let review = id(NodeId::new, "review");
+            let route = id(NodeId::new, "route");
+            let accepted = id(NodeId::new, "accepted");
+            let rejected = id(NodeId::new, "rejected");
+            let end = id(NodeId::new, "end");
+            let definition = WorkflowDefinition::new(
+                id(TenantId::new, "tenant-a"),
+                id(WorkflowType::new, "approval"),
+                id(WorkflowVersion::new, "1"),
+                start.clone(),
+                [
+                    (start, Node::Start { next: review.clone() }),
+                    (
+                        review.clone(),
+                        Node::UserTask {
+                            task_type: id(TaskType::new, "review"),
+                            assignment_policy_ref: "reviewers".into(),
+                            form_key: None,
+                            result_variable: "decision".into(),
+                            next: route.clone(),
+                        },
+                    ),
+                    (
+                        route,
+                        Node::ExclusiveGateway {
+                            transitions: vec![
+                                GuardedTransition {
+                                    target: accepted.clone(),
+                                    guard: Some(GuardExpression {
+                                        variable: "decision".into(),
+                                        operator: ComparisonOperator::Equal,
+                                        literal: WorkflowValue::String("approved".into()),
+                                    }),
+                                    expression: None,
+                                },
+                                GuardedTransition {
+                                    target: rejected.clone(),
+                                    guard: None,
+                                    expression: None,
+                                },
+                            ],
+                            coverage: None,
+                        },
+                    ),
+                    (
+                        accepted.clone(),
+                        Node::ServiceTask {
+                            task_type: id(TaskType::new, "accept"),
+                            next: end.clone(),
+                        },
+                    ),
+                    (
+                        rejected.clone(),
+                        Node::ServiceTask {
+                            task_type: id(TaskType::new, "reject"),
+                            next: end.clone(),
+                        },
+                    ),
+                    (end, Node::End),
+                ],
+            ).unwrap();
+            let configuration = configuration(8);
+            let variables = BTreeMap::new();
+            let context = DecisionContext {
+                configuration: &configuration,
+                variables: &variables,
+            };
+            let started = decide(
+                &definition,
+                &InstanceState::default(),
+                &Command::StartWorkflow {
+                    tenant_id: id(TenantId::new, "tenant-a"),
+                    occurred_at_epoch_ms: 1,
+                },
+                context,
+            ).unwrap();
+            let active = rehydrate(None, &started);
+            let decision = if approved { "approved" } else { "rejected" };
+            let completed = decide(
+                &definition,
+                &active,
+                &Command::CompleteUserTask {
+                    node_id: review,
+                    decision: decision.into(),
+                    occurred_at_epoch_ms: 2,
+                },
+                context,
+            ).unwrap();
+            let expected = if approved { accepted } else { rejected };
+            let expected_was_activated = completed.iter().any(|event| {
+                matches!(
+                    event,
+                    DomainEvent::ServiceTaskActivated { node_id, .. } if node_id == &expected
+                )
+            });
+            prop_assert!(expected_was_activated);
+        }
+
         // Feature: rust-bpm-platform, Property 11: deterministic replay
         #[test]
         fn replay_is_deterministic(started_at in any::<u64>(), completed_at in any::<u64>()) {

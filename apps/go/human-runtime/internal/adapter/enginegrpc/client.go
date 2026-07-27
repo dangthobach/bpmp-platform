@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/dangthobach/bpmp-platform/apps/go/human-runtime/internal/application"
 	authv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/authorization/v1"
 	enginev1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/engine/v1"
+	"github.com/dangthobach/bpmp-platform/go/platform/requestmeta"
 )
 
 type SecuritySnapshot struct {
@@ -16,7 +18,7 @@ type SecuritySnapshot struct {
 }
 
 type SecurityProvider interface {
-	ForTenant(context.Context, string, string) (SecuritySnapshot, error)
+	ForTenant(context.Context, string, string, time.Time) (SecuritySnapshot, error)
 }
 
 type Client struct {
@@ -32,16 +34,21 @@ func New(client enginev1.EngineCommandServiceClient, security SecurityProvider) 
 }
 
 func (c *Client) CompleteUserTask(ctx context.Context, command application.EngineCompleteCommand) error {
-	snapshot, err := c.security.ForTenant(ctx, command.TenantID, command.CommandID)
+	if command.OccurredAt.IsZero() {
+		return errors.New("command occurrence time is required")
+	}
+	snapshot, err := c.security.ForTenant(
+		ctx,
+		command.TenantID,
+		command.CommandID,
+		command.OccurredAt,
+	)
 	if err != nil {
 		return fmt.Errorf("resolve workload security snapshot: %w", err)
 	}
 	actorProof, err := actorProof(command)
 	if err != nil {
 		return err
-	}
-	if command.OccurredAt.IsZero() {
-		return errors.New("command occurrence time is required")
 	}
 	occurredAt := uint64(command.OccurredAt.UnixMilli())
 	envelope := &enginev1.CommandEnvelope{
@@ -63,7 +70,15 @@ func (c *Client) CompleteUserTask(ctx context.Context, command application.Engin
 			},
 		},
 	}
-	receipt, err := c.client.HandleCommand(ctx, envelope)
+	traceParent, traceState := requestmeta.TraceFromIncomingContext(ctx)
+	outgoing := requestmeta.OutgoingContext(ctx, requestmeta.Values{
+		CorrelationID: command.CorrelationID,
+		TenantID:      command.TenantID,
+		CommandID:     command.CommandID,
+		TraceParent:   traceParent,
+		TraceState:    traceState,
+	})
+	receipt, err := c.client.HandleCommand(outgoing, envelope)
 	if err != nil {
 		return err
 	}

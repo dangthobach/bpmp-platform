@@ -1,0 +1,10 @@
+FROM golang:1.25.0-bookworm AS builder
+WORKDIR /workspace
+COPY go ./go
+COPY apps/go/configuration-service ./apps/go/configuration-service
+WORKDIR /workspace/apps/go/configuration-service
+RUN CGO_ENABLED=0 go build -trimpath -o /out/configuration-service ./cmd/configuration-service
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=builder /out/configuration-service /usr/local/bin/configuration-service
+ENTRYPOINT ["/usr/local/bin/configuration-service"]

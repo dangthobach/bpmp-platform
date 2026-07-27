@@ -1,5 +1,6 @@
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -15,9 +16,11 @@ pub struct RuntimeConfig {
     pub data_path: PathBuf,
     pub tls: TlsConfig,
     pub wir: WirConfig,
+    pub configuration_resolver: Option<ConfigurationResolverConfig>,
     pub authorization: AuthorizationConfig,
     pub payload_keys: Vec<PayloadKeyConfig>,
     pub rocksdb: RocksDbRuntimeConfig,
+    pub raft: RaftRuntimeConfig,
     pub grpc: GrpcConfig,
     pub workers: WorkerConfig,
     pub kafka: KafkaConfig,
@@ -34,7 +37,6 @@ impl RuntimeConfig {
 
     fn validate(&self) -> Result<(), RuntimeConfigError> {
         if self.wir.artifacts.is_empty()
-            || self.wir.configurations.is_empty()
             || self.authorization.policy_bundles.is_empty()
             || self.authorization.actor_keys.is_empty()
             || self.authorization.workload_keys.is_empty()
@@ -76,6 +78,7 @@ impl RuntimeConfig {
                 "artifact, key, policy, and Kafka collections must not be empty",
             ));
         }
+        self.validate_configuration_source()?;
         for value in [
             self.workers.boundary.projection_batch_size,
             self.workers.boundary.dispatch_batch_size,
@@ -96,6 +99,7 @@ impl RuntimeConfig {
             self.grpc.max_encoding_bytes,
             self.workers.outbox_batch_size,
             self.workers.local_task_batch_size,
+            self.workers.local_task_max_attempts as usize,
         ] {
             if value == 0 {
                 return Err(RuntimeConfigError::Invalid(
@@ -107,6 +111,8 @@ impl RuntimeConfig {
             self.workers.poll_interval_ms,
             self.workers.outbox_initial_retry_ms,
             self.workers.outbox_max_retry_ms,
+            self.workers.local_task_initial_retry_ms,
+            self.workers.local_task_max_retry_ms,
         ] {
             if value == 0 {
                 return Err(RuntimeConfigError::Invalid(
@@ -116,13 +122,28 @@ impl RuntimeConfig {
         }
         if self.workers.outbox_max_retry_ms < self.workers.outbox_initial_retry_ms
             || self.workers.outbox_retry_multiplier_millis < 1_000
+            || self.workers.local_task_max_retry_ms < self.workers.local_task_initial_retry_ms
+            || self.workers.local_task_retry_multiplier_millis < 1_000
             || self.workers.outbox_max_attempts == 0
         {
             return Err(RuntimeConfigError::Invalid(
                 "outbox retry policy is invalid",
             ));
         }
+        self.raft.validate()?;
         validate_wasm_modules(&self.wasm_modules)?;
+        Ok(())
+    }
+
+    fn validate_configuration_source(&self) -> Result<(), RuntimeConfigError> {
+        if self.wir.configurations.is_empty() == self.configuration_resolver.is_none() {
+            return Err(RuntimeConfigError::Invalid(
+                "configure exactly one configuration source",
+            ));
+        }
+        if let Some(resolver) = &self.configuration_resolver {
+            resolver.validate()?;
+        }
         Ok(())
     }
 
@@ -163,6 +184,40 @@ pub struct WirConfig {
     pub verification_key: PathBuf,
     pub artifacts: Vec<PathBuf>,
     pub configurations: Vec<PathBuf>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConfigurationResolverConfig {
+    pub endpoint: String,
+    pub tls_domain: String,
+    pub platform_reference: String,
+    pub environment_reference: String,
+    pub timeout_ms: u64,
+    pub max_attempts: u32,
+    pub retry_delay_ms: u64,
+    pub max_decoding_bytes: usize,
+    pub max_encoding_bytes: usize,
+}
+
+impl ConfigurationResolverConfig {
+    fn validate(&self) -> Result<(), RuntimeConfigError> {
+        if self.endpoint.trim().is_empty()
+            || self.tls_domain.trim().is_empty()
+            || self.platform_reference.trim().is_empty()
+            || self.environment_reference.trim().is_empty()
+            || self.timeout_ms == 0
+            || self.max_attempts == 0
+            || self.retry_delay_ms == 0
+            || self.max_decoding_bytes == 0
+            || self.max_encoding_bytes == 0
+        {
+            return Err(RuntimeConfigError::Invalid(
+                "configuration resolver settings are invalid",
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -227,6 +282,92 @@ pub struct RocksDbRuntimeConfig {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct RaftRuntimeConfig {
+    pub cluster_name: String,
+    pub node_id: u64,
+    pub peer_listen_addr: SocketAddr,
+    pub peers: Vec<RaftPeerConfig>,
+    pub bootstrap: bool,
+    pub heartbeat_interval_ms: u64,
+    pub election_timeout_min_ms: u64,
+    pub election_timeout_max_ms: u64,
+    pub rpc_timeout_ms: u64,
+    pub max_conditions: u32,
+    pub max_mutations: u32,
+    pub max_batch_bytes: u64,
+    pub max_snapshot_bytes: u64,
+    pub append_only_column_families: BTreeSet<String>,
+}
+
+impl RaftRuntimeConfig {
+    fn validate(&self) -> Result<(), RuntimeConfigError> {
+        if self.cluster_name.trim().is_empty()
+            || self.node_id == 0
+            || self.heartbeat_interval_ms == 0
+            || self.election_timeout_min_ms <= self.heartbeat_interval_ms
+            || self.election_timeout_max_ms <= self.election_timeout_min_ms
+            || self.rpc_timeout_ms == 0
+            || self.max_conditions == 0
+            || self.max_mutations == 0
+            || self.max_batch_bytes == 0
+            || self.max_snapshot_bytes == 0
+            || self.peers.is_empty()
+        {
+            return Err(RuntimeConfigError::Invalid(
+                "Raft identities, timeouts, bounds, and peers must be valid",
+            ));
+        }
+        let mut node_ids = BTreeSet::new();
+        let mut addresses = BTreeSet::new();
+        for peer in &self.peers {
+            if peer.node_id == 0
+                || peer.raft_address.trim().is_empty()
+                || peer.tls_domain.trim().is_empty()
+                || !node_ids.insert(peer.node_id)
+                || !addresses.insert(peer.raft_address.as_str())
+            {
+                return Err(RuntimeConfigError::Invalid(
+                    "Raft peer identities and addresses must be unique and non-empty",
+                ));
+            }
+        }
+        if !node_ids.contains(&self.node_id) {
+            return Err(RuntimeConfigError::Invalid(
+                "Raft peer directory must include the local node",
+            ));
+        }
+        let required_append_only = [
+            "events",
+            "dedup",
+            "outbox",
+            "idempotency",
+            "authorization_audit",
+            "compensation_ledger",
+            "governance_audit",
+            "raft_applied_commands",
+        ];
+        if required_append_only
+            .iter()
+            .any(|name| !self.append_only_column_families.contains(*name))
+        {
+            return Err(RuntimeConfigError::Invalid(
+                "Raft append-only column families omit required authoritative records",
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RaftPeerConfig {
+    pub node_id: u64,
+    pub raft_address: String,
+    pub tls_domain: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GrpcConfig {
     pub max_decoding_bytes: usize,
     pub max_encoding_bytes: usize,
@@ -243,6 +384,10 @@ pub struct WorkerConfig {
     pub outbox_retry_multiplier_millis: u32,
     pub boundary: BoundaryWorkerConfig,
     pub local_task_batch_size: usize,
+    pub local_task_max_attempts: u32,
+    pub local_task_initial_retry_ms: u64,
+    pub local_task_max_retry_ms: u64,
+    pub local_task_retry_multiplier_millis: u32,
 }
 
 #[derive(Debug, Clone, Deserialize)]

@@ -35,6 +35,7 @@ message EnginePolicy {
   uint32 max_multi_instance_cardinality = 7;
   uint32 default_multi_instance_parallelism = 8;
   BoundaryRuntimePolicy boundary_runtime = 9;
+  string event_payload_key_scope = 10;
 }
 
 message BoundaryRuntimePolicy {
@@ -72,4 +73,21 @@ message ResolvedConfigurationSnapshot {
   repeated ConfigurationScope resolved_scopes = 5;
   bytes content_hash = 6;
   EnginePolicy engine = 7;
+}
+
+message ResolveConfigurationRequest {
+  string tenant_id = 1;
+  string workflow_type = 2;
+  string workflow_version = 3;
+  string platform_reference = 4;
+  string environment_reference = 5;
+  string instance_id = 6;
+}
+
+message ResolveConfigurationResponse {
+  ResolvedConfigurationSnapshot snapshot = 1;
+}
+
+service ConfigurationResolverService {
+  rpc ResolveConfiguration(ResolveConfigurationRequest) returns (ResolveConfigurationResponse);
 }

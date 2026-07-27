@@ -223,6 +223,11 @@ impl<T: AuthorizationProviderPort + ?Sized> AuthorizationProviderPort for Arc<T>
 
 #[derive(Debug, Error, Clone, Eq, PartialEq)]
 pub enum StoreError {
+    #[error("authoritative command must be forwarded to Raft leader {leader_id:?}")]
+    NotLeader {
+        leader_id: Option<u64>,
+        leader_address: Option<String>,
+    },
     #[error("workflow stream version conflict: expected {expected}, actual {actual}")]
     VersionConflict { expected: u64, actual: u64 },
     #[error("idempotency key was already used by another command")]

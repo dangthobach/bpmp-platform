@@ -30,7 +30,21 @@ impl SnapshotCodec {
     pub fn decode(bytes: &[u8]) -> Result<SnapshotEnvelope, SnapshotCodecError> {
         let snapshot = wire::WorkflowSnapshot::decode(bytes)
             .map_err(|error| SnapshotCodecError::Decode(error.to_string()))?;
-        from_wire(snapshot)
+        from_wire(upcast(snapshot)?)
+    }
+}
+
+fn upcast(
+    mut snapshot: wire::WorkflowSnapshot,
+) -> Result<wire::WorkflowSnapshot, SnapshotCodecError> {
+    match snapshot.schema_version {
+        SNAPSHOT_SCHEMA_VERSION => Ok(snapshot),
+        // v0 persisted the same state fields before the schema marker was mandatory.
+        0 => {
+            snapshot.schema_version = SNAPSHOT_SCHEMA_VERSION;
+            Ok(snapshot)
+        }
+        version => Err(SnapshotCodecError::UnsupportedSchema(version)),
     }
 }
 

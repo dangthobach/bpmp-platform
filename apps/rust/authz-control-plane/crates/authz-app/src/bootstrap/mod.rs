@@ -73,4 +73,10 @@ impl AppContainer {
             uow_factory: self.uow_factory.clone(),
         }
     }
+    pub fn get_org_deps(&self) -> queries::get_organization::Deps {
+        queries::get_organization::Deps {
+            authz: self.authz.clone(),
+            uow_factory: self.uow_factory.clone(),
+        }
+    }
 }

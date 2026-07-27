@@ -170,8 +170,10 @@ where
         &self,
         request: Request<CommandEnvelope>,
     ) -> Result<Response<CommandReceipt>, Status> {
-        self.handler
-            .handle(request.into_inner())
+        let handler = Arc::clone(&self.handler);
+        tokio::task::spawn_blocking(move || handler.handle(request.into_inner()))
+            .await
+            .map_err(|error| Status::internal(format!("command worker failed: {error}")))?
             .map(Response::new)
             .map_err(Status::from)
     }
@@ -421,7 +423,11 @@ pub enum TransportError {
 impl From<TransportError> for Status {
     fn from(error: TransportError) -> Self {
         match error {
-            TransportError::Engine(EngineError::Authorization(_)) => {
+            TransportError::Engine(EngineError::Authorization(source)) => {
+                tracing::warn!(
+                    error = %source,
+                    "authoritative workflow command authorization failed"
+                );
                 Self::permission_denied("engine authorization denied the command")
             }
             TransportError::Definition(_) => Self::unavailable(error.to_string()),

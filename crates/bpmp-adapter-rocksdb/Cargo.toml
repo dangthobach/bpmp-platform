@@ -19,10 +19,12 @@ thiserror.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 bpmp-raft-state-machine.workspace = true
+openraft.workspace = true
 rocksdb = { version = "0.24.0", default-features = false, features = ["bindgen-runtime", "lz4"] }
 
 [dev-dependencies]
 tempfile.workspace = true
+tokio.workspace = true
 
 [lints]
 workspace = true

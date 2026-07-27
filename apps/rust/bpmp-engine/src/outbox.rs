@@ -225,6 +225,8 @@ mod tests {
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
+    use proptest::prelude::*;
+
     use super::*;
 
     struct Store {
@@ -374,5 +376,40 @@ mod tests {
             &["event-1".to_owned(), "event-1".to_owned()]
         );
         assert_eq!(*runtime.store.checkpoint.lock().unwrap(), 1);
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+
+        // Feature: rust-bpm-platform, Property 37: outbox working set stays batch-bounded
+        #[test]
+        fn publisher_never_reads_or_publishes_beyond_the_configured_batch(
+            record_count in 0_usize..256,
+            batch_size in 1_usize..32,
+        ) {
+            let records = (1..=u64::try_from(record_count).unwrap())
+                .map(record)
+                .collect::<Vec<_>>();
+            let runtime = OutboxPublisher::new(
+                Store {
+                    records,
+                    checkpoint: Mutex::new(0),
+                    fail_checkpoint_once: AtomicBool::new(false),
+                },
+                Publisher::default(),
+                Delay::default(),
+                OutboxPublisherConfig::new(batch_size, 3, 10, 100, 2_000).unwrap(),
+            );
+
+            let outcome = runtime.run_once(0).unwrap();
+            let expected = record_count.min(batch_size);
+            prop_assert_eq!(outcome.published, expected);
+            prop_assert!(outcome.published <= batch_size);
+            prop_assert_eq!(runtime.publisher.published.lock().unwrap().len(), expected);
+            prop_assert_eq!(
+                *runtime.store.checkpoint.lock().unwrap(),
+                u64::try_from(expected).unwrap()
+            );
+        }
     }
 }

@@ -176,6 +176,8 @@ pub enum CryptoError {
 
 #[cfg(test)]
 mod tests {
+    use proptest::prelude::*;
+
     use super::*;
 
     struct StaticResolver {
@@ -253,5 +255,70 @@ mod tests {
             ),
             Err(CryptoError::KeyUnavailable)
         );
+    }
+
+    struct ControlledResolver {
+        failure: Option<CryptoError>,
+    }
+
+    impl DataKeyResolverPort for ControlledResolver {
+        fn resolve_for_encrypt(
+            &self,
+            key_scope: &KeyScope,
+        ) -> Result<ResolvedDataKey, CryptoError> {
+            self.failure
+                .clone()
+                .map_or_else(|| Ok(StaticResolver::key(key_scope)), Err)
+        }
+
+        fn resolve_for_decrypt(
+            &self,
+            key_scope: &KeyScope,
+            _key_version: &str,
+            _key_epoch: u64,
+        ) -> Result<ResolvedDataKey, CryptoError> {
+            self.resolve_for_encrypt(key_scope)
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+
+        // Feature: rust-bpm-platform, Property 50: encryption fails closed without valid current key material
+        #[test]
+        fn encryption_requires_a_current_non_revoked_key(
+            payload in proptest::collection::vec(any::<u8>(), 0..2048),
+            failure_kind in 0_u8..4,
+            scope_suffix in "[a-z][a-z0-9]{0,12}",
+        ) {
+            let failure = match failure_kind {
+                0 => None,
+                1 => Some(CryptoError::KeyUnavailable),
+                2 => Some(CryptoError::KeyRevoked),
+                _ => Some(CryptoError::StaleKeyEpoch),
+            };
+            let crypto = AesGcmPayloadCrypto::new(ControlledResolver {
+                failure: failure.clone(),
+            });
+            let scope = KeyScope::new(format!("tenant-a/{scope_suffix}")).unwrap();
+            let result = crypto.encrypt(
+                EncryptionContext {
+                    key_scope: &scope,
+                    associated_data: b"tenant-a/stream/1",
+                },
+                &payload,
+            );
+            match failure {
+                None => {
+                    let encrypted = result.unwrap();
+                    prop_assert_ne!(&encrypted.ciphertext, &payload);
+                    prop_assert_eq!(
+                        crypto.decrypt(b"tenant-a/stream/1", &encrypted).unwrap(),
+                        payload,
+                    );
+                }
+                Some(expected) => prop_assert_eq!(result, Err(expected)),
+            }
+        }
     }
 }

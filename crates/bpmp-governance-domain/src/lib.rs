@@ -495,6 +495,7 @@ impl Canonical {
 #[cfg(test)]
 mod tests {
     use ed25519_dalek::{Signer as _, SigningKey};
+    use proptest::prelude::*;
 
     use super::*;
 
@@ -550,6 +551,13 @@ mod tests {
             .to_bytes()
             .to_vec();
         approval
+    }
+
+    fn resign(approval: &mut SignedApproval, key: &SigningKey) {
+        approval.signature = key
+            .sign(&approval_signing_payload(approval))
+            .to_bytes()
+            .to_vec();
     }
 
     fn request(entries: &[CompensationLedgerEntry]) -> AbortAndReconcileRequest {
@@ -678,5 +686,83 @@ mod tests {
             pending_ledger_digest(&[first.clone(), second.clone()]),
             pending_ledger_digest(&[second, first])
         );
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+
+        // Feature: rust-bpm-platform, Property 52: AbortAndReconcile requires valid dual control
+        #[test]
+        fn abort_and_reconcile_fails_closed_for_every_proof_violation(
+            mutation in 0_u8..9,
+            pending_count in 1_u8..6,
+        ) {
+            let requester_key = SigningKey::from_bytes(&[7; 32]);
+            let approver_key = SigningKey::from_bytes(&[8; 32]);
+            let entries = (0..pending_count)
+                .map(|index| entry(&format!("entry-{index}"), u64::from(index) + 1))
+                .collect::<Vec<_>>();
+            let mut request = request(&entries);
+            let digest = abort_request_digest(&request);
+            let mut proof = DualControlProof {
+                requester: signed("requester", "requester-key", &requester_key, digest),
+                approvers: vec![signed("approver", "approver-key", &approver_key, digest)],
+            };
+            let policy = policy(&[
+                ("requester-key", &requester_key),
+                ("approver-key", &approver_key),
+            ]);
+            let expected = match mutation {
+                0 => None,
+                1 => {
+                    proof.approvers[0] =
+                        signed("requester", "approver-key", &approver_key, digest);
+                    Some(GovernanceError::ActorSeparationViolation)
+                }
+                2 => {
+                    proof.approvers[0].tenant_id = "tenant-b".into();
+                    resign(&mut proof.approvers[0], &approver_key);
+                    Some(GovernanceError::ApprovalTenantMismatch)
+                }
+                3 => {
+                    proof.approvers[0].capability = "other.capability".into();
+                    resign(&mut proof.approvers[0], &approver_key);
+                    Some(GovernanceError::CapabilityDenied)
+                }
+                4 => {
+                    proof.approvers[0].auth_assurance = "aal-low".into();
+                    resign(&mut proof.approvers[0], &approver_key);
+                    Some(GovernanceError::AuthenticationAssuranceDenied)
+                }
+                5 => {
+                    proof.approvers[0].expires_at_epoch_ms = NOW;
+                    resign(&mut proof.approvers[0], &approver_key);
+                    Some(GovernanceError::ApprovalOutsideValidity)
+                }
+                6 => {
+                    proof.approvers[0].request_digest[0] ^= 1;
+                    resign(&mut proof.approvers[0], &approver_key);
+                    Some(GovernanceError::ProofDigestMismatch)
+                }
+                7 => {
+                    request.pending_ledger_digest[0] ^= 1;
+                    Some(GovernanceError::StaleLedgerDigest)
+                }
+                _ => {
+                    proof.approvers[0].signature[0] ^= 1;
+                    Some(GovernanceError::InvalidApprovalSignature)
+                }
+            };
+            let result =
+                decide_abort_and_reconcile(&request, &entries, &proof, &policy, NOW);
+            if let Some(error) = expected {
+                prop_assert_eq!(result, Err(error));
+            } else {
+                let decision = result.unwrap();
+                prop_assert_eq!(decision.work_items.len(), entries.len());
+                prop_assert_eq!(decision.requester_audit.actor_id, "requester");
+                prop_assert_eq!(decision.approver_audits[0].actor_id.as_str(), "approver");
+            }
+        }
     }
 }

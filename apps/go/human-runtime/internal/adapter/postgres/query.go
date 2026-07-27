@@ -9,9 +9,7 @@ import (
 )
 
 func (s *Store) ListWorkItems(ctx context.Context, tenantID, actorID string, groups []string, limit int, cursor *application.PageCursor) ([]domain.WorkItem, *application.PageCursor, error) {
-	if limit <= 0 || limit > 200 {
-		limit = 50
-	}
+	limit = application.NormalizePageSize(limit)
 	cursorTime := time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
 	cursorID := "~"
 	if cursor != nil {
@@ -36,12 +34,7 @@ func (s *Store) ListWorkItems(ctx context.Context, tenantID, actorID string, gro
 	if err = rows.Err(); err != nil {
 		return nil, nil, err
 	}
-	var next *application.PageCursor
-	if len(items) > limit {
-		items = items[:limit]
-		last := items[len(items)-1]
-		next = &application.PageCursor{UpdatedAt: last.UpdatedAt, WorkItemID: last.ID}
-	}
+	items, next := application.BuildWorkItemPage(items, limit)
 	return items, next, nil
 }
 

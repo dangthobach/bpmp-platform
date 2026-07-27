@@ -48,6 +48,30 @@ type ActorVerificationRequest struct {
 	EvaluatedAt time.Time
 	Credential  ActorCredential
 }
+
+const (
+	DefaultPageSize = 50
+	MaxPageSize     = 200
+)
+
+func NormalizePageSize(limit int) int {
+	if limit <= 0 || limit > MaxPageSize {
+		return DefaultPageSize
+	}
+	return limit
+}
+
+// BuildWorkItemPage converts a limit+1 keyset query result into a bounded page.
+func BuildWorkItemPage(items []domain.WorkItem, limit int) ([]domain.WorkItem, *PageCursor) {
+	limit = NormalizePageSize(limit)
+	if len(items) <= limit {
+		return items, nil
+	}
+	items = items[:limit]
+	last := items[len(items)-1]
+	return items, &PageCursor{UpdatedAt: last.UpdatedAt, WorkItemID: last.ID}
+}
+
 type ActorVerifier interface {
 	VerifyActor(context.Context, ActorVerificationRequest) (ActorIdentity, error)
 }

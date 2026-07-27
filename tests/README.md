@@ -15,8 +15,14 @@ test with at least 100 generated cases and this tag:
 ```
 
 Current tagged coverage includes P1 (compiler round trip), P11 (deterministic
-replay), and P53 (versioned configuration). The remaining P1-P53 catalog is an
-explicit roadmap gap; ordinary example tests do not count as property coverage.
+replay), P16 (credit backpressure), P23 (quorum acknowledgement), P36 (rate
+limiting), and P53 (versioned configuration). The remaining P1-P53 catalog is
+an explicit roadmap gap; ordinary example tests do not count as property
+coverage.
+
+Run `tools/check-property-catalog.ps1` to report coverage and reject duplicate
+canonical tags. Release automation must use `-RequireComplete`; it intentionally
+fails until every property has one real property-based test.
 
 Requirement 1 has a dedicated AC1-AC12 acceptance suite and compliance matrix:
 

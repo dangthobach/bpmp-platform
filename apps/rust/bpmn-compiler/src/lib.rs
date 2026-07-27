@@ -5,8 +5,10 @@ mod codegen;
 mod compiler;
 mod diagnostic;
 mod printer;
+mod progressive_view;
 
 pub use codegen::CodegenError;
 pub use compiler::{BpmnCompiler, CompilerConfigError, CompilerLimits, SourceDocument};
 pub use diagnostic::{CompileDiagnostic, DiagnosticKind, SourceSpan};
 pub use printer::PrintError;
+pub use progressive_view::{ProgressiveModel, ProgressiveViewError, ViewMode};
