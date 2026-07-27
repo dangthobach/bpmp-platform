@@ -26,7 +26,23 @@ impl EventCodec {
     pub fn decode(bytes: &[u8]) -> Result<EventEnvelope, EventCodecError> {
         let envelope = wire::EventEnvelope::decode(bytes)
             .map_err(|error| EventCodecError::Decode(error.to_string()))?;
-        from_wire(envelope)
+        from_wire(upcast(envelope)?)
+    }
+}
+
+fn upcast(mut envelope: wire::EventEnvelope) -> Result<wire::EventEnvelope, EventCodecError> {
+    let metadata = envelope
+        .metadata
+        .as_mut()
+        .ok_or(EventCodecError::MissingMetadata)?;
+    match metadata.schema_version {
+        EVENT_SCHEMA_VERSION => Ok(envelope),
+        // v0 carried the same fields before the schema marker became mandatory.
+        0 => {
+            metadata.schema_version = EVENT_SCHEMA_VERSION;
+            Ok(envelope)
+        }
+        version => Err(EventCodecError::UnsupportedSchema(version)),
     }
 }
 
@@ -1027,6 +1043,42 @@ mod tests {
             prop_assert_eq!(
                 EventCodec::decode(&EventCodec::encode(&expected)).unwrap(),
                 expected,
+            );
+        }
+
+        // Feature: rust-bpm-platform, Property 39: Historical contracts upcast before deterministic replay
+        #[test]
+        fn legacy_event_upcast_is_semantically_equivalent(
+            suffix in "[a-z][a-z0-9]{0,12}",
+            sequence in 1_u64..10_000,
+        ) {
+            let expected = EventEnvelope {
+                metadata: EventMetadata {
+                    event_id: format!("event-{suffix}-{sequence}"),
+                    tenant_id: TenantId::new("tenant-a").unwrap(),
+                    instance_id: InstanceId::new(format!("instance-{suffix}")).unwrap(),
+                    sequence,
+                    schema_version: EVENT_SCHEMA_VERSION,
+                    correlation_id: CorrelationId::new(format!("correlation-{suffix}")).unwrap(),
+                    causation_command_id: CommandId::new(format!("command-{suffix}")).unwrap(),
+                    occurred_at_epoch_ms: sequence,
+                    config_version: ConfigVersion::new("config-1").unwrap(),
+                    policy_version: PolicyVersion::new("policy-1").unwrap(),
+                    actor_id: ActorId::new("actor-1").unwrap(),
+                    encryption_key_scope: KeyScope::new("tenant-a/operational").unwrap(),
+                    workflow_type: WorkflowType::new("order").unwrap(),
+                    workflow_version: WorkflowVersion::new("1").unwrap(),
+                },
+                event: DomainEvent::ServiceTaskCompleted {
+                    node_id: NodeId::new(format!("node-{suffix}")).unwrap(),
+                    occurred_at_epoch_ms: sequence,
+                },
+            };
+            let mut legacy = to_wire(&expected);
+            legacy.metadata.as_mut().unwrap().schema_version = 0;
+            prop_assert_eq!(
+                EventCodec::decode(&legacy.encode_to_vec()).unwrap(),
+                expected
             );
         }
     }

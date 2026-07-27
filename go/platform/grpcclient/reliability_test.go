@@ -2,6 +2,8 @@ package grpcclient
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 	"testing/quick"
 	"time"
@@ -10,6 +12,32 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+// Feature: rust-bpm-platform, Property 24: Timeout invokes configured fallback
+func TestTimeoutInvokesConfiguredFallback(t *testing.T) {
+	property := func(rawTimeout uint8) bool {
+		timeout := time.Duration(rawTimeout%5+1) * time.Millisecond
+		expected := fmt.Sprintf("fallback-%d", rawTimeout)
+		got, err := InvokeWithFallback(
+			context.Background(),
+			FallbackConfig{Timeout: timeout},
+			func(ctx context.Context) (string, error) {
+				<-ctx.Done()
+				return "", ctx.Err()
+			},
+			func(_ context.Context, cause error) (string, error) {
+				if !errors.Is(cause, context.DeadlineExceeded) {
+					return "", cause
+				}
+				return expected, nil
+			},
+		)
+		return err == nil && got == expected
+	}
+	if err := quick.Check(property, &quick.Config{MaxCount: 100}); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func testConfig() Config {
 	return Config{

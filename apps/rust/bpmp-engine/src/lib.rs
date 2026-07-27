@@ -7,6 +7,9 @@
 mod application;
 mod authorization;
 mod boundary_runtime;
+mod compensation_runtime;
+mod data_governance;
+mod dead_letter_replay;
 mod dispatch_credit;
 mod event_codec;
 mod governance;
@@ -34,6 +37,17 @@ pub use boundary_runtime::{
     SignalEnqueueOutcome, SystemClock, TimerDispatchCompletion, TimerSchedule,
     WorkflowDefinitionProviderPort,
 };
+pub use compensation_runtime::{
+    CompensationExecutorPort, CompensationRunOutcome, CompensationRuntime,
+    CompensationRuntimeError, CompensationStorePort,
+};
+pub use data_governance::{
+    ErasureDecision, ErasureError, ErasureState, PayloadAvailability, PiiReadOutcome,
+};
+pub use dead_letter_replay::{
+    DeadLetterEntry, DeadLetterReplayError, DeadLetterReplayExecutorPort, DeadLetterReplayOutcome,
+    DeadLetterReplayRuntime, DeadLetterReplayStorePort,
+};
 pub use dispatch_credit::{CreditController, CreditError, DispatchLimits};
 pub use event_codec::{EventCodec, EventCodecError};
 pub use governance::{
@@ -42,8 +56,8 @@ pub use governance::{
 };
 pub use local_task_runtime::{
     LocalTaskActivation, LocalTaskCompletionDispatcherPort, LocalTaskExecutionOutcome,
-    LocalTaskExecutorPort, LocalTaskKind, LocalTaskRunOutcome, LocalTaskRuntime,
-    LocalTaskRuntimeError, LocalTaskRuntimeStorePort,
+    LocalTaskExecutorPort, LocalTaskKind, LocalTaskRetryPolicy, LocalTaskRunOutcome,
+    LocalTaskRuntime, LocalTaskRuntimeError, LocalTaskRuntimeStorePort, RetryingLocalTaskExecutor,
 };
 pub use outbox::{
     IntegrationEventPublisherPort, OutboxError, OutboxPublisher, OutboxPublisherConfig,
@@ -54,7 +68,9 @@ pub use ports::{
     AuthorizedPrincipal, CommitOutcome, CommitRequest, ConfigurationLookup,
     ConfigurationProviderPort, LoadedInstance, StoreError, WorkflowStorePort,
 };
-pub use runtime_registry::{RuntimeRegistry, RuntimeRegistryError};
+pub use runtime_registry::{
+    MigrationSafePoint, RuntimeReferenceKind, RuntimeRegistry, RuntimeRegistryError,
+};
 pub use snapshot_codec::{SNAPSHOT_SCHEMA_VERSION, SnapshotCodec, SnapshotCodecError};
 pub use transport::{
     AuthoritativeCommandHandler, CommandDefinitionProviderPort, EngineCommandHandlerPort,

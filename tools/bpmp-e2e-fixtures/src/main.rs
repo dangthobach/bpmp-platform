@@ -373,7 +373,7 @@ fn engine_config(manifest: &Manifest, mount: &str, index: usize, keys: &[&AuthKe
             "append_only_column_families": ["events","dedup","outbox","idempotency","authorization_audit","compensation_ledger","governance_audit","raft_applied_commands"]
         },
         "grpc": {"max_decoding_bytes": 1_048_576, "max_encoding_bytes": 1_048_576},
-        "workers": {"poll_interval_ms": 100, "outbox_batch_size": 64, "outbox_max_attempts": 10, "outbox_initial_retry_ms": 50, "outbox_max_retry_ms": 1000, "outbox_retry_multiplier_millis": 2000, "boundary": boundary_config(&format!("engine-{}-boundary", index + 1)), "local_task_batch_size": 32},
+        "workers": {"poll_interval_ms": 100, "outbox_batch_size": 64, "outbox_max_attempts": 10, "outbox_initial_retry_ms": 50, "outbox_max_retry_ms": 1000, "outbox_retry_multiplier_millis": 2000, "boundary": boundary_config(&format!("engine-{}-boundary", index + 1)), "local_task_batch_size": 32, "local_task_max_attempts": 3, "local_task_initial_retry_ms": 25, "local_task_max_retry_ms": 250, "local_task_retry_multiplier_millis": 2000},
         "kafka": {"brokers": manifest.kafka_brokers, "topic": manifest.committed_event_topic, "client_id": format!("bpmp-engine-{}", index + 1), "message_timeout_ms": 5000},
         "wasm_modules": []
     })

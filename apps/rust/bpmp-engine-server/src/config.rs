@@ -98,6 +98,7 @@ impl RuntimeConfig {
             self.grpc.max_encoding_bytes,
             self.workers.outbox_batch_size,
             self.workers.local_task_batch_size,
+            self.workers.local_task_max_attempts as usize,
         ] {
             if value == 0 {
                 return Err(RuntimeConfigError::Invalid(
@@ -109,6 +110,8 @@ impl RuntimeConfig {
             self.workers.poll_interval_ms,
             self.workers.outbox_initial_retry_ms,
             self.workers.outbox_max_retry_ms,
+            self.workers.local_task_initial_retry_ms,
+            self.workers.local_task_max_retry_ms,
         ] {
             if value == 0 {
                 return Err(RuntimeConfigError::Invalid(
@@ -118,6 +121,8 @@ impl RuntimeConfig {
         }
         if self.workers.outbox_max_retry_ms < self.workers.outbox_initial_retry_ms
             || self.workers.outbox_retry_multiplier_millis < 1_000
+            || self.workers.local_task_max_retry_ms < self.workers.local_task_initial_retry_ms
+            || self.workers.local_task_retry_multiplier_millis < 1_000
             || self.workers.outbox_max_attempts == 0
         {
             return Err(RuntimeConfigError::Invalid(
@@ -332,6 +337,10 @@ pub struct WorkerConfig {
     pub outbox_retry_multiplier_millis: u32,
     pub boundary: BoundaryWorkerConfig,
     pub local_task_batch_size: usize,
+    pub local_task_max_attempts: u32,
+    pub local_task_initial_retry_ms: u64,
+    pub local_task_max_retry_ms: u64,
+    pub local_task_retry_multiplier_millis: u32,
 }
 
 #[derive(Debug, Clone, Deserialize)]

@@ -31,9 +31,10 @@ use bpmp_engine::{
     EmbeddedAuthorizationProvider, Engine, EngineBoundaryCommandDispatcher,
     GrpcEngineCommandService, GrpcTransportConfig, LocalTaskActivation,
     LocalTaskCompletionDispatcherPort, LocalTaskExecutionOutcome, LocalTaskExecutorPort,
-    LocalTaskKind, LocalTaskRuntime, LocalTaskRuntimeError, OutboxBoundaryEventSource, OutboxError,
-    OutboxPublisher, OutboxPublisherConfig, OutboxRecord, OutboxStorePort, PublishAcknowledgement,
-    RetryDelayPort, RuntimeRegistry, SystemClock, WirLoader, WorkflowDefinitionProviderPort,
+    LocalTaskKind, LocalTaskRetryPolicy, LocalTaskRuntime, LocalTaskRuntimeError,
+    OutboxBoundaryEventSource, OutboxError, OutboxPublisher, OutboxPublisherConfig, OutboxRecord,
+    OutboxStorePort, PublishAcknowledgement, RetryDelayPort, RetryingLocalTaskExecutor,
+    RuntimeRegistry, SystemClock, WirLoader, WorkflowDefinitionProviderPort,
 };
 use bpmp_payload_crypto::{AesGcmPayloadCrypto, CryptoError, DataKeyResolverPort, ResolvedDataKey};
 use bpmp_raft_state_machine::{AuthoritativeStateMachine, StateMachineLimits, TypeConfig};
@@ -180,7 +181,16 @@ pub async fn run(path: PathBuf) -> Result<()> {
     let local_tasks = Arc::new(LocalTaskRuntime::new(
         store.clone(),
         store.clone(),
-        ConfiguredWasmExecutor::load(registry.clone(), &config.wasm_modules)?,
+        RetryingLocalTaskExecutor::new(
+            ConfiguredWasmExecutor::load(registry.clone(), &config.wasm_modules)?,
+            ThreadDelay,
+            LocalTaskRetryPolicy {
+                max_attempts: config.workers.local_task_max_attempts,
+                initial_backoff_ms: config.workers.local_task_initial_retry_ms,
+                max_backoff_ms: config.workers.local_task_max_retry_ms,
+                multiplier_millis: config.workers.local_task_retry_multiplier_millis,
+            },
+        )?,
         LocalTaskCompletionDispatcher {
             engine: local_task_engine,
             definitions: registry.clone(),

@@ -13,6 +13,38 @@ import (
 
 var ErrCircuitOpen = status.Error(codes.Unavailable, "upstream circuit is open")
 
+type FallbackConfig struct {
+	Timeout time.Duration
+}
+
+func (c FallbackConfig) Validate() error {
+	if c.Timeout <= 0 {
+		return errors.New("fallback timeout configuration is invalid")
+	}
+	return nil
+}
+
+// InvokeWithFallback bounds the primary call and invokes the configured
+// fallback only after the primary fails or exceeds its deadline.
+func InvokeWithFallback[T any](
+	ctx context.Context,
+	config FallbackConfig,
+	primary func(context.Context) (T, error),
+	fallback func(context.Context, error) (T, error),
+) (T, error) {
+	var zero T
+	if err := config.Validate(); err != nil {
+		return zero, err
+	}
+	attemptCtx, cancel := context.WithTimeout(ctx, config.Timeout)
+	result, err := primary(attemptCtx)
+	cancel()
+	if err == nil {
+		return result, nil
+	}
+	return fallback(ctx, err)
+}
+
 type Config struct {
 	MaxAttempts      uint32
 	InitialBackoff   time.Duration
