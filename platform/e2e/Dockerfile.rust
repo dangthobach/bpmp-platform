@@ -1,0 +1,20 @@
+FROM rust:1.91.1-bookworm AS builder
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends clang cmake libclang-dev \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /workspace
+COPY . .
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/workspace/target \
+    cargo build -p bpmp-engine-server -p bpmp-e2e-fixtures \
+    && cp /workspace/target/debug/bpmp-engine /tmp/bpmp-engine \
+    && cp /workspace/target/debug/bpmp-e2e-fixtures /tmp/bpmp-e2e-fixtures
+
+FROM debian:bookworm-slim
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /tmp/bpmp-engine /usr/local/bin/bpmp-engine
+COPY --from=builder /tmp/bpmp-e2e-fixtures /usr/local/bin/bpmp-e2e-fixtures
+ENTRYPOINT ["/usr/local/bin/bpmp-engine"]

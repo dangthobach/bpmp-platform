@@ -719,6 +719,8 @@ fn lock_error<T>(error: std::sync::PoisonError<T>) -> AtomicStorageError {
 
 #[cfg(test)]
 mod tests {
+    use proptest::prelude::*;
+
     use super::*;
 
     fn metadata() -> StateMachineMetadata {
@@ -927,5 +929,193 @@ mod tests {
                 .0,
             Some(log_id)
         );
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+
+        // Feature: rust-bpm-platform, Property 12: append-only records preserve order and immutability
+        #[test]
+        fn append_only_records_preserve_sequence_and_value(
+            values in proptest::collection::vec(
+                proptest::collection::vec(any::<u8>(), 0..64),
+                1..12,
+            ),
+        ) {
+            let storage = InMemoryAtomicStateStorage::default();
+            let keys = (0..values.len())
+                .map(|index| key("events", &(u64::try_from(index).unwrap() + 1).to_be_bytes()))
+                .collect::<Vec<_>>();
+            let batch = PreparedAtomicBatch::new(
+                "append-sequence".into(),
+                b"tenant/append-sequence".to_vec(),
+                keys.iter().cloned().map(|storage_key| Precondition {
+                    storage_key,
+                    expected: ExpectedValue::Missing,
+                }).collect(),
+                keys.iter().cloned().zip(values.iter().cloned()).map(
+                    |(storage_key, value)| Mutation::Put { storage_key, value },
+                ).collect(),
+                Vec::new(),
+            );
+            prop_assert_eq!(
+                storage.apply(&batch, &limits(), &metadata()).unwrap().outcome,
+                ApplyOutcome::Applied,
+            );
+            for (storage_key, expected) in keys.iter().zip(&values) {
+                prop_assert_eq!(storage.get(storage_key).unwrap(), Some(expected.clone()));
+            }
+            let overwrite = PreparedAtomicBatch::new(
+                "overwrite".into(),
+                b"tenant/overwrite".to_vec(),
+                vec![Precondition {
+                    storage_key: keys[0].clone(),
+                    expected: ExpectedValue::Missing,
+                }],
+                vec![Mutation::Put {
+                    storage_key: keys[0].clone(),
+                    value: b"changed".to_vec(),
+                }],
+                Vec::new(),
+            );
+            let overwrite_outcome =
+                storage.apply(&overwrite, &limits(), &metadata()).unwrap().outcome;
+            prop_assert!(
+                matches!(overwrite_outcome, ApplyOutcome::PreconditionFailed { .. }),
+                "append-only overwrite unexpectedly succeeded",
+            );
+            prop_assert_eq!(storage.get(&keys[0]).unwrap(), Some(values[0].clone()));
+        }
+
+        // Feature: rust-bpm-platform, Property 28: idempotency key yields one effective command
+        #[test]
+        fn duplicate_idempotency_scope_returns_the_original_result(
+            repeats in 1_u8..24,
+            value in proptest::collection::vec(any::<u8>(), 0..128),
+        ) {
+            let storage = InMemoryAtomicStateStorage::default();
+            let event_key = key("events", b"tenant/instance/1");
+            let batch = PreparedAtomicBatch::new(
+                "command".into(),
+                b"tenant/actor/idempotency".to_vec(),
+                vec![Precondition {
+                    storage_key: event_key.clone(),
+                    expected: ExpectedValue::Missing,
+                }],
+                vec![Mutation::Put {
+                    storage_key: event_key.clone(),
+                    value: value.clone(),
+                }],
+                b"receipt".to_vec(),
+            );
+            let first = storage.apply(&batch, &limits(), &metadata()).unwrap();
+            prop_assert_eq!(first.outcome, ApplyOutcome::Applied);
+            for _ in 0..repeats {
+                let duplicate = storage.apply(&batch, &limits(), &metadata()).unwrap();
+                prop_assert_eq!(duplicate.outcome, ApplyOutcome::Duplicate);
+                prop_assert_eq!(&duplicate.response_payload, &first.response_payload);
+            }
+            prop_assert_eq!(storage.get(&event_key).unwrap(), Some(value));
+        }
+
+        // Feature: rust-bpm-platform, Property 29: duplicate event identifiers apply once
+        #[test]
+        fn duplicate_event_storage_identity_is_rejected(
+            event_suffix in "[a-z][a-z0-9]{0,12}",
+            first_value in proptest::collection::vec(any::<u8>(), 0..64),
+            duplicate_value in proptest::collection::vec(any::<u8>(), 0..64),
+        ) {
+            let storage = InMemoryAtomicStateStorage::default();
+            let event_key = key("events", format!("event-{event_suffix}").as_bytes());
+            let make_batch = |command: &str, scope: &[u8], value: Vec<u8>| PreparedAtomicBatch::new(
+                command.into(),
+                scope.to_vec(),
+                vec![Precondition {
+                    storage_key: event_key.clone(),
+                    expected: ExpectedValue::Missing,
+                }],
+                vec![Mutation::Put {
+                    storage_key: event_key.clone(),
+                    value,
+                }],
+                Vec::new(),
+            );
+            let first = make_batch("first", b"first-scope", first_value.clone());
+            let duplicate = make_batch("duplicate", b"duplicate-scope", duplicate_value);
+            prop_assert_eq!(
+                storage.apply(&first, &limits(), &metadata()).unwrap().outcome,
+                ApplyOutcome::Applied,
+            );
+            let duplicate_outcome =
+                storage.apply(&duplicate, &limits(), &metadata()).unwrap().outcome;
+            prop_assert!(
+                matches!(duplicate_outcome, ApplyOutcome::PreconditionFailed { .. }),
+                "duplicate event identity unexpectedly applied",
+            );
+            prop_assert_eq!(storage.get(&event_key).unwrap(), Some(first_value));
+        }
+
+        // Feature: rust-bpm-platform, Property 30: optimistic locking admits exactly one contender
+        #[test]
+        fn concurrent_expected_version_updates_have_one_winner(
+            left in proptest::collection::vec(any::<u8>(), 0..64),
+            right in proptest::collection::vec(any::<u8>(), 0..64),
+        ) {
+            let storage = InMemoryAtomicStateStorage::default();
+            let state_key = key("stream_meta", b"tenant/instance");
+            let seed = PreparedAtomicBatch::new(
+                "seed".into(),
+                b"seed".to_vec(),
+                Vec::new(),
+                vec![Mutation::Put {
+                    storage_key: state_key.clone(),
+                    value: b"version-1".to_vec(),
+                }],
+                Vec::new(),
+            );
+            storage.apply(&seed, &limits(), &metadata()).unwrap();
+            let expected = ExpectedValue::Digest(value_digest(b"version-1"));
+            let contender = |command: &str, value: Vec<u8>| PreparedAtomicBatch::new(
+                command.into(),
+                command.as_bytes().to_vec(),
+                vec![Precondition {
+                    storage_key: state_key.clone(),
+                    expected: expected.clone(),
+                }],
+                vec![Mutation::Put {
+                    storage_key: state_key.clone(),
+                    value,
+                }],
+                Vec::new(),
+            );
+            let barrier = Arc::new(std::sync::Barrier::new(3));
+            let handles = [
+                ("left", left),
+                ("right", right),
+            ].into_iter().map(|(command, value)| {
+                let storage = storage.clone();
+                let batch = contender(command, value);
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    storage.apply(&batch, &limits(), &metadata()).unwrap().outcome
+                })
+            }).collect::<Vec<_>>();
+            barrier.wait();
+            let outcomes = handles.into_iter()
+                .map(|handle| handle.join().unwrap())
+                .collect::<Vec<_>>();
+            prop_assert_eq!(
+                outcomes.iter().filter(|outcome| **outcome == ApplyOutcome::Applied).count(),
+                1,
+            );
+            prop_assert_eq!(
+                outcomes.iter().filter(|outcome| matches!(
+                    outcome,
+                    ApplyOutcome::PreconditionFailed { .. }
+                )).count(),
+                1,
+            );
+        }
     }
 }

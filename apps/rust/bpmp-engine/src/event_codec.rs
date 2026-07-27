@@ -939,6 +939,8 @@ pub enum EventCodecError {
 
 #[cfg(test)]
 mod tests {
+    use proptest::prelude::*;
+
     use super::*;
 
     #[test]
@@ -971,6 +973,62 @@ mod tests {
             EventCodec::decode(&EventCodec::encode(&expected)).unwrap(),
             expected
         );
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+
+        // Feature: rust-bpm-platform, Property 14: event serialization round-trip
+        #[test]
+        fn every_generated_typed_event_round_trips(
+            suffix in "[a-z][a-z0-9]{0,12}",
+            sequence in 1_u64..10_000,
+            occurred_at in 1_u64..u64::MAX,
+            event_kind in 0_u8..4,
+        ) {
+            let metadata = EventMetadata {
+                event_id: format!("event-{suffix}-{sequence}"),
+                tenant_id: TenantId::new("tenant-a").unwrap(),
+                instance_id: InstanceId::new(format!("instance-{suffix}")).unwrap(),
+                sequence,
+                schema_version: EVENT_SCHEMA_VERSION,
+                correlation_id: CorrelationId::new(format!("correlation-{suffix}")).unwrap(),
+                causation_command_id: CommandId::new(format!("command-{suffix}")).unwrap(),
+                occurred_at_epoch_ms: occurred_at,
+                config_version: ConfigVersion::new(format!("config-{suffix}")).unwrap(),
+                policy_version: PolicyVersion::new(format!("policy-{suffix}")).unwrap(),
+                actor_id: ActorId::new(format!("actor-{suffix}")).unwrap(),
+                encryption_key_scope: KeyScope::new("tenant-a/operational").unwrap(),
+                workflow_type: WorkflowType::new(format!("workflow-{suffix}")).unwrap(),
+                workflow_version: WorkflowVersion::new("1").unwrap(),
+            };
+            let node_id = NodeId::new(format!("node-{suffix}")).unwrap();
+            let event = match event_kind {
+                0 => DomainEvent::ServiceTaskActivated {
+                    node_id,
+                    task_type: TaskType::new(format!("task-{suffix}")).unwrap(),
+                    occurred_at_epoch_ms: occurred_at,
+                },
+                1 => DomainEvent::UserTaskCompleted {
+                    node_id,
+                    decision: format!("decision-{suffix}"),
+                    result_variable: format!("result_{suffix}"),
+                    occurred_at_epoch_ms: occurred_at,
+                },
+                2 => DomainEvent::ScriptTaskCompleted {
+                    node_id,
+                    occurred_at_epoch_ms: occurred_at,
+                },
+                _ => DomainEvent::WorkflowCompleted {
+                    occurred_at_epoch_ms: occurred_at,
+                },
+            };
+            let expected = EventEnvelope { metadata, event };
+            prop_assert_eq!(
+                EventCodec::decode(&EventCodec::encode(&expected)).unwrap(),
+                expected,
+            );
+        }
     }
 
     #[test]

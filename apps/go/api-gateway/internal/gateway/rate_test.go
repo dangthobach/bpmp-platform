@@ -49,7 +49,6 @@ func (l *modelRateLimiter) allow(subject string, now time.Time) bool {
 }
 
 func TestRateLimitProperty(t *testing.T) {
-	// Feature: rust-bpm-platform, Property 36: rate limit bounds accepted requests
 	property := func(rawLimit, rawAttempts uint8) bool {
 		limit := uint32(rawLimit%64) + 1
 		attempts := int(rawAttempts)

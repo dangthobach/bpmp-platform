@@ -1,0 +1,10 @@
+FROM golang:1.25.0-bookworm AS builder
+WORKDIR /workspace
+COPY go ./go
+COPY apps/go/human-runtime ./apps/go/human-runtime
+WORKDIR /workspace/apps/go/human-runtime
+RUN CGO_ENABLED=0 go build -trimpath -o /out/human-runtime ./cmd/human-runtime
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=builder /out/human-runtime /usr/local/bin/human-runtime
+ENTRYPOINT ["/usr/local/bin/human-runtime"]

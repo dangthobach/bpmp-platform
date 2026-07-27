@@ -7,7 +7,7 @@ $ErrorActionPreference = "Stop"
 $workspace = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $pattern = "Feature:\s*rust-bpm-platform,\s*Property\s+([1-9]|[1-4][0-9]|5[0-3]):"
 $matches = Get-ChildItem `
-    -Path (Join-Path $workspace "apps"), (Join-Path $workspace "crates"), (Join-Path $workspace "tests") `
+    -Path (Join-Path $workspace "apps"), (Join-Path $workspace "crates"), (Join-Path $workspace "go"), (Join-Path $workspace "tests") `
     -Recurse -File -Include *.rs,*.go |
     Select-String -Pattern $pattern
 

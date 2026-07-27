@@ -32,6 +32,7 @@ use bpmp_engine::{
     EngineCommandHandlerPort, EngineError, HandleOutcome, OutboxStorePort,
     WorkflowDefinitionProviderPort, WorkflowStorePort,
 };
+use proptest::prelude::*;
 
 const KEY_ID: &str = "test-key";
 
@@ -735,33 +736,176 @@ fn rejects_caller_selected_payload_key_scope_before_loading_or_committing() {
     assert_eq!(engine.store().read_after(0, 1).unwrap(), Vec::new());
 }
 
-#[test]
-fn creates_snapshot_at_configured_event_boundary() {
-    let definition = definition();
-    let mut provider = InMemoryConfigurationProvider::default();
-    provider.insert(
-        ConfigurationLookup {
-            tenant_id: TenantId::new("tenant-a").unwrap(),
-            workflow_type: definition.workflow_type.clone(),
-            workflow_version: definition.workflow_version.clone(),
-        },
-        configuration(2),
-    );
-    let engine = Engine::new(provider, InMemoryWorkflowStore::default(), authorization());
+proptest! {
+    #![proptest_config(ProptestConfig {
+        cases: 100,
+        failure_persistence: None,
+        ..ProptestConfig::default()
+    })]
 
-    engine.handle(&definition, start_request()).unwrap();
-    let loaded = engine
-        .store()
-        .load(
+    // Feature: rust-bpm-platform, Property 13: snapshots occur at configured event multiples
+    #[test]
+    fn creates_snapshot_at_configured_event_boundary(snapshot_interval in 1_u32..=2) {
+        let definition = definition();
+        let mut provider = InMemoryConfigurationProvider::default();
+        provider.insert(
+            ConfigurationLookup {
+                tenant_id: TenantId::new("tenant-a").unwrap(),
+                workflow_type: definition.workflow_type.clone(),
+                workflow_version: definition.workflow_version.clone(),
+            },
+            configuration(snapshot_interval),
+        );
+        let engine = Engine::new(provider, InMemoryWorkflowStore::default(), authorization());
+
+        engine.handle(&definition, start_request()).unwrap();
+        let loaded = engine
+            .store()
+            .load(
+                &TenantId::new("tenant-a").unwrap(),
+                &InstanceId::new("instance-1").unwrap(),
+            )
+            .unwrap();
+
+        let snapshot = loaded.snapshot.expect("sequence two must be snapshotted");
+        prop_assert_eq!(snapshot.state.sequence % u64::from(snapshot_interval), 0);
+        prop_assert_eq!(snapshot.state.sequence, 2);
+        prop_assert!(loaded.events.is_empty());
+        prop_assert_eq!(loaded.version, 2);
+    }
+
+    // Feature: rust-bpm-platform, Property 17: unauthorized transitions leave state unchanged
+    #[test]
+    fn rejected_credentials_never_mutate_authoritative_state(credential_case in 0_u8..5) {
+        let definition = definition();
+        let mut provider = InMemoryConfigurationProvider::default();
+        provider.insert(
+            ConfigurationLookup {
+                tenant_id: TenantId::new("tenant-a").unwrap(),
+                workflow_type: definition.workflow_type.clone(),
+                workflow_version: definition.workflow_version.clone(),
+            },
+            configuration(100),
+        );
+        let engine = Engine::new(provider, InMemoryWorkflowStore::default(), authorization());
+        let mut request = start_request();
+        match credential_case {
+            0 => request.actor_proof.clear(),
+            1 => request.actor_proof = vec![0xff, 0x00, credential_case],
+            2 => request.evaluated_at_epoch_ms = 100,
+            3 => {
+                let signer = Ed25519Signer::from_bytes(&[11; 32]);
+                request.actor_proof = ActorProofCodec::seal(
+                    SignedActorContext {
+                        schema_version: AUTHORIZATION_PROOF_SCHEMA_VERSION,
+                        tenant_id: "tenant-a".into(),
+                        actor_id: "user-1".into(),
+                        roles: vec!["operator".into()],
+                        capabilities: vec!["unrelated.capability".into()],
+                        revoke_epoch: 1,
+                        issued_at_epoch_ms: 1,
+                        expires_at_epoch_ms: 100,
+                        audience_workload_id: "api-gateway".into(),
+                        command_id: "command-1".into(),
+                        signing_key_id: String::new(),
+                        content_hash: Vec::new(),
+                        signature: Vec::new(),
+                    },
+                    KEY_ID,
+                    &signer,
+                    proof_limits(),
+                ).unwrap();
+            }
+            _ => request.workload_proof.clear(),
+        }
+
+        prop_assert!(engine.handle(&definition, request).is_err());
+        let loaded = engine.store().load(
             &TenantId::new("tenant-a").unwrap(),
             &InstanceId::new("instance-1").unwrap(),
-        )
-        .unwrap();
+        ).unwrap();
+        prop_assert_eq!(loaded.version, 0);
+        prop_assert!(loaded.events.is_empty());
+        prop_assert!(loaded.snapshot.is_none());
+        prop_assert!(engine.store().read_after(0, 1).unwrap().is_empty());
+        prop_assert_eq!(engine.store().authorization_audit_count().unwrap(), 0);
+    }
 
-    let snapshot = loaded.snapshot.expect("sequence two must be snapshotted");
-    assert_eq!(snapshot.state.sequence, 2);
-    assert!(loaded.events.is_empty());
-    assert_eq!(loaded.version, 2);
+    // Feature: rust-bpm-platform, Property 18: every allowed transition has one complete audit
+    #[test]
+    fn allowed_transition_commits_exactly_one_complete_audit(evaluated_at in 1_u64..100) {
+        let definition = definition();
+        let mut provider = InMemoryConfigurationProvider::default();
+        provider.insert(
+            ConfigurationLookup {
+                tenant_id: TenantId::new("tenant-a").unwrap(),
+                workflow_type: definition.workflow_type.clone(),
+                workflow_version: definition.workflow_version.clone(),
+            },
+            configuration(100),
+        );
+        let engine = Engine::new(provider, InMemoryWorkflowStore::default(), authorization());
+        let mut request = start_request();
+        request.evaluated_at_epoch_ms = evaluated_at;
+        let command_id = request.command_id.clone();
+
+        prop_assert!(matches!(
+            engine.handle(&definition, request).unwrap(),
+            HandleOutcome::Committed(_)
+        ));
+        let audit = engine.store().authorization_audit(
+            &TenantId::new("tenant-a").unwrap(),
+            &command_id,
+        ).unwrap().unwrap();
+        prop_assert_eq!(engine.store().authorization_audit_count().unwrap(), 1);
+        prop_assert_eq!(audit.actor_id.as_str(), "user-1");
+        prop_assert_eq!(audit.roles, vec!["operator".to_owned()]);
+        prop_assert_eq!(audit.correlation_id.as_str(), "trace-1");
+        prop_assert_eq!(audit.occurred_at_epoch_ms, evaluated_at);
+    }
+
+    // Feature: rust-bpm-platform, Property 38: active instances remain pinned to their WIR version
+    #[test]
+    fn active_instance_rejects_a_newly_deployed_definition_version(
+        deployed_version in 2_u16..=u16::MAX
+    ) {
+        let version_one = definition();
+        let mut deployed = version_one.clone();
+        deployed.workflow_version = WorkflowVersion::new(deployed_version.to_string()).unwrap();
+        let mut provider = InMemoryConfigurationProvider::default();
+        for current in [&version_one, &deployed] {
+            provider.insert(
+                ConfigurationLookup {
+                    tenant_id: TenantId::new("tenant-a").unwrap(),
+                    workflow_type: current.workflow_type.clone(),
+                    workflow_version: current.workflow_version.clone(),
+                },
+                configuration(100),
+            );
+        }
+        let engine = Engine::new(provider, InMemoryWorkflowStore::default(), AllowCaseAuthorization);
+        engine.handle(&version_one, start_request()).unwrap();
+        let mut completion = start_request();
+        completion.command_id = CommandId::new("command-2").unwrap();
+        completion.idempotency_key = IdempotencyKey::new("complete-2").unwrap();
+        completion.command = Command::CompleteServiceTask {
+            node_id: NodeId::new("charge-card").unwrap(),
+            occurred_at_epoch_ms: 50,
+        };
+
+        let error = engine.handle(&deployed, completion).unwrap_err();
+        let version_mismatch = matches!(error, EngineError::PersistedWorkflowMismatch);
+        prop_assert!(version_mismatch);
+        let loaded = engine.store().load(
+            &TenantId::new("tenant-a").unwrap(),
+            &InstanceId::new("instance-1").unwrap(),
+        ).unwrap();
+        prop_assert_eq!(loaded.version, 2);
+        let all_events_remain_pinned = loaded.events.iter().all(|event| {
+            event.metadata.workflow_version == version_one.workflow_version
+        });
+        prop_assert!(all_events_remain_pinned);
+    }
 }
 
 #[test]

@@ -28,25 +28,24 @@ type Config struct {
 type Provider struct {
 	config Config
 	scopes TenantKeyScope
-	now    func() time.Time
 }
 
-func New(config Config, scopes TenantKeyScope, now func() time.Time) (*Provider, error) {
-	if config.WorkloadID == "" || config.SigningKeyID == "" || len(config.PrivateKey) != ed25519.PrivateKeySize || config.ProofTTL <= 0 || scopes == nil || now == nil {
+func New(config Config, scopes TenantKeyScope) (*Provider, error) {
+	if config.WorkloadID == "" || config.SigningKeyID == "" || len(config.PrivateKey) != ed25519.PrivateKeySize || config.ProofTTL <= 0 || scopes == nil {
 		return nil, errors.New("workload security configuration is incomplete")
 	}
-	return &Provider{config: config, scopes: scopes, now: now}, nil
+	return &Provider{config: config, scopes: scopes}, nil
 }
 
-func (p *Provider) ForTenant(ctx context.Context, tenantID, commandID string) (enginegrpc.SecuritySnapshot, error) {
-	if tenantID == "" || commandID == "" {
-		return enginegrpc.SecuritySnapshot{}, errors.New("tenant and command scope are required")
+func (p *Provider) ForTenant(ctx context.Context, tenantID, commandID string, evaluatedAt time.Time) (enginegrpc.SecuritySnapshot, error) {
+	if tenantID == "" || commandID == "" || evaluatedAt.IsZero() {
+		return enginegrpc.SecuritySnapshot{}, errors.New("tenant, command, and evaluation time are required")
 	}
 	keyScope, err := p.scopes.KeyScope(ctx, tenantID)
 	if err != nil {
 		return enginegrpc.SecuritySnapshot{}, err
 	}
-	issuedAt := p.now().UTC()
+	issuedAt := evaluatedAt.UTC()
 	expiresAt := issuedAt.Add(p.config.ProofTTL)
 	proof := &authv1.SignedWorkloadContext{
 		SchemaVersion:    proofSchemaVersion,

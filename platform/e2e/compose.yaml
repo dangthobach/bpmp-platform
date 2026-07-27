@@ -1,0 +1,136 @@
+name: bpmp-broker-e2e
+
+x-engine: &engine
+  image: ${RUST_IMAGE:?set RUST_IMAGE}
+  restart: "no"
+  environment:
+    RUST_LOG: ${ENGINE_LOG_LEVEL:-info}
+  volumes:
+    - ./runtime:/runtime:ro
+  depends_on:
+    topic-init:
+      condition: service_completed_successfully
+
+services:
+  fixture-generator:
+    image: ${RUST_IMAGE:?set RUST_IMAGE}
+    entrypoint: ["/usr/local/bin/bpmp-e2e-fixtures"]
+    command: ["--manifest", "/e2e/manifest.json", "--output", "/runtime"]
+    volumes:
+      - ./manifest.json:/e2e/manifest.json:ro
+      - ./runtime:/runtime
+    profiles: ["setup"]
+
+  postgres:
+    image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE}
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB}
+    ports:
+      - "${POSTGRES_PORT:?set POSTGRES_PORT}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  redis:
+    image: ${REDIS_IMAGE:?set REDIS_IMAGE}
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  redpanda:
+    image: ${REDPANDA_IMAGE:?set REDPANDA_IMAGE}
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp=1
+      - --memory=512M
+      - --reserve-memory=0M
+      - --node-id=0
+      - --check=false
+      - --kafka-addr=0.0.0.0:9092
+      - --advertise-kafka-addr=redpanda:9092
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "health"]
+      interval: 2s
+      timeout: 2s
+      retries: 45
+
+  topic-init:
+    image: ${REDPANDA_IMAGE:?set REDPANDA_IMAGE}
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - >
+        rpk topic create bpmp.engine.events.e2e --brokers redpanda:9092 --partitions 3 --replicas 1
+        || rpk topic describe bpmp.engine.events.e2e --brokers redpanda:9092;
+        rpk topic create bpmp.human.escalations.e2e --brokers redpanda:9092 --partitions 1 --replicas 1
+        || rpk topic describe bpmp.human.escalations.e2e --brokers redpanda:9092
+
+  otel-collector:
+    image: ${OTEL_IMAGE:?set OTEL_IMAGE}
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol/config.yaml:ro
+
+  engine1:
+    <<: *engine
+    command: ["--config", "/runtime/engine-1.json"]
+    volumes:
+      - ./runtime:/runtime:ro
+      - engine1-data:/data
+
+  engine2:
+    <<: *engine
+    command: ["--config", "/runtime/engine-2.json"]
+    volumes:
+      - ./runtime:/runtime:ro
+      - engine2-data:/data
+
+  engine3:
+    <<: *engine
+    command: ["--config", "/runtime/engine-3.json"]
+    volumes:
+      - ./runtime:/runtime:ro
+      - engine3-data:/data
+
+  human-runtime:
+    image: ${HUMAN_IMAGE:?set HUMAN_IMAGE}
+    command: ["--config", "/runtime/human-runtime.json"]
+    volumes:
+      - ./runtime:/runtime:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      topic-init:
+        condition: service_completed_successfully
+      engine2:
+        condition: service_started
+
+  api-gateway:
+    image: ${GATEWAY_IMAGE:?set GATEWAY_IMAGE}
+    command: ["--config", "/runtime/api-gateway.json"]
+    volumes:
+      - ./runtime:/runtime:ro
+    ports:
+      - "${GATEWAY_PORT:?set GATEWAY_PORT}:8443"
+    depends_on:
+      redis:
+        condition: service_healthy
+      human-runtime:
+        condition: service_started
+      engine2:
+        condition: service_started
+
+volumes:
+  engine1-data:
+  engine2-data:
+  engine3-data:

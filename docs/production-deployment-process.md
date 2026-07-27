@@ -18,10 +18,12 @@ scheduler transitions and local WASM completions all commit through
 idempotency result, encrypted authorization audit and outbox records are one
 atomic replicated batch.
 
-This is not yet sufficient to label a release `production-ha`. The
-broker-backed multi-process harness with Kafka, PostgreSQL, three engine
-processes, Human Runtime and API Gateway is still a release blocker, as are the
-incomplete P1-P53 property catalog and P46-P52 production governance gates.
+This is not yet sufficient to label a release `production-ha`. The repository
+now has a broker-backed multi-process harness with Kafka-compatible Redpanda,
+PostgreSQL, three engine processes, Human Runtime and API Gateway. Its probe
+executes leader loss and completes through the surviving Raft majority.
+Remaining release blockers are the incomplete P1-P53 property catalog and the
+P46-P52 production governance/erasure gates.
 
 ## 1.1 Current consensus and governance evidence
 
@@ -49,10 +51,15 @@ incomplete P1-P53 property catalog and P46-P52 production governance gates.
   duplicate and commits a new command.
 - A Linux race test changes a pending ledger record after governance prepare and
   proves event, work item and governance audit all remain absent.
+- `platform/e2e/run.ps1` generates ephemeral signed fixtures and mTLS material,
+  starts the complete broker-backed process topology, verifies API idempotency,
+  Kafka-to-PostgreSQL projection, stops the bootstrap leader, then completes
+  the work item through the surviving majority and verifies the committed
+  completion projection.
 
-These are component and integration gates, not the real-process release gate in
-section 3.4. No release record may claim that gate until the repository contains
-and passes a broker-backed multi-process harness.
+The process harness satisfies the functional real-process gate in section 3.4.
+It does not replace the remaining `production-ha` chaos, KMS, erasure,
+schema-evolution and complete property-catalog gates.
 
 ## 2. Immutable release inputs
 

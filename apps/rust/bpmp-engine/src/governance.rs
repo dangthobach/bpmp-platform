@@ -175,6 +175,7 @@ mod tests {
         SignedApproval, abort_request_digest, approval_signing_payload, pending_ledger_digest,
     };
     use ed25519_dalek::{Signer as _, SigningKey};
+    use proptest::prelude::*;
 
     use super::*;
 
@@ -296,5 +297,105 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+
+        // Feature: rust-bpm-platform, Property 51: erasure preserves every pending side effect
+        #[test]
+        fn abort_and_reconcile_atomically_plans_every_pending_side_effect(
+            pending_count in 1_u8..8,
+        ) {
+            let requester_key = SigningKey::from_bytes(&[1; 32]);
+            let approver_key = SigningKey::from_bytes(&[2; 32]);
+            let template = ledger().into_iter().next().unwrap();
+            let entries = (0..pending_count)
+                .map(|index| {
+                    let mut entry = template.clone();
+                    entry.ledger_entry_id = format!("ledger-{index}");
+                    entry.effect_sequence = u64::from(index) + 1;
+                    entry.ledger_sequence = u64::from(index) + 1;
+                    entry.opaque_operation_ref = format!("opaque-{index}");
+                    entry.idempotency_key = format!("effect-{index}");
+                    entry
+                })
+                .collect::<Vec<_>>();
+            let request = AbortAndReconcileRequest {
+                tenant_id: "tenant-a".into(),
+                instance_id: "instance-a".into(),
+                policy_id: "policy-1".into(),
+                legal_deadline_epoch_ms: 500,
+                key_scope: "subject-key".into(),
+                key_epoch: 7,
+                pending_ledger_digest: pending_ledger_digest(&entries),
+                reason_code: "legal-deadline".into(),
+            };
+            let digest = abort_request_digest(&request);
+            let proof = DualControlProof {
+                requester: approval("requester", "requester-key", &requester_key, digest),
+                approvers: vec![approval("approver", "approver-key", &approver_key, digest)],
+            };
+            let policy = GovernancePolicy {
+                abort_capability: "configured-abort".into(),
+                accepted_auth_assurance: BTreeSet::from(["configured-high".into()]),
+                approval_public_keys: BTreeMap::from([
+                    ("requester-key".into(), requester_key.verifying_key().to_bytes()),
+                    ("approver-key".into(), approver_key.verifying_key().to_bytes()),
+                ]),
+                required_approver_count: 1,
+                max_proof_age_ms: 50,
+                max_approval_ttl_ms: 100,
+                max_pending_ledger_entries: 8,
+            };
+            let state = InstanceState {
+                lifecycle: Lifecycle::Active {
+                    active_node: bpmp_domain_core::NodeId::new("task").unwrap(),
+                },
+                sequence: 4,
+                ..InstanceState::default()
+            };
+            let context = GovernanceCommandContext {
+                tenant_id: TenantId::new("tenant-a").unwrap(),
+                instance_id: InstanceId::new("instance-a").unwrap(),
+                command_id: CommandId::new("governance-command").unwrap(),
+                correlation_id: CorrelationId::new("correlation").unwrap(),
+                workflow_type: WorkflowType::new("order").unwrap(),
+                workflow_version: WorkflowVersion::new("1").unwrap(),
+                config_version: ConfigVersion::new("config-1").unwrap(),
+                policy_version: PolicyVersion::new("policy-1").unwrap(),
+                operational_key_scope: KeyScope::new("tenant-a/governance").unwrap(),
+                expected_version: 4,
+                evaluated_at_epoch_ms: 125,
+                occurred_at_epoch_ms: 130,
+            };
+
+            let plan = prepare_abort_and_reconcile(
+                &state,
+                &request,
+                &entries,
+                &proof,
+                &policy,
+                &context,
+            ).unwrap();
+            let expected = usize::from(pending_count);
+            prop_assert_eq!(plan.decision.work_items.len(), expected);
+            prop_assert_eq!(plan.ledger_updates.len(), expected);
+            let all_require_reconciliation = plan.ledger_updates.iter().all(|entry| {
+                entry.status == CompensationStatus::ReconciliationRequired
+            });
+            prop_assert!(all_require_reconciliation);
+            let planned_ids = plan.decision.work_items.iter()
+                .map(|item| item.ledger_entry_id.as_str())
+                .collect::<BTreeSet<_>>();
+            let source_ids = entries.iter()
+                .map(|entry| entry.ledger_entry_id.as_str())
+                .collect::<BTreeSet<_>>();
+            prop_assert_eq!(planned_ids, source_ids);
+            prop_assert_eq!(
+                plan.snapshot.state.lifecycle,
+                Lifecycle::TerminatedForCompliance
+            );
+        }
     }
 }

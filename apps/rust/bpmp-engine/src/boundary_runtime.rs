@@ -1100,6 +1100,7 @@ mod tests {
     use bpmp_domain_core::{
         ActorId, ConfigVersion, InstanceId, KeyScope, PolicyVersion, WorkflowType, WorkflowVersion,
     };
+    use proptest::prelude::*;
 
     use super::*;
     use crate::memory::InMemoryBoundaryRuntimeStore;
@@ -1376,5 +1377,123 @@ mod tests {
             Err(BoundaryRuntimeError::InvalidTimerExpression)
         );
         assert_eq!(runtime.store().projection_checkpoint().unwrap(), 0);
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+
+        // Feature: rust-bpm-platform, Property 8: message correlation targets only the matching instance subscription
+        #[test]
+        fn message_correlation_dispatches_exactly_the_matching_subscription(
+            subscription_count in 1_usize..16,
+            raw_target in any::<usize>(),
+        ) {
+            let target = raw_target % subscription_count;
+            let records = (0..subscription_count)
+                .map(|index| armed_record(
+                    u64::try_from(index).unwrap() + 1,
+                    &format!("boundary-{index}"),
+                    BoundaryTrigger::Message {
+                        message_ref: format!("message-{index}"),
+                    },
+                ))
+                .collect::<Vec<_>>();
+            let runtime = BoundaryRuntime::new(
+                Source(records),
+                InMemoryBoundaryRuntimeStore::default(),
+                Dispatcher::default(),
+                FixedClock::new(500),
+                policy(),
+            );
+            runtime.project_once().unwrap();
+            let signal = BoundarySignal {
+                signal_id: format!("signal-{target}"),
+                tenant_id: TenantId::new("tenant-a").unwrap(),
+                instance_id: InstanceId::new("instance-1").unwrap(),
+                kind: BoundarySignalKind::Message,
+                reference: Some(format!("message-{target}")),
+                occurred_at_epoch_ms: 200,
+                authorization_context_ref: format!("auth/signal-{target}"),
+            };
+            prop_assert_eq!(
+                runtime.enqueue_signal(&signal).unwrap(),
+                SignalEnqueueOutcome::Enqueued,
+            );
+            prop_assert_eq!(runtime.dispatch_correlations_once().unwrap().dispatched, 1);
+            let requests = runtime.dispatcher().requests.lock().unwrap();
+            prop_assert_eq!(requests.len(), 1);
+            let Command::TriggerBoundaryEvent {
+                boundary_event_id,
+                ..
+            } = &requests[0].command else {
+                return Err(TestCaseError::fail("correlation emitted the wrong command"));
+            };
+            prop_assert_eq!(boundary_event_id.as_str(), format!("boundary-{target}"));
+        }
+
+        // Feature: rust-bpm-platform, Property 9: a due timer triggers exactly its configured transition
+        #[test]
+        fn timer_dispatches_at_due_time_and_never_before(
+            duration_seconds in 1_u64..86_400,
+        ) {
+            let armed_at = 100_u64;
+            let due_at = armed_at + duration_seconds * 1_000;
+            let runtime = BoundaryRuntime::new(
+                Source(vec![armed_record(
+                    1,
+                    "timeout",
+                    BoundaryTrigger::Timer {
+                        kind: BoundaryTimerKind::Duration,
+                        expression: format!("PT{duration_seconds}S"),
+                    },
+                )]),
+                InMemoryBoundaryRuntimeStore::default(),
+                Dispatcher::default(),
+                FixedClock::new(due_at - 1),
+                policy(),
+            );
+            runtime.project_once().unwrap();
+            prop_assert_eq!(runtime.dispatch_due_timers_once().unwrap().dispatched, 0);
+            runtime.clock().set(due_at);
+            prop_assert_eq!(runtime.dispatch_due_timers_once().unwrap().dispatched, 1);
+            prop_assert_eq!(runtime.dispatcher().requests.lock().unwrap().len(), 1);
+        }
+
+        // Feature: rust-bpm-platform, Property 27: exhausted retries move the failed signal to dead letter
+        #[test]
+        fn unmatched_signal_dead_letters_at_the_configured_attempt_bound(
+            max_attempts in 1_u32..8,
+        ) {
+            let mut runtime_policy = policy();
+            runtime_policy.max_dispatch_attempts = max_attempts;
+            let runtime = BoundaryRuntime::new(
+                Source(Vec::new()),
+                InMemoryBoundaryRuntimeStore::default(),
+                Dispatcher::default(),
+                FixedClock::new(500),
+                runtime_policy,
+            );
+            let signal = BoundarySignal {
+                signal_id: "unmatched".into(),
+                tenant_id: TenantId::new("tenant-a").unwrap(),
+                instance_id: InstanceId::new("instance-1").unwrap(),
+                kind: BoundarySignalKind::Error,
+                reference: Some("unmatched.error".into()),
+                occurred_at_epoch_ms: 200,
+                authorization_context_ref: "auth/unmatched".into(),
+            };
+            runtime.enqueue_signal(&signal).unwrap();
+            let mut retries = 0_usize;
+            let mut dead_letters = 0_usize;
+            for attempt in 0..max_attempts {
+                let outcome = runtime.dispatch_correlations_once().unwrap();
+                retries += outcome.retried;
+                dead_letters += outcome.dead_lettered;
+                runtime.clock().set(1_500 + u64::from(attempt) * 1_000);
+            }
+            prop_assert_eq!(retries, usize::try_from(max_attempts - 1).unwrap());
+            prop_assert_eq!(dead_letters, 1);
+            prop_assert_eq!(runtime.store().dead_letter_count().unwrap(), 1);
+        }
     }
 }

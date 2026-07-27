@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 	"testing/quick"
@@ -8,28 +9,36 @@ import (
 )
 
 func TestActivationCreatesExactlyAssignedWorkItem(t *testing.T) {
-	now := time.Unix(100, 0).UTC()
-	item, err := Activate(Activation{
-		TenantID: "tenant-a", EventID: "event-1", InstanceID: "instance-1",
-		Sequence:     1,
-		WorkflowType: "approval", WorkflowVersion: "1", NodeID: "review",
-		TaskType: "review", AssignmentPolicyRef: "reviewers", OccurredAt: now,
-	}, AssignmentPolicy{
-		TenantID: "tenant-a", Reference: "reviewers",
-		Assignment: Assignment{CandidateGroup: "risk-team"}, SLADuration: time.Hour,
-	})
-	if err != nil {
+	// Feature: rust-bpm-platform, Property 3: user-task activation creates the configured assignment
+	property := func(rawID uint16, assignToActor bool, rawSLA uint16) bool {
+		now := time.Unix(100, 0).UTC()
+		assignment := Assignment{CandidateGroup: fmt.Sprintf("group-%d", rawID)}
+		if assignToActor {
+			assignment = Assignment{AssigneeID: fmt.Sprintf("actor-%d", rawID)}
+		}
+		sla := time.Duration(uint32(rawSLA)+1) * time.Millisecond
+		item, err := Activate(Activation{
+			TenantID: "tenant-a", EventID: fmt.Sprintf("event-%d", rawID),
+			InstanceID: fmt.Sprintf("instance-%d", rawID), Sequence: 1,
+			WorkflowType: "approval", WorkflowVersion: "1", NodeID: "review",
+			TaskType: "review", AssignmentPolicyRef: "reviewers", OccurredAt: now,
+		}, AssignmentPolicy{
+			TenantID: "tenant-a", Reference: "reviewers",
+			Assignment: assignment, SLADuration: sla,
+		})
+		return err == nil &&
+			reflect.DeepEqual(item.Assignment, assignment) &&
+			item.Status == WorkItemActive &&
+			item.SLADeadline != nil &&
+			item.SLADeadline.Equal(now.Add(sla))
+	}
+	if err := quick.Check(property, &quick.Config{MaxCount: 100}); err != nil {
 		t.Fatal(err)
-	}
-	if item.Assignment.CandidateGroup != "risk-team" || item.Status != WorkItemActive {
-		t.Fatalf("unexpected work item: %#v", item)
-	}
-	if item.SLADeadline == nil || !item.SLADeadline.Equal(now.Add(time.Hour)) {
-		t.Fatalf("unexpected SLA deadline: %v", item.SLADeadline)
 	}
 }
 
 func TestDelegateRoundTripProperty(t *testing.T) {
+	// Feature: rust-bpm-platform, Property 6: delegation changes assignee and preserves storage round-trip
 	property := func(actor, delegate string) bool {
 		if actor == "" || delegate == "" {
 			return true

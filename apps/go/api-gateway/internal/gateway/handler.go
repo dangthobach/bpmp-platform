@@ -111,6 +111,7 @@ type startRequest struct {
 }
 
 func (h *Handler) startWorkflow(w http.ResponseWriter, r *http.Request) {
+	setCorrelationHeader(w, r)
 	scope, err := h.authenticate(r)
 	if err != nil {
 		writeError(w, err)
@@ -151,6 +152,7 @@ type completeRequest struct {
 }
 
 func (h *Handler) completeWorkItem(w http.ResponseWriter, r *http.Request) {
+	setCorrelationHeader(w, r)
 	scope, err := h.authenticate(r)
 	if err != nil {
 		writeError(w, err)
@@ -177,6 +179,7 @@ type delegateRequest struct {
 }
 
 func (h *Handler) delegateWorkItem(w http.ResponseWriter, r *http.Request) {
+	setCorrelationHeader(w, r)
 	scope, err := h.authenticate(r)
 	if err != nil {
 		writeError(w, err)
@@ -239,15 +242,29 @@ var (
 
 func writeError(w http.ResponseWriter, err error) {
 	status := http.StatusBadRequest
+	message := "invalid request"
 	switch {
 	case errors.Is(err, errForbidden):
 		status = http.StatusForbidden
+		message = "forbidden"
 	case errors.Is(err, errRateLimited):
 		status = http.StatusTooManyRequests
+		message = "rate limit exceeded"
 	case errors.Is(err, errUpstream):
 		status = http.StatusBadGateway
+		message = "upstream unavailable"
 	}
-	writeJSON(w, status, map[string]string{"error": err.Error()})
+	response := map[string]string{"error": message}
+	if correlationID := w.Header().Get("X-Correlation-ID"); validID(correlationID) {
+		response["correlation_id"] = correlationID
+	}
+	writeJSON(w, status, response)
+}
+
+func setCorrelationHeader(w http.ResponseWriter, r *http.Request) {
+	if correlationID := r.Header.Get("X-Correlation-ID"); validID(correlationID) {
+		w.Header().Set("X-Correlation-ID", correlationID)
+	}
 }
 func writeJSON(w http.ResponseWriter, status int, value any) {
 	var body bytes.Buffer

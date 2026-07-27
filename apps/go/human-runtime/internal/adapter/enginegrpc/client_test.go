@@ -24,7 +24,7 @@ func (r *recordingClient) HandleCommand(ctx context.Context, in *enginev1.Comman
 
 type staticSecurity struct{}
 
-func (staticSecurity) ForTenant(context.Context, string, string) (SecuritySnapshot, error) {
+func (staticSecurity) ForTenant(context.Context, string, string, time.Time) (SecuritySnapshot, error) {
 	return SecuritySnapshot{EncryptionKeyScope: "tenant-a/operational", WorkloadProof: []byte("workload-proof")}, nil
 }
 

@@ -5,9 +5,14 @@ import (
 	"context"
 	"crypto"
 	"crypto/ed25519"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"testing/quick"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -73,5 +78,80 @@ func TestGatewayPreservesActorProofAndIdempotencyKey(t *testing.T) {
 	}
 	if values := engine.metadata.Get("traceparent"); len(values) != 1 || values[0] != request.Header.Get("traceparent") {
 		t.Fatalf("trace metadata was not preserved: %v", values)
+	}
+}
+
+func TestProperty33ErrorResponsesAreRedactedAndCorrelated(t *testing.T) {
+	property := func(seed uint64, errorClass uint8) bool {
+		correlationID := fmt.Sprintf("correlation-%d", seed)
+		request := httptest.NewRequest(http.MethodPost, "/", nil)
+		request.Header.Set("X-Correlation-ID", correlationID)
+		response := httptest.NewRecorder()
+		setCorrelationHeader(response, request)
+		sensitive := fmt.Sprintf("password=secret-%d\nstack trace: internal.go:42", seed)
+		var err error
+		switch errorClass % 4 {
+		case 0:
+			err = errors.New(sensitive)
+		case 1:
+			err = fmt.Errorf("%w: %s", errForbidden, sensitive)
+		case 2:
+			err = fmt.Errorf("%w: %s", errRateLimited, sensitive)
+		default:
+			err = fmt.Errorf("%w: %s", errUpstream, sensitive)
+		}
+		writeError(response, err)
+
+		var body map[string]string
+		if json.Unmarshal(response.Body.Bytes(), &body) != nil {
+			return false
+		}
+		encoded := response.Body.String()
+		return response.Header().Get("X-Correlation-ID") == correlationID &&
+			body["correlation_id"] == correlationID &&
+			!strings.Contains(encoded, sensitive) &&
+			!strings.Contains(encoded, "password=") &&
+			!strings.Contains(encoded, "stack trace")
+	}
+
+	// Feature: rust-bpm-platform, Property 33: errors are redacted and retain correlation ID
+	if err := quick.Check(property, &quick.Config{MaxCount: 100}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestProperty34OnlySchemaValidRequestsReachProcessing(t *testing.T) {
+	property := func(seed uint64, bodyClass uint8, invalidIdentifier bool) bool {
+		identifier := fmt.Sprintf("instance-%d", seed)
+		if invalidIdentifier {
+			identifier = fmt.Sprintf("invalid instance %d", seed)
+		}
+		var body string
+		switch bodyClass % 5 {
+		case 0:
+			body = fmt.Sprintf(`{"instance_id":"%s","workflow_version":"1","start_node_id":"start"}`, identifier)
+		case 1:
+			body = fmt.Sprintf(`{"instance_id":"%s","workflow_version":"1","start_node_id":"start","unknown":true}`, identifier)
+		case 2:
+			body = fmt.Sprintf(`{"instance_id":"%s","workflow_version":"1","start_node_id":"start"} {}`, identifier)
+		case 3:
+			body = `{"instance_id":`
+		default:
+			body = fmt.Sprintf(`{"instance_id":"%s","workflow_version":"%s","start_node_id":"start"}`, identifier, strings.Repeat("x", 512))
+		}
+		request := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+		response := httptest.NewRecorder()
+		var decoded startRequest
+		err := decodeBody(response, request, &decoded, 256)
+		accepted := err == nil &&
+			validID(decoded.InstanceID) &&
+			validID(decoded.WorkflowVersion) &&
+			validID(decoded.StartNodeID)
+		return accepted == (bodyClass%5 == 0 && !invalidIdentifier)
+	}
+
+	// Feature: rust-bpm-platform, Property 34: malformed or schema-invalid requests are rejected
+	if err := quick.Check(property, &quick.Config{MaxCount: 100}); err != nil {
+		t.Fatal(err)
 	}
 }

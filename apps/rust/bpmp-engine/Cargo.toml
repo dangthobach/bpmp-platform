@@ -18,6 +18,7 @@ thiserror.workspace = true
 time.workspace = true
 tokio.workspace = true
 tonic.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 ed25519-dalek.workspace = true

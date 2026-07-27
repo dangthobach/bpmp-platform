@@ -28,6 +28,26 @@ fn linear(process_id: &str) -> String {
     )
 }
 
+fn invalid_model(kind: u8, process_id: &str) -> String {
+    match kind {
+        0 => format!(
+            r#"<b:definitions xmlns:b="{BPMN_NS}"><b:process id="{process_id}"><b:startEvent id="start"/><b:exclusiveGateway id="route"/><b:endEvent id="yes"/><b:sequenceFlow id="f1" sourceRef="start" targetRef="route"/><b:sequenceFlow id="f2" sourceRef="route" targetRef="yes" condition="approved == true"/></b:process></b:definitions>"#
+        ),
+        1 => format!(
+            r#"<b:definitions xmlns:b="{BPMN_NS}"><b:process id="{process_id}"><b:startEvent id="start"/><b:endEvent id="end"/><b:serviceTask id="orphan"/><b:sequenceFlow id="f1" sourceRef="start" targetRef="end"/><b:sequenceFlow id="f2" sourceRef="orphan" targetRef="orphan"/></b:process></b:definitions>"#
+        ),
+        2 => format!(
+            r#"<b:definitions xmlns:b="{BPMN_NS}"><b:process id="{process_id}"><b:startEvent id="start"/><b:serviceTask id="charge"/><b:boundaryEvent id="undo" attachedToRef="charge"><b:compensateEventDefinition/></b:boundaryEvent><b:serviceTask id="undo-charge" isForCompensation="true"/><b:endEvent id="end"/><b:sequenceFlow id="f1" sourceRef="start" targetRef="charge"/><b:sequenceFlow id="f2" sourceRef="charge" targetRef="end"/></b:process></b:definitions>"#
+        ),
+        3 => format!(
+            r#"<b:definitions xmlns:b="{BPMN_NS}"><b:process id="{process_id}" slaMilliseconds="100"><b:startEvent id="start"/><b:serviceTask id="a" slaMilliseconds="60"/><b:serviceTask id="b" slaMilliseconds="60"/><b:endEvent id="end"/><b:sequenceFlow id="f1" sourceRef="start" targetRef="a"/><b:sequenceFlow id="f2" sourceRef="a" targetRef="b"/><b:sequenceFlow id="f3" sourceRef="b" targetRef="end"/></b:process></b:definitions>"#
+        ),
+        _ => format!(
+            r#"<b:definitions xmlns:b="{BPMN_NS}"><b:process id="{process_id}"><b:startEvent id="start"/><b:serviceTask id="producer" outputType="Invoice"/><b:serviceTask id="consumer" inputType="Payment"/><b:endEvent id="end"/><b:sequenceFlow id="f1" sourceRef="start" targetRef="producer"/><b:sequenceFlow id="f2" sourceRef="producer" targetRef="consumer"/><b:sequenceFlow id="f3" sourceRef="consumer" targetRef="end"/></b:process></b:definitions>"#
+        ),
+    }
+}
+
 #[test]
 fn ac1_namespace_aware_bpmn_compiles_to_wir() {
     let source = linear("ac1");
@@ -354,6 +374,55 @@ proptest! {
             SourceDocument { name: "canonical.bpmn", bytes: canonical.as_bytes() }, TENANT, "1"
         ).unwrap();
         prop_assert_eq!(first, second);
+    }
+
+    // Feature: rust-bpm-platform, Property 2: compile violations retain diagnostics and CLI failure
+    #[test]
+    fn invalid_models_report_typed_span_and_nonzero_cli_exit(
+        kind in 0_u8..5,
+        suffix in "[a-z][a-z0-9]{0,8}"
+    ) {
+        let source = invalid_model(kind, &format!("invalid-{suffix}"));
+        let diagnostics = compiler().compile(
+            SourceDocument { name: "generated-invalid.bpmn", bytes: source.as_bytes() },
+            TENANT,
+            "1",
+        ).unwrap_err();
+        let expected = diagnostics.iter().any(|diagnostic| {
+            let kind_matches = match kind {
+                0 => matches!(diagnostic.kind, DiagnosticKind::NonExhaustiveGateway { .. }),
+                1 => matches!(diagnostic.kind, DiagnosticKind::UnreachablePath { .. }),
+                2 => matches!(diagnostic.kind, DiagnosticKind::MissingCompensation { .. }),
+                3 => matches!(diagnostic.kind, DiagnosticKind::SlaConflict { .. }),
+                _ => matches!(diagnostic.kind, DiagnosticKind::DataContractMismatch { .. }),
+            };
+            kind_matches && diagnostic.span.line > 0 && diagnostic.span.column > 0
+        });
+        prop_assert!(expected, "unexpected diagnostics: {diagnostics:#?}");
+
+        let directory = tempfile::tempdir().unwrap();
+        let input = directory.path().join("invalid.bpmn");
+        let output = directory.path().join("invalid.wir");
+        let key = directory.path().join("key.bin");
+        fs::write(&input, source).unwrap();
+        fs::write(&key, [9; 32]).unwrap();
+        let result = Command::new(env!("CARGO_BIN_EXE_bpmn-compiler"))
+            .args([
+                "--input",
+                input.to_str().unwrap(),
+                "--output",
+                output.to_str().unwrap(),
+                "--tenant-id",
+                TENANT,
+                "--workflow-version",
+                "1",
+                "--signing-key",
+                key.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
+        prop_assert_ne!(result.status.code(), Some(0));
+        prop_assert!(!output.exists());
     }
 
     #[test]

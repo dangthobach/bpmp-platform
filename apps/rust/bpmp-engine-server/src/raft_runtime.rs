@@ -608,10 +608,9 @@ where
     }
 
     fn commit(&self, request: CommitRequest) -> Result<CommitOutcome, StoreError> {
-        let _proposal_guard = self
-            .proposal_lock
-            .lock()
-            .map_err(|error| StoreError::Unavailable(format!("Raft proposal lock failed: {error}")))?;
+        let _proposal_guard = self.proposal_lock.lock().map_err(|error| {
+            StoreError::Unavailable(format!("Raft proposal lock failed: {error}"))
+        })?;
         let batch = match self.local.prepare_workflow_batch(&request)? {
             WorkflowCommitPreparation::AlreadyCommitted(result) => {
                 return Ok(CommitOutcome::Duplicate(result));

@@ -182,6 +182,12 @@ where
         }) {
             return Err(EngineError::SnapshotWorkflowMismatch);
         }
+        if loaded.events.iter().any(|event| {
+            event.metadata.workflow_type != definition.workflow_type
+                || event.metadata.workflow_version != definition.workflow_version
+        }) {
+            return Err(EngineError::PersistedWorkflowMismatch);
+        }
         let history: Vec<_> = loaded
             .events
             .iter()
@@ -529,6 +535,8 @@ pub enum EngineError {
     SequenceOverflow,
     #[error("snapshot workflow identity does not match the loaded definition")]
     SnapshotWorkflowMismatch,
+    #[error("persisted workflow event identity does not match the loaded definition")]
+    PersistedWorkflowMismatch,
     #[error("workflow definition tenant does not match the command tenant")]
     DefinitionTenantMismatch,
     #[error("command encryption key scope does not match the published workflow configuration")]

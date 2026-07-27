@@ -6,6 +6,8 @@
 !.env.example
 /artifacts/
 /secrets/
+/platform/e2e/runtime/
+/platform/e2e/.env
 /.agents/
 clippy_output.txt
 check_output.txt

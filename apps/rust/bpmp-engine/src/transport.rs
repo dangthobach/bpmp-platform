@@ -423,7 +423,11 @@ pub enum TransportError {
 impl From<TransportError> for Status {
     fn from(error: TransportError) -> Self {
         match error {
-            TransportError::Engine(EngineError::Authorization(_)) => {
+            TransportError::Engine(EngineError::Authorization(source)) => {
+                tracing::warn!(
+                    error = %source,
+                    "authoritative workflow command authorization failed"
+                );
                 Self::permission_denied("engine authorization denied the command")
             }
             TransportError::Definition(_) => Self::unavailable(error.to_string()),

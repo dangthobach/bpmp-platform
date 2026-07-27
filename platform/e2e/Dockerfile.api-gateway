@@ -1,0 +1,10 @@
+FROM golang:1.25.0-bookworm AS builder
+WORKDIR /workspace
+COPY go ./go
+COPY apps/go/api-gateway ./apps/go/api-gateway
+WORKDIR /workspace/apps/go/api-gateway
+RUN CGO_ENABLED=0 go build -trimpath -o /out/api-gateway ./cmd/api-gateway
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=builder /out/api-gateway /usr/local/bin/api-gateway
+ENTRYPOINT ["/usr/local/bin/api-gateway"]

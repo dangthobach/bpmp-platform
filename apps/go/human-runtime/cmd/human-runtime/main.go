@@ -126,7 +126,7 @@ func run(configPath string) error {
 	security, err := workloadsecurity.New(workloadsecurity.Config{
 		WorkloadID: config.Workload.ID, SigningKeyID: config.Workload.SigningKeyID,
 		PrivateKey: privateKey, ProofTTL: time.Duration(config.Workload.ProofTTLMS) * time.Millisecond,
-	}, store, time.Now)
+	}, store)
 	if err != nil {
 		return err
 	}

@@ -75,7 +75,7 @@ func (benchmarkStore) ListAuditRecords(context.Context, string, string, string, 
 
 type benchmarkSecurity struct{}
 
-func (benchmarkSecurity) ForTenant(context.Context, string, string) (enginegrpc.SecuritySnapshot, error) {
+func (benchmarkSecurity) ForTenant(context.Context, string, string, time.Time) (enginegrpc.SecuritySnapshot, error) {
 	return enginegrpc.SecuritySnapshot{EncryptionKeyScope: "tenant-a/operational", WorkloadProof: []byte("workload-proof")}, nil
 }
 

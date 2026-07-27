@@ -464,6 +464,7 @@ mod tests {
 
     #[test]
     fn host_guest_round_trip_is_equivalent_for_bounded_payloads() {
+        // Feature: rust-bpm-platform, Property 45: host-guest data round-trip
         let worker = worker();
         let module = compile(&worker, ECHO_MODULE);
         let mut runner = TestRunner::new(ProptestConfig::with_cases(100));
@@ -474,6 +475,76 @@ mod tests {
                 prop_assert_eq!(output, payload);
                 Ok(())
             })
+            .unwrap();
+    }
+
+    #[test]
+    fn sandbox_failures_are_typed_and_do_not_poison_the_host() {
+        // Feature: rust-bpm-platform, Property 15: sandbox failures never crash or poison the host
+        let worker = worker();
+        let echo = compile(&worker, ECHO_MODULE);
+        let infinite = compile(
+            &worker,
+            r#"
+                (module
+                  (memory (export "memory") 1)
+                  (func (export "bpmp_abi_version") (result i32) i32.const 1)
+                  (func (export "bpmp_alloc") (param i32) (result i32) i32.const 0)
+                  (func (export "bpmp_run") (param i32 i32) (result i32 i32)
+                    (loop $forever br $forever)
+                    unreachable))
+            "#,
+        );
+        let trap = compile(
+            &worker,
+            r#"
+                (module
+                  (memory (export "memory") 1)
+                  (func (export "bpmp_abi_version") (result i32) i32.const 1)
+                  (func (export "bpmp_alloc") (param i32) (result i32) i32.const 0)
+                  (func (export "bpmp_run") (param i32 i32) (result i32 i32)
+                    unreachable))
+            "#,
+        );
+        let memory = compile(
+            &worker,
+            r#"
+                (module
+                  (memory (export "memory") 1 8)
+                  (func (export "bpmp_abi_version") (result i32) i32.const 1)
+                  (func (export "bpmp_alloc") (param i32) (result i32)
+                    i32.const 2 memory.grow drop i32.const 0)
+                  (func (export "bpmp_run") (param $ptr i32) (param $len i32) (result i32 i32)
+                    local.get $ptr local.get $len))
+            "#,
+        );
+        let mut runner = TestRunner::new(ProptestConfig::with_cases(100));
+        runner
+            .run(
+                &(0_u8..3, vec(any::<u8>(), 0..512)),
+                |(scenario, payload)| {
+                    let mut constrained = limits();
+                    let result = match scenario {
+                        0 => {
+                            constrained.fuel = 1_000;
+                            worker.execute(&infinite, &payload, &constrained)
+                        }
+                        1 => worker.execute(&trap, &payload, &constrained),
+                        _ => {
+                            constrained.max_memory_bytes = 64 * 1024;
+                            worker.execute(&memory, &payload, &constrained)
+                        }
+                    };
+                    let expected = match scenario {
+                        0 => WasmWorkerError::FuelExhausted,
+                        1 => WasmWorkerError::GuestTrap,
+                        _ => WasmWorkerError::MemoryLimitExceeded,
+                    };
+                    prop_assert_eq!(result, Err(expected));
+                    prop_assert_eq!(worker.execute(&echo, &payload, &limits()).unwrap(), payload);
+                    Ok(())
+                },
+            )
             .unwrap();
     }
 
