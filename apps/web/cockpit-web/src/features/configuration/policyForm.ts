@@ -1,11 +1,11 @@
-import type { ConfigurationPolicy } from "./types";
+import type { ConfigurationOwner, ConfigurationPolicy, EngineConfigurationPolicy } from "./types";
 
 export type PolicyForm = Record<string, string>;
 
 export interface PolicyField {
   key: string;
   label: string;
-  group: "Engine" | "Retry" | "Local WASM" | "Boundary runtime";
+  group: string;
   integer?: boolean;
 }
 
@@ -44,12 +44,64 @@ export const policyFields: readonly PolicyField[] = [
   { key: "boundary.max_subscriptions_per_instance", label: "Subscriptions per instance", group: "Boundary runtime", integer: true },
 ] as const;
 
-export function emptyPolicyForm(): PolicyForm {
-  return Object.fromEntries(policyFields.map(({ key }) => [key, ""]));
+const boundedContextFields: Record<Exclude<ConfigurationOwner, "ENGINE">, readonly PolicyField[]> = {
+  API_GATEWAY: [
+    ["rate_limit_requests", "Rate limit requests"],
+    ["rate_limit_window_ms", "Rate limit window (ms)"],
+    ["upstream_timeout_ms", "Upstream timeout (ms)"],
+    ["circuit_breaker_failure_threshold", "Circuit breaker threshold"],
+    ["circuit_breaker_open_ms", "Circuit breaker open (ms)"],
+    ["bulkhead_max_concurrency", "Bulkhead concurrency"],
+    ["max_request_body_bytes", "Max request body bytes"],
+    ["max_upstream_response_bytes", "Max response bytes"],
+    ["batch_chunk_size", "Batch chunk size"],
+    ["batch_concurrency", "Batch concurrency"],
+  ].map((entry) => ({ key: entry[0]!, label: entry[1]!, group: "API Gateway", integer: true })),
+  HUMAN_RUNTIME: [
+    ["projection_batch_size", "Projection batch size"],
+    ["escalation_batch_size", "Escalation batch size"],
+    ["escalation_lease_ms", "Escalation lease (ms)"],
+    ["escalation_retry_ms", "Escalation retry (ms)"],
+    ["escalation_poll_ms", "Escalation poll (ms)"],
+    ["engine_command_timeout_ms", "Engine command timeout (ms)"],
+    ["max_assignment_candidates", "Assignment candidates"],
+    ["max_delegation_depth", "Delegation depth"],
+  ].map((entry) => ({ key: entry[0]!, label: entry[1]!, group: "Human Runtime", integer: true })),
+  PROJECTION: [
+    ["consume_batch_size", "Consume batch size"],
+    ["rebuild_batch_size", "Rebuild batch size"],
+    ["query_default_page_size", "Default page size"],
+    ["query_max_page_size", "Max page size"],
+    ["realtime_publish_batch_size", "Realtime publish batch size"],
+    ["checkpoint_flush_ms", "Checkpoint flush (ms)"],
+    ["max_projection_lag_ms", "Max projection lag (ms)"],
+  ].map((entry) => ({ key: entry[0]!, label: entry[1]!, group: "Projection", integer: true })),
+  GOVERNANCE: [
+    ["approval_ttl_ms", "Approval TTL (ms)", "Governance"],
+    ["fresh_authentication_max_age_ms", "Fresh authentication age (ms)", "Governance"],
+    ["kms_request_timeout_ms", "KMS request timeout (ms)", "KMS"],
+    ["kms_retry.max_attempts", "KMS retry attempts", "KMS"],
+    ["kms_retry.initial_backoff_ms", "KMS initial backoff (ms)", "KMS"],
+    ["kms_retry.max_backoff_ms", "KMS max backoff (ms)", "KMS"],
+    ["kms_retry.multiplier_millis", "KMS retry multiplier", "KMS"],
+    ["key_cache_ttl_ms", "Key cache TTL (ms)", "KMS"],
+    ["revocation_barrier_timeout_ms", "Revocation barrier timeout (ms)", "Governance"],
+    ["reconciliation_batch_size", "Reconciliation batch size", "Governance"],
+    ["max_pending_compensations", "Pending compensation limit", "Governance"],
+  ].map((entry) => ({ key: entry[0]!, label: entry[1]!, group: entry[2]!, integer: true })),
+};
+
+export function policyFieldsFor(owner: ConfigurationOwner): readonly PolicyField[] {
+  return owner === "ENGINE" ? policyFields : boundedContextFields[owner];
 }
 
-export function buildPolicy(form: PolicyForm): ConfigurationPolicy {
-  for (const field of policyFields) {
+export function emptyPolicyForm(owner: ConfigurationOwner = "ENGINE"): PolicyForm {
+  return Object.fromEntries(policyFieldsFor(owner).map(({ key }) => [key, ""]));
+}
+
+export function buildPolicy(form: PolicyForm, owner: ConfigurationOwner = "ENGINE"): ConfigurationPolicy {
+  const fields = policyFieldsFor(owner);
+  for (const field of fields) {
     if (!form[field.key]?.trim()) throw new Error(`${field.label} is required`);
   }
   const positive = (key: string) => {
@@ -58,6 +110,36 @@ export function buildPolicy(form: PolicyForm): ConfigurationPolicy {
     return value;
   };
   const text = (key: string) => form[key]!.trim();
+  if (owner !== "ENGINE") {
+    const flat = Object.fromEntries(fields.map(({ key }) => [key, positive(key)]));
+    const value = (key: string) => {
+      const result = flat[key];
+      if (result === undefined) throw new Error(`${key} is required`);
+      return result;
+    };
+    if (owner === "API_GATEWAY" && value("batch_concurrency") > value("batch_chunk_size")) {
+      throw new Error("Batch concurrency cannot exceed chunk size");
+    }
+    if (owner === "PROJECTION" && value("query_max_page_size") < value("query_default_page_size")) {
+      throw new Error("Max page size cannot be less than default page size");
+    }
+    if (owner === "GOVERNANCE") {
+      if (value("kms_retry.max_backoff_ms") < value("kms_retry.initial_backoff_ms")) {
+        throw new Error("KMS max backoff cannot be less than initial backoff");
+      }
+      if (value("kms_retry.multiplier_millis") < 1000) {
+        throw new Error("KMS retry multiplier must be at least 1000");
+      }
+      const kmsRetry = Object.fromEntries(Object.entries(flat)
+        .filter(([key]) => key.startsWith("kms_retry."))
+        .map(([key, value]) => [key.slice(10), value]));
+      return {
+        ...Object.fromEntries(Object.entries(flat).filter(([key]) => !key.startsWith("kms_retry."))),
+        kms_retry: kmsRetry,
+      };
+    }
+    return flat;
+  }
   const cardinality = positive("max_multi_instance_cardinality");
   const parallelism = positive("default_multi_instance_parallelism");
   if (parallelism > cardinality) throw new Error("Parallelism cannot exceed cardinality");
@@ -65,7 +147,7 @@ export function buildPolicy(form: PolicyForm): ConfigurationPolicy {
   const maxBackoff = positive("retry.max_backoff_ms");
   if (maxBackoff < initialBackoff) throw new Error("Max backoff cannot be less than initial backoff");
   if (positive("retry.multiplier_millis") < 1000) throw new Error("Retry multiplier must be at least 1000");
-  return {
+  const engine: EngineConfigurationPolicy = {
     snapshot_interval_events: positive("snapshot_interval_events"),
     max_events_per_decision: positive("max_events_per_decision"),
     command_timeout_ms: String(positive("command_timeout_ms")),
@@ -89,10 +171,24 @@ export function buildPolicy(form: PolicyForm): ConfigurationPolicy {
         key === "boundary.worker_id" ? text(key) : integer ? positive(key) : String(positive(key)),
       ])),
   };
+  return engine;
 }
 
-export function policyToForm(policy: Record<string, unknown>): PolicyForm {
-  const form = emptyPolicyForm();
+export function policyToForm(
+  policy: Record<string, unknown>,
+  owner: ConfigurationOwner = "ENGINE",
+): PolicyForm {
+  const form = emptyPolicyForm(owner);
+  if (owner !== "ENGINE") {
+    const kmsRetry = record(policy.kms_retry);
+    for (const field of policyFieldsFor(owner)) {
+      const value = field.key.startsWith("kms_retry.")
+        ? kmsRetry[field.key.slice(10)]
+        : policy[field.key];
+      form[field.key] = value === undefined || value === null ? "" : String(value);
+    }
+    return form;
+  }
   const retry = record(policy.optimistic_conflict_retry);
   const wasm = record(policy.local_wasm);
   const boundary = record(policy.boundary_runtime);

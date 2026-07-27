@@ -12,14 +12,19 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"sort"
 	"syscall"
+	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
 	"github.com/dangthobach/bpmp-platform/apps/go/configuration-service/internal/adapter/grpcapi"
 	"github.com/dangthobach/bpmp-platform/apps/go/configuration-service/internal/adapter/httpapi"
+	"github.com/dangthobach/bpmp-platform/apps/go/configuration-service/internal/adapter/kafkapublisher"
 	postgresadapter "github.com/dangthobach/bpmp-platform/apps/go/configuration-service/internal/adapter/postgres"
 	"github.com/dangthobach/bpmp-platform/apps/go/configuration-service/internal/application"
 	configurationv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/configuration/v1"
@@ -74,16 +79,27 @@ func run(path string) error {
 		return fmt.Errorf("ping PostgreSQL: %w", err)
 	}
 	if config.ApplyMigrations {
-		migration, readErr := os.ReadFile(config.MigrationPath)
-		if readErr != nil {
-			return readErr
-		}
-		if _, err = pool.Exec(ctx, string(migration)); err != nil {
-			return fmt.Errorf("apply migration: %w", err)
+		if err = applyMigrations(ctx, pool, config.MigrationPath); err != nil {
+			return err
 		}
 	}
 
 	store, err := postgresadapter.New(pool)
+	if err != nil {
+		return err
+	}
+	kafkaPublisher, err := kafkapublisher.New(config.Kafka)
+	if err != nil {
+		return fmt.Errorf("configure Kafka publisher: %w", err)
+	}
+	defer kafkaPublisher.Close()
+	publisher, err := application.NewPublisher(store, kafkaPublisher, application.PublisherConfig{
+		WorkerID: config.Outbox.WorkerID, BatchSize: config.Outbox.BatchSize,
+		LeaseDuration:     milliseconds(config.Outbox.LeaseDurationMS),
+		InitialRetryDelay: milliseconds(config.Outbox.InitialRetryDelayMS),
+		MaxRetryDelay:     milliseconds(config.Outbox.MaxRetryDelayMS),
+		RetryMultiplier:   config.Outbox.RetryMultiplier,
+	})
 	if err != nil {
 		return err
 	}
@@ -138,6 +154,7 @@ func run(path string) error {
 	health := platformhealth.Handler(
 		milliseconds(config.API.ReadinessTimeoutMS),
 		func(ctx context.Context) error { return pool.Ping(ctx) },
+		func(ctx context.Context) error { return kafkaPublisher.Ping(ctx) },
 	)
 	routes := http.NewServeMux()
 	routes.Handle("/livez", health)
@@ -152,12 +169,15 @@ func run(path string) error {
 		IdleTimeout:       milliseconds(config.API.IdleTimeoutMS),
 		TLSConfig:         tlsSettings,
 	}
-	errs := make(chan error, 2)
+	errs := make(chan error, 3)
 	go func() {
 		errs <- server.ListenAndServeTLS(config.TLS.Certificate, config.TLS.PrivateKey)
 	}()
 	go func() {
 		errs <- grpcServer.Serve(grpcListener)
+	}()
+	go func() {
+		errs <- runPublisher(ctx, publisher, milliseconds(config.Outbox.PollIntervalMS))
 	}()
 	slog.Info(
 		"configuration-service started",
@@ -175,5 +195,62 @@ func run(path string) error {
 			return nil
 		}
 		return runErr
+	}
+}
+
+type migrationExecutor interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+}
+
+func applyMigrations(ctx context.Context, executor migrationExecutor, path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	paths := []string{path}
+	if info.IsDir() {
+		entries, readErr := os.ReadDir(path)
+		if readErr != nil {
+			return readErr
+		}
+		paths = paths[:0]
+		for _, entry := range entries {
+			if !entry.IsDir() && filepath.Ext(entry.Name()) == ".sql" {
+				paths = append(paths, filepath.Join(path, entry.Name()))
+			}
+		}
+		sort.Strings(paths)
+	}
+	if len(paths) == 0 {
+		return errors.New("configuration migration path contains no SQL files")
+	}
+	for _, migrationPath := range paths {
+		migration, readErr := os.ReadFile(migrationPath)
+		if readErr != nil {
+			return readErr
+		}
+		if _, err = executor.Exec(ctx, string(migration)); err != nil {
+			return fmt.Errorf("apply migration %s: %w", filepath.Base(migrationPath), err)
+		}
+	}
+	return nil
+}
+
+func runPublisher(ctx context.Context, publisher *application.Publisher, pollInterval time.Duration) error {
+	timer := time.NewTimer(0)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-timer.C:
+			published, err := publisher.RunOnce(ctx)
+			if err != nil {
+				slog.Error("publish configuration outbox", "error", err)
+			} else if published > 0 {
+				slog.Info("published configuration outbox batch", "count", published)
+			}
+			timer.Reset(pollInterval)
+		}
 	}
 }

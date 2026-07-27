@@ -59,7 +59,8 @@ func TestPostgresLifecycleAuditOutboxAndIdempotency(t *testing.T) {
 		Capabilities: map[string]struct{}{"configuration.read": {}, "configuration.manage": {}},
 	}
 	input := application.CreateInput{
-		Name: "Engine policy", Scope: domain.Scope{Type: domain.ScopeTenant, Reference: "tenant-a"},
+		Name: "Engine policy", Owner: domain.OwnerEngine,
+		Scope:         domain.Scope{Type: domain.ScopeTenant, Reference: "tenant-a"},
 		SchemaVersion: 1, PolicyVersion: "policy-1", Reason: "initial policy", Values: integrationPolicy(),
 	}
 	created, err := service.Create(ctx, actor, input)
@@ -83,7 +84,8 @@ func TestPostgresLifecycleAuditOutboxAndIdempotency(t *testing.T) {
 		t.Fatalf("publish failed: %+v %v", published, err)
 	}
 	resolved, err := service.Resolve(ctx, domain.ResolutionLookup{
-		TenantID: "tenant-a", WorkflowType: "approval", WorkflowVersion: "1",
+		TenantID: "tenant-a", Owner: domain.OwnerEngine,
+		WorkflowType: "approval", WorkflowVersion: "1",
 		PlatformReference: "bpmp", EnvironmentReference: "test",
 	})
 	if err != nil || resolved.Version.ID != created.Latest.ID ||

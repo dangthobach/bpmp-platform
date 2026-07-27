@@ -6,15 +6,15 @@ import (
 )
 
 func TestParsePolicyProducesStableCanonicalHash(t *testing.T) {
-	first, canonical, firstHash, err := ParsePolicy(validPolicyJSON())
+	first, canonical, firstHash, err := ParsePolicy(OwnerEngine, validPolicyJSON())
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, secondCanonical, secondHash, err := ParsePolicy(canonical)
+	_, secondCanonical, secondHash, err := ParsePolicy(OwnerEngine, canonical)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.GetCommandTimeoutMs() != 15000 ||
+	if first.Engine.GetCommandTimeoutMs() != 15000 ||
 		!bytes.Equal(canonical, secondCanonical) ||
 		firstHash != secondHash {
 		t.Fatal("policy canonicalization is not deterministic")
@@ -23,11 +23,29 @@ func TestParsePolicyProducesStableCanonicalHash(t *testing.T) {
 
 func TestParsePolicyRejectsUnsafeOrIncompletePolicy(t *testing.T) {
 	invalid := bytes.Replace(validPolicyJSON(), []byte(`"maxAttempts":3`), []byte(`"maxAttempts":0`), 1)
-	if _, _, _, err := ParsePolicy(invalid); err == nil {
+	if _, _, _, err := ParsePolicy(OwnerEngine, invalid); err == nil {
 		t.Fatal("zero retry attempts must be rejected")
 	}
-	if _, _, _, err := ParsePolicy([]byte(`{"unknown":1}`)); err == nil {
+	if _, _, _, err := ParsePolicy(OwnerEngine, []byte(`{"unknown":1}`)); err == nil {
 		t.Fatal("unknown and incomplete policy must be rejected")
+	}
+}
+
+func TestEveryBoundedContextPolicyIsTypedAndValidated(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		owner Owner
+		value string
+	}{
+		{OwnerAPIGateway, `{"rateLimitRequests":100,"rateLimitWindowMs":"60000","upstreamTimeoutMs":"3000","circuitBreakerFailureThreshold":5,"circuitBreakerOpenMs":"10000","bulkheadMaxConcurrency":64,"maxRequestBodyBytes":"1048576","maxUpstreamResponseBytes":"1048576","batchChunkSize":100,"batchConcurrency":10}`},
+		{OwnerHumanRuntime, `{"projectionBatchSize":100,"escalationBatchSize":50,"escalationLeaseMs":"30000","escalationRetryMs":"1000","escalationPollMs":"500","engineCommandTimeoutMs":"3000","maxAssignmentCandidates":1000,"maxDelegationDepth":8}`},
+		{OwnerProjection, `{"consumeBatchSize":500,"rebuildBatchSize":1000,"queryDefaultPageSize":50,"queryMaxPageSize":200,"realtimePublishBatchSize":100,"checkpointFlushMs":"1000","maxProjectionLagMs":"30000"}`},
+		{OwnerGovernance, `{"approvalTtlMs":"300000","freshAuthenticationMaxAgeMs":"60000","kmsRequestTimeoutMs":"3000","kmsRetry":{"maxAttempts":3,"initialBackoffMs":"100","maxBackoffMs":"1000","multiplierMillis":2000},"keyCacheTtlMs":"60000","revocationBarrierTimeoutMs":"30000","reconciliationBatchSize":100,"maxPendingCompensations":1000}`},
+	}
+	for _, test := range cases {
+		if _, _, _, err := ParsePolicy(test.owner, []byte(test.value)); err != nil {
+			t.Fatalf("%s policy was rejected: %v", test.owner, err)
+		}
 	}
 }
 

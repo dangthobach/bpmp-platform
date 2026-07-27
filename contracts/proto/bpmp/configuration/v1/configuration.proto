@@ -13,6 +13,21 @@ enum ConfigurationScopeType {
   CONFIGURATION_SCOPE_TYPE_APPROVED_INSTANCE_OVERRIDE = 6;
 }
 
+enum ConfigurationOwner {
+  CONFIGURATION_OWNER_UNSPECIFIED = 0;
+  CONFIGURATION_OWNER_ENGINE = 1;
+  CONFIGURATION_OWNER_API_GATEWAY = 2;
+  CONFIGURATION_OWNER_HUMAN_RUNTIME = 3;
+  CONFIGURATION_OWNER_PROJECTION = 4;
+  CONFIGURATION_OWNER_GOVERNANCE = 5;
+}
+
+enum ConfigurationPublicationKind {
+  CONFIGURATION_PUBLICATION_KIND_UNSPECIFIED = 0;
+  CONFIGURATION_PUBLICATION_KIND_PUBLISHED = 1;
+  CONFIGURATION_PUBLICATION_KIND_ROLLED_BACK = 2;
+}
+
 message ConfigurationScope {
   ConfigurationScopeType type = 1;
   string reference = 2;
@@ -65,6 +80,51 @@ message LocalWasmPolicy {
   uint64 fuel = 10;
 }
 
+message ApiGatewayPolicy {
+  uint32 rate_limit_requests = 1;
+  uint64 rate_limit_window_ms = 2;
+  uint64 upstream_timeout_ms = 3;
+  uint32 circuit_breaker_failure_threshold = 4;
+  uint64 circuit_breaker_open_ms = 5;
+  uint32 bulkhead_max_concurrency = 6;
+  uint64 max_request_body_bytes = 7;
+  uint64 max_upstream_response_bytes = 8;
+  uint32 batch_chunk_size = 9;
+  uint32 batch_concurrency = 10;
+}
+
+message HumanRuntimePolicy {
+  uint32 projection_batch_size = 1;
+  uint32 escalation_batch_size = 2;
+  uint64 escalation_lease_ms = 3;
+  uint64 escalation_retry_ms = 4;
+  uint64 escalation_poll_ms = 5;
+  uint64 engine_command_timeout_ms = 6;
+  uint32 max_assignment_candidates = 7;
+  uint32 max_delegation_depth = 8;
+}
+
+message ProjectionPolicy {
+  uint32 consume_batch_size = 1;
+  uint32 rebuild_batch_size = 2;
+  uint32 query_default_page_size = 3;
+  uint32 query_max_page_size = 4;
+  uint32 realtime_publish_batch_size = 5;
+  uint64 checkpoint_flush_ms = 6;
+  uint64 max_projection_lag_ms = 7;
+}
+
+message GovernancePolicy {
+  uint64 approval_ttl_ms = 1;
+  uint64 fresh_authentication_max_age_ms = 2;
+  uint64 kms_request_timeout_ms = 3;
+  RetryPolicy kms_retry = 4;
+  uint64 key_cache_ttl_ms = 5;
+  uint64 revocation_barrier_timeout_ms = 6;
+  uint32 reconciliation_batch_size = 7;
+  uint32 max_pending_compensations = 8;
+}
+
 message ResolvedConfigurationSnapshot {
   string config_id = 1;
   string config_version = 2;
@@ -73,6 +133,12 @@ message ResolvedConfigurationSnapshot {
   repeated ConfigurationScope resolved_scopes = 5;
   bytes content_hash = 6;
   EnginePolicy engine = 7;
+  ConfigurationOwner owner = 8;
+  ApiGatewayPolicy api_gateway = 9;
+  HumanRuntimePolicy human_runtime = 10;
+  ProjectionPolicy projection = 11;
+  GovernancePolicy governance = 12;
+  uint64 ordinal = 13;
 }
 
 message ResolveConfigurationRequest {
@@ -82,10 +148,28 @@ message ResolveConfigurationRequest {
   string platform_reference = 4;
   string environment_reference = 5;
   string instance_id = 6;
+  ConfigurationOwner owner = 7;
 }
 
 message ResolveConfigurationResponse {
   ResolvedConfigurationSnapshot snapshot = 1;
+}
+
+message ConfigurationPublicationEvent {
+  uint32 schema_version = 1;
+  string event_id = 2;
+  uint64 event_sequence = 3;
+  string tenant_id = 4;
+  string profile_id = 5;
+  string version_id = 6;
+  string config_version = 7;
+  string policy_version = 8;
+  uint64 ordinal = 9;
+  ConfigurationOwner owner = 10;
+  ConfigurationScope scope = 11;
+  bytes content_hash = 12;
+  ConfigurationPublicationKind kind = 13;
+  uint64 occurred_at_epoch_ms = 14;
 }
 
 service ConfigurationResolverService {

@@ -69,11 +69,13 @@ pub use ports::{
     ConfigurationProviderPort, LoadedInstance, StoreError, WorkflowStorePort,
 };
 pub use runtime_registry::{
-    MigrationSafePoint, RuntimeReferenceKind, RuntimeRegistry, RuntimeRegistryError,
+    MigrationSafePoint, RuntimeConfigurationUpdate, RuntimeReferenceKind, RuntimeRegistry,
+    RuntimeRegistryError, RuntimeSafePointGate, RuntimeScopeDescriptor, RuntimeWorkPermit,
+    configuration_publication_matches_scope,
 };
 pub use snapshot_codec::{SNAPSHOT_SCHEMA_VERSION, SnapshotCodec, SnapshotCodecError};
 pub use transport::{
     AuthoritativeCommandHandler, CommandDefinitionProviderPort, EngineCommandHandlerPort,
-    GrpcEngineCommandService, GrpcTransportConfig, TransportError,
+    GrpcEngineCommandService, GrpcTransportConfig, SafePointCommandHandler, TransportError,
 };
 pub use wir_loader::{WirLoadError, WirLoader};

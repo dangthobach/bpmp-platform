@@ -89,6 +89,84 @@ pub struct LocalWasmPolicy {
     #[prost(uint64, tag="10")]
     pub fuel: u64,
 }
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ApiGatewayPolicy {
+    #[prost(uint32, tag="1")]
+    pub rate_limit_requests: u32,
+    #[prost(uint64, tag="2")]
+    pub rate_limit_window_ms: u64,
+    #[prost(uint64, tag="3")]
+    pub upstream_timeout_ms: u64,
+    #[prost(uint32, tag="4")]
+    pub circuit_breaker_failure_threshold: u32,
+    #[prost(uint64, tag="5")]
+    pub circuit_breaker_open_ms: u64,
+    #[prost(uint32, tag="6")]
+    pub bulkhead_max_concurrency: u32,
+    #[prost(uint64, tag="7")]
+    pub max_request_body_bytes: u64,
+    #[prost(uint64, tag="8")]
+    pub max_upstream_response_bytes: u64,
+    #[prost(uint32, tag="9")]
+    pub batch_chunk_size: u32,
+    #[prost(uint32, tag="10")]
+    pub batch_concurrency: u32,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct HumanRuntimePolicy {
+    #[prost(uint32, tag="1")]
+    pub projection_batch_size: u32,
+    #[prost(uint32, tag="2")]
+    pub escalation_batch_size: u32,
+    #[prost(uint64, tag="3")]
+    pub escalation_lease_ms: u64,
+    #[prost(uint64, tag="4")]
+    pub escalation_retry_ms: u64,
+    #[prost(uint64, tag="5")]
+    pub escalation_poll_ms: u64,
+    #[prost(uint64, tag="6")]
+    pub engine_command_timeout_ms: u64,
+    #[prost(uint32, tag="7")]
+    pub max_assignment_candidates: u32,
+    #[prost(uint32, tag="8")]
+    pub max_delegation_depth: u32,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ProjectionPolicy {
+    #[prost(uint32, tag="1")]
+    pub consume_batch_size: u32,
+    #[prost(uint32, tag="2")]
+    pub rebuild_batch_size: u32,
+    #[prost(uint32, tag="3")]
+    pub query_default_page_size: u32,
+    #[prost(uint32, tag="4")]
+    pub query_max_page_size: u32,
+    #[prost(uint32, tag="5")]
+    pub realtime_publish_batch_size: u32,
+    #[prost(uint64, tag="6")]
+    pub checkpoint_flush_ms: u64,
+    #[prost(uint64, tag="7")]
+    pub max_projection_lag_ms: u64,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct GovernancePolicy {
+    #[prost(uint64, tag="1")]
+    pub approval_ttl_ms: u64,
+    #[prost(uint64, tag="2")]
+    pub fresh_authentication_max_age_ms: u64,
+    #[prost(uint64, tag="3")]
+    pub kms_request_timeout_ms: u64,
+    #[prost(message, optional, tag="4")]
+    pub kms_retry: ::core::option::Option<RetryPolicy>,
+    #[prost(uint64, tag="5")]
+    pub key_cache_ttl_ms: u64,
+    #[prost(uint64, tag="6")]
+    pub revocation_barrier_timeout_ms: u64,
+    #[prost(uint32, tag="7")]
+    pub reconciliation_batch_size: u32,
+    #[prost(uint32, tag="8")]
+    pub max_pending_compensations: u32,
+}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ResolvedConfigurationSnapshot {
     #[prost(string, tag="1")]
@@ -105,6 +183,18 @@ pub struct ResolvedConfigurationSnapshot {
     pub content_hash: ::prost::alloc::vec::Vec<u8>,
     #[prost(message, optional, tag="7")]
     pub engine: ::core::option::Option<EnginePolicy>,
+    #[prost(enumeration="ConfigurationOwner", tag="8")]
+    pub owner: i32,
+    #[prost(message, optional, tag="9")]
+    pub api_gateway: ::core::option::Option<ApiGatewayPolicy>,
+    #[prost(message, optional, tag="10")]
+    pub human_runtime: ::core::option::Option<HumanRuntimePolicy>,
+    #[prost(message, optional, tag="11")]
+    pub projection: ::core::option::Option<ProjectionPolicy>,
+    #[prost(message, optional, tag="12")]
+    pub governance: ::core::option::Option<GovernancePolicy>,
+    #[prost(uint64, tag="13")]
+    pub ordinal: u64,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ResolveConfigurationRequest {
@@ -120,11 +210,44 @@ pub struct ResolveConfigurationRequest {
     pub environment_reference: ::prost::alloc::string::String,
     #[prost(string, tag="6")]
     pub instance_id: ::prost::alloc::string::String,
+    #[prost(enumeration="ConfigurationOwner", tag="7")]
+    pub owner: i32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ResolveConfigurationResponse {
     #[prost(message, optional, tag="1")]
     pub snapshot: ::core::option::Option<ResolvedConfigurationSnapshot>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ConfigurationPublicationEvent {
+    #[prost(uint32, tag="1")]
+    pub schema_version: u32,
+    #[prost(string, tag="2")]
+    pub event_id: ::prost::alloc::string::String,
+    #[prost(uint64, tag="3")]
+    pub event_sequence: u64,
+    #[prost(string, tag="4")]
+    pub tenant_id: ::prost::alloc::string::String,
+    #[prost(string, tag="5")]
+    pub profile_id: ::prost::alloc::string::String,
+    #[prost(string, tag="6")]
+    pub version_id: ::prost::alloc::string::String,
+    #[prost(string, tag="7")]
+    pub config_version: ::prost::alloc::string::String,
+    #[prost(string, tag="8")]
+    pub policy_version: ::prost::alloc::string::String,
+    #[prost(uint64, tag="9")]
+    pub ordinal: u64,
+    #[prost(enumeration="ConfigurationOwner", tag="10")]
+    pub owner: i32,
+    #[prost(message, optional, tag="11")]
+    pub scope: ::core::option::Option<ConfigurationScope>,
+    #[prost(bytes="vec", tag="12")]
+    pub content_hash: ::prost::alloc::vec::Vec<u8>,
+    #[prost(enumeration="ConfigurationPublicationKind", tag="13")]
+    pub kind: i32,
+    #[prost(uint64, tag="14")]
+    pub occurred_at_epoch_ms: u64,
 }
 /// Immutable protocol values. Runtime policy belongs in EnginePolicy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
@@ -164,6 +287,73 @@ impl ConfigurationScopeType {
             "CONFIGURATION_SCOPE_TYPE_WORKFLOW_TYPE" => Some(Self::WorkflowType),
             "CONFIGURATION_SCOPE_TYPE_WORKFLOW_VERSION" => Some(Self::WorkflowVersion),
             "CONFIGURATION_SCOPE_TYPE_APPROVED_INSTANCE_OVERRIDE" => Some(Self::ApprovedInstanceOverride),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum ConfigurationOwner {
+    Unspecified = 0,
+    Engine = 1,
+    ApiGateway = 2,
+    HumanRuntime = 3,
+    Projection = 4,
+    Governance = 5,
+}
+impl ConfigurationOwner {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "CONFIGURATION_OWNER_UNSPECIFIED",
+            Self::Engine => "CONFIGURATION_OWNER_ENGINE",
+            Self::ApiGateway => "CONFIGURATION_OWNER_API_GATEWAY",
+            Self::HumanRuntime => "CONFIGURATION_OWNER_HUMAN_RUNTIME",
+            Self::Projection => "CONFIGURATION_OWNER_PROJECTION",
+            Self::Governance => "CONFIGURATION_OWNER_GOVERNANCE",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "CONFIGURATION_OWNER_UNSPECIFIED" => Some(Self::Unspecified),
+            "CONFIGURATION_OWNER_ENGINE" => Some(Self::Engine),
+            "CONFIGURATION_OWNER_API_GATEWAY" => Some(Self::ApiGateway),
+            "CONFIGURATION_OWNER_HUMAN_RUNTIME" => Some(Self::HumanRuntime),
+            "CONFIGURATION_OWNER_PROJECTION" => Some(Self::Projection),
+            "CONFIGURATION_OWNER_GOVERNANCE" => Some(Self::Governance),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum ConfigurationPublicationKind {
+    Unspecified = 0,
+    Published = 1,
+    RolledBack = 2,
+}
+impl ConfigurationPublicationKind {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "CONFIGURATION_PUBLICATION_KIND_UNSPECIFIED",
+            Self::Published => "CONFIGURATION_PUBLICATION_KIND_PUBLISHED",
+            Self::RolledBack => "CONFIGURATION_PUBLICATION_KIND_ROLLED_BACK",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "CONFIGURATION_PUBLICATION_KIND_UNSPECIFIED" => Some(Self::Unspecified),
+            "CONFIGURATION_PUBLICATION_KIND_PUBLISHED" => Some(Self::Published),
+            "CONFIGURATION_PUBLICATION_KIND_ROLLED_BACK" => Some(Self::RolledBack),
             _ => None,
         }
     }

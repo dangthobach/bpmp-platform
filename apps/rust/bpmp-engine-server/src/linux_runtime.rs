@@ -35,25 +35,32 @@ use bpmp_engine::{
     LocalTaskKind, LocalTaskRetryPolicy, LocalTaskRuntime, LocalTaskRuntimeError,
     OutboxBoundaryEventSource, OutboxError, OutboxPublisher, OutboxPublisherConfig, OutboxRecord,
     OutboxStorePort, PublishAcknowledgement, RetryDelayPort, RetryingLocalTaskExecutor,
-    RuntimeRegistry, SystemClock, WirLoader, WorkflowDefinitionProviderPort,
+    RuntimeConfigurationUpdate, RuntimeRegistry, RuntimeSafePointGate, SafePointCommandHandler,
+    SystemClock, WirLoader, WorkflowDefinitionProviderPort,
+    configuration_publication_matches_scope,
 };
 use bpmp_payload_crypto::{AesGcmPayloadCrypto, CryptoError, DataKeyResolverPort, ResolvedDataKey};
 use bpmp_raft_state_machine::{AuthoritativeStateMachine, StateMachineLimits, TypeConfig};
 use jsonwebtoken::Algorithm;
 use openraft::Raft;
+use prost::Message as ProstMessage;
 use rdkafka::ClientConfig;
+use rdkafka::Message as KafkaMessage;
+use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tokio::signal;
-use tonic::transport::{Certificate, ClientTlsConfig, Endpoint, Identity, Server, ServerTlsConfig};
+use tonic::transport::{
+    Certificate, Channel, ClientTlsConfig, Endpoint, Identity, Server, ServerTlsConfig,
+};
 use tracing::{error, info, warn};
 use zeroize::Zeroizing;
 
 use crate::config::{
-    BoundaryWorkerConfig, KafkaConfig, PayloadKeyConfig, RuntimeConfig, VerificationKeyConfig,
-    WasmModuleConfig,
+    BoundaryWorkerConfig, ConfigurationResolverConfig, KafkaConfig, PayloadKeyConfig,
+    RuntimeConfig, VerificationKeyConfig, WasmModuleConfig,
 };
 use crate::raft_runtime::{
     ForwardingCommandHandler, PeerDirectory, RaftPeer, RaftWorkflowStore, TonicRaftNetworkFactory,
@@ -65,6 +72,7 @@ pub async fn run(path: PathBuf) -> Result<()> {
     init_tracing();
     let config = RuntimeConfig::load(&path)?;
     let registry = Arc::new(load_runtime_registry(&config).await?);
+    let safe_point_gate = RuntimeSafePointGate::default();
     let authorization = Arc::new(load_authorization(&config)?);
     let crypto = AesGcmPayloadCrypto::new(FileDataKeyResolver::load(&config.payload_keys)?);
     let rocks = &config.rocksdb;
@@ -126,9 +134,9 @@ pub async fn run(path: PathBuf) -> Result<()> {
     ));
 
     let command_engine = Engine::new(registry.clone(), raft_store.clone(), authorization.clone());
-    let local_handler = Arc::new(AuthoritativeCommandHandler::new(
-        command_engine,
-        registry.clone(),
+    let local_handler = Arc::new(SafePointCommandHandler::new(
+        AuthoritativeCommandHandler::new(command_engine, registry.clone()),
+        safe_point_gate.clone(),
     ));
     let grpc = GrpcEngineCommandService::new(ForwardingCommandHandler::new(
         local_handler.clone(),
@@ -248,6 +256,7 @@ pub async fn run(path: PathBuf) -> Result<()> {
     });
 
     let boundary_raft = raft.clone();
+    let boundary_safe_point_gate = safe_point_gate.clone();
     let boundary_worker = tokio::spawn(async move {
         loop {
             if !is_current_leader(&boundary_raft, local_node_id) {
@@ -255,10 +264,14 @@ pub async fn run(path: PathBuf) -> Result<()> {
                 continue;
             }
             let runtime = boundary.clone();
+            let gate = boundary_safe_point_gate.clone();
             match tokio::task::spawn_blocking(move || {
+                let _permit = gate.enter_work()?;
                 runtime.project_once()?;
                 runtime.dispatch_due_timers_once()?;
-                runtime.dispatch_correlations_once()
+                runtime
+                    .dispatch_correlations_once()
+                    .map_err(anyhow::Error::from)
             })
             .await
             {
@@ -271,6 +284,7 @@ pub async fn run(path: PathBuf) -> Result<()> {
     });
 
     let local_task_raft = raft.clone();
+    let local_task_safe_point_gate = safe_point_gate.clone();
     let local_task_worker = tokio::spawn(async move {
         loop {
             if !is_current_leader(&local_task_raft, local_node_id) {
@@ -278,7 +292,13 @@ pub async fn run(path: PathBuf) -> Result<()> {
                 continue;
             }
             let runtime = local_tasks.clone();
-            match tokio::task::spawn_blocking(move || runtime.run_once()).await {
+            let gate = local_task_safe_point_gate.clone();
+            match tokio::task::spawn_blocking(move || {
+                let _permit = gate.enter_work()?;
+                runtime.run_once().map_err(anyhow::Error::from)
+            })
+            .await
+            {
                 Ok(Ok(outcome)) if outcome.executed > 0 => info!(
                     executed = outcome.executed,
                     checkpoint = outcome.checkpoint,
@@ -292,20 +312,51 @@ pub async fn run(path: PathBuf) -> Result<()> {
         }
     });
 
+    let mut configuration_worker = if let Some(resolver) = config.configuration_resolver.clone() {
+        let consumer = configuration_consumer(&config.kafka)?;
+        consumer.subscribe(&[&config.kafka.topics.configuration_publications])?;
+        let client = connect_configuration_resolver(&config, &resolver).await?;
+        let registry = registry.clone();
+        let gate = safe_point_gate.clone();
+        Some(tokio::spawn(async move {
+            run_configuration_reloader(consumer, client, resolver, registry, gate).await
+        }))
+    } else {
+        None
+    };
+
     info!(listen_addr = %config.listen_addr, "starting bpmp-engine");
     let tls = ServerTlsConfig::new()
         .identity(Identity::from_pem(server_certificate, server_private_key))
         .client_ca_root(Certificate::from_pem(client_ca));
-    let result = Server::builder()
+    let server = Server::builder()
         .tls_config(tls)?
         .add_service(grpc)
-        .serve_with_shutdown(config.listen_addr, shutdown())
-        .await;
+        .serve_with_shutdown(config.listen_addr, shutdown());
+    tokio::pin!(server);
+    let result = if let Some(worker) = configuration_worker.as_mut() {
+        tokio::select! {
+            server_result = &mut server => server_result.context("serve engine gRPC"),
+            worker_result = worker => match worker_result {
+                Ok(Ok(())) => Err(anyhow::anyhow!(
+                    "configuration reloader stopped unexpectedly"
+                )),
+                Ok(Err(error)) => Err(error.context("configuration reloader failed")),
+                Err(error) => Err(anyhow::Error::from(error)
+                    .context("configuration reloader join failed")),
+            },
+        }
+    } else {
+        server.await.context("serve engine gRPC")
+    };
     outbox_worker.abort();
     boundary_worker.abort();
     local_task_worker.abort();
+    if let Some(worker) = configuration_worker {
+        worker.abort();
+    }
     peer_server.abort();
-    result.context("serve engine gRPC")
+    result
 }
 
 fn is_current_leader(raft: &Raft<TypeConfig>, local_node_id: u64) -> bool {
@@ -508,6 +559,201 @@ fn init_tracing() {
     let _ = tracing::subscriber::set_global_default(subscriber);
 }
 
+type ConfigurationResolverClient =
+    configurationv1::configuration_resolver_service_client::ConfigurationResolverServiceClient<
+        Channel,
+    >;
+
+async fn connect_configuration_resolver(
+    config: &RuntimeConfig,
+    resolver: &ConfigurationResolverConfig,
+) -> Result<ConfigurationResolverClient> {
+    let certificate = fs::read(&config.tls.server_certificate)?;
+    let private_key = fs::read(&config.tls.server_private_key)?;
+    let ca = fs::read(&config.tls.client_ca)?;
+    let endpoint = Endpoint::from_shared(resolver.endpoint.clone())?
+        .connect_timeout(Duration::from_millis(resolver.timeout_ms))
+        .timeout(Duration::from_millis(resolver.timeout_ms))
+        .tls_config(
+            ClientTlsConfig::new()
+                .domain_name(resolver.tls_domain.clone())
+                .ca_certificate(Certificate::from_pem(ca))
+                .identity(Identity::from_pem(certificate, private_key)),
+        )?;
+    let mut last_error = None;
+    let mut channel = None;
+    for attempt in 1..=resolver.max_attempts {
+        match endpoint.clone().connect().await {
+            Ok(connected) => {
+                channel = Some(connected);
+                break;
+            }
+            Err(error) => {
+                last_error = Some(error);
+                if attempt < resolver.max_attempts {
+                    tokio::time::sleep(Duration::from_millis(resolver.retry_delay_ms)).await;
+                }
+            }
+        }
+    }
+    let channel = channel.with_context(|| {
+        format!(
+            "connect configuration resolver after {} attempts: {}",
+            resolver.max_attempts,
+            last_error.map_or_else(|| "unknown error".to_owned(), |error| error.to_string())
+        )
+    })?;
+    Ok(ConfigurationResolverClient::new(channel)
+        .max_decoding_message_size(resolver.max_decoding_bytes)
+        .max_encoding_message_size(resolver.max_encoding_bytes))
+}
+
+fn configuration_consumer(config: &KafkaConfig) -> Result<StreamConsumer> {
+    let mut client = ClientConfig::new();
+    client
+        .set("bootstrap.servers", config.brokers.join(","))
+        .set("group.id", &config.consumer_groups.configuration_reloader)
+        .set("client.id", &config.client_id)
+        .set("enable.auto.commit", "false")
+        .set("enable.auto.offset.store", "false")
+        .set("auto.offset.reset", "earliest")
+        .set(
+            "session.timeout.ms",
+            config.consumer_session_timeout_ms.to_string(),
+        )
+        .set(
+            "fetch.message.max.bytes",
+            config.max_message_bytes.to_string(),
+        );
+    apply_kafka_security(&mut client, config);
+    Ok(client.create()?)
+}
+
+async fn run_configuration_reloader(
+    consumer: StreamConsumer,
+    mut client: ConfigurationResolverClient,
+    resolver: ConfigurationResolverConfig,
+    registry: Arc<RuntimeRegistry>,
+    gate: RuntimeSafePointGate,
+) -> Result<()> {
+    loop {
+        let message = consumer.recv().await?;
+        let payload = message
+            .payload()
+            .context("configuration publication has no payload")?;
+        let event = configurationv1::ConfigurationPublicationEvent::decode(payload)
+            .context("decode configuration publication")?;
+        let changed =
+            reconcile_configuration_event(&event, &mut client, &resolver, &registry, &gate).await?;
+        consumer.commit_message(&message, CommitMode::Sync)?;
+        info!(
+            event_id = event.event_id,
+            event_sequence = event.event_sequence,
+            changed,
+            "applied configuration publication at engine safe point"
+        );
+    }
+}
+
+async fn reconcile_configuration_event(
+    event: &configurationv1::ConfigurationPublicationEvent,
+    client: &mut ConfigurationResolverClient,
+    resolver: &ConfigurationResolverConfig,
+    registry: &RuntimeRegistry,
+    gate: &RuntimeSafePointGate,
+) -> Result<usize> {
+    validate_configuration_event(event)?;
+    if configurationv1::ConfigurationOwner::try_from(event.owner)?
+        != configurationv1::ConfigurationOwner::Engine
+    {
+        return Ok(0);
+    }
+    let scope = event
+        .scope
+        .as_ref()
+        .context("configuration publication has no scope")?;
+    let scope_kind = configurationv1::ConfigurationScopeType::try_from(scope.r#type)?;
+    let domain_scope_kind = match scope_kind {
+        configurationv1::ConfigurationScopeType::Platform => ScopeKind::Platform,
+        configurationv1::ConfigurationScopeType::Environment => ScopeKind::Environment,
+        configurationv1::ConfigurationScopeType::Tenant => ScopeKind::Tenant,
+        configurationv1::ConfigurationScopeType::WorkflowType => ScopeKind::WorkflowType,
+        configurationv1::ConfigurationScopeType::WorkflowVersion => ScopeKind::WorkflowVersion,
+        configurationv1::ConfigurationScopeType::ApprovedInstanceOverride => {
+            ScopeKind::ApprovedInstanceOverride
+        }
+        configurationv1::ConfigurationScopeType::Unspecified => {
+            anyhow::bail!("configuration publication scope is unspecified")
+        }
+    };
+    let candidates = registry
+        .installed_scopes()?
+        .into_iter()
+        .filter(|candidate| {
+            configuration_publication_matches_scope(
+                candidate,
+                &event.tenant_id,
+                domain_scope_kind,
+                &scope.reference,
+                &resolver.platform_reference,
+                &resolver.environment_reference,
+            )
+        })
+        .collect::<Vec<_>>();
+    let mut updates = Vec::with_capacity(candidates.len());
+    for candidate in candidates {
+        let response = client
+            .resolve_configuration(configurationv1::ResolveConfigurationRequest {
+                tenant_id: candidate.tenant_id.as_str().to_owned(),
+                workflow_type: candidate.workflow_type.as_str().to_owned(),
+                workflow_version: candidate.workflow_version.as_str().to_owned(),
+                platform_reference: resolver.platform_reference.clone(),
+                environment_reference: resolver.environment_reference.clone(),
+                instance_id: String::new(),
+                owner: configurationv1::ConfigurationOwner::Engine as i32,
+            })
+            .await
+            .context("resolve hot configuration snapshot")?
+            .into_inner();
+        let snapshot = response
+            .snapshot
+            .context("configuration resolver returned no hot snapshot")?;
+        if snapshot.config_id == event.profile_id && snapshot.ordinal < event.ordinal {
+            anyhow::bail!("configuration resolver returned a stale publication ordinal");
+        }
+        updates.push(RuntimeConfigurationUpdate {
+            tenant_id: candidate.tenant_id,
+            workflow_type: candidate.workflow_type,
+            workflow_version: candidate.workflow_version,
+            configuration: configuration_snapshot_from_proto(snapshot)?,
+        });
+    }
+    gate.with_safe_point(|safe_point| registry.replace_configurations(updates, safe_point))?
+        .map_err(Into::into)
+}
+
+fn validate_configuration_event(
+    event: &configurationv1::ConfigurationPublicationEvent,
+) -> Result<()> {
+    if event.schema_version != 1
+        || event.event_id.trim().is_empty()
+        || event.event_sequence == 0
+        || event.tenant_id.trim().is_empty()
+        || event.profile_id.trim().is_empty()
+        || event.version_id.trim().is_empty()
+        || event.config_version.trim().is_empty()
+        || event.policy_version.trim().is_empty()
+        || event.ordinal == 0
+        || event.content_hash.len() != 32
+        || event.occurred_at_epoch_ms == 0
+        || configurationv1::ConfigurationPublicationKind::try_from(event.kind)?
+            == configurationv1::ConfigurationPublicationKind::Unspecified
+    {
+        anyhow::bail!("configuration publication metadata is invalid");
+    }
+    Ok(())
+}
+
 #[allow(clippy::too_many_lines)]
 async fn load_runtime_registry(config: &RuntimeConfig) -> Result<RuntimeRegistry> {
     let verifier = Ed25519Verifier::from_bytes(&read_exact_32(&config.wir.verification_key)?)?;
@@ -528,44 +774,7 @@ async fn load_runtime_registry(config: &RuntimeConfig) -> Result<RuntimeRegistry
     }
     let registry = RuntimeRegistry::default();
     if let Some(resolver) = &config.configuration_resolver {
-        let certificate = fs::read(&config.tls.server_certificate)?;
-        let private_key = fs::read(&config.tls.server_private_key)?;
-        let ca = fs::read(&config.tls.client_ca)?;
-        let endpoint = Endpoint::from_shared(resolver.endpoint.clone())?
-            .connect_timeout(Duration::from_millis(resolver.timeout_ms))
-            .timeout(Duration::from_millis(resolver.timeout_ms))
-            .tls_config(
-                ClientTlsConfig::new()
-                    .domain_name(resolver.tls_domain.clone())
-                    .ca_certificate(Certificate::from_pem(ca))
-                    .identity(Identity::from_pem(certificate, private_key)),
-            )?;
-        let mut last_error = None;
-        let mut channel = None;
-        for attempt in 1..=resolver.max_attempts {
-            match endpoint.clone().connect().await {
-                Ok(connected) => {
-                    channel = Some(connected);
-                    break;
-                }
-                Err(error) => {
-                    last_error = Some(error);
-                    if attempt < resolver.max_attempts {
-                        tokio::time::sleep(Duration::from_millis(resolver.retry_delay_ms)).await;
-                    }
-                }
-            }
-        }
-        let channel = channel.with_context(|| {
-            format!(
-                "connect configuration resolver after {} attempts: {}",
-                resolver.max_attempts,
-                last_error.map_or_else(|| "unknown error".to_owned(), |error| error.to_string())
-            )
-        })?;
-        let mut client = configurationv1::configuration_resolver_service_client::ConfigurationResolverServiceClient::new(channel)
-            .max_decoding_message_size(resolver.max_decoding_bytes)
-            .max_encoding_message_size(resolver.max_encoding_bytes);
+        let mut client = connect_configuration_resolver(config, resolver).await?;
         while let Some(((tenant_id, workflow_type, workflow_version), definition)) =
             definitions.pop_first()
         {
@@ -577,6 +786,7 @@ async fn load_runtime_registry(config: &RuntimeConfig) -> Result<RuntimeRegistry
                     platform_reference: resolver.platform_reference.clone(),
                     environment_reference: resolver.environment_reference.clone(),
                     instance_id: String::new(),
+                    owner: configurationv1::ConfigurationOwner::Engine as i32,
                 })
                 .await
                 .context("resolve published runtime configuration")?
@@ -609,6 +819,12 @@ async fn load_runtime_registry(config: &RuntimeConfig) -> Result<RuntimeRegistry
 fn configuration_snapshot_from_proto(
     snapshot: configurationv1::ResolvedConfigurationSnapshot,
 ) -> Result<ResolvedConfigSnapshot> {
+    if configurationv1::ConfigurationOwner::try_from(snapshot.owner)?
+        != configurationv1::ConfigurationOwner::Engine
+        || snapshot.ordinal == 0
+    {
+        anyhow::bail!("configuration snapshot owner or ordinal is invalid");
+    }
     let hash: [u8; 32] = snapshot
         .content_hash
         .try_into()
@@ -946,18 +1162,45 @@ struct KafkaPublisher {
 
 impl KafkaPublisher {
     fn new(config: &KafkaConfig) -> Result<Self> {
-        let producer = ClientConfig::new()
+        let mut client = ClientConfig::new();
+        client
             .set("bootstrap.servers", config.brokers.join(","))
             .set("client.id", &config.client_id)
             .set("enable.idempotence", "true")
             .set("acks", "all")
-            .set("message.timeout.ms", config.message_timeout_ms.to_string())
-            .create()?;
+            .set(
+                "max.in.flight.requests.per.connection",
+                config.max_inflight.to_string(),
+            )
+            .set("message.max.bytes", config.max_message_bytes.to_string())
+            .set("message.timeout.ms", config.message_timeout_ms.to_string());
+        apply_kafka_security(&mut client, config);
+        let producer = client.create()?;
         Ok(Self {
             producer,
-            topic: config.topic.clone(),
+            topic: config.topics.committed_events.clone(),
             timeout: Duration::from_millis(config.message_timeout_ms),
         })
+    }
+}
+
+fn apply_kafka_security(client: &mut ClientConfig, config: &KafkaConfig) {
+    client.set(
+        "security.protocol",
+        if config.security.protocol == "SSL" {
+            "ssl"
+        } else {
+            "plaintext"
+        },
+    );
+    if let Some(path) = &config.security.ca_location {
+        client.set("ssl.ca.location", path.to_string_lossy());
+    }
+    if let Some(path) = &config.security.certificate_location {
+        client.set("ssl.certificate.location", path.to_string_lossy());
+    }
+    if let Some(path) = &config.security.key_location {
+        client.set("ssl.key.location", path.to_string_lossy());
     }
 }
 

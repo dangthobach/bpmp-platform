@@ -13,6 +13,7 @@ import (
 
 type ScopeType string
 type VersionStatus string
+type Owner string
 
 const (
 	ScopePlatform                 ScopeType = "PLATFORM"
@@ -25,6 +26,12 @@ const (
 	StatusDraft     VersionStatus = "DRAFT"
 	StatusPublished VersionStatus = "PUBLISHED"
 	StatusRetired   VersionStatus = "RETIRED"
+
+	OwnerEngine       Owner = "ENGINE"
+	OwnerAPIGateway   Owner = "API_GATEWAY"
+	OwnerHumanRuntime Owner = "HUMAN_RUNTIME"
+	OwnerProjection   Owner = "PROJECTION"
+	OwnerGovernance   Owner = "GOVERNANCE"
 )
 
 var (
@@ -52,6 +59,7 @@ type Scope struct {
 type Profile struct {
 	ID                        string    `json:"id"`
 	TenantID                  string    `json:"tenant_id"`
+	Owner                     Owner     `json:"owner"`
 	Name                      string    `json:"name"`
 	Scope                     Scope     `json:"scope"`
 	AggregateVersion          int64     `json:"aggregate_version"`
@@ -82,6 +90,7 @@ type Version struct {
 
 type ResolutionLookup struct {
 	TenantID             string
+	Owner                Owner
 	WorkflowType         string
 	WorkflowVersion      string
 	PlatformReference    string
@@ -123,26 +132,80 @@ func ValidateScope(scope Scope) error {
 	}
 }
 
-func ParsePolicy(raw []byte) (*configurationv1.EnginePolicy, []byte, [32]byte, error) {
-	var policy configurationv1.EnginePolicy
-	if err := (protojson.UnmarshalOptions{DiscardUnknown: false}).Unmarshal(raw, &policy); err != nil {
-		return nil, nil, [32]byte{}, ErrInvalid
-	}
-	if err := ValidatePolicy(&policy); err != nil {
-		return nil, nil, [32]byte{}, err
-	}
-	wire, err := proto.MarshalOptions{Deterministic: true}.Marshal(&policy)
-	if err != nil {
-		return nil, nil, [32]byte{}, err
-	}
-	canonical, err := protojson.MarshalOptions{UseProtoNames: true}.Marshal(&policy)
-	if err != nil {
-		return nil, nil, [32]byte{}, err
-	}
-	return &policy, canonical, sha256.Sum256(wire), nil
+type ParsedPolicy struct {
+	Engine       *configurationv1.EnginePolicy
+	APIGateway   *configurationv1.ApiGatewayPolicy
+	HumanRuntime *configurationv1.HumanRuntimePolicy
+	Projection   *configurationv1.ProjectionPolicy
+	Governance   *configurationv1.GovernancePolicy
 }
 
-func ValidatePolicy(policy *configurationv1.EnginePolicy) error {
+func ValidateOwner(owner Owner) error {
+	switch owner {
+	case OwnerEngine, OwnerAPIGateway, OwnerHumanRuntime, OwnerProjection, OwnerGovernance:
+		return nil
+	default:
+		return ErrInvalid
+	}
+}
+
+func ParsePolicy(owner Owner, raw []byte) (ParsedPolicy, []byte, [32]byte, error) {
+	var policy proto.Message
+	parsed := ParsedPolicy{}
+	switch owner {
+	case OwnerEngine:
+		parsed.Engine = &configurationv1.EnginePolicy{}
+		policy = parsed.Engine
+	case OwnerAPIGateway:
+		parsed.APIGateway = &configurationv1.ApiGatewayPolicy{}
+		policy = parsed.APIGateway
+	case OwnerHumanRuntime:
+		parsed.HumanRuntime = &configurationv1.HumanRuntimePolicy{}
+		policy = parsed.HumanRuntime
+	case OwnerProjection:
+		parsed.Projection = &configurationv1.ProjectionPolicy{}
+		policy = parsed.Projection
+	case OwnerGovernance:
+		parsed.Governance = &configurationv1.GovernancePolicy{}
+		policy = parsed.Governance
+	default:
+		return ParsedPolicy{}, nil, [32]byte{}, ErrInvalid
+	}
+	if err := (protojson.UnmarshalOptions{DiscardUnknown: false}).Unmarshal(raw, policy); err != nil {
+		return ParsedPolicy{}, nil, [32]byte{}, ErrInvalid
+	}
+	if err := ValidateParsedPolicy(parsed); err != nil {
+		return ParsedPolicy{}, nil, [32]byte{}, err
+	}
+	wire, err := proto.MarshalOptions{Deterministic: true}.Marshal(policy)
+	if err != nil {
+		return ParsedPolicy{}, nil, [32]byte{}, err
+	}
+	canonical, err := protojson.MarshalOptions{UseProtoNames: true}.Marshal(policy)
+	if err != nil {
+		return ParsedPolicy{}, nil, [32]byte{}, err
+	}
+	return parsed, canonical, sha256.Sum256(wire), nil
+}
+
+func ValidateParsedPolicy(policy ParsedPolicy) error {
+	switch {
+	case policy.Engine != nil:
+		return ValidateEnginePolicy(policy.Engine)
+	case policy.APIGateway != nil:
+		return validateAPIGatewayPolicy(policy.APIGateway)
+	case policy.HumanRuntime != nil:
+		return validateHumanRuntimePolicy(policy.HumanRuntime)
+	case policy.Projection != nil:
+		return validateProjectionPolicy(policy.Projection)
+	case policy.Governance != nil:
+		return validateGovernancePolicy(policy.Governance)
+	default:
+		return ErrInvalid
+	}
+}
+
+func ValidateEnginePolicy(policy *configurationv1.EnginePolicy) error {
 	retry := policy.GetOptimisticConflictRetry()
 	wasm := policy.GetLocalWasm()
 	boundary := policy.GetBoundaryRuntime()
@@ -174,6 +237,68 @@ func ValidatePolicy(policy *configurationv1.EnginePolicy) error {
 		boundary.GetMaxSignalIdBytes() == 0 ||
 		boundary.GetMaxReferenceBytes() == 0 ||
 		boundary.GetMaxSubscriptionsPerInstance() == 0 {
+		return ErrInvalid
+	}
+	return nil
+}
+
+func validateAPIGatewayPolicy(policy *configurationv1.ApiGatewayPolicy) error {
+	if policy.GetRateLimitRequests() == 0 ||
+		policy.GetRateLimitWindowMs() == 0 ||
+		policy.GetUpstreamTimeoutMs() == 0 ||
+		policy.GetCircuitBreakerFailureThreshold() == 0 ||
+		policy.GetCircuitBreakerOpenMs() == 0 ||
+		policy.GetBulkheadMaxConcurrency() == 0 ||
+		policy.GetMaxRequestBodyBytes() == 0 ||
+		policy.GetMaxUpstreamResponseBytes() == 0 ||
+		policy.GetBatchChunkSize() == 0 ||
+		policy.GetBatchConcurrency() == 0 ||
+		policy.GetBatchConcurrency() > policy.GetBatchChunkSize() {
+		return ErrInvalid
+	}
+	return nil
+}
+
+func validateHumanRuntimePolicy(policy *configurationv1.HumanRuntimePolicy) error {
+	if policy.GetProjectionBatchSize() == 0 ||
+		policy.GetEscalationBatchSize() == 0 ||
+		policy.GetEscalationLeaseMs() == 0 ||
+		policy.GetEscalationRetryMs() == 0 ||
+		policy.GetEscalationPollMs() == 0 ||
+		policy.GetEngineCommandTimeoutMs() == 0 ||
+		policy.GetMaxAssignmentCandidates() == 0 ||
+		policy.GetMaxDelegationDepth() == 0 {
+		return ErrInvalid
+	}
+	return nil
+}
+
+func validateProjectionPolicy(policy *configurationv1.ProjectionPolicy) error {
+	if policy.GetConsumeBatchSize() == 0 ||
+		policy.GetRebuildBatchSize() == 0 ||
+		policy.GetQueryDefaultPageSize() == 0 ||
+		policy.GetQueryMaxPageSize() < policy.GetQueryDefaultPageSize() ||
+		policy.GetRealtimePublishBatchSize() == 0 ||
+		policy.GetCheckpointFlushMs() == 0 ||
+		policy.GetMaxProjectionLagMs() == 0 {
+		return ErrInvalid
+	}
+	return nil
+}
+
+func validateGovernancePolicy(policy *configurationv1.GovernancePolicy) error {
+	retry := policy.GetKmsRetry()
+	if policy.GetApprovalTtlMs() == 0 ||
+		policy.GetFreshAuthenticationMaxAgeMs() == 0 ||
+		policy.GetKmsRequestTimeoutMs() == 0 ||
+		retry.GetMaxAttempts() == 0 ||
+		retry.GetInitialBackoffMs() == 0 ||
+		retry.GetMaxBackoffMs() < retry.GetInitialBackoffMs() ||
+		retry.GetMultiplierMillis() < 1000 ||
+		policy.GetKeyCacheTtlMs() == 0 ||
+		policy.GetRevocationBarrierTimeoutMs() == 0 ||
+		policy.GetReconciliationBatchSize() == 0 ||
+		policy.GetMaxPendingCompensations() == 0 {
 		return ErrInvalid
 	}
 	return nil

@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, RwLockReadGuard};
 
 use bpmp_domain_core::{
-    ConfigError, ResolvedConfigSnapshot, TenantId, WorkflowDefinition, WorkflowType,
+    ConfigError, ResolvedConfigSnapshot, ScopeKind, TenantId, WorkflowDefinition, WorkflowType,
     WorkflowVersion,
 };
 use thiserror::Error;
@@ -17,6 +17,50 @@ struct RuntimeScope {
     tenant_id: TenantId,
     workflow_type: WorkflowType,
     workflow_version: WorkflowVersion,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct RuntimeScopeDescriptor {
+    pub tenant_id: TenantId,
+    pub workflow_type: WorkflowType,
+    pub workflow_version: WorkflowVersion,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct RuntimeConfigurationUpdate {
+    pub tenant_id: TenantId,
+    pub workflow_type: WorkflowType,
+    pub workflow_version: WorkflowVersion,
+    pub configuration: ResolvedConfigSnapshot,
+}
+
+#[must_use]
+pub fn configuration_publication_matches_scope(
+    candidate: &RuntimeScopeDescriptor,
+    tenant_id: &str,
+    scope_kind: ScopeKind,
+    reference: &str,
+    platform_reference: &str,
+    environment_reference: &str,
+) -> bool {
+    if candidate.tenant_id.as_str() != tenant_id {
+        return false;
+    }
+    match scope_kind {
+        ScopeKind::Platform => reference == platform_reference,
+        ScopeKind::Environment => reference == environment_reference,
+        ScopeKind::Tenant => reference == candidate.tenant_id.as_str(),
+        ScopeKind::WorkflowType => candidate.workflow_type.as_str() == reference,
+        ScopeKind::WorkflowVersion => {
+            reference
+                .split_once(':')
+                .is_some_and(|(workflow_type, workflow_version)| {
+                    candidate.workflow_type.as_str() == workflow_type
+                        && candidate.workflow_version.as_str() == workflow_version
+                })
+        }
+        ScopeKind::ApprovedInstanceOverride => false,
+    }
 }
 
 impl RuntimeScope {
@@ -53,6 +97,51 @@ pub struct MigrationSafePoint {
     pub waiting_or_terminal: bool,
     pub local_task_inflight: bool,
     pub scope_transition_inflight: bool,
+}
+
+#[derive(Clone, Default)]
+pub struct RuntimeSafePointGate {
+    state: Arc<RwLock<()>>,
+}
+
+pub struct RuntimeWorkPermit<'a> {
+    _guard: RwLockReadGuard<'a, ()>,
+}
+
+impl RuntimeSafePointGate {
+    /// Holds a shared permit for one complete command or background transition.
+    ///
+    /// # Errors
+    ///
+    /// Fails closed when the gate lock is poisoned.
+    pub fn enter_work(&self) -> Result<RuntimeWorkPermit<'_>, RuntimeRegistryError> {
+        self.state
+            .read()
+            .map(|guard| RuntimeWorkPermit { _guard: guard })
+            .map_err(|_| RuntimeRegistryError::LockPoisoned)
+    }
+
+    /// Runs one synchronous update after every in-flight transition leaves.
+    ///
+    /// Network and database I/O must complete before invoking this method.
+    ///
+    /// # Errors
+    ///
+    /// Fails closed when the gate lock is poisoned.
+    pub fn with_safe_point<T>(
+        &self,
+        update: impl FnOnce(MigrationSafePoint) -> T,
+    ) -> Result<T, RuntimeRegistryError> {
+        let _guard = self
+            .state
+            .write()
+            .map_err(|_| RuntimeRegistryError::LockPoisoned)?;
+        Ok(update(MigrationSafePoint {
+            waiting_or_terminal: true,
+            local_task_inflight: false,
+            scope_transition_inflight: false,
+        }))
+    }
 }
 
 impl MigrationSafePoint {
@@ -117,6 +206,73 @@ impl RuntimeRegistry {
             return Err(RuntimeRegistryError::UnsafeMigrationPoint);
         }
         self.install(definition, configuration)
+    }
+
+    /// Atomically replaces validated configuration snapshots at one safe point.
+    ///
+    /// # Errors
+    ///
+    /// Rejects the entire batch when migration is unsafe, a definition is
+    /// missing, a scope is duplicated, or the registry lock is poisoned.
+    pub fn replace_configurations(
+        &self,
+        updates: Vec<RuntimeConfigurationUpdate>,
+        safe_point: MigrationSafePoint,
+    ) -> Result<usize, RuntimeRegistryError> {
+        if !safe_point.permits_migration() {
+            return Err(RuntimeRegistryError::UnsafeMigrationPoint);
+        }
+        let mut state = self
+            .state
+            .write()
+            .map_err(|_| RuntimeRegistryError::LockPoisoned)?;
+        let mut replacements = BTreeMap::new();
+        for update in updates {
+            let scope = RuntimeScope::new(
+                &update.tenant_id,
+                &update.workflow_type,
+                &update.workflow_version,
+            );
+            if !state.definitions.contains_key(&scope) {
+                return Err(RuntimeRegistryError::MissingDefinition);
+            }
+            if replacements.insert(scope, update.configuration).is_some() {
+                return Err(RuntimeRegistryError::DuplicateScope);
+            }
+        }
+        let changed = replacements
+            .iter()
+            .filter(|(scope, configuration)| {
+                state
+                    .configurations
+                    .get(*scope)
+                    .is_none_or(|current| current.content_hash != configuration.content_hash)
+            })
+            .count();
+        state.configurations.extend(replacements);
+        Ok(changed)
+    }
+
+    /// Returns a stable ordered copy of every installed runtime scope.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeRegistryError::LockPoisoned`] on lock poisoning.
+    pub fn installed_scopes(&self) -> Result<Vec<RuntimeScopeDescriptor>, RuntimeRegistryError> {
+        self.state
+            .read()
+            .map_err(|_| RuntimeRegistryError::LockPoisoned)
+            .map(|state| {
+                state
+                    .definitions
+                    .keys()
+                    .map(|scope| RuntimeScopeDescriptor {
+                        tenant_id: scope.tenant_id.clone(),
+                        workflow_type: scope.workflow_type.clone(),
+                        workflow_version: scope.workflow_version.clone(),
+                    })
+                    .collect()
+            })
     }
 
     /// Adds a durable-use reference to an installed WIR version.
@@ -313,6 +469,8 @@ pub enum RuntimeRegistryError {
     UnbalancedReference,
     #[error("runtime artifact is still referenced")]
     ArtifactInUse,
+    #[error("runtime configuration update contains a duplicate scope")]
+    DuplicateScope,
 }
 
 #[cfg(test)]
@@ -321,6 +479,47 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
+
+    #[test]
+    fn configuration_publication_is_tenant_and_deployment_scoped() {
+        let candidate = RuntimeScopeDescriptor {
+            tenant_id: TenantId::new("tenant-a").unwrap(),
+            workflow_type: WorkflowType::new("order").unwrap(),
+            workflow_version: WorkflowVersion::new("1").unwrap(),
+        };
+        assert!(configuration_publication_matches_scope(
+            &candidate,
+            "tenant-a",
+            ScopeKind::Environment,
+            "production",
+            "platform-a",
+            "production",
+        ));
+        assert!(!configuration_publication_matches_scope(
+            &candidate,
+            "tenant-b",
+            ScopeKind::Environment,
+            "production",
+            "platform-a",
+            "production",
+        ));
+        assert!(!configuration_publication_matches_scope(
+            &candidate,
+            "tenant-a",
+            ScopeKind::Environment,
+            "staging",
+            "platform-a",
+            "production",
+        ));
+        assert!(configuration_publication_matches_scope(
+            &candidate,
+            "tenant-a",
+            ScopeKind::WorkflowVersion,
+            "order:1",
+            "platform-a",
+            "production",
+        ));
+    }
 
     fn registry() -> (RuntimeRegistry, TenantId, WorkflowType, WorkflowVersion) {
         let registry = RuntimeRegistry::default();

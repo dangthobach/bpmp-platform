@@ -43,7 +43,6 @@ impl RuntimeConfig {
             || self.authorization.policy_keys.is_empty()
             || self.payload_keys.is_empty()
             || self.kafka.brokers.is_empty()
-            || self.kafka.topic.trim().is_empty()
             || self
                 .authorization
                 .internal_dispatch
@@ -79,6 +78,7 @@ impl RuntimeConfig {
             ));
         }
         self.validate_configuration_source()?;
+        self.kafka.validate()?;
         for value in [
             self.workers.boundary.projection_batch_size,
             self.workers.boundary.dispatch_batch_size,
@@ -426,9 +426,105 @@ pub struct BoundaryWorkerConfig {
 #[serde(deny_unknown_fields)]
 pub struct KafkaConfig {
     pub brokers: Vec<String>,
-    pub topic: String,
     pub client_id: String,
+    pub security: KafkaSecurityConfig,
+    pub topics: KafkaTopicConfig,
+    pub consumer_groups: KafkaConsumerGroupConfig,
     pub message_timeout_ms: u64,
+    pub max_message_bytes: usize,
+    pub max_inflight: u32,
+    pub consumer_poll_timeout_ms: u64,
+    pub consumer_session_timeout_ms: u64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct KafkaSecurityConfig {
+    pub protocol: String,
+    pub ca_location: Option<PathBuf>,
+    pub certificate_location: Option<PathBuf>,
+    pub key_location: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct KafkaTopicConfig {
+    pub committed_events: String,
+    pub configuration_publications: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct KafkaConsumerGroupConfig {
+    pub configuration_reloader: String,
+}
+
+impl KafkaConfig {
+    fn validate(&self) -> Result<(), RuntimeConfigError> {
+        if self.brokers.is_empty()
+            || self.brokers.iter().any(|broker| {
+                broker.trim().is_empty()
+                    || broker.contains("://")
+                    || broker.rsplit_once(':').is_none()
+            })
+            || !valid_client_id(&self.client_id)
+            || !valid_kafka_name(&self.topics.committed_events)
+            || !valid_kafka_name(&self.topics.configuration_publications)
+            || !valid_kafka_name(&self.consumer_groups.configuration_reloader)
+            || self.message_timeout_ms == 0
+            || self.max_message_bytes == 0
+            || self.max_inflight == 0
+            || self.consumer_poll_timeout_ms == 0
+            || self.consumer_session_timeout_ms <= self.consumer_poll_timeout_ms
+        {
+            return Err(RuntimeConfigError::Invalid("Kafka settings are invalid"));
+        }
+        match self.security.protocol.as_str() {
+            "PLAINTEXT"
+                if self.security.ca_location.is_none()
+                    && self.security.certificate_location.is_none()
+                    && self.security.key_location.is_none() => {}
+            "SSL"
+                if self.security.ca_location.is_some()
+                    && self.security.certificate_location.is_some()
+                    && self.security.key_location.is_some() => {}
+            _ => {
+                return Err(RuntimeConfigError::Invalid(
+                    "Kafka security settings are invalid",
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+fn valid_client_id(value: &str) -> bool {
+    value.starts_with("bpmp-")
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+}
+
+fn valid_kafka_name(value: &str) -> bool {
+    let parts = value.split('.').collect::<Vec<_>>();
+    parts.len() == 5
+        && parts[0] == "bpmp"
+        && parts[3].strip_prefix('v').is_some_and(|version| {
+            !version.is_empty()
+                && !version.starts_with('0')
+                && version.bytes().all(|byte| byte.is_ascii_digit())
+        })
+        && parts
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| *index != 3)
+            .all(|(_, part)| {
+                !part.is_empty()
+                    && part.bytes().all(|byte| {
+                        byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'
+                    })
+            })
 }
 
 #[derive(Debug, Error)]
@@ -456,5 +552,19 @@ mod tests {
         assert!(is_sha256_version(&format!("sha256:{}", "a".repeat(64))));
         assert!(!is_sha256_version("latest"));
         assert!(!is_sha256_version("sha256:abc"));
+    }
+
+    #[test]
+    fn kafka_names_are_versioned_and_environment_scoped() {
+        assert!(valid_kafka_name(
+            "bpmp.configuration.publications.v1.production"
+        ));
+        assert!(valid_kafka_name(
+            "bpmp.engine.configuration-reloader.v1.e2e"
+        ));
+        assert!(!valid_kafka_name("bpmp.engine.events.e2e"));
+        assert!(!valid_kafka_name(
+            "bpmp.configuration.publications.v1.PRODUCTION"
+        ));
     }
 }

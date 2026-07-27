@@ -48,9 +48,7 @@ struct Manifest {
     actor_id: String,
     actor_issuer: String,
     actor_audience: String,
-    kafka_brokers: Vec<String>,
-    committed_event_topic: String,
-    escalation_topic: String,
+    kafka: KafkaTopology,
     postgres_dsn: String,
     configuration_postgres_dsn: String,
     redis_address: String,
@@ -69,6 +67,30 @@ struct Manifest {
     configuration_grpc_url: String,
     configuration_grpc_listen_address: String,
     tls_dns_names: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct KafkaTopology {
+    brokers: Vec<String>,
+    security_protocol: String,
+    topics: KafkaTopics,
+    consumer_groups: KafkaConsumerGroups,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct KafkaTopics {
+    engine_committed_events: String,
+    configuration_publications: String,
+    human_escalations: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct KafkaConsumerGroups {
+    engine_configuration_reloader: String,
+    human_committed_events: String,
 }
 
 #[derive(Serialize)]
@@ -214,6 +236,10 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
     write(
         &output.join("configuration-service.sql"),
         seeded_configuration_migration(manifest)?.as_bytes(),
+    )?;
+    write(
+        &output.join("kafka-topics.sh"),
+        kafka_topics_script(manifest).as_bytes(),
     )?;
     Ok(())
 }
@@ -406,7 +432,21 @@ fn engine_config(manifest: &Manifest, mount: &str, index: usize, keys: &[&AuthKe
         },
         "grpc": {"max_decoding_bytes": 1_048_576, "max_encoding_bytes": 1_048_576},
         "workers": {"poll_interval_ms": 100, "outbox_batch_size": 64, "outbox_max_attempts": 10, "outbox_initial_retry_ms": 50, "outbox_max_retry_ms": 1000, "outbox_retry_multiplier_millis": 2000, "boundary": boundary_config(&format!("engine-{}-boundary", index + 1)), "local_task_batch_size": 32, "local_task_max_attempts": 3, "local_task_initial_retry_ms": 25, "local_task_max_retry_ms": 250, "local_task_retry_multiplier_millis": 2000},
-        "kafka": {"brokers": manifest.kafka_brokers, "topic": manifest.committed_event_topic, "client_id": format!("bpmp-engine-{}", index + 1), "message_timeout_ms": 5000},
+        "kafka": {
+            "brokers": manifest.kafka.brokers,
+            "client_id": format!("bpmp-engine-{}", index + 1),
+            "security": {"protocol": manifest.kafka.security_protocol, "ca_location": null, "certificate_location": null, "key_location": null},
+            "topics": {
+                "committed_events": manifest.kafka.topics.engine_committed_events,
+                "configuration_publications": manifest.kafka.topics.configuration_publications
+            },
+            "consumer_groups": {"configuration_reloader": manifest.kafka.consumer_groups.engine_configuration_reloader},
+            "message_timeout_ms": 5000,
+            "max_message_bytes": 1_048_576,
+            "max_inflight": 1,
+            "consumer_poll_timeout_ms": 250,
+            "consumer_session_timeout_ms": 6000
+        },
         "wasm_modules": []
     })
 }
@@ -418,7 +458,7 @@ fn human_config(manifest: &Manifest, mount: &str, workload: &AuthKey, internal: 
         "apply_migrations": true, "migration_path": path("human-runtime.sql"),
         "engine_address": manifest.engine_public_addresses[1],
         "tls": {"server_certificate": path("secrets/tls.pem"), "server_private_key": path("secrets/tls-key.pem"), "client_certificate": path("secrets/tls.pem"), "client_private_key": path("secrets/tls-key.pem"), "client_ca": path("secrets/ca.pem"), "engine_ca": path("secrets/ca.pem"), "engine_server_name": "engine2"},
-        "kafka": {"brokers": manifest.kafka_brokers, "committed_event_topic": manifest.committed_event_topic, "escalation_topic": manifest.escalation_topic, "consumer_group": "human-runtime-e2e", "batch_size": 64},
+        "kafka": {"brokers": manifest.kafka.brokers, "committed_event_topic": manifest.kafka.topics.engine_committed_events, "escalation_topic": manifest.kafka.topics.human_escalations, "consumer_group": manifest.kafka.consumer_groups.human_committed_events, "batch_size": 64},
         "identity": {"jwks_path": path("jwks.json"), "internal_keys": {(internal.id.clone()): path(&internal.public_path)}, "issuers": [manifest.actor_issuer], "audiences": [manifest.actor_audience], "allowed_jwt_methods": ["EdDSA"], "workload_id": "human-runtime", "max_proof_bytes": 16384, "max_jwks_keys": 16, "max_roles": 32, "max_capabilities": 64, "clock_skew_ms": 30000},
         "workload": {"id": "human-runtime", "signing_key_id": workload.id, "private_key_path": path(&workload.private_path), "proof_ttl_ms": 60000},
         "grpc": {"max_receive_bytes": 1_048_576, "max_send_bytes": 1_048_576},
@@ -466,6 +506,28 @@ fn configuration_config(manifest: &Manifest, mount: &str) -> Value {
             "max_receive_bytes": 1_048_576,
             "max_send_bytes": 1_048_576
         },
+        "kafka": {
+            "brokers": manifest.kafka.brokers,
+            "client_id": "bpmp-configuration-publisher",
+            "security_protocol": manifest.kafka.security_protocol,
+            "dial_timeout_ms": 2000,
+            "request_timeout_ms": 5000,
+            "topic": manifest.kafka.topics.configuration_publications,
+            "message_timeout_ms": 5000,
+            "max_inflight": 1,
+            "max_message_bytes": 1_048_576,
+            "required_acks": "ALL",
+            "enable_idempotence": true
+        },
+        "outbox": {
+            "worker_id": "configuration-publisher-e2e",
+            "batch_size": 64,
+            "lease_duration_ms": 10000,
+            "poll_interval_ms": 100,
+            "initial_retry_delay_ms": 100,
+            "max_retry_delay_ms": 5000,
+            "retry_multiplier_millis": 2000
+        },
         "identity": {
             "jwks_path": path("jwks.json"),
             "issuers": [manifest.actor_issuer],
@@ -512,13 +574,13 @@ fn seeded_configuration_migration(manifest: &Manifest) -> Result<String> {
     }
     Ok(format!(
         "{CONFIGURATION_MIGRATION}\n\
-         INSERT INTO configuration_profiles(id,tenant_id,name,scope_type,scope_reference,aggregate_version,is_deleted,created_at,created_by,updated_at,updated_by) VALUES\
-         ('00000000-0000-0000-0000-00000000c001','{tenant}','E2E tenant policy','TENANT','{tenant}',2,false,now(),'fixture',now(),'fixture');\n\
+         INSERT INTO configuration_profiles(id,tenant_id,owner,name,scope_type,scope_reference,aggregate_version,is_deleted,created_at,created_by,updated_at,updated_by) VALUES\
+         ('00000000-0000-0000-0000-00000000c001','{tenant}','ENGINE','E2E tenant policy','TENANT','{tenant}',2,false,now(),'fixture',now(),'fixture');\n\
          INSERT INTO configuration_versions(id,profile_id,tenant_id,ordinal,config_version,policy_version,schema_version,status,values_json,content_hash,reason,created_at,created_by,published_at,published_by) VALUES\
          ('00000000-0000-0000-0000-00000000c002','00000000-0000-0000-0000-00000000c001','{tenant}',1,'config-e2e-v1','policy-e2e-v1',1,'PUBLISHED','{values}'::jsonb,decode('{hash}','hex'),'fixture bootstrap',now(),'fixture',now(),'fixture');\n\
          UPDATE configuration_profiles SET current_published_version_id='00000000-0000-0000-0000-00000000c002' WHERE id='00000000-0000-0000-0000-00000000c001';\n\
-         INSERT INTO configuration_active_scopes(tenant_id,scope_type,scope_reference,profile_id,version_id,updated_at) VALUES\
-         ('{tenant}','TENANT','{tenant}','00000000-0000-0000-0000-00000000c001','00000000-0000-0000-0000-00000000c002',now());\n"
+         INSERT INTO configuration_active_scopes(tenant_id,owner,scope_type,scope_reference,profile_id,version_id,updated_at) VALUES\
+         ('{tenant}','ENGINE','TENANT','{tenant}','00000000-0000-0000-0000-00000000c001','00000000-0000-0000-0000-00000000c002',now());\n"
     ))
 }
 
@@ -548,7 +610,7 @@ fn validate_manifest(manifest: &Manifest) -> Result<()> {
     if manifest.engine_public_addresses.len() != 3
         || manifest.engine_peer_addresses.len() != 3
         || manifest.engine_peer_listen_addresses.len() != 3
-        || manifest.kafka_brokers.is_empty()
+        || manifest.kafka.brokers.is_empty()
         || manifest.tls_dns_names.is_empty()
     {
         anyhow::bail!(
@@ -556,6 +618,23 @@ fn validate_manifest(manifest: &Manifest) -> Result<()> {
         );
     }
     Ok(())
+}
+
+fn kafka_topics_script(manifest: &Manifest) -> String {
+    let brokers = manifest.kafka.brokers.join(",");
+    [
+        &manifest.kafka.topics.engine_committed_events,
+        &manifest.kafka.topics.configuration_publications,
+        &manifest.kafka.topics.human_escalations,
+    ]
+    .into_iter()
+    .map(|topic| {
+        format!(
+            "rpk topic create '{topic}' --brokers '{brokers}' --partitions 3 --replicas 1 || rpk topic describe '{topic}' --brokers '{brokers}'"
+        )
+    })
+    .collect::<Vec<_>>()
+    .join("\n")
 }
 
 fn write(path: &Path, bytes: impl AsRef<[u8]>) -> Result<()> {

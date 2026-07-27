@@ -99,6 +99,7 @@ describe("BpmpApiClient configuration facade", () => {
     const profile = {
       id: "c7cb5db9-5b55-4717-a6af-cdfb5e4216e1",
       tenant_id: identity.tenantId,
+      owner: "ENGINE",
       name: "Runtime defaults",
       scope: { type: "TENANT", reference: identity.tenantId },
       aggregate_version: 2,

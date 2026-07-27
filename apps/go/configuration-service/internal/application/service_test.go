@@ -23,6 +23,9 @@ func (*repositoryStub) List(context.Context, string, string, string, int) ([]dom
 func (*repositoryStub) Get(context.Context, string, string) (domain.Profile, []domain.Version, error) {
 	return domain.Profile{}, nil, nil
 }
+func (*repositoryStub) ProfileOwner(context.Context, string, string) (domain.Owner, error) {
+	return domain.OwnerEngine, nil
+}
 func (*repositoryStub) AddDraft(context.Context, domain.Actor, string, int64, domain.Version) (domain.Profile, error) {
 	return domain.Profile{}, nil
 }
@@ -46,7 +49,8 @@ func TestCreateRequiresConfiguredCapabilityAndCanonicalizesPolicy(t *testing.T) 
 		t.Fatal(err)
 	}
 	input := CreateInput{
-		Name: "Engine defaults", Scope: domain.Scope{Type: domain.ScopeTenant, Reference: "tenant-a"},
+		Name: "Engine defaults", Owner: domain.OwnerEngine,
+		Scope:         domain.Scope{Type: domain.ScopeTenant, Reference: "tenant-a"},
 		SchemaVersion: 1, PolicyVersion: "policy-1", Reason: "initial",
 		Values: validPolicy(),
 	}

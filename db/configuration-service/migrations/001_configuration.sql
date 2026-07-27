@@ -1,6 +1,7 @@
 CREATE TABLE IF NOT EXISTS configuration_profiles (
     id uuid PRIMARY KEY,
     tenant_id text NOT NULL,
+    owner text NOT NULL,
     name text NOT NULL,
     scope_type text NOT NULL,
     scope_reference text NOT NULL,
@@ -11,9 +12,10 @@ CREATE TABLE IF NOT EXISTS configuration_profiles (
     created_by text NOT NULL,
     updated_at timestamptz NOT NULL,
     updated_by text NOT NULL,
-    UNIQUE (tenant_id, name),
+    UNIQUE (tenant_id, owner, name),
     CHECK (length(trim(tenant_id)) > 0),
     CHECK (length(trim(name)) > 0),
+    CHECK (owner IN ('ENGINE','API_GATEWAY','HUMAN_RUNTIME','PROJECTION','GOVERNANCE')),
     CHECK (scope_type IN ('PLATFORM','ENVIRONMENT','TENANT','WORKFLOW_TYPE','WORKFLOW_VERSION','APPROVED_INSTANCE_OVERRIDE')),
     CHECK (length(trim(scope_reference)) > 0)
 );
@@ -43,12 +45,14 @@ CREATE TABLE IF NOT EXISTS configuration_versions (
 
 CREATE TABLE IF NOT EXISTS configuration_active_scopes (
     tenant_id text NOT NULL,
+    owner text NOT NULL,
     scope_type text NOT NULL,
     scope_reference text NOT NULL,
     profile_id uuid NOT NULL REFERENCES configuration_profiles(id),
     version_id uuid NOT NULL REFERENCES configuration_versions(id),
     updated_at timestamptz NOT NULL,
-    PRIMARY KEY (tenant_id, scope_type, scope_reference)
+    PRIMARY KEY (tenant_id, owner, scope_type, scope_reference),
+    CHECK (owner IN ('ENGINE','API_GATEWAY','HUMAN_RUNTIME','PROJECTION','GOVERNANCE'))
 );
 
 ALTER TABLE configuration_profiles
@@ -76,6 +80,7 @@ CREATE TABLE IF NOT EXISTS configuration_audit (
 
 CREATE TABLE IF NOT EXISTS configuration_outbox (
     event_id uuid PRIMARY KEY,
+    event_sequence bigint NOT NULL UNIQUE CHECK (event_sequence > 0),
     tenant_id text NOT NULL,
     profile_id uuid NOT NULL,
     version_id uuid NOT NULL,
@@ -85,8 +90,24 @@ CREATE TABLE IF NOT EXISTS configuration_outbox (
     published_at timestamptz,
     attempt_count integer NOT NULL DEFAULT 0,
     next_attempt_at timestamptz NOT NULL,
+    lease_owner text,
+    lease_until timestamptz,
+    last_error text,
     CHECK (attempt_count >= 0)
 );
+
+CREATE TABLE IF NOT EXISTS configuration_outbox_publish_state (
+    singleton_id smallint PRIMARY KEY CHECK (singleton_id = 1),
+    next_sequence bigint NOT NULL DEFAULT 0 CHECK (next_sequence >= 0),
+    checkpoint bigint NOT NULL DEFAULT 0 CHECK (checkpoint >= 0),
+    lease_owner text,
+    lease_until timestamptz,
+    updated_at timestamptz NOT NULL
+);
+
+INSERT INTO configuration_outbox_publish_state(singleton_id, checkpoint, updated_at)
+VALUES (1, 0, statement_timestamp())
+ON CONFLICT (singleton_id) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS configuration_idempotency (
     tenant_id text NOT NULL,
@@ -113,7 +134,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS configuration_versions_one_draft_idx
 CREATE UNIQUE INDEX IF NOT EXISTS configuration_versions_one_published_idx
     ON configuration_versions (profile_id) WHERE status = 'PUBLISHED';
 CREATE INDEX IF NOT EXISTS configuration_outbox_pending_idx
-    ON configuration_outbox (next_attempt_at, occurred_at, event_id) WHERE published_at IS NULL;
+    ON configuration_outbox (event_sequence, next_attempt_at) WHERE published_at IS NULL;
 CREATE INDEX IF NOT EXISTS configuration_idempotency_created_idx
     ON configuration_idempotency (created_at);
 

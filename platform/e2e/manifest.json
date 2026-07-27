@@ -5,9 +5,19 @@
   "actor_id": "user-1",
   "actor_issuer": "bpmp-e2e-issuer",
   "actor_audience": "bpmp-e2e",
-  "kafka_brokers": ["redpanda:9092"],
-  "committed_event_topic": "bpmp.engine.events.e2e",
-  "escalation_topic": "bpmp.human.escalations.e2e",
+  "kafka": {
+    "brokers": ["redpanda:9092"],
+    "security_protocol": "PLAINTEXT",
+    "topics": {
+      "engine_committed_events": "bpmp.engine.committed-events.v1.e2e",
+      "configuration_publications": "bpmp.configuration.publications.v1.e2e",
+      "human_escalations": "bpmp.human.escalations.v1.e2e"
+    },
+    "consumer_groups": {
+      "engine_configuration_reloader": "bpmp.engine.configuration-reloader.v1.e2e",
+      "human_committed_events": "bpmp.human.committed-events.v1.e2e"
+    }
+  },
   "postgres_dsn": "postgres://bpmp:bpmp-e2e@postgres:5432/human_runtime?sslmode=disable",
   "configuration_postgres_dsn": "postgres://bpmp:bpmp-e2e@configuration-postgres:5432/configuration?sslmode=disable",
   "redis_address": "redis:6379",

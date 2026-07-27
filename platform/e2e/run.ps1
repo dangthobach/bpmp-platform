@@ -181,6 +181,7 @@ try {
         -Headers $configurationHeaders `
         -Body (@{
             name = "engine-default-$suffix"
+            owner = "ENGINE"
             scope = @{ type = "WORKFLOW_TYPE"; reference = "approval" }
             schema_version = 1
             policy_version = "policy-$suffix"

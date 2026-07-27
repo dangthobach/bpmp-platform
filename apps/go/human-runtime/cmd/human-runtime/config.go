@@ -7,6 +7,8 @@ import (
 	"net"
 	"os"
 	"time"
+
+	"github.com/dangthobach/bpmp-platform/go/platform/kafkaconfig"
 )
 
 type runtimeConfig struct {
@@ -122,6 +124,11 @@ func loadConfig(path string) (runtimeConfig, error) {
 func (c runtimeConfig) validate() error {
 	if c.ListenAddress == "" || c.PostgresDSN == "" || c.EngineAddress == "" || len(c.Kafka.Brokers) == 0 || c.Kafka.CommittedEventTopic == "" || c.Kafka.EscalationTopic == "" || c.Kafka.ConsumerGroup == "" || c.Identity.JWKSPath == "" || len(c.Identity.InternalKeys) == 0 || c.Workload.ID == "" || c.Workload.SigningKeyID == "" || c.Workload.PrivateKeyPath == "" || c.Escalation.WorkerID == "" {
 		return errors.New("human-runtime configuration is incomplete")
+	}
+	if kafkaconfig.ValidateTopic(c.Kafka.CommittedEventTopic) != nil ||
+		kafkaconfig.ValidateTopic(c.Kafka.EscalationTopic) != nil ||
+		kafkaconfig.ValidateConsumerGroup(c.Kafka.ConsumerGroup) != nil {
+		return errors.New("human-runtime Kafka names are invalid")
 	}
 	if _, _, err := net.SplitHostPort(c.ListenAddress); err != nil {
 		return err

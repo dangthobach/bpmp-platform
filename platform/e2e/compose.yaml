@@ -82,12 +82,9 @@ services:
       redpanda:
         condition: service_healthy
     entrypoint: ["/bin/bash", "-ec"]
-    command:
-      - >
-        rpk topic create bpmp.engine.events.e2e --brokers redpanda:9092 --partitions 3 --replicas 1
-        || rpk topic describe bpmp.engine.events.e2e --brokers redpanda:9092;
-        rpk topic create bpmp.human.escalations.e2e --brokers redpanda:9092 --partitions 1 --replicas 1
-        || rpk topic describe bpmp.human.escalations.e2e --brokers redpanda:9092
+    command: ["bash /runtime/kafka-topics.sh"]
+    volumes:
+      - ./runtime:/runtime:ro
 
   otel-collector:
     image: ${OTEL_IMAGE:?set OTEL_IMAGE}

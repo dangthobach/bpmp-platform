@@ -33,6 +33,7 @@ func (s *Server) ResolveConfiguration(
 	}
 	resolved, err := s.service.Resolve(ctx, domain.ResolutionLookup{
 		TenantID:             request.GetTenantId(),
+		Owner:                ownerFromProto(request.GetOwner()),
 		WorkflowType:         request.GetWorkflowType(),
 		WorkflowVersion:      request.GetWorkflowVersion(),
 		PlatformReference:    request.GetPlatformReference(),
@@ -42,7 +43,7 @@ func (s *Server) ResolveConfiguration(
 	if err != nil {
 		return nil, mapError(err)
 	}
-	policy, _, _, err := domain.ParsePolicy(resolved.Version.ValuesJSON)
+	policy, _, _, err := domain.ParsePolicy(resolved.Profile.Owner, resolved.Version.ValuesJSON)
 	if err != nil {
 		return nil, status.Error(codes.DataLoss, "published configuration is invalid")
 	}
@@ -56,10 +57,50 @@ func (s *Server) ResolveConfiguration(
 				Type:      scopeType(resolved.Profile.Scope.Type),
 				Reference: resolved.Profile.Scope.Reference,
 			}},
-			ContentHash: resolved.Version.ContentHash[:],
-			Engine:      policy,
+			ContentHash:  resolved.Version.ContentHash[:],
+			Owner:        ownerToProto(resolved.Profile.Owner),
+			Engine:       policy.Engine,
+			ApiGateway:   policy.APIGateway,
+			HumanRuntime: policy.HumanRuntime,
+			Projection:   policy.Projection,
+			Governance:   policy.Governance,
+			Ordinal:      uint64(resolved.Version.Ordinal),
 		},
 	}, nil
+}
+
+func ownerFromProto(value configurationv1.ConfigurationOwner) domain.Owner {
+	switch value {
+	case configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_ENGINE:
+		return domain.OwnerEngine
+	case configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_API_GATEWAY:
+		return domain.OwnerAPIGateway
+	case configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_HUMAN_RUNTIME:
+		return domain.OwnerHumanRuntime
+	case configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_PROJECTION:
+		return domain.OwnerProjection
+	case configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_GOVERNANCE:
+		return domain.OwnerGovernance
+	default:
+		return ""
+	}
+}
+
+func ownerToProto(value domain.Owner) configurationv1.ConfigurationOwner {
+	switch value {
+	case domain.OwnerEngine:
+		return configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_ENGINE
+	case domain.OwnerAPIGateway:
+		return configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_API_GATEWAY
+	case domain.OwnerHumanRuntime:
+		return configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_HUMAN_RUNTIME
+	case domain.OwnerProjection:
+		return configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_PROJECTION
+	case domain.OwnerGovernance:
+		return configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_GOVERNANCE
+	default:
+		return configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_UNSPECIFIED
+	}
 }
 
 func scopeType(value domain.ScopeType) configurationv1.ConfigurationScopeType {
