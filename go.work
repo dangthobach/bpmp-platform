@@ -5,6 +5,7 @@ use (
 	./apps/go/api-gateway
 	./apps/go/cockpit-gateway
 	./apps/go/projection-service
+	./apps/go/configuration-service
 	./go/contracts
 	./go/platform
 )

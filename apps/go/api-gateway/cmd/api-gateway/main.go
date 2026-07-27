@@ -93,6 +93,22 @@ func run(path string) error {
 		return err
 	}
 	defer humanConn.Close()
+	configurationClient := &http.Client{
+		Timeout: time.Duration(value.Reliability.AttemptTimeoutMS) * time.Millisecond,
+		Transport: &http.Transport{
+			ForceAttemptHTTP2: true,
+			TLSClientConfig: &tls.Config{
+				MinVersion:   tls.VersionTLS13,
+				ServerName:   value.UpstreamTLS.ConfigurationServerName,
+				RootCAs:      roots,
+				Certificates: []tls.Certificate{clientCertificate},
+			},
+			ResponseHeaderTimeout: time.Duration(value.Reliability.AttemptTimeoutMS) * time.Millisecond,
+		},
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 	redisPassword, err := readOptionalSecret(value.RateLimit.RedisPasswordFile)
 	if err != nil {
 		return fmt.Errorf("read Redis password: %w", err)
@@ -120,7 +136,13 @@ func run(path string) error {
 	if err != nil {
 		return fmt.Errorf("ping rate-limit Redis: %w", err)
 	}
-	handler, err := gateway.New(enginev1.NewEngineCommandServiceClient(engineConn), humanv1.NewHumanRuntimeServiceClient(humanConn), rateLimiter, value)
+	handler, err := gateway.New(
+		enginev1.NewEngineCommandServiceClient(engineConn),
+		humanv1.NewHumanRuntimeServiceClient(humanConn),
+		rateLimiter,
+		configurationClient,
+		value,
+	)
 	if err != nil {
 		return err
 	}
@@ -131,6 +153,7 @@ func run(path string) error {
 		connectionReady(engineConn),
 		connectionReady(humanConn),
 		func(ctx context.Context) error { return redisClient.Ping(ctx).Err() },
+		httpReady(configurationClient, value.ConfigurationURL+"/readyz"),
 	)
 	routes := http.NewServeMux()
 	routes.Handle("/livez", healthHandler)
@@ -152,6 +175,24 @@ func run(path string) error {
 			return nil
 		}
 		return runErr
+	}
+}
+
+func httpReady(client *http.Client, endpoint string) platformhealth.Check {
+	return func(ctx context.Context) error {
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			return err
+		}
+		response, err := client.Do(request)
+		if err != nil {
+			return err
+		}
+		defer response.Body.Close()
+		if response.StatusCode != http.StatusOK {
+			return fmt.Errorf("configuration upstream health returned %s", response.Status)
+		}
+		return nil
 	}
 }
 

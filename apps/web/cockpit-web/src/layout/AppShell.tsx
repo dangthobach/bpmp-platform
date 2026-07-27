@@ -7,6 +7,7 @@ import {
   PanelLeftClose,
   Play,
   Workflow,
+  SlidersHorizontal,
 } from "lucide-react";
 import { useState, type PropsWithChildren } from "react";
 import { useAuth } from "../auth/AuthContext";
@@ -19,6 +20,7 @@ const navigation = [
   { to: "/cases", label: "Cases", icon: Workflow },
   { to: "/audit", label: "Audit", icon: FileClock },
   { to: "/organizations", label: "Organizations", icon: Building2 },
+  { to: "/configuration", label: "Configuration", icon: SlidersHorizontal },
 ];
 
 export function AppShell({ children }: PropsWithChildren) {

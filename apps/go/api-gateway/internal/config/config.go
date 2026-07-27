@@ -10,20 +10,21 @@ import (
 )
 
 type Config struct {
-	ListenAddress   string            `json:"listen_address"`
-	EngineAddress   string            `json:"engine_address"`
-	HumanAddress    string            `json:"human_address"`
-	PublicTLS       PublicTLS         `json:"public_tls"`
-	UpstreamTLS     UpstreamTLS       `json:"upstream_tls"`
-	Identity        Identity          `json:"identity"`
-	Workload        Workload          `json:"workload"`
-	RateLimit       RateLimit         `json:"rate_limit"`
-	HTTP            HTTP              `json:"http"`
-	GRPC            GRPC              `json:"grpc"`
-	Reliability     Reliability       `json:"reliability"`
-	Health          Health            `json:"health"`
-	Telemetry       Telemetry         `json:"telemetry"`
-	TenantKeyScopes map[string]string `json:"tenant_key_scopes"`
+	ListenAddress    string            `json:"listen_address"`
+	EngineAddress    string            `json:"engine_address"`
+	HumanAddress     string            `json:"human_address"`
+	ConfigurationURL string            `json:"configuration_url"`
+	PublicTLS        PublicTLS         `json:"public_tls"`
+	UpstreamTLS      UpstreamTLS       `json:"upstream_tls"`
+	Identity         Identity          `json:"identity"`
+	Workload         Workload          `json:"workload"`
+	RateLimit        RateLimit         `json:"rate_limit"`
+	HTTP             HTTP              `json:"http"`
+	GRPC             GRPC              `json:"grpc"`
+	Reliability      Reliability       `json:"reliability"`
+	Health           Health            `json:"health"`
+	Telemetry        Telemetry         `json:"telemetry"`
+	TenantKeyScopes  map[string]string `json:"tenant_key_scopes"`
 }
 
 type PublicTLS struct {
@@ -31,11 +32,12 @@ type PublicTLS struct {
 	PrivateKey  string `json:"private_key"`
 }
 type UpstreamTLS struct {
-	Certificate      string `json:"certificate"`
-	PrivateKey       string `json:"private_key"`
-	CA               string `json:"ca"`
-	EngineServerName string `json:"engine_server_name"`
-	HumanServerName  string `json:"human_server_name"`
+	Certificate             string `json:"certificate"`
+	PrivateKey              string `json:"private_key"`
+	CA                      string `json:"ca"`
+	EngineServerName        string `json:"engine_server_name"`
+	HumanServerName         string `json:"human_server_name"`
+	ConfigurationServerName string `json:"configuration_server_name"`
 }
 type Identity struct {
 	JWKSPath         string   `json:"jwks_path"`
@@ -63,12 +65,13 @@ type RateLimit struct {
 	OperationTimeoutMS int64  `json:"operation_timeout_ms"`
 }
 type HTTP struct {
-	ReadHeaderTimeoutMS int64 `json:"read_header_timeout_ms"`
-	ReadTimeoutMS       int64 `json:"read_timeout_ms"`
-	WriteTimeoutMS      int64 `json:"write_timeout_ms"`
-	IdleTimeoutMS       int64 `json:"idle_timeout_ms"`
-	ShutdownTimeoutMS   int64 `json:"shutdown_timeout_ms"`
-	MaxBodyBytes        int64 `json:"max_body_bytes"`
+	ReadHeaderTimeoutMS      int64 `json:"read_header_timeout_ms"`
+	ReadTimeoutMS            int64 `json:"read_timeout_ms"`
+	WriteTimeoutMS           int64 `json:"write_timeout_ms"`
+	IdleTimeoutMS            int64 `json:"idle_timeout_ms"`
+	ShutdownTimeoutMS        int64 `json:"shutdown_timeout_ms"`
+	MaxBodyBytes             int64 `json:"max_body_bytes"`
+	MaxUpstreamResponseBytes int64 `json:"max_upstream_response_bytes"`
 }
 type GRPC struct {
 	MaxReceiveBytes int `json:"max_receive_bytes"`
@@ -113,13 +116,26 @@ func Load(path string) (Config, error) {
 }
 
 func (c Config) Validate() error {
-	if c.ListenAddress == "" || c.EngineAddress == "" || c.HumanAddress == "" || c.Identity.JWKSPath == "" || len(c.Identity.Issuers) == 0 || len(c.Identity.Audiences) == 0 || len(c.Identity.Algorithms) == 0 || c.Workload.ID == "" || c.Workload.SigningKeyID == "" || c.Workload.PrivateKeyPath == "" || len(c.TenantKeyScopes) == 0 {
+	if c.ListenAddress == "" || c.EngineAddress == "" || c.HumanAddress == "" ||
+		c.ConfigurationURL == "" || c.UpstreamTLS.ConfigurationServerName == "" ||
+		c.Identity.JWKSPath == "" || len(c.Identity.Issuers) == 0 ||
+		len(c.Identity.Audiences) == 0 || len(c.Identity.Algorithms) == 0 ||
+		c.Workload.ID == "" || c.Workload.SigningKeyID == "" ||
+		c.Workload.PrivateKeyPath == "" || len(c.TenantKeyScopes) == 0 {
 		return errors.New("api-gateway configuration is incomplete")
 	}
 	if _, _, err := net.SplitHostPort(c.ListenAddress); err != nil {
 		return err
 	}
-	if c.Identity.MaxTokenBytes <= 0 || c.Identity.MaxJWKSKeys <= 0 || c.Workload.ProofTTLMS <= 0 || c.RateLimit.Requests == 0 || c.RateLimit.WindowMS <= 0 || c.RateLimit.RedisAddress == "" || c.RateLimit.RedisKeyPrefix == "" || c.RateLimit.OperationTimeoutMS <= 0 || c.HTTP.ReadHeaderTimeoutMS <= 0 || c.HTTP.ReadTimeoutMS <= 0 || c.HTTP.WriteTimeoutMS <= 0 || c.HTTP.IdleTimeoutMS <= 0 || c.HTTP.ShutdownTimeoutMS <= 0 || c.HTTP.MaxBodyBytes <= 0 || c.GRPC.MaxReceiveBytes <= 0 || c.GRPC.MaxSendBytes <= 0 {
+	if c.Identity.MaxTokenBytes <= 0 || c.Identity.MaxJWKSKeys <= 0 ||
+		c.Workload.ProofTTLMS <= 0 || c.RateLimit.Requests == 0 ||
+		c.RateLimit.WindowMS <= 0 || c.RateLimit.RedisAddress == "" ||
+		c.RateLimit.RedisKeyPrefix == "" || c.RateLimit.OperationTimeoutMS <= 0 ||
+		c.HTTP.ReadHeaderTimeoutMS <= 0 || c.HTTP.ReadTimeoutMS <= 0 ||
+		c.HTTP.WriteTimeoutMS <= 0 || c.HTTP.IdleTimeoutMS <= 0 ||
+		c.HTTP.ShutdownTimeoutMS <= 0 || c.HTTP.MaxBodyBytes <= 0 ||
+		c.HTTP.MaxUpstreamResponseBytes <= 0 ||
+		c.GRPC.MaxReceiveBytes <= 0 || c.GRPC.MaxSendBytes <= 0 {
 		return errors.New("api-gateway bounds must be positive")
 	}
 	if c.Reliability.MaxAttempts == 0 ||

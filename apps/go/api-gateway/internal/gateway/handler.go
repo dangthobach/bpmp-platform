@@ -22,17 +22,24 @@ import (
 )
 
 type Handler struct {
-	engine    ports.Engine
-	human     ports.HumanRuntime
-	verifier  *verifier
-	workload  *workloadSigner
-	limiter   ports.RateLimiter
-	keyScopes map[string]string
-	maxBody   int64
-	now       func() time.Time
+	engine             ports.Engine
+	human              ports.HumanRuntime
+	verifier           *verifier
+	workload           *workloadSigner
+	limiter            ports.RateLimiter
+	keyScopes          map[string]string
+	maxBody            int64
+	now                func() time.Time
+	configurationProxy *configurationProxy
 }
 
-func New(engine ports.Engine, human ports.HumanRuntime, limiter ports.RateLimiter, value config.Config) (*Handler, error) {
+func New(
+	engine ports.Engine,
+	human ports.HumanRuntime,
+	limiter ports.RateLimiter,
+	configurationClient httpDoer,
+	value config.Config,
+) (*Handler, error) {
 	identity, err := newVerifier(value.Identity)
 	if err != nil {
 		return nil, err
@@ -41,7 +48,28 @@ func New(engine ports.Engine, human ports.HumanRuntime, limiter ports.RateLimite
 	if err != nil {
 		return nil, err
 	}
-	return NewHandler(engine, human, identity, workload, limiter, value.TenantKeyScopes, value.HTTP.MaxBodyBytes)
+	handler, err := NewHandler(
+		engine,
+		human,
+		identity,
+		workload,
+		limiter,
+		value.TenantKeyScopes,
+		value.HTTP.MaxBodyBytes,
+	)
+	if err != nil {
+		return nil, err
+	}
+	handler.configurationProxy, err = newConfigurationProxy(
+		configurationClient,
+		value.ConfigurationURL,
+		value.HTTP.MaxBodyBytes,
+		value.HTTP.MaxUpstreamResponseBytes,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return handler, nil
 }
 
 func NewHandler(engine ports.Engine, human ports.HumanRuntime, verifier *verifier, workload *workloadSigner, limiter ports.RateLimiter, keyScopes map[string]string, maxBody int64) (*Handler, error) {
@@ -67,6 +95,14 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("POST /v1/work-items/{workItemID}/delegate", h.delegateWorkItem)
 	mux.HandleFunc("GET /v1/cases/{caseID}", h.getCase)
 	mux.HandleFunc("GET /v1/audit-records", h.listAuditRecords)
+	if h.configurationProxy != nil {
+		mux.HandleFunc("GET /v1/configuration/profiles", h.configuration)
+		mux.HandleFunc("POST /v1/configuration/profiles", h.configuration)
+		mux.HandleFunc("GET /v1/configuration/profiles/{profileID}", h.configuration)
+		mux.HandleFunc("POST /v1/configuration/profiles/{profileID}/versions", h.configuration)
+		mux.HandleFunc("POST /v1/configuration/profiles/{profileID}/versions/{versionID}/publish", h.configuration)
+		mux.HandleFunc("POST /v1/configuration/profiles/{profileID}/versions/{versionID}/rollback", h.configuration)
+	}
 	return mux
 }
 

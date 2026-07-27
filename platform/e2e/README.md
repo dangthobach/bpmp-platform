@@ -1,7 +1,8 @@
 # Broker-backed process E2E
 
 This harness builds and starts three independent `bpmp-engine` processes,
-Redpanda/Kafka, PostgreSQL, Redis, Human Runtime, API Gateway and an OTLP
+Redpanda/Kafka, isolated Human Runtime and Configuration PostgreSQL databases,
+Redis, Human Runtime, Configuration Service, API Gateway and an OTLP
 collector. Runtime keys, certificates, signed WIR/policy artifacts and service
 configuration are generated into the ignored `runtime/` directory.
 

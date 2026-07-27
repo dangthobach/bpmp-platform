@@ -45,6 +45,8 @@ capability checks before exposure to Cockpit.
 - Selection uses stable work-item IDs and is cleared on page transitions.
 - Runtime configuration controls API origins, pagination, request timeout,
   batch chunk size, batch concurrency and cache staleness.
+- Configuration administration uses the API Gateway `/v1/configuration`
+  facade; the browser never connects to the internal resolver or database.
 
 ## Batch processing
 

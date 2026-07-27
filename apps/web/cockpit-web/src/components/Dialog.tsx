@@ -8,6 +8,7 @@ export function Dialog({
   description,
   onClose,
   footer,
+  size = "default",
   children,
 }: PropsWithChildren<{
   open: boolean;
@@ -15,12 +16,13 @@ export function Dialog({
   description?: string;
   onClose: () => void;
   footer?: ReactNode;
+  size?: "default" | "wide";
 }>) {
   if (!open) return null;
   return (
     <div className="dialog-backdrop" role="presentation" onMouseDown={onClose}>
       <section
-        className="dialog"
+        className={`dialog dialog--${size}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="dialog-title"

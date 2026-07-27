@@ -38,6 +38,8 @@ pub struct EnginePolicy {
     pub default_multi_instance_parallelism: u32,
     #[prost(message, optional, tag="9")]
     pub boundary_runtime: ::core::option::Option<BoundaryRuntimePolicy>,
+    #[prost(string, tag="10")]
+    pub event_payload_key_scope: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct BoundaryRuntimePolicy {
@@ -103,6 +105,26 @@ pub struct ResolvedConfigurationSnapshot {
     pub content_hash: ::prost::alloc::vec::Vec<u8>,
     #[prost(message, optional, tag="7")]
     pub engine: ::core::option::Option<EnginePolicy>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ResolveConfigurationRequest {
+    #[prost(string, tag="1")]
+    pub tenant_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub workflow_type: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub workflow_version: ::prost::alloc::string::String,
+    #[prost(string, tag="4")]
+    pub platform_reference: ::prost::alloc::string::String,
+    #[prost(string, tag="5")]
+    pub environment_reference: ::prost::alloc::string::String,
+    #[prost(string, tag="6")]
+    pub instance_id: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ResolveConfigurationResponse {
+    #[prost(message, optional, tag="1")]
+    pub snapshot: ::core::option::Option<ResolvedConfigurationSnapshot>,
 }
 /// Immutable protocol values. Runtime policy belongs in EnginePolicy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]

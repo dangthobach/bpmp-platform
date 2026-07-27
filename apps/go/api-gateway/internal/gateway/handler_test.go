@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -22,6 +23,12 @@ import (
 	enginev1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/engine/v1"
 	humanv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/human/v1"
 )
+
+type doerFunc func(*http.Request) (*http.Response, error)
+
+func (function doerFunc) Do(request *http.Request) (*http.Response, error) {
+	return function(request)
+}
 
 type recordingEngine struct {
 	enginev1.EngineCommandServiceClient
@@ -129,6 +136,100 @@ func TestListWorkItemsForwardsTenantActorAndCursor(t *testing.T) {
 	}
 	if values := human.metadata.Get("x-bpmp-correlation-id"); len(values) != 1 || values[0] != "correlation-1" {
 		t.Fatalf("correlation metadata was not preserved: %v", values)
+	}
+}
+
+func TestConfigurationFacadePreservesAuthenticatedCommandScope(t *testing.T) {
+	public, private, _ := ed25519.GenerateKey(nil)
+	now := time.Unix(1_000, 0).UTC()
+	claims := jwt.MapClaims{
+		"iss": "issuer", "sub": "actor-1", "aud": []string{"gateway"},
+		"exp": now.Add(time.Hour).Unix(), "iat": now.Add(-time.Minute).Unix(),
+		"tenant_id": "tenant-a",
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
+	token.Header["kid"] = "actor-key"
+	raw, err := token.SignedString(private)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var forwarded *http.Request
+	var forwardedBody []byte
+	client := doerFunc(func(request *http.Request) (*http.Response, error) {
+		forwarded = request
+		forwardedBody, err = io.ReadAll(request.Body)
+		return &http.Response{
+			StatusCode: http.StatusCreated,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"id":"profile-1"}`)),
+		}, err
+	})
+	handler, err := NewHandler(
+		&recordingEngine{},
+		&recordingHuman{},
+		&verifier{
+			keys:          map[string]crypto.PublicKey{"actor-key": public},
+			issuers:       map[string]struct{}{"issuer": {}},
+			audiences:     map[string]struct{}{"gateway": {}},
+			methods:       []string{"EdDSA"},
+			maxTokenBytes: 4096,
+		},
+		&workloadSigner{id: "api-gateway", keyID: "workload-key", key: private, ttl: time.Minute},
+		newModelRateLimiter(10, time.Minute),
+		map[string]string{"tenant-a": "tenant-a/workflows"},
+		4096,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler.now = func() time.Time { return now }
+	handler.configurationProxy, err = newConfigurationProxy(
+		client,
+		"https://configuration.internal",
+		4096,
+		4096,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/configuration/profiles",
+		strings.NewReader(`{"name":"default"}`),
+	)
+	request.Header.Set("Authorization", "Bearer "+raw)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-BPMP-Tenant-ID", "tenant-a")
+	request.Header.Set("X-Command-ID", "command-1")
+	request.Header.Set("Idempotency-Key", "idempotency-1")
+	request.Header.Set("X-Correlation-ID", "correlation-1")
+	response := httptest.NewRecorder()
+	handler.Routes().ServeHTTP(response, request)
+
+	if response.Code != http.StatusCreated {
+		t.Fatalf("unexpected status %d: %s", response.Code, response.Body.String())
+	}
+	if forwarded == nil || forwarded.URL.String() != "https://configuration.internal/v1/configuration/profiles" {
+		t.Fatalf("unexpected upstream request: %+v", forwarded)
+	}
+	for name, expected := range map[string]string{
+		"Authorization":    "Bearer " + raw,
+		"X-BPMP-Tenant-ID": "tenant-a",
+		"X-Command-ID":     "command-1",
+		"Idempotency-Key":  "idempotency-1",
+		"X-Correlation-ID": "correlation-1",
+	} {
+		if actual := forwarded.Header.Get(name); actual != expected {
+			t.Fatalf("%s was not preserved: %q", name, actual)
+		}
+	}
+	if string(forwardedBody) != `{"name":"default"}` {
+		t.Fatalf("body changed: %s", forwardedBody)
+	}
+	if response.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("configuration response must not be cached")
 	}
 }
 

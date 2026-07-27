@@ -562,10 +562,16 @@ th:nth-child(4) {
 .dialog {
   width: min(540px, 100%);
   max-height: calc(100vh - 40px);
-  overflow: auto;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
   border-radius: 8px;
   background: #ffffff;
   box-shadow: 0 24px 70px rgba(20, 31, 24, 0.25);
+}
+
+.dialog--wide {
+  width: min(940px, 100%);
 }
 
 .dialog__header {
@@ -582,6 +588,7 @@ th:nth-child(4) {
 }
 
 .dialog__content {
+  overflow: auto;
   padding: 20px;
 }
 
@@ -797,6 +804,64 @@ th:nth-child(4) {
   gap: 16px;
 }
 
+.configuration-layout {
+  display: grid;
+  grid-template-columns: minmax(340px, 0.72fr) minmax(560px, 1.28fr);
+  gap: 16px;
+}
+
+.configuration-profiles,
+.configuration-detail {
+  min-width: 0;
+}
+
+.configuration-profiles table {
+  min-width: 360px;
+}
+
+.configuration-detail table {
+  min-width: 720px;
+}
+
+.configuration-profiles th:nth-child(2) {
+  width: auto;
+}
+
+.configuration-profiles th:nth-child(3) {
+  width: 110px;
+}
+
+.configuration-profiles tbody tr {
+  cursor: pointer;
+}
+
+.configuration-detail .toolbar {
+  border: 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.configuration-form {
+  display: grid;
+  gap: 20px;
+}
+
+.configuration-fields {
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+}
+
+.configuration-fields legend {
+  padding: 0 7px;
+  color: #39423c;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.transition-reason {
+  margin-top: 16px;
+}
+
 .organization-list table {
   min-width: 360px;
 }
@@ -872,6 +937,10 @@ th:nth-child(4) {
   .organization-layout {
     grid-template-columns: 1fr;
   }
+
+  .configuration-layout {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 640px) {
@@ -919,6 +988,20 @@ th:nth-child(4) {
   }
 
   .header-actions {
-    justify-content: flex-end;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .dialog-backdrop {
+    padding: 12px;
+  }
+
+  .dialog__header,
+  .dialog__content {
+    padding: 16px;
+  }
+
+  .dialog__footer {
+    padding: 12px 16px;
   }
 }

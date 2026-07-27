@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -27,6 +28,8 @@ use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
 const MIGRATION: &str = include_str!("../../../db/human-runtime/migrations/001_human_runtime.sql");
+const CONFIGURATION_MIGRATION: &str =
+    include_str!("../../../db/configuration-service/migrations/001_configuration.sql");
 
 #[derive(Debug, Parser)]
 struct Arguments {
@@ -49,6 +52,7 @@ struct Manifest {
     committed_event_topic: String,
     escalation_topic: String,
     postgres_dsn: String,
+    configuration_postgres_dsn: String,
     redis_address: String,
     otel_endpoint: String,
     runtime_mount: String,
@@ -60,6 +64,10 @@ struct Manifest {
     human_listen_address: String,
     human_health_address: String,
     gateway_listen_address: String,
+    configuration_url: String,
+    configuration_listen_address: String,
+    configuration_grpc_url: String,
+    configuration_grpc_listen_address: String,
     tls_dns_names: Vec<String>,
 }
 
@@ -152,7 +160,12 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
             aud: &manifest.actor_audience,
             tenant_id: &manifest.tenant_id,
             roles: vec!["reviewer"],
-            capabilities: vec!["workflow.start", "workflow.complete"],
+            capabilities: vec![
+                "workflow.start",
+                "workflow.complete",
+                "configuration.read",
+                "configuration.manage",
+            ],
             revoke_epoch: 0,
             iat: now.saturating_sub(5),
             nbf: now.saturating_sub(5),
@@ -190,9 +203,17 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
         &output.join("api-gateway.json"),
         &gateway_config(manifest, mount, &gateway_workload),
     )?;
+    write_json(
+        &output.join("configuration-service.json"),
+        &configuration_config(manifest, mount),
+    )?;
     write(
         &output.join("human-runtime.sql"),
         seeded_migration(manifest).as_bytes(),
+    )?;
+    write(
+        &output.join("configuration-service.sql"),
+        seeded_configuration_migration(manifest)?.as_bytes(),
     )?;
     Ok(())
 }
@@ -349,7 +370,18 @@ fn engine_config(manifest: &Manifest, mount: &str, index: usize, keys: &[&AuthKe
         "listen_addr": manifest.engine_public_listen_address,
         "data_path": format!("/data/engine-{}", index + 1),
         "tls": {"server_certificate": path("secrets/tls.pem"), "server_private_key": path("secrets/tls-key.pem"), "client_ca": path("secrets/ca.pem")},
-        "wir": {"verification_key": path("secrets/wir-public.key"), "artifacts": [path("approval.wir")], "configurations": [path("workflow-config.json")]},
+        "wir": {"verification_key": path("secrets/wir-public.key"), "artifacts": [path("approval.wir")], "configurations": []},
+        "configuration_resolver": {
+            "endpoint": manifest.configuration_grpc_url,
+            "tls_domain": "configuration-service",
+            "platform_reference": "bpmp",
+            "environment_reference": "e2e",
+            "timeout_ms": 2000,
+            "max_attempts": 30,
+            "retry_delay_ms": 250,
+            "max_decoding_bytes": 1_048_576,
+            "max_encoding_bytes": 1_048_576
+        },
         "authorization": {
             "actor_keys": [verification(keys[2])],
             "workload_keys": [verification(keys[0]), verification(keys[1]), verification(keys[3])],
@@ -402,18 +434,92 @@ fn gateway_config(manifest: &Manifest, mount: &str, workload: &AuthKey) -> Value
     json!({
         "listen_address": manifest.gateway_listen_address,
         "engine_address": manifest.engine_public_addresses[1], "human_address": manifest.human_address,
+        "configuration_url": manifest.configuration_url,
         "public_tls": {"certificate": path("secrets/tls.pem"), "private_key": path("secrets/tls-key.pem")},
-        "upstream_tls": {"certificate": path("secrets/tls.pem"), "private_key": path("secrets/tls-key.pem"), "ca": path("secrets/ca.pem"), "engine_server_name": "engine2", "human_server_name": "human-runtime"},
+        "upstream_tls": {"certificate": path("secrets/tls.pem"), "private_key": path("secrets/tls-key.pem"), "ca": path("secrets/ca.pem"), "engine_server_name": "engine2", "human_server_name": "human-runtime", "configuration_server_name": "configuration-service"},
         "identity": {"jwks_path": path("jwks.json"), "issuers": [manifest.actor_issuer], "audiences": [manifest.actor_audience], "algorithms": ["EdDSA"], "max_token_bytes": 16384, "max_jwks_keys": 16, "clock_skew_seconds": 30},
         "workload": {"id": "api-gateway", "signing_key_id": workload.id, "private_key_path": path(&workload.private_path), "proof_ttl_ms": 60000},
         "rate_limit": {"requests": 1000, "window_ms": 60000, "redis_address": manifest.redis_address, "redis_username": "", "redis_password_file": "", "redis_database": 0, "redis_key_prefix": "bpmp:e2e", "operation_timeout_ms": 1000},
-        "http": {"read_header_timeout_ms": 2000, "read_timeout_ms": 5000, "write_timeout_ms": 5000, "idle_timeout_ms": 10000, "shutdown_timeout_ms": 5000, "max_body_bytes": 65536},
+        "http": {"read_header_timeout_ms": 2000, "read_timeout_ms": 5000, "write_timeout_ms": 5000, "idle_timeout_ms": 10000, "shutdown_timeout_ms": 5000, "max_body_bytes": 65536, "max_upstream_response_bytes": 1_048_576},
         "grpc": {"max_receive_bytes": 1_048_576, "max_send_bytes": 1_048_576},
         "reliability": {"max_attempts": 5, "initial_backoff_ms": 50, "max_backoff_ms": 1000, "attempt_timeout_ms": 3000, "failure_threshold": 5, "open_duration_ms": 1000, "retryable_codes": ["UNAVAILABLE","DEADLINE_EXCEEDED"]},
         "health": {"readiness_timeout_ms": 1000},
         "telemetry": {"service_name": "api-gateway-e2e", "service_version": "e2e", "endpoint": manifest.otel_endpoint, "insecure": true, "sample_ratio": 0.0, "export_timeout_ms": 1000},
         "tenant_key_scopes": {(manifest.tenant_id.clone()): format!("{}/operational", manifest.tenant_id)}
     })
+}
+
+fn configuration_config(manifest: &Manifest, mount: &str) -> Value {
+    let path = |name: &str| format!("{mount}/{name}");
+    json!({
+        "listen_address": manifest.configuration_listen_address,
+        "postgres_dsn": manifest.configuration_postgres_dsn,
+        "apply_migrations": true,
+        "migration_path": path("configuration-service.sql"),
+        "tls": {
+            "certificate": path("secrets/tls.pem"),
+            "private_key": path("secrets/tls-key.pem"),
+            "client_ca": path("secrets/ca.pem")
+        },
+        "grpc": {
+            "listen_address": manifest.configuration_grpc_listen_address,
+            "max_receive_bytes": 1_048_576,
+            "max_send_bytes": 1_048_576
+        },
+        "identity": {
+            "jwks_path": path("jwks.json"),
+            "issuers": [manifest.actor_issuer],
+            "audiences": [manifest.actor_audience],
+            "algorithms": ["EdDSA"],
+            "max_token_bytes": 16384,
+            "max_jwks_keys": 16,
+            "clock_skew_ms": 30000,
+            "read_capability": "configuration.read",
+            "manage_capability": "configuration.manage"
+        },
+        "api": {
+            "default_page_size": 50,
+            "max_page_size": 200,
+            "max_body_bytes": 1_048_576,
+            "read_header_timeout_ms": 2000,
+            "read_timeout_ms": 5000,
+            "write_timeout_ms": 5000,
+            "idle_timeout_ms": 10000,
+            "shutdown_timeout_ms": 5000,
+            "readiness_timeout_ms": 1000
+        },
+        "telemetry": {
+            "service_name": "configuration-service-e2e",
+            "service_version": "e2e",
+            "endpoint": manifest.otel_endpoint,
+            "insecure": true,
+            "sample_ratio": 0.0,
+            "export_timeout_ms": 1000
+        }
+    })
+}
+
+fn seeded_configuration_migration(manifest: &Manifest) -> Result<String> {
+    let snapshot = workflow_configuration(manifest);
+    let engine = snapshot
+        .pointer("/snapshot/engine")
+        .context("E2E configuration snapshot has no engine policy")?;
+    let values = sql_literal(&serde_json::to_string(engine)?);
+    let tenant = sql_literal(&manifest.tenant_id);
+    let mut hash = String::with_capacity(64);
+    for byte in Sha256::digest(b"bpmp-e2e-config-v1") {
+        write!(&mut hash, "{byte:02x}")?;
+    }
+    Ok(format!(
+        "{CONFIGURATION_MIGRATION}\n\
+         INSERT INTO configuration_profiles(id,tenant_id,name,scope_type,scope_reference,aggregate_version,is_deleted,created_at,created_by,updated_at,updated_by) VALUES\
+         ('00000000-0000-0000-0000-00000000c001','{tenant}','E2E tenant policy','TENANT','{tenant}',2,false,now(),'fixture',now(),'fixture');\n\
+         INSERT INTO configuration_versions(id,profile_id,tenant_id,ordinal,config_version,policy_version,schema_version,status,values_json,content_hash,reason,created_at,created_by,published_at,published_by) VALUES\
+         ('00000000-0000-0000-0000-00000000c002','00000000-0000-0000-0000-00000000c001','{tenant}',1,'config-e2e-v1','policy-e2e-v1',1,'PUBLISHED','{values}'::jsonb,decode('{hash}','hex'),'fixture bootstrap',now(),'fixture',now(),'fixture');\n\
+         UPDATE configuration_profiles SET current_published_version_id='00000000-0000-0000-0000-00000000c002' WHERE id='00000000-0000-0000-0000-00000000c001';\n\
+         INSERT INTO configuration_active_scopes(tenant_id,scope_type,scope_reference,profile_id,version_id,updated_at) VALUES\
+         ('{tenant}','TENANT','{tenant}','00000000-0000-0000-0000-00000000c001','00000000-0000-0000-0000-00000000c002',now());\n"
+    ))
 }
 
 fn seeded_migration(manifest: &Manifest) -> String {

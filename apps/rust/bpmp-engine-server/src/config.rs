@@ -16,6 +16,7 @@ pub struct RuntimeConfig {
     pub data_path: PathBuf,
     pub tls: TlsConfig,
     pub wir: WirConfig,
+    pub configuration_resolver: Option<ConfigurationResolverConfig>,
     pub authorization: AuthorizationConfig,
     pub payload_keys: Vec<PayloadKeyConfig>,
     pub rocksdb: RocksDbRuntimeConfig,
@@ -36,7 +37,6 @@ impl RuntimeConfig {
 
     fn validate(&self) -> Result<(), RuntimeConfigError> {
         if self.wir.artifacts.is_empty()
-            || self.wir.configurations.is_empty()
             || self.authorization.policy_bundles.is_empty()
             || self.authorization.actor_keys.is_empty()
             || self.authorization.workload_keys.is_empty()
@@ -78,6 +78,7 @@ impl RuntimeConfig {
                 "artifact, key, policy, and Kafka collections must not be empty",
             ));
         }
+        self.validate_configuration_source()?;
         for value in [
             self.workers.boundary.projection_batch_size,
             self.workers.boundary.dispatch_batch_size,
@@ -134,6 +135,18 @@ impl RuntimeConfig {
         Ok(())
     }
 
+    fn validate_configuration_source(&self) -> Result<(), RuntimeConfigError> {
+        if self.wir.configurations.is_empty() == self.configuration_resolver.is_none() {
+            return Err(RuntimeConfigError::Invalid(
+                "configure exactly one configuration source",
+            ));
+        }
+        if let Some(resolver) = &self.configuration_resolver {
+            resolver.validate()?;
+        }
+        Ok(())
+    }
+
     pub const fn poll_interval(&self) -> Duration {
         Duration::from_millis(self.workers.poll_interval_ms)
     }
@@ -171,6 +184,40 @@ pub struct WirConfig {
     pub verification_key: PathBuf,
     pub artifacts: Vec<PathBuf>,
     pub configurations: Vec<PathBuf>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConfigurationResolverConfig {
+    pub endpoint: String,
+    pub tls_domain: String,
+    pub platform_reference: String,
+    pub environment_reference: String,
+    pub timeout_ms: u64,
+    pub max_attempts: u32,
+    pub retry_delay_ms: u64,
+    pub max_decoding_bytes: usize,
+    pub max_encoding_bytes: usize,
+}
+
+impl ConfigurationResolverConfig {
+    fn validate(&self) -> Result<(), RuntimeConfigError> {
+        if self.endpoint.trim().is_empty()
+            || self.tls_domain.trim().is_empty()
+            || self.platform_reference.trim().is_empty()
+            || self.environment_reference.trim().is_empty()
+            || self.timeout_ms == 0
+            || self.max_attempts == 0
+            || self.retry_delay_ms == 0
+            || self.max_decoding_bytes == 0
+            || self.max_encoding_bytes == 0
+        {
+            return Err(RuntimeConfigError::Invalid(
+                "configuration resolver settings are invalid",
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]

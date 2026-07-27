@@ -10,6 +10,13 @@ import {
   type CreateOrganizationInput,
   type MoveOrganizationNodeInput,
 } from "../features/organizations/types";
+import {
+  configurationDetailSchema,
+  configurationPageSchema,
+  configurationProfileSchema,
+  type CreateConfigurationInput,
+  type DraftConfigurationInput,
+} from "../features/configuration/types";
 import type {
   AuditPage,
   CaseResponse,
@@ -163,6 +170,88 @@ export class BpmpApiClient {
     );
   }
 
+  listConfigurationProfiles(pageToken = "", pageSize = this.config.defaultPageSize) {
+    const query = new URLSearchParams({
+      page_size: String(Math.min(pageSize, this.config.maxPageSize)),
+    });
+    if (pageToken) query.set("page_token", pageToken);
+    return this.configurationRequest(
+      `/v1/configuration/profiles?${query.toString()}`,
+      configurationPageSchema,
+    );
+  }
+
+  getConfigurationProfile(profileId: string) {
+    return this.configurationRequest(
+      `/v1/configuration/profiles/${encodeURIComponent(profileId)}`,
+      configurationDetailSchema,
+    );
+  }
+
+  createConfigurationProfile(
+    input: CreateConfigurationInput,
+    idempotencyKey: string = crypto.randomUUID(),
+  ) {
+    return this.configurationRequest(
+      "/v1/configuration/profiles",
+      configurationProfileSchema,
+      { method: "POST", body: input, idempotencyKey },
+    );
+  }
+
+  addConfigurationDraft(
+    profileId: string,
+    input: DraftConfigurationInput,
+    idempotencyKey: string = crypto.randomUUID(),
+  ) {
+    return this.configurationRequest(
+      `/v1/configuration/profiles/${encodeURIComponent(profileId)}/versions`,
+      configurationProfileSchema,
+      { method: "POST", body: input, idempotencyKey },
+    );
+  }
+
+  publishConfiguration(
+    profileId: string,
+    versionId: string,
+    expectedVersion: number,
+    reason: string,
+    idempotencyKey: string = crypto.randomUUID(),
+  ) {
+    return this.configurationRequest(
+      `/v1/configuration/profiles/${encodeURIComponent(profileId)}/versions/${encodeURIComponent(versionId)}/publish`,
+      configurationProfileSchema,
+      {
+        method: "POST",
+        body: { expected_version: expectedVersion, reason },
+        idempotencyKey,
+      },
+    );
+  }
+
+  rollbackConfiguration(
+    profileId: string,
+    versionId: string,
+    expectedVersion: number,
+    policyVersion: string,
+    reason: string,
+    idempotencyKey: string = crypto.randomUUID(),
+  ) {
+    return this.configurationRequest(
+      `/v1/configuration/profiles/${encodeURIComponent(profileId)}/versions/${encodeURIComponent(versionId)}/rollback`,
+      configurationProfileSchema,
+      {
+        method: "POST",
+        body: {
+          expected_version: expectedVersion,
+          policy_version: policyVersion,
+          reason,
+        },
+        idempotencyKey,
+      },
+    );
+  }
+
   private async request<T>(
     path: string,
     options: {
@@ -226,7 +315,11 @@ export class BpmpApiClient {
   private async organizationRequest<T>(
     path: string,
     schema: z.ZodType<T>,
-    options: { method?: "GET" | "POST"; body?: unknown } = {},
+    options: {
+      method?: "GET" | "POST";
+      body?: unknown;
+      idempotencyKey?: string;
+    } = {},
   ): Promise<T> {
     const identity = this.getIdentity();
     const controller = new AbortController();
@@ -287,6 +380,70 @@ export class BpmpApiClient {
         throw new ApiError("Request timed out", 408, requestId);
       }
       throw new ApiError("Organization API is unavailable", 0, requestId);
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }
+
+  private async configurationRequest<T>(
+    path: string,
+    schema: z.ZodType<T>,
+    options: {
+      method?: "GET" | "POST";
+      body?: unknown;
+      idempotencyKey?: string;
+    } = {},
+  ): Promise<T> {
+    const identity = this.getIdentity();
+    const controller = new AbortController();
+    const timeout = window.setTimeout(
+      () => controller.abort(),
+      this.config.requestTimeoutMs,
+    );
+    const correlationId = crypto.randomUUID();
+    const headers = new Headers({
+      Accept: "application/json",
+      Authorization: `Bearer ${identity.accessToken}`,
+      "X-BPMP-Tenant-ID": identity.tenantId,
+      "X-Correlation-ID": correlationId,
+    });
+    if (options.body !== undefined) {
+      headers.set("Content-Type", "application/json");
+      headers.set("X-Command-ID", crypto.randomUUID());
+      headers.set("Idempotency-Key", options.idempotencyKey ?? crypto.randomUUID());
+    }
+    try {
+      const response = await fetch(
+        new URL(path, this.config.apiBaseUrl),
+        {
+          method: options.method ?? "GET",
+          headers,
+          signal: controller.signal,
+          ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
+        },
+      );
+      const raw: unknown = await response.json().catch(() => null);
+      const responseCorrelation =
+        response.headers.get("X-Correlation-ID") ?? correlationId;
+      if (!response.ok) {
+        const error = z.object({ error: z.string() }).safeParse(raw);
+        throw new ApiError(
+          error.success ? error.data.error : "Configuration request failed",
+          response.status,
+          responseCorrelation,
+        );
+      }
+      const parsed = schema.safeParse(raw);
+      if (!parsed.success) {
+        throw new ApiError("Invalid configuration response data", 502, responseCorrelation);
+      }
+      return parsed.data;
+    } catch (error) {
+      if (error instanceof ApiError) throw error;
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw new ApiError("Request timed out", 408, correlationId);
+      }
+      throw new ApiError("Configuration API is unavailable", 0, correlationId);
     } finally {
       window.clearTimeout(timeout);
     }

@@ -3,7 +3,11 @@
 pub use bpmp_authz_contracts::authorization;
 
 pub mod configuration {
-    #[allow(clippy::doc_markdown)]
+    #[allow(
+        clippy::default_trait_access,
+        clippy::doc_markdown,
+        clippy::missing_errors_doc
+    )]
     pub mod v1 {
         include!(concat!(env!("OUT_DIR"), "/bpmp.configuration.v1.rs"));
     }

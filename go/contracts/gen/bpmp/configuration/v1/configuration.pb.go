@@ -214,6 +214,7 @@ type EnginePolicy struct {
 	MaxMultiInstanceCardinality     uint32                 `protobuf:"varint,7,opt,name=max_multi_instance_cardinality,json=maxMultiInstanceCardinality,proto3" json:"max_multi_instance_cardinality,omitempty"`
 	DefaultMultiInstanceParallelism uint32                 `protobuf:"varint,8,opt,name=default_multi_instance_parallelism,json=defaultMultiInstanceParallelism,proto3" json:"default_multi_instance_parallelism,omitempty"`
 	BoundaryRuntime                 *BoundaryRuntimePolicy `protobuf:"bytes,9,opt,name=boundary_runtime,json=boundaryRuntime,proto3" json:"boundary_runtime,omitempty"`
+	EventPayloadKeyScope            string                 `protobuf:"bytes,10,opt,name=event_payload_key_scope,json=eventPayloadKeyScope,proto3" json:"event_payload_key_scope,omitempty"`
 	unknownFields                   protoimpl.UnknownFields
 	sizeCache                       protoimpl.SizeCache
 }
@@ -309,6 +310,13 @@ func (x *EnginePolicy) GetBoundaryRuntime() *BoundaryRuntimePolicy {
 		return x.BoundaryRuntime
 	}
 	return nil
+}
+
+func (x *EnginePolicy) GetEventPayloadKeyScope() string {
+	if x != nil {
+		return x.EventPayloadKeyScope
+	}
+	return ""
 }
 
 type BoundaryRuntimePolicy struct {
@@ -643,6 +651,134 @@ func (x *ResolvedConfigurationSnapshot) GetEngine() *EnginePolicy {
 	return nil
 }
 
+type ResolveConfigurationRequest struct {
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	TenantId             string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	WorkflowType         string                 `protobuf:"bytes,2,opt,name=workflow_type,json=workflowType,proto3" json:"workflow_type,omitempty"`
+	WorkflowVersion      string                 `protobuf:"bytes,3,opt,name=workflow_version,json=workflowVersion,proto3" json:"workflow_version,omitempty"`
+	PlatformReference    string                 `protobuf:"bytes,4,opt,name=platform_reference,json=platformReference,proto3" json:"platform_reference,omitempty"`
+	EnvironmentReference string                 `protobuf:"bytes,5,opt,name=environment_reference,json=environmentReference,proto3" json:"environment_reference,omitempty"`
+	InstanceId           string                 `protobuf:"bytes,6,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *ResolveConfigurationRequest) Reset() {
+	*x = ResolveConfigurationRequest{}
+	mi := &file_bpmp_configuration_v1_configuration_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResolveConfigurationRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResolveConfigurationRequest) ProtoMessage() {}
+
+func (x *ResolveConfigurationRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_configuration_v1_configuration_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResolveConfigurationRequest.ProtoReflect.Descriptor instead.
+func (*ResolveConfigurationRequest) Descriptor() ([]byte, []int) {
+	return file_bpmp_configuration_v1_configuration_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *ResolveConfigurationRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *ResolveConfigurationRequest) GetWorkflowType() string {
+	if x != nil {
+		return x.WorkflowType
+	}
+	return ""
+}
+
+func (x *ResolveConfigurationRequest) GetWorkflowVersion() string {
+	if x != nil {
+		return x.WorkflowVersion
+	}
+	return ""
+}
+
+func (x *ResolveConfigurationRequest) GetPlatformReference() string {
+	if x != nil {
+		return x.PlatformReference
+	}
+	return ""
+}
+
+func (x *ResolveConfigurationRequest) GetEnvironmentReference() string {
+	if x != nil {
+		return x.EnvironmentReference
+	}
+	return ""
+}
+
+func (x *ResolveConfigurationRequest) GetInstanceId() string {
+	if x != nil {
+		return x.InstanceId
+	}
+	return ""
+}
+
+type ResolveConfigurationResponse struct {
+	state         protoimpl.MessageState         `protogen:"open.v1"`
+	Snapshot      *ResolvedConfigurationSnapshot `protobuf:"bytes,1,opt,name=snapshot,proto3" json:"snapshot,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResolveConfigurationResponse) Reset() {
+	*x = ResolveConfigurationResponse{}
+	mi := &file_bpmp_configuration_v1_configuration_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResolveConfigurationResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResolveConfigurationResponse) ProtoMessage() {}
+
+func (x *ResolveConfigurationResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_configuration_v1_configuration_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResolveConfigurationResponse.ProtoReflect.Descriptor instead.
+func (*ResolveConfigurationResponse) Descriptor() ([]byte, []int) {
+	return file_bpmp_configuration_v1_configuration_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *ResolveConfigurationResponse) GetSnapshot() *ResolvedConfigurationSnapshot {
+	if x != nil {
+		return x.Snapshot
+	}
+	return nil
+}
+
 var File_bpmp_configuration_v1_configuration_proto protoreflect.FileDescriptor
 
 const file_bpmp_configuration_v1_configuration_proto_rawDesc = "" +
@@ -655,7 +791,7 @@ const file_bpmp_configuration_v1_configuration_proto_rawDesc = "" +
 	"\fmax_attempts\x18\x01 \x01(\rR\vmaxAttempts\x12,\n" +
 	"\x12initial_backoff_ms\x18\x02 \x01(\x04R\x10initialBackoffMs\x12$\n" +
 	"\x0emax_backoff_ms\x18\x03 \x01(\x04R\fmaxBackoffMs\x12+\n" +
-	"\x11multiplier_millis\x18\x04 \x01(\rR\x10multiplierMillis\"\x82\x05\n" +
+	"\x11multiplier_millis\x18\x04 \x01(\rR\x10multiplierMillis\"\xb9\x05\n" +
 	"\fEnginePolicy\x128\n" +
 	"\x18snapshot_interval_events\x18\x01 \x01(\rR\x16snapshotIntervalEvents\x125\n" +
 	"\x17max_events_per_decision\x18\x02 \x01(\rR\x14maxEventsPerDecision\x12,\n" +
@@ -666,7 +802,9 @@ const file_bpmp_configuration_v1_configuration_proto_rawDesc = "" +
 	"\x1dauthorization_audit_key_scope\x18\x06 \x01(\tR\x1aauthorizationAuditKeyScope\x12C\n" +
 	"\x1emax_multi_instance_cardinality\x18\a \x01(\rR\x1bmaxMultiInstanceCardinality\x12K\n" +
 	"\"default_multi_instance_parallelism\x18\b \x01(\rR\x1fdefaultMultiInstanceParallelism\x12W\n" +
-	"\x10boundary_runtime\x18\t \x01(\v2,.bpmp.configuration.v1.BoundaryRuntimePolicyR\x0fboundaryRuntime\"\xa5\x04\n" +
+	"\x10boundary_runtime\x18\t \x01(\v2,.bpmp.configuration.v1.BoundaryRuntimePolicyR\x0fboundaryRuntime\x125\n" +
+	"\x17event_payload_key_scope\x18\n" +
+	" \x01(\tR\x14eventPayloadKeyScope\"\xa5\x04\n" +
 	"\x15BoundaryRuntimePolicy\x122\n" +
 	"\x15projection_batch_size\x18\x01 \x01(\rR\x13projectionBatchSize\x12.\n" +
 	"\x13dispatch_batch_size\x18\x02 \x01(\rR\x11dispatchBatchSize\x122\n" +
@@ -700,7 +838,17 @@ const file_bpmp_configuration_v1_configuration_proto_rawDesc = "" +
 	"\x0eschema_version\x18\x04 \x01(\rR\rschemaVersion\x12R\n" +
 	"\x0fresolved_scopes\x18\x05 \x03(\v2).bpmp.configuration.v1.ConfigurationScopeR\x0eresolvedScopes\x12!\n" +
 	"\fcontent_hash\x18\x06 \x01(\fR\vcontentHash\x12;\n" +
-	"\x06engine\x18\a \x01(\v2#.bpmp.configuration.v1.EnginePolicyR\x06engine*\xcc\x02\n" +
+	"\x06engine\x18\a \x01(\v2#.bpmp.configuration.v1.EnginePolicyR\x06engine\"\x8f\x02\n" +
+	"\x1bResolveConfigurationRequest\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12#\n" +
+	"\rworkflow_type\x18\x02 \x01(\tR\fworkflowType\x12)\n" +
+	"\x10workflow_version\x18\x03 \x01(\tR\x0fworkflowVersion\x12-\n" +
+	"\x12platform_reference\x18\x04 \x01(\tR\x11platformReference\x123\n" +
+	"\x15environment_reference\x18\x05 \x01(\tR\x14environmentReference\x12\x1f\n" +
+	"\vinstance_id\x18\x06 \x01(\tR\n" +
+	"instanceId\"p\n" +
+	"\x1cResolveConfigurationResponse\x12P\n" +
+	"\bsnapshot\x18\x01 \x01(\v24.bpmp.configuration.v1.ResolvedConfigurationSnapshotR\bsnapshot*\xcc\x02\n" +
 	"\x16ConfigurationScopeType\x12(\n" +
 	"$CONFIGURATION_SCOPE_TYPE_UNSPECIFIED\x10\x00\x12%\n" +
 	"!CONFIGURATION_SCOPE_TYPE_PLATFORM\x10\x01\x12(\n" +
@@ -708,7 +856,9 @@ const file_bpmp_configuration_v1_configuration_proto_rawDesc = "" +
 	"\x1fCONFIGURATION_SCOPE_TYPE_TENANT\x10\x03\x12*\n" +
 	"&CONFIGURATION_SCOPE_TYPE_WORKFLOW_TYPE\x10\x04\x12-\n" +
 	")CONFIGURATION_SCOPE_TYPE_WORKFLOW_VERSION\x10\x05\x127\n" +
-	"3CONFIGURATION_SCOPE_TYPE_APPROVED_INSTANCE_OVERRIDE\x10\x06B\x82\x02\n" +
+	"3CONFIGURATION_SCOPE_TYPE_APPROVED_INSTANCE_OVERRIDE\x10\x062\x9f\x01\n" +
+	"\x1cConfigurationResolverService\x12\x7f\n" +
+	"\x14ResolveConfiguration\x122.bpmp.configuration.v1.ResolveConfigurationRequest\x1a3.bpmp.configuration.v1.ResolveConfigurationResponseB\x82\x02\n" +
 	"\x19com.bpmp.configuration.v1B\x12ConfigurationProtoP\x01Z[github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/configuration/v1;configurationv1\xa2\x02\x03BCX\xaa\x02\x15Bpmp.Configuration.V1\xca\x02\x15Bpmp\\Configuration\\V1\xe2\x02!Bpmp\\Configuration\\V1\\GPBMetadata\xea\x02\x17Bpmp::Configuration::V1b\x06proto3"
 
 var (
@@ -724,7 +874,7 @@ func file_bpmp_configuration_v1_configuration_proto_rawDescGZIP() []byte {
 }
 
 var file_bpmp_configuration_v1_configuration_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_bpmp_configuration_v1_configuration_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_bpmp_configuration_v1_configuration_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_bpmp_configuration_v1_configuration_proto_goTypes = []any{
 	(ConfigurationScopeType)(0),           // 0: bpmp.configuration.v1.ConfigurationScopeType
 	(*ConfigurationScope)(nil),            // 1: bpmp.configuration.v1.ConfigurationScope
@@ -733,6 +883,8 @@ var file_bpmp_configuration_v1_configuration_proto_goTypes = []any{
 	(*BoundaryRuntimePolicy)(nil),         // 4: bpmp.configuration.v1.BoundaryRuntimePolicy
 	(*LocalWasmPolicy)(nil),               // 5: bpmp.configuration.v1.LocalWasmPolicy
 	(*ResolvedConfigurationSnapshot)(nil), // 6: bpmp.configuration.v1.ResolvedConfigurationSnapshot
+	(*ResolveConfigurationRequest)(nil),   // 7: bpmp.configuration.v1.ResolveConfigurationRequest
+	(*ResolveConfigurationResponse)(nil),  // 8: bpmp.configuration.v1.ResolveConfigurationResponse
 }
 var file_bpmp_configuration_v1_configuration_proto_depIdxs = []int32{
 	0, // 0: bpmp.configuration.v1.ConfigurationScope.type:type_name -> bpmp.configuration.v1.ConfigurationScopeType
@@ -741,11 +893,14 @@ var file_bpmp_configuration_v1_configuration_proto_depIdxs = []int32{
 	4, // 3: bpmp.configuration.v1.EnginePolicy.boundary_runtime:type_name -> bpmp.configuration.v1.BoundaryRuntimePolicy
 	1, // 4: bpmp.configuration.v1.ResolvedConfigurationSnapshot.resolved_scopes:type_name -> bpmp.configuration.v1.ConfigurationScope
 	3, // 5: bpmp.configuration.v1.ResolvedConfigurationSnapshot.engine:type_name -> bpmp.configuration.v1.EnginePolicy
-	6, // [6:6] is the sub-list for method output_type
-	6, // [6:6] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	6, // 6: bpmp.configuration.v1.ResolveConfigurationResponse.snapshot:type_name -> bpmp.configuration.v1.ResolvedConfigurationSnapshot
+	7, // 7: bpmp.configuration.v1.ConfigurationResolverService.ResolveConfiguration:input_type -> bpmp.configuration.v1.ResolveConfigurationRequest
+	8, // 8: bpmp.configuration.v1.ConfigurationResolverService.ResolveConfiguration:output_type -> bpmp.configuration.v1.ResolveConfigurationResponse
+	8, // [8:9] is the sub-list for method output_type
+	7, // [7:8] is the sub-list for method input_type
+	7, // [7:7] is the sub-list for extension type_name
+	7, // [7:7] is the sub-list for extension extendee
+	0, // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_bpmp_configuration_v1_configuration_proto_init() }
@@ -759,9 +914,9 @@ func file_bpmp_configuration_v1_configuration_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bpmp_configuration_v1_configuration_proto_rawDesc), len(file_bpmp_configuration_v1_configuration_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   6,
+			NumMessages:   8,
 			NumExtensions: 0,
-			NumServices:   0,
+			NumServices:   1,
 		},
 		GoTypes:           file_bpmp_configuration_v1_configuration_proto_goTypes,
 		DependencyIndexes: file_bpmp_configuration_v1_configuration_proto_depIdxs,

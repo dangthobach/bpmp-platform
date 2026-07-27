@@ -93,3 +93,45 @@ describe("BpmpApiClient organization API", () => {
       });
   });
 });
+
+describe("BpmpApiClient configuration facade", () => {
+  it("uses the public gateway and preserves a caller-owned idempotency key", async () => {
+    const profile = {
+      id: "c7cb5db9-5b55-4717-a6af-cdfb5e4216e1",
+      tenant_id: identity.tenantId,
+      name: "Runtime defaults",
+      scope: { type: "TENANT", reference: identity.tenantId },
+      aggregate_version: 2,
+      current_published_version_id: "d7cb5db9-5b55-4717-a6af-cdfb5e4216e2",
+      is_deleted: false,
+      created_at: "2026-07-27T00:00:00Z",
+      updated_at: "2026-07-27T00:00:01Z",
+    };
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(profile), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "X-Correlation-ID": "configuration-correlation",
+      },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new BpmpApiClient(config, () => identity);
+    await client.publishConfiguration(
+      profile.id,
+      profile.current_published_version_id,
+      1,
+      "activate policy",
+      "stable-idempotency-key",
+    );
+
+    const [url, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
+    expect(url.origin).toBe("https://gateway.example.test");
+    const headers = new Headers(init.headers);
+    expect(headers.get("Authorization")).toBe("Bearer signed-user-token");
+    expect(headers.get("X-BPMP-Tenant-ID")).toBe(identity.tenantId);
+    expect(headers.get("Idempotency-Key")).toBe("stable-idempotency-key");
+    expect(headers.get("X-Command-ID")).toBeTruthy();
+    expect(headers.get("X-Correlation-ID")).toBeTruthy();
+  });
+});

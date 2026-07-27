@@ -10,6 +10,8 @@ x-engine: &engine
   depends_on:
     topic-init:
       condition: service_completed_successfully
+    configuration-service:
+      condition: service_started
 
 services:
   fixture-generator:
@@ -31,6 +33,18 @@ services:
       - "${POSTGRES_PORT:?set POSTGRES_PORT}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  configuration-postgres:
+    image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE}
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: configuration
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d configuration"]
       interval: 2s
       timeout: 2s
       retries: 30
@@ -115,6 +129,17 @@ services:
       engine2:
         condition: service_started
 
+  configuration-service:
+    image: ${CONFIGURATION_IMAGE:?set CONFIGURATION_IMAGE}
+    command: ["--config", "/runtime/configuration-service.json"]
+    volumes:
+      - ./runtime:/runtime:ro
+    depends_on:
+      configuration-postgres:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+
   api-gateway:
     image: ${GATEWAY_IMAGE:?set GATEWAY_IMAGE}
     command: ["--config", "/runtime/api-gateway.json"]
@@ -128,6 +153,8 @@ services:
       human-runtime:
         condition: service_started
       engine2:
+        condition: service_started
+      configuration-service:
         condition: service_started
 
 volumes:

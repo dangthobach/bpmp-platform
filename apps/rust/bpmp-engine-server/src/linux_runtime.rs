@@ -18,6 +18,7 @@ use bpmp_authz_contracts::{
     WorkloadProofCodec,
 };
 use bpmp_contracts::Ed25519Verifier;
+use bpmp_contracts::configuration::v1 as configurationv1;
 use bpmp_domain_core::{
     BoundaryRuntimePolicy, Command, CommandId, ConfigId, ConfigVersion, ConfigurationScope,
     CorrelationId, EnginePolicy, IdempotencyKey, InstanceId, KeyScope, LocalWasmPolicy,
@@ -46,7 +47,7 @@ use rdkafka::util::Timeout;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tokio::signal;
-use tonic::transport::{Certificate, Identity, Server, ServerTlsConfig};
+use tonic::transport::{Certificate, ClientTlsConfig, Endpoint, Identity, Server, ServerTlsConfig};
 use tracing::{error, info, warn};
 use zeroize::Zeroizing;
 
@@ -63,7 +64,7 @@ use crate::raft_runtime::{
 pub async fn run(path: PathBuf) -> Result<()> {
     init_tracing();
     let config = RuntimeConfig::load(&path)?;
-    let registry = Arc::new(load_runtime_registry(&config)?);
+    let registry = Arc::new(load_runtime_registry(&config).await?);
     let authorization = Arc::new(load_authorization(&config)?);
     let crypto = AesGcmPayloadCrypto::new(FileDataKeyResolver::load(&config.payload_keys)?);
     let rocks = &config.rocksdb;
@@ -507,7 +508,8 @@ fn init_tracing() {
     let _ = tracing::subscriber::set_global_default(subscriber);
 }
 
-fn load_runtime_registry(config: &RuntimeConfig) -> Result<RuntimeRegistry> {
+#[allow(clippy::too_many_lines)]
+async fn load_runtime_registry(config: &RuntimeConfig) -> Result<RuntimeRegistry> {
     let verifier = Ed25519Verifier::from_bytes(&read_exact_32(&config.wir.verification_key)?)?;
     let mut definitions = BTreeMap::new();
     for path in &config.wir.artifacts {
@@ -525,22 +527,175 @@ fn load_runtime_registry(config: &RuntimeConfig) -> Result<RuntimeRegistry> {
         );
     }
     let registry = RuntimeRegistry::default();
-    for path in &config.wir.configurations {
-        let published: PublishedConfiguration = read_json(path)?;
-        let scope = (
-            TenantId::new(published.tenant_id)?,
-            WorkflowType::new(published.workflow_type)?,
-            WorkflowVersion::new(published.workflow_version)?,
-        );
-        let definition = definitions
-            .remove(&scope)
-            .with_context(|| format!("configuration {} has no matching WIR", path.display()))?;
-        registry.install(definition, published.snapshot.into_domain()?)?;
+    if let Some(resolver) = &config.configuration_resolver {
+        let certificate = fs::read(&config.tls.server_certificate)?;
+        let private_key = fs::read(&config.tls.server_private_key)?;
+        let ca = fs::read(&config.tls.client_ca)?;
+        let endpoint = Endpoint::from_shared(resolver.endpoint.clone())?
+            .connect_timeout(Duration::from_millis(resolver.timeout_ms))
+            .timeout(Duration::from_millis(resolver.timeout_ms))
+            .tls_config(
+                ClientTlsConfig::new()
+                    .domain_name(resolver.tls_domain.clone())
+                    .ca_certificate(Certificate::from_pem(ca))
+                    .identity(Identity::from_pem(certificate, private_key)),
+            )?;
+        let mut last_error = None;
+        let mut channel = None;
+        for attempt in 1..=resolver.max_attempts {
+            match endpoint.clone().connect().await {
+                Ok(connected) => {
+                    channel = Some(connected);
+                    break;
+                }
+                Err(error) => {
+                    last_error = Some(error);
+                    if attempt < resolver.max_attempts {
+                        tokio::time::sleep(Duration::from_millis(resolver.retry_delay_ms)).await;
+                    }
+                }
+            }
+        }
+        let channel = channel.with_context(|| {
+            format!(
+                "connect configuration resolver after {} attempts: {}",
+                resolver.max_attempts,
+                last_error.map_or_else(|| "unknown error".to_owned(), |error| error.to_string())
+            )
+        })?;
+        let mut client = configurationv1::configuration_resolver_service_client::ConfigurationResolverServiceClient::new(channel)
+            .max_decoding_message_size(resolver.max_decoding_bytes)
+            .max_encoding_message_size(resolver.max_encoding_bytes);
+        while let Some(((tenant_id, workflow_type, workflow_version), definition)) =
+            definitions.pop_first()
+        {
+            let response = client
+                .resolve_configuration(configurationv1::ResolveConfigurationRequest {
+                    tenant_id: tenant_id.as_str().to_owned(),
+                    workflow_type: workflow_type.as_str().to_owned(),
+                    workflow_version: workflow_version.as_str().to_owned(),
+                    platform_reference: resolver.platform_reference.clone(),
+                    environment_reference: resolver.environment_reference.clone(),
+                    instance_id: String::new(),
+                })
+                .await
+                .context("resolve published runtime configuration")?
+                .into_inner();
+            let snapshot = response
+                .snapshot
+                .context("configuration resolver returned no snapshot")?;
+            registry.install(definition, configuration_snapshot_from_proto(snapshot)?)?;
+        }
+    } else {
+        for path in &config.wir.configurations {
+            let published: PublishedConfiguration = read_json(path)?;
+            let scope = (
+                TenantId::new(published.tenant_id)?,
+                WorkflowType::new(published.workflow_type)?,
+                WorkflowVersion::new(published.workflow_version)?,
+            );
+            let definition = definitions
+                .remove(&scope)
+                .with_context(|| format!("configuration {} has no matching WIR", path.display()))?;
+            registry.install(definition, published.snapshot.into_domain()?)?;
+        }
     }
     if !definitions.is_empty() {
         anyhow::bail!("one or more WIR artifacts have no matching published configuration");
     }
     Ok(registry)
+}
+
+fn configuration_snapshot_from_proto(
+    snapshot: configurationv1::ResolvedConfigurationSnapshot,
+) -> Result<ResolvedConfigSnapshot> {
+    let hash: [u8; 32] = snapshot
+        .content_hash
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("configuration content hash must contain 32 bytes"))?;
+    let scopes = snapshot
+        .resolved_scopes
+        .into_iter()
+        .map(|scope| {
+            let kind = match configurationv1::ConfigurationScopeType::try_from(scope.r#type)? {
+                configurationv1::ConfigurationScopeType::Platform => ScopeKind::Platform,
+                configurationv1::ConfigurationScopeType::Environment => ScopeKind::Environment,
+                configurationv1::ConfigurationScopeType::Tenant => ScopeKind::Tenant,
+                configurationv1::ConfigurationScopeType::WorkflowType => ScopeKind::WorkflowType,
+                configurationv1::ConfigurationScopeType::WorkflowVersion => {
+                    ScopeKind::WorkflowVersion
+                }
+                configurationv1::ConfigurationScopeType::ApprovedInstanceOverride => {
+                    ScopeKind::ApprovedInstanceOverride
+                }
+                configurationv1::ConfigurationScopeType::Unspecified => {
+                    anyhow::bail!("configuration scope type is unspecified")
+                }
+            };
+            ConfigurationScope::new(kind, scope.reference).map_err(Into::into)
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let engine = snapshot
+        .engine
+        .context("configuration resolver returned no engine policy")?;
+    let retry = engine
+        .optimistic_conflict_retry
+        .context("configuration resolver returned no retry policy")?;
+    let wasm = engine
+        .local_wasm
+        .context("configuration resolver returned no local WASM policy")?;
+    let boundary = engine
+        .boundary_runtime
+        .context("configuration resolver returned no boundary policy")?;
+    ResolvedConfigSnapshot::new(
+        ConfigId::new(snapshot.config_id)?,
+        ConfigVersion::new(snapshot.config_version)?,
+        PolicyVersion::new(snapshot.policy_version)?,
+        snapshot.schema_version,
+        scopes,
+        hash,
+        EnginePolicy {
+            snapshot_interval_events: engine.snapshot_interval_events,
+            max_events_per_decision: engine.max_events_per_decision,
+            max_multi_instance_cardinality: engine.max_multi_instance_cardinality,
+            default_multi_instance_parallelism: engine.default_multi_instance_parallelism,
+            command_timeout_ms: engine.command_timeout_ms,
+            optimistic_conflict_retry: RetryPolicy {
+                max_attempts: retry.max_attempts,
+                initial_backoff_ms: retry.initial_backoff_ms,
+                max_backoff_ms: retry.max_backoff_ms,
+                multiplier_millis: retry.multiplier_millis,
+            },
+            local_wasm: LocalWasmPolicy {
+                max_module_bytes: wasm.max_module_bytes,
+                max_input_bytes: wasm.max_input_bytes,
+                max_output_bytes: wasm.max_output_bytes,
+                max_memory_bytes: wasm.max_memory_bytes,
+                max_wasm_stack_bytes: wasm.max_wasm_stack_bytes,
+                max_table_elements: wasm.max_table_elements,
+                max_instances: wasm.max_instances,
+                max_tables: wasm.max_tables,
+                max_memories: wasm.max_memories,
+                fuel: wasm.fuel,
+            },
+            event_payload_key_scope: KeyScope::new(engine.event_payload_key_scope)?,
+            authorization_audit_key_scope: KeyScope::new(engine.authorization_audit_key_scope)?,
+            boundary_runtime: BoundaryRuntimePolicy {
+                projection_batch_size: boundary.projection_batch_size,
+                dispatch_batch_size: boundary.dispatch_batch_size,
+                max_dispatch_attempts: boundary.max_dispatch_attempts,
+                retry_delay_ms: boundary.retry_delay_ms,
+                lease_duration_ms: boundary.lease_duration_ms,
+                max_timer_horizon_ms: boundary.max_timer_horizon_ms,
+                max_expression_bytes: boundary.max_expression_bytes,
+                worker_id: boundary.worker_id,
+                max_signal_id_bytes: boundary.max_signal_id_bytes,
+                max_reference_bytes: boundary.max_reference_bytes,
+                max_subscriptions_per_instance: boundary.max_subscriptions_per_instance,
+            },
+        },
+    )
+    .map_err(Into::into)
 }
 
 fn load_authorization(config: &RuntimeConfig) -> Result<EmbeddedAuthorizationProvider> {

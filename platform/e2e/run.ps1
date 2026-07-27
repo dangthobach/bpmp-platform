@@ -58,6 +58,31 @@ function Invoke-JsonRequestEventually {
     throw "request did not succeed before its retry deadline"
 }
 
+function Invoke-GetRequestEventually {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][hashtable]$Headers,
+        [int]$TimeoutSeconds = 60
+    )
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    do {
+        try {
+            return Invoke-RestMethod `
+                -SkipCertificateCheck `
+                -Method Get `
+                -Uri "https://localhost:$gatewayPort$Path" `
+                -Headers $Headers
+        } catch {
+            $statusCode = [int]$_.Exception.Response.StatusCode
+            if ($statusCode -notin 502, 503, 504 -or (Get-Date) -ge $deadline) {
+                throw
+            }
+            Start-Sleep -Milliseconds 500
+        }
+    } while ((Get-Date) -lt $deadline)
+    throw "GET request did not succeed before its retry deadline"
+}
+
 $resolvedRuntime = [System.IO.Path]::GetFullPath($runtime)
 $resolvedE2E = [System.IO.Path]::GetFullPath($PSScriptRoot)
 if (-not $resolvedRuntime.StartsWith($resolvedE2E, [StringComparison]::OrdinalIgnoreCase)) {
@@ -78,6 +103,8 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Human Runtime E2E image build failed" }
         docker build -f (Join-Path $PSScriptRoot "Dockerfile.api-gateway") -t bpmp/e2e-api-gateway:local $root
         if ($LASTEXITCODE -ne 0) { throw "API Gateway E2E image build failed" }
+        docker build -f (Join-Path $PSScriptRoot "Dockerfile.configuration-service") -t bpmp/e2e-configuration-service:local $root
+        if ($LASTEXITCODE -ne 0) { throw "Configuration Service E2E image build failed" }
     }
 
     Invoke-Compose --profile setup run --rm fixture-generator
@@ -102,6 +129,82 @@ try {
 
     $token = (Get-Content (Join-Path $runtime "actor.jwt") -Raw).Trim()
     $suffix = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    $configurationHeaders = @{
+        Authorization = "Bearer $token"
+        "X-BPMP-Tenant-ID" = "tenant-e2e"
+        "X-Command-ID" = "configuration-create-$suffix"
+        "Idempotency-Key" = "configuration-create-idem-$suffix"
+        "X-Correlation-ID" = "configuration-correlation-$suffix"
+    }
+    $configurationPolicy = @{
+        snapshot_interval_events = 100
+        max_events_per_decision = 256
+        command_timeout_ms = "5000"
+        optimistic_conflict_retry = @{
+            max_attempts = 5
+            initial_backoff_ms = "25"
+            max_backoff_ms = "1000"
+            multiplier_millis = 2000
+        }
+        local_wasm = @{
+            max_module_bytes = "1048576"
+            max_input_bytes = "65536"
+            max_output_bytes = "65536"
+            max_memory_bytes = "16777216"
+            max_wasm_stack_bytes = "1048576"
+            max_table_elements = 1024
+            max_instances = 4
+            max_tables = 4
+            max_memories = 2
+            fuel = "10000000"
+        }
+        event_payload_key_scope = "tenant-e2e/operational"
+        authorization_audit_key_scope = "tenant-e2e/audit"
+        max_multi_instance_cardinality = 1000
+        default_multi_instance_parallelism = 32
+        boundary_runtime = @{
+            projection_batch_size = 64
+            dispatch_batch_size = 64
+            max_dispatch_attempts = 10
+            retry_delay_ms = "250"
+            lease_duration_ms = "5000"
+            max_timer_horizon_ms = "31536000000"
+            max_expression_bytes = 65536
+            worker_id = "configuration-e2e"
+            max_signal_id_bytes = 256
+            max_reference_bytes = 1024
+            max_subscriptions_per_instance = 256
+        }
+    }
+    $configuration = Invoke-JsonRequestEventually `
+        -Path "/v1/configuration/profiles" `
+        -Headers $configurationHeaders `
+        -Body (@{
+            name = "engine-default-$suffix"
+            scope = @{ type = "WORKFLOW_TYPE"; reference = "approval" }
+            schema_version = 1
+            policy_version = "policy-$suffix"
+            reason = "broker E2E bootstrap"
+            values = $configurationPolicy
+        } | ConvertTo-Json -Depth 8 -Compress)
+    $queryHeaders = @{
+        Authorization = "Bearer $token"
+        "X-BPMP-Tenant-ID" = "tenant-e2e"
+        "X-Correlation-ID" = "configuration-correlation-$suffix"
+    }
+    $configurationDetail = Invoke-GetRequestEventually `
+        -Path "/v1/configuration/profiles/$($configuration.id)" `
+        -Headers $queryHeaders
+    $configurationHeaders["X-Command-ID"] = "configuration-publish-$suffix"
+    $configurationHeaders["Idempotency-Key"] = "configuration-publish-idem-$suffix"
+    $publishedConfiguration = Invoke-JsonRequestEventually `
+        -Path "/v1/configuration/profiles/$($configuration.id)/versions/$($configurationDetail.versions[0].id)/publish" `
+        -Headers $configurationHeaders `
+        -Body (@{ expected_version = 1; reason = "activate broker E2E policy" } | ConvertTo-Json -Compress)
+    if (-not $publishedConfiguration.current_published_version_id -or $publishedConfiguration.aggregate_version -ne 2) {
+        throw "configuration lifecycle did not publish a version"
+    }
+
     $instance = "e2e-$suffix"
     $startHeaders = @{
         Authorization = "Bearer $token"
@@ -167,7 +270,7 @@ try {
         throw "Kafka consumer inbox does not contain both activation and completion"
     }
 
-    Write-Host "Broker-backed E2E passed with leader failover: instance=$instance work_item=$workItem inbox=$inboxCount"
+    Write-Host "Broker-backed E2E passed with dynamic configuration and leader failover: config=$($configuration.id) instance=$instance work_item=$workItem inbox=$inboxCount"
 } finally {
     if (-not $KeepRunning) {
         Invoke-Compose down --volumes --remove-orphans
