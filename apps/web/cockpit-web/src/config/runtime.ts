@@ -2,6 +2,7 @@ import { z } from "zod";
 
 const runtimeConfigSchema = z.object({
   apiBaseUrl: z.string().url(),
+  organizationApiBaseUrl: z.string().url(),
   defaultPageSize: z.number().int().positive(),
   maxPageSize: z.number().int().positive(),
   batchChunkSize: z.number().int().positive(),

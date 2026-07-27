@@ -93,6 +93,9 @@ impl Organization {
     pub fn version(&self) -> i64 {
         self.version
     }
+    pub fn root_id(&self) -> NodeId {
+        self.root_id
+    }
     pub fn nodes(&self) -> impl Iterator<Item = &OrgNode> {
         self.nodes.values()
     }

@@ -1,4 +1,15 @@
 import type { RuntimeConfig } from "../config/runtime";
+import { z } from "zod";
+import {
+  addNodeResponseSchema,
+  createOrganizationResponseSchema,
+  emptyResponseSchema,
+  organizationDetailSchema,
+  organizationListSchema,
+  type AddOrganizationNodeInput,
+  type CreateOrganizationInput,
+  type MoveOrganizationNodeInput,
+} from "../features/organizations/types";
 import type {
   AuditPage,
   CaseResponse,
@@ -95,6 +106,63 @@ export class BpmpApiClient {
     return this.request(`/v1/audit-records?${query.toString()}`);
   }
 
+  listOrganizations(offset = 0, limit = this.config.defaultPageSize) {
+    const query = new URLSearchParams({
+      offset: String(offset),
+      limit: String(Math.min(limit, this.config.maxPageSize)),
+    });
+    return this.organizationRequest(
+      `/api/v1/organizations?${query.toString()}`,
+      organizationListSchema,
+    );
+  }
+
+  getOrganization(organizationId: string) {
+    return this.organizationRequest(
+      `/api/v1/organizations/${encodeURIComponent(organizationId)}`,
+      organizationDetailSchema,
+    );
+  }
+
+  createOrganization(input: CreateOrganizationInput) {
+    return this.organizationRequest(
+      "/api/v1/organizations",
+      createOrganizationResponseSchema,
+      { method: "POST", body: input },
+    );
+  }
+
+  addOrganizationNode(input: AddOrganizationNodeInput) {
+    return this.organizationRequest(
+      `/api/v1/organizations/${encodeURIComponent(input.organizationId)}/nodes`,
+      addNodeResponseSchema,
+      {
+        method: "POST",
+        body: {
+          parent_id: input.parentId,
+          kind: input.kind,
+          code: input.code,
+          name: input.name,
+          expected_version: input.expectedVersion,
+        },
+      },
+    );
+  }
+
+  moveOrganizationNode(input: MoveOrganizationNodeInput) {
+    return this.organizationRequest(
+      `/api/v1/organizations/${encodeURIComponent(input.organizationId)}/nodes/${encodeURIComponent(input.nodeId)}/move`,
+      emptyResponseSchema,
+      {
+        method: "POST",
+        body: {
+          new_parent_id: input.newParentId,
+          expected_version: input.expectedVersion,
+        },
+      },
+    );
+  }
+
   private async request<T>(
     path: string,
     options: {
@@ -150,6 +218,75 @@ export class BpmpApiClient {
         throw new ApiError("Request timed out", 408, correlationId);
       }
       throw new ApiError("API is unavailable", 0, correlationId);
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }
+
+  private async organizationRequest<T>(
+    path: string,
+    schema: z.ZodType<T>,
+    options: { method?: "GET" | "POST"; body?: unknown } = {},
+  ): Promise<T> {
+    const identity = this.getIdentity();
+    const controller = new AbortController();
+    const timeout = window.setTimeout(
+      () => controller.abort(),
+      this.config.requestTimeoutMs,
+    );
+    const requestId = crypto.randomUUID();
+    const method = options.method ?? "GET";
+    const headers = new Headers({
+      Accept: "application/json",
+      Authorization: `Bearer ${identity.accessToken}`,
+      "X-Request-ID": requestId,
+      "X-Tenant-ID": identity.tenantId,
+    });
+    if (options.body !== undefined) headers.set("Content-Type", "application/json");
+    try {
+      const response = await fetch(
+        new URL(path, this.config.organizationApiBaseUrl),
+        {
+          method,
+          headers,
+          signal: controller.signal,
+          ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
+        },
+      );
+      const raw: unknown = await response.json().catch(() => null);
+      const envelope = z.object({
+        data: z.unknown().nullable(),
+        error_code: z.string(),
+        message: z.string(),
+        request_id: z.string(),
+        timestamp: z.number(),
+      }).safeParse(raw);
+      const correlationId = response.headers.get("X-Request-ID") ?? requestId;
+      if (!envelope.success) {
+        throw new ApiError("Invalid organization API response", 502, correlationId);
+      }
+      if (
+        !response.ok ||
+        envelope.data.error_code !== "OK" ||
+        envelope.data.data === null
+      ) {
+        throw new ApiError(
+          envelope.data.message || "Organization request failed",
+          response.status,
+          envelope.data.request_id || correlationId,
+        );
+      }
+      const parsed = schema.safeParse(envelope.data.data);
+      if (!parsed.success) {
+        throw new ApiError("Invalid organization response data", 502, correlationId);
+      }
+      return parsed.data;
+    } catch (error) {
+      if (error instanceof ApiError) throw error;
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw new ApiError("Request timed out", 408, requestId);
+      }
+      throw new ApiError("Organization API is unavailable", 0, requestId);
     } finally {
       window.clearTimeout(timeout);
     }

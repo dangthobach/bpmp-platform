@@ -1,5 +1,6 @@
 import {
   Activity,
+  Building2,
   ClipboardList,
   FileClock,
   LogOut,
@@ -17,6 +18,7 @@ const navigation = [
   { to: "/start", label: "Start workflow", icon: Play },
   { to: "/cases", label: "Cases", icon: Workflow },
   { to: "/audit", label: "Audit", icon: FileClock },
+  { to: "/organizations", label: "Organizations", icon: Building2 },
 ];
 
 export function AppShell({ children }: PropsWithChildren) {

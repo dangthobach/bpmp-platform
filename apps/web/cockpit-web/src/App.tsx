@@ -9,6 +9,7 @@ import { AuditPage } from "./features/audit/AuditPage";
 import { CasesPage } from "./features/cases/CasesPage";
 import { StartWorkflowPage } from "./features/start/StartWorkflowPage";
 import { WorkItemsPage } from "./features/work-items/WorkItemsPage";
+import { OrganizationsPage } from "./features/organizations/OrganizationsPage";
 import { AppShell } from "./layout/AppShell";
 import { usePathname } from "./routing/router";
 
@@ -47,6 +48,8 @@ function AuthenticatedApp() {
         return <CasesPage />;
       case "/audit":
         return <AuditPage />;
+      case "/organizations":
+        return <OrganizationsPage />;
       default:
         return <WorkItemsPage />;
     }

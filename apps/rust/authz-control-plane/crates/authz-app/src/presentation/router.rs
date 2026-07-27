@@ -36,6 +36,10 @@ pub fn build_router(app: AppContainer) -> Router {
             get(organization::list_organizations),
         )
         .route(
+            "/api/v1/organizations/:org_id",
+            get(organization::get_organization),
+        )
+        .route(
             "/api/v1/organizations/:org_id/nodes",
             post(organization::add_node),
         )

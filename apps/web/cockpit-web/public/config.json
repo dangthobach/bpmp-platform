@@ -1,5 +1,6 @@
 {
   "apiBaseUrl": "http://127.0.0.1:4173",
+  "organizationApiBaseUrl": "http://127.0.0.1:4173",
   "defaultPageSize": 50,
   "maxPageSize": 200,
   "batchChunkSize": 25,
