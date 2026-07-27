@@ -64,6 +64,10 @@ where
     ///
     /// A crash before `mark_compensated` retries the same idempotency key. A
     /// crash after it resumes at the next lower effect sequence.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed configuration, scope, storage, or execution error.
     pub fn run_next(
         &self,
         tenant_id: &str,

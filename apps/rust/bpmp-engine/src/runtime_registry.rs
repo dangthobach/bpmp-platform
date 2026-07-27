@@ -392,6 +392,12 @@ mod tests {
             let result = registry.retire(&tenant, &workflow_type, &version);
             if has_references {
                 prop_assert_eq!(result.unwrap_err(), RuntimeRegistryError::ArtifactInUse);
+                for (kind, count) in counts {
+                    for _ in 0..count {
+                        registry.release_reference(&tenant, &workflow_type, &version, kind).unwrap();
+                    }
+                }
+                prop_assert!(registry.retire(&tenant, &workflow_type, &version).is_ok());
             } else {
                 prop_assert!(result.is_ok());
             }

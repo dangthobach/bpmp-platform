@@ -58,6 +58,10 @@ impl ErasureState {
     ///
     /// Active instances must first be durably fenced. Governance obligations
     /// must be committed in either the normal terminal or urgent path.
+    ///
+    /// # Errors
+    ///
+    /// Fails for invalid state, uncommitted governance, or an unfenced active instance.
     pub fn decide_key_destruction(&self) -> Result<ErasureDecision, ErasureError> {
         self.validate()?;
         if self.payload == PayloadAvailability::KeyDestroyed {

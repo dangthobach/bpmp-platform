@@ -3,6 +3,7 @@ package projection
 import (
 	"fmt"
 	"reflect"
+	"sort"
 	"testing"
 	"testing/quick"
 )
@@ -65,14 +66,20 @@ func TestQueryMatchesBackingFilter(t *testing.T) {
 			Statuses:      map[string]struct{}{selected: {}},
 			IncludeDelete: includeDeleted,
 		}
-		for _, record := range projector.Query(filter) {
-			if record.TenantID != filter.TenantID ||
-				record.Status != selected ||
-				(!includeDeleted && record.Deleted) {
-				return false
+		backing := projector.Snapshot().Records
+		expected := make([]Record, 0)
+		for _, record := range backing {
+			if record.TenantID == filter.TenantID &&
+				record.Status == selected &&
+				(includeDeleted || !record.Deleted) {
+				expected = append(expected, record)
 			}
 		}
-		return len(projector.Query(Filter{TenantID: "tenant-b"})) == 0
+		sort.Slice(expected, func(i, j int) bool {
+			return expected[i].EntityID < expected[j].EntityID
+		})
+		return reflect.DeepEqual(projector.Query(filter), expected) &&
+			len(projector.Query(Filter{TenantID: "tenant-b"})) == 0
 	}
 	if err := quick.Check(property, &quick.Config{MaxCount: 100}); err != nil {
 		t.Fatal(err)
