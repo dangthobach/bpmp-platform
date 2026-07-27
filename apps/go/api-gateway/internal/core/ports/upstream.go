@@ -13,8 +13,12 @@ type Engine interface {
 }
 
 type HumanRuntime interface {
+	GetWorkItem(context.Context, *humanv1.GetWorkItemRequest, ...grpc.CallOption) (*humanv1.GetWorkItemResponse, error)
+	ListWorkItems(context.Context, *humanv1.ListWorkItemsRequest, ...grpc.CallOption) (*humanv1.ListWorkItemsResponse, error)
 	CompleteWorkItem(context.Context, *humanv1.CompleteWorkItemRequest, ...grpc.CallOption) (*humanv1.CompleteWorkItemResponse, error)
 	DelegateWorkItem(context.Context, *humanv1.DelegateWorkItemRequest, ...grpc.CallOption) (*humanv1.DelegateWorkItemResponse, error)
+	GetCase(context.Context, *humanv1.GetCaseRequest, ...grpc.CallOption) (*humanv1.GetCaseResponse, error)
+	ListAuditRecords(context.Context, *humanv1.ListAuditRecordsRequest, ...grpc.CallOption) (*humanv1.ListAuditRecordsResponse, error)
 }
 
 type RateLimiter interface {

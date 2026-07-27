@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -60,8 +61,12 @@ func NewHandler(engine ports.Engine, human ports.HumanRuntime, verifier *verifie
 func (h *Handler) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/workflows/{workflowType}/instances", h.startWorkflow)
+	mux.HandleFunc("GET /v1/work-items", h.listWorkItems)
+	mux.HandleFunc("GET /v1/work-items/{workItemID}", h.getWorkItem)
 	mux.HandleFunc("POST /v1/work-items/{workItemID}/complete", h.completeWorkItem)
 	mux.HandleFunc("POST /v1/work-items/{workItemID}/delegate", h.delegateWorkItem)
+	mux.HandleFunc("GET /v1/cases/{caseID}", h.getCase)
+	mux.HandleFunc("GET /v1/audit-records", h.listAuditRecords)
 	return mux
 }
 
@@ -72,13 +77,23 @@ type requestScope struct {
 }
 
 func (h *Handler) authenticate(r *http.Request) (requestScope, error) {
+	return h.authenticateRequest(r, true)
+}
+
+func (h *Handler) authenticateQuery(r *http.Request) (requestScope, error) {
+	return h.authenticateRequest(r, false)
+}
+
+func (h *Handler) authenticateRequest(r *http.Request, commandRequired bool) (requestScope, error) {
 	tenant := r.Header.Get("X-BPMP-Tenant-ID")
 	command := r.Header.Get("X-Command-ID")
 	idempotency := r.Header.Get("Idempotency-Key")
 	correlation := r.Header.Get("X-Correlation-ID")
 	traceParent := r.Header.Get("traceparent")
 	traceState := r.Header.Get("tracestate")
-	if !validID(tenant) || !validID(command) || !validID(idempotency) || !validID(correlation) {
+	if !validID(tenant) ||
+		!validID(correlation) ||
+		(commandRequired && (!validID(command) || !validID(idempotency))) {
 		return requestScope{}, errors.New("request scope headers are invalid")
 	}
 	if len(traceParent) > 512 || len(traceState) > 512 || strings.ContainsAny(traceParent+traceState, "\r\n") {
@@ -102,6 +117,143 @@ func (h *Handler) authenticate(r *http.Request) (requestScope, error) {
 		return requestScope{}, errRateLimited
 	}
 	return requestScope{tenantID: tenant, commandID: command, idempotencyKey: idempotency, correlationID: correlation, rawToken: raw, actorID: actor.ID, traceParent: traceParent, traceState: traceState, occurredAt: now}, nil
+}
+
+func actorProof(scope requestScope) *authv1.ActorProof {
+	return &authv1.ActorProof{
+		Type:        authv1.ActorProofType_ACTOR_PROOF_TYPE_ORIGINAL_JWT,
+		SignedProof: []byte(scope.rawToken),
+	}
+}
+
+func (h *Handler) listWorkItems(w http.ResponseWriter, r *http.Request) {
+	setCorrelationHeader(w, r)
+	scope, err := h.authenticateQuery(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	pageSize, err := positiveUint32Query(r, "page_size")
+	if err != nil {
+		writeError(w, errInvalid)
+		return
+	}
+	response, err := h.human.ListWorkItems(
+		upstreamContext(r, scope),
+		&humanv1.ListWorkItemsRequest{
+			TenantId:   scope.tenantID,
+			PageSize:   pageSize,
+			PageToken:  r.URL.Query().Get("page_token"),
+			ActorProof: actorProof(scope),
+		},
+	)
+	if err != nil {
+		writeError(w, errUpstream)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) getWorkItem(w http.ResponseWriter, r *http.Request) {
+	setCorrelationHeader(w, r)
+	scope, err := h.authenticateQuery(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	id := r.PathValue("workItemID")
+	if !validID(id) {
+		writeError(w, errInvalid)
+		return
+	}
+	response, err := h.human.GetWorkItem(
+		upstreamContext(r, scope),
+		&humanv1.GetWorkItemRequest{
+			TenantId:   scope.tenantID,
+			WorkItemId: id,
+			ActorProof: actorProof(scope),
+		},
+	)
+	if err != nil {
+		writeError(w, errUpstream)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) getCase(w http.ResponseWriter, r *http.Request) {
+	setCorrelationHeader(w, r)
+	scope, err := h.authenticateQuery(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	id := r.PathValue("caseID")
+	if !validID(id) {
+		writeError(w, errInvalid)
+		return
+	}
+	response, err := h.human.GetCase(
+		upstreamContext(r, scope),
+		&humanv1.GetCaseRequest{
+			TenantId:   scope.tenantID,
+			CaseId:     id,
+			ActorProof: actorProof(scope),
+		},
+	)
+	if err != nil {
+		writeError(w, errUpstream)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) listAuditRecords(w http.ResponseWriter, r *http.Request) {
+	setCorrelationHeader(w, r)
+	scope, err := h.authenticateQuery(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	pageSize, err := positiveUint32Query(r, "page_size")
+	if err != nil {
+		writeError(w, errInvalid)
+		return
+	}
+	workItemID := r.URL.Query().Get("work_item_id")
+	caseID := r.URL.Query().Get("case_id")
+	if (workItemID != "" && !validID(workItemID)) || (caseID != "" && !validID(caseID)) {
+		writeError(w, errInvalid)
+		return
+	}
+	response, err := h.human.ListAuditRecords(
+		upstreamContext(r, scope),
+		&humanv1.ListAuditRecordsRequest{
+			TenantId:   scope.tenantID,
+			WorkItemId: workItemID,
+			CaseId:     caseID,
+			PageSize:   pageSize,
+			PageToken:  r.URL.Query().Get("page_token"),
+			ActorProof: actorProof(scope),
+		},
+	)
+	if err != nil {
+		writeError(w, errUpstream)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func positiveUint32Query(r *http.Request, name string) (uint32, error) {
+	value := r.URL.Query().Get(name)
+	if value == "" {
+		return 0, nil
+	}
+	parsed, err := strconv.ParseUint(value, 10, 32)
+	if err != nil || parsed == 0 {
+		return 0, errInvalid
+	}
+	return uint32(parsed), nil
 }
 
 type startRequest struct {
@@ -137,7 +289,7 @@ func (h *Handler) startWorkflow(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errUpstream)
 		return
 	}
-	envelope := &enginev1.CommandEnvelope{TenantId: scope.tenantID, InstanceId: body.InstanceID, CommandId: scope.commandID, IdempotencyKey: scope.idempotencyKey, CorrelationId: scope.correlationID, ActorId: scope.actorID, WorkflowType: workflowType, WorkflowVersion: body.WorkflowVersion, OccurredAtEpochMs: uint64(scope.occurredAt.UnixMilli()), EncryptionKeyScope: keyScope, Command: &enginev1.CommandEnvelope_StartWorkflow{StartWorkflow: &enginev1.StartWorkflow{}}, AuthorizationContext: &authv1.AuthorizationContext{TenantId: scope.tenantID, CommandId: scope.commandID, CorrelationId: scope.correlationID, EvaluatedAtEpochMs: uint64(scope.occurredAt.UnixMilli()), ActorProof: &authv1.ActorProof{Type: authv1.ActorProofType_ACTOR_PROOF_TYPE_ORIGINAL_JWT, SignedProof: []byte(scope.rawToken)}, WorkloadProof: &authv1.WorkloadProof{SignedProof: workload}, Resource: &authv1.TransitionResource{WorkflowType: workflowType, WorkflowVersion: body.WorkflowVersion, InstanceId: body.InstanceID, ActiveNodeId: body.StartNodeID, Action: "START"}}}
+	envelope := &enginev1.CommandEnvelope{TenantId: scope.tenantID, InstanceId: body.InstanceID, CommandId: scope.commandID, IdempotencyKey: scope.idempotencyKey, CorrelationId: scope.correlationID, ActorId: scope.actorID, WorkflowType: workflowType, WorkflowVersion: body.WorkflowVersion, OccurredAtEpochMs: uint64(scope.occurredAt.UnixMilli()), EncryptionKeyScope: keyScope, Command: &enginev1.CommandEnvelope_StartWorkflow{StartWorkflow: &enginev1.StartWorkflow{}}, AuthorizationContext: &authv1.AuthorizationContext{TenantId: scope.tenantID, CommandId: scope.commandID, CorrelationId: scope.correlationID, EvaluatedAtEpochMs: uint64(scope.occurredAt.UnixMilli()), ActorProof: actorProof(scope), WorkloadProof: &authv1.WorkloadProof{SignedProof: workload}, Resource: &authv1.TransitionResource{WorkflowType: workflowType, WorkflowVersion: body.WorkflowVersion, InstanceId: body.InstanceID, ActiveNodeId: body.StartNodeID, Action: "START"}}}
 	receipt, err := h.engine.HandleCommand(upstreamContext(r, scope), envelope)
 	if err != nil {
 		writeError(w, errUpstream)
@@ -164,7 +316,7 @@ func (h *Handler) completeWorkItem(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid)
 		return
 	}
-	response, err := h.human.CompleteWorkItem(upstreamContext(r, scope), &humanv1.CompleteWorkItemRequest{TenantId: scope.tenantID, WorkItemId: id, CommandId: scope.commandID, IdempotencyKey: scope.idempotencyKey, CorrelationId: scope.correlationID, Decision: body.Decision, ExpectedVersion: body.ExpectedVersion, ActorProof: &authv1.ActorProof{Type: authv1.ActorProofType_ACTOR_PROOF_TYPE_ORIGINAL_JWT, SignedProof: []byte(scope.rawToken)}})
+	response, err := h.human.CompleteWorkItem(upstreamContext(r, scope), &humanv1.CompleteWorkItemRequest{TenantId: scope.tenantID, WorkItemId: id, CommandId: scope.commandID, IdempotencyKey: scope.idempotencyKey, CorrelationId: scope.correlationID, Decision: body.Decision, ExpectedVersion: body.ExpectedVersion, ActorProof: actorProof(scope)})
 	if err != nil {
 		writeError(w, errUpstream)
 		return
@@ -191,7 +343,7 @@ func (h *Handler) delegateWorkItem(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid)
 		return
 	}
-	response, err := h.human.DelegateWorkItem(upstreamContext(r, scope), &humanv1.DelegateWorkItemRequest{TenantId: scope.tenantID, WorkItemId: id, CommandId: scope.commandID, IdempotencyKey: scope.idempotencyKey, CorrelationId: scope.correlationID, ExpectedVersion: body.ExpectedVersion, AssigneeId: body.AssigneeID, CandidateGroup: body.CandidateGroup, ActorProof: &authv1.ActorProof{Type: authv1.ActorProofType_ACTOR_PROOF_TYPE_ORIGINAL_JWT, SignedProof: []byte(scope.rawToken)}})
+	response, err := h.human.DelegateWorkItem(upstreamContext(r, scope), &humanv1.DelegateWorkItemRequest{TenantId: scope.tenantID, WorkItemId: id, CommandId: scope.commandID, IdempotencyKey: scope.idempotencyKey, CorrelationId: scope.correlationID, ExpectedVersion: body.ExpectedVersion, AssigneeId: body.AssigneeID, CandidateGroup: body.CandidateGroup, ActorProof: actorProof(scope)})
 	if err != nil {
 		writeError(w, errUpstream)
 		return

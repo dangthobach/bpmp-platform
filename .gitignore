@@ -8,6 +8,11 @@
 /secrets/
 /platform/e2e/runtime/
 /platform/e2e/.env
+/apps/web/cockpit-web/node_modules/
+/apps/web/cockpit-web/dist/
+/apps/web/cockpit-web/*.tsbuildinfo
+/apps/web/cockpit-web/vite.config.js
+/apps/web/cockpit-web/vite.config.d.ts
 /.agents/
 clippy_output.txt
 check_output.txt

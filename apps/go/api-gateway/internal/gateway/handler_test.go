@@ -37,6 +37,21 @@ func (c *recordingEngine) HandleCommand(ctx context.Context, envelope *enginev1.
 
 type recordingHuman struct {
 	humanv1.HumanRuntimeServiceClient
+	listRequest *humanv1.ListWorkItemsRequest
+	metadata    metadata.MD
+}
+
+func (c *recordingHuman) ListWorkItems(ctx context.Context, request *humanv1.ListWorkItemsRequest, _ ...grpc.CallOption) (*humanv1.ListWorkItemsResponse, error) {
+	c.listRequest = request
+	c.metadata, _ = metadata.FromOutgoingContext(ctx)
+	return &humanv1.ListWorkItemsResponse{
+		WorkItems: []*humanv1.WorkItem{{
+			TenantId:   request.TenantId,
+			WorkItemId: "work-1",
+			Status:     "ACTIVE",
+		}},
+		NextPageToken: "next",
+	}, nil
 }
 
 func TestGatewayPreservesActorProofAndIdempotencyKey(t *testing.T) {
@@ -78,6 +93,42 @@ func TestGatewayPreservesActorProofAndIdempotencyKey(t *testing.T) {
 	}
 	if values := engine.metadata.Get("traceparent"); len(values) != 1 || values[0] != request.Header.Get("traceparent") {
 		t.Fatalf("trace metadata was not preserved: %v", values)
+	}
+}
+
+func TestListWorkItemsForwardsTenantActorAndCursor(t *testing.T) {
+	public, private, _ := ed25519.GenerateKey(nil)
+	now := time.Unix(1_000, 0).UTC()
+	claims := jwt.MapClaims{"iss": "issuer", "sub": "actor-1", "aud": []string{"gateway"}, "exp": now.Add(time.Hour).Unix(), "iat": now.Add(-time.Minute).Unix(), "tenant_id": "tenant-a"}
+	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
+	token.Header["kid"] = "actor-key"
+	raw, err := token.SignedString(private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	human := &recordingHuman{}
+	handler, err := NewHandler(&recordingEngine{}, human, &verifier{keys: map[string]crypto.PublicKey{"actor-key": public}, issuers: map[string]struct{}{"issuer": {}}, audiences: map[string]struct{}{"gateway": {}}, methods: []string{"EdDSA"}, maxTokenBytes: 4096}, &workloadSigner{id: "api-gateway", keyID: "workload-key", key: private, ttl: time.Minute}, newModelRateLimiter(10, time.Minute), map[string]string{"tenant-a": "tenant-a/workflows"}, 4096)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler.now = func() time.Time { return now }
+	request := httptest.NewRequest(http.MethodGet, "/v1/work-items?page_size=25&page_token=cursor-1", nil)
+	request.Header.Set("Authorization", "Bearer "+raw)
+	request.Header.Set("X-BPMP-Tenant-ID", "tenant-a")
+	request.Header.Set("X-Correlation-ID", "correlation-1")
+	response := httptest.NewRecorder()
+	handler.Routes().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d: %s", response.Code, response.Body.String())
+	}
+	if human.listRequest.GetTenantId() != "tenant-a" ||
+		human.listRequest.GetPageSize() != 25 ||
+		human.listRequest.GetPageToken() != "cursor-1" ||
+		string(human.listRequest.GetActorProof().GetSignedProof()) != raw {
+		t.Fatalf("query scope was not forwarded: %+v", human.listRequest)
+	}
+	if values := human.metadata.Get("x-bpmp-correlation-id"); len(values) != 1 || values[0] != "correlation-1" {
+		t.Fatalf("correlation metadata was not preserved: %v", values)
 	}
 }
 
