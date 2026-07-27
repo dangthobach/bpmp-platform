@@ -89,8 +89,12 @@ struct KafkaTopics {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct KafkaConsumerGroups {
-    engine_configuration_reloader: String,
+    engine_configuration_reloaders: Vec<String>,
     human_committed_events: String,
+    api_gateway_configuration_reloader: String,
+    human_runtime_configuration_reloader: String,
+    projection_configuration_reloader: String,
+    governance_configuration_reloader: String,
 }
 
 #[derive(Serialize)]
@@ -440,7 +444,7 @@ fn engine_config(manifest: &Manifest, mount: &str, index: usize, keys: &[&AuthKe
                 "committed_events": manifest.kafka.topics.engine_committed_events,
                 "configuration_publications": manifest.kafka.topics.configuration_publications
             },
-            "consumer_groups": {"configuration_reloader": manifest.kafka.consumer_groups.engine_configuration_reloader},
+            "consumer_groups": {"configuration_reloader": manifest.kafka.consumer_groups.engine_configuration_reloaders[index]},
             "message_timeout_ms": 5000,
             "max_message_bytes": 1_048_576,
             "max_inflight": 1,
@@ -457,15 +461,34 @@ fn human_config(manifest: &Manifest, mount: &str, workload: &AuthKey, internal: 
         "listen_address": manifest.human_listen_address, "postgres_dsn": manifest.postgres_dsn,
         "apply_migrations": true, "migration_path": path("human-runtime.sql"),
         "engine_address": manifest.engine_public_addresses[1],
-        "tls": {"server_certificate": path("secrets/tls.pem"), "server_private_key": path("secrets/tls-key.pem"), "client_certificate": path("secrets/tls.pem"), "client_private_key": path("secrets/tls-key.pem"), "client_ca": path("secrets/ca.pem"), "engine_ca": path("secrets/ca.pem"), "engine_server_name": "engine2"},
-        "kafka": {"brokers": manifest.kafka.brokers, "committed_event_topic": manifest.kafka.topics.engine_committed_events, "escalation_topic": manifest.kafka.topics.human_escalations, "consumer_group": manifest.kafka.consumer_groups.human_committed_events, "batch_size": 64},
+        "tls": {"server_certificate": path("secrets/tls.pem"), "server_private_key": path("secrets/tls-key.pem"), "client_certificate": path("secrets/tls.pem"), "client_private_key": path("secrets/tls-key.pem"), "client_ca": path("secrets/ca.pem"), "engine_ca": path("secrets/ca.pem"), "engine_server_name": "engine2", "configuration_server_name": "configuration-service"},
+        "kafka": {"brokers": manifest.kafka.brokers, "committed_event_topic": manifest.kafka.topics.engine_committed_events, "escalation_topic": manifest.kafka.topics.human_escalations, "consumer_group": manifest.kafka.consumer_groups.human_committed_events},
         "identity": {"jwks_path": path("jwks.json"), "internal_keys": {(internal.id.clone()): path(&internal.public_path)}, "issuers": [manifest.actor_issuer], "audiences": [manifest.actor_audience], "allowed_jwt_methods": ["EdDSA"], "workload_id": "human-runtime", "max_proof_bytes": 16384, "max_jwks_keys": 16, "max_roles": 32, "max_capabilities": 64, "clock_skew_ms": 30000},
         "workload": {"id": "human-runtime", "signing_key_id": workload.id, "private_key_path": path(&workload.private_path), "proof_ttl_ms": 60000},
         "grpc": {"max_receive_bytes": 1_048_576, "max_send_bytes": 1_048_576},
         "reliability": {"max_attempts": 5, "initial_backoff_ms": 50, "max_backoff_ms": 1000, "attempt_timeout_ms": 3000, "failure_threshold": 5, "open_duration_ms": 1000, "retryable_codes": ["UNAVAILABLE","DEADLINE_EXCEEDED"]},
         "health": {"listen_address": manifest.human_health_address, "readiness_timeout_ms": 1000},
         "telemetry": {"service_name": "human-runtime-e2e", "service_version": "e2e", "endpoint": manifest.otel_endpoint, "insecure": true, "sample_ratio": 0.0, "export_timeout_ms": 1000},
-        "escalation": {"worker_id": "human-e2e", "batch_size": 32, "lease_ms": 5000, "retry_ms": 1000, "poll_ms": 250}
+        "escalation": {"worker_id": "human-e2e"},
+        "runtime_configuration": {
+            "tenant_id": manifest.tenant_id,
+            "resolver_address": manifest.configuration_grpc_url.trim_start_matches("https://"),
+            "platform_reference": "bpmp",
+            "environment_reference": "e2e",
+            "kafka": {
+                "brokers": manifest.kafka.brokers,
+                "client_id": "bpmp-human-runtime-configuration",
+                "security_protocol": manifest.kafka.security_protocol,
+                "dial_timeout_ms": 2000,
+                "request_timeout_ms": 5000,
+                "topic": manifest.kafka.topics.configuration_publications,
+                "consumer_group": manifest.kafka.consumer_groups.human_runtime_configuration_reloader,
+                "batch_size": 64,
+                "max_message_bytes": 1_048_576,
+                "poll_timeout_ms": 250,
+                "session_timeout_ms": 6000
+            }
+        }
     })
 }
 
@@ -479,13 +502,31 @@ fn gateway_config(manifest: &Manifest, mount: &str, workload: &AuthKey) -> Value
         "upstream_tls": {"certificate": path("secrets/tls.pem"), "private_key": path("secrets/tls-key.pem"), "ca": path("secrets/ca.pem"), "engine_server_name": "engine2", "human_server_name": "human-runtime", "configuration_server_name": "configuration-service"},
         "identity": {"jwks_path": path("jwks.json"), "issuers": [manifest.actor_issuer], "audiences": [manifest.actor_audience], "algorithms": ["EdDSA"], "max_token_bytes": 16384, "max_jwks_keys": 16, "clock_skew_seconds": 30},
         "workload": {"id": "api-gateway", "signing_key_id": workload.id, "private_key_path": path(&workload.private_path), "proof_ttl_ms": 60000},
-        "rate_limit": {"requests": 1000, "window_ms": 60000, "redis_address": manifest.redis_address, "redis_username": "", "redis_password_file": "", "redis_database": 0, "redis_key_prefix": "bpmp:e2e", "operation_timeout_ms": 1000},
+        "rate_limit": {"redis_address": manifest.redis_address, "redis_username": "", "redis_password_file": "", "redis_database": 0, "redis_key_prefix": "bpmp:e2e", "operation_timeout_ms": 1000},
         "http": {"read_header_timeout_ms": 2000, "read_timeout_ms": 5000, "write_timeout_ms": 5000, "idle_timeout_ms": 10000, "shutdown_timeout_ms": 5000, "max_body_bytes": 65536, "max_upstream_response_bytes": 1_048_576},
         "grpc": {"max_receive_bytes": 1_048_576, "max_send_bytes": 1_048_576},
         "reliability": {"max_attempts": 5, "initial_backoff_ms": 50, "max_backoff_ms": 1000, "attempt_timeout_ms": 3000, "failure_threshold": 5, "open_duration_ms": 1000, "retryable_codes": ["UNAVAILABLE","DEADLINE_EXCEEDED"]},
         "health": {"readiness_timeout_ms": 1000},
         "telemetry": {"service_name": "api-gateway-e2e", "service_version": "e2e", "endpoint": manifest.otel_endpoint, "insecure": true, "sample_ratio": 0.0, "export_timeout_ms": 1000},
-        "tenant_key_scopes": {(manifest.tenant_id.clone()): format!("{}/operational", manifest.tenant_id)}
+        "tenant_key_scopes": {(manifest.tenant_id.clone()): format!("{}/operational", manifest.tenant_id)},
+        "runtime_configuration": {
+            "resolver_address": manifest.configuration_grpc_url.trim_start_matches("https://"),
+            "platform_reference": "bpmp",
+            "environment_reference": "e2e",
+            "kafka": {
+                "brokers": manifest.kafka.brokers,
+                "client_id": "bpmp-api-gateway-configuration",
+                "security_protocol": manifest.kafka.security_protocol,
+                "dial_timeout_ms": 2000,
+                "request_timeout_ms": 5000,
+                "topic": manifest.kafka.topics.configuration_publications,
+                "consumer_group": manifest.kafka.consumer_groups.api_gateway_configuration_reloader,
+                "batch_size": 64,
+                "max_message_bytes": 1_048_576,
+                "poll_timeout_ms": 250,
+                "session_timeout_ms": 6000
+            }
+        }
     })
 }
 
@@ -566,22 +607,113 @@ fn seeded_configuration_migration(manifest: &Manifest) -> Result<String> {
     let engine = snapshot
         .pointer("/snapshot/engine")
         .context("E2E configuration snapshot has no engine policy")?;
-    let values = sql_literal(&serde_json::to_string(engine)?);
     let tenant = sql_literal(&manifest.tenant_id);
-    let mut hash = String::with_capacity(64);
-    for byte in Sha256::digest(b"bpmp-e2e-config-v1") {
-        write!(&mut hash, "{byte:02x}")?;
+    let policies = seeded_configuration_policies(engine);
+    let mut migration = format!("{CONFIGURATION_MIGRATION}\n");
+    for (owner, profile_id, version_id, policy) in policies {
+        let raw = serde_json::to_vec(&policy)?;
+        let values = sql_literal(std::str::from_utf8(&raw)?);
+        let mut hash = String::with_capacity(64);
+        for byte in Sha256::digest(&raw) {
+            write!(&mut hash, "{byte:02x}")?;
+        }
+        let owner_slug = owner.to_ascii_lowercase().replace('_', "-");
+        let policy_version = if owner == "ENGINE" {
+            "policy-e2e-v1".to_owned()
+        } else {
+            format!("policy-{owner_slug}-e2e-v1")
+        };
+        write!(
+            &mut migration,
+            "INSERT INTO configuration_profiles(id,tenant_id,owner,name,scope_type,scope_reference,aggregate_version,is_deleted,created_at,created_by,updated_at,updated_by) VALUES\
+             ('{profile_id}','{tenant}','{owner}','E2E {owner_slug} policy','TENANT','{tenant}',2,false,now(),'fixture',now(),'fixture');\n\
+             INSERT INTO configuration_versions(id,profile_id,tenant_id,ordinal,config_version,policy_version,schema_version,status,values_json,content_hash,reason,created_at,created_by,published_at,published_by) VALUES\
+             ('{version_id}','{profile_id}','{tenant}',1,'config-{owner_slug}-e2e-v1','{policy_version}',1,'PUBLISHED','{values}'::jsonb,decode('{hash}','hex'),'fixture bootstrap',now(),'fixture',now(),'fixture');\n\
+             UPDATE configuration_profiles SET current_published_version_id='{version_id}' WHERE id='{profile_id}';\n\
+             INSERT INTO configuration_active_scopes(tenant_id,owner,scope_type,scope_reference,profile_id,version_id,updated_at) VALUES\
+             ('{tenant}','{owner}','TENANT','{tenant}','{profile_id}','{version_id}',now());\n"
+        )?;
     }
-    Ok(format!(
-        "{CONFIGURATION_MIGRATION}\n\
-         INSERT INTO configuration_profiles(id,tenant_id,owner,name,scope_type,scope_reference,aggregate_version,is_deleted,created_at,created_by,updated_at,updated_by) VALUES\
-         ('00000000-0000-0000-0000-00000000c001','{tenant}','ENGINE','E2E tenant policy','TENANT','{tenant}',2,false,now(),'fixture',now(),'fixture');\n\
-         INSERT INTO configuration_versions(id,profile_id,tenant_id,ordinal,config_version,policy_version,schema_version,status,values_json,content_hash,reason,created_at,created_by,published_at,published_by) VALUES\
-         ('00000000-0000-0000-0000-00000000c002','00000000-0000-0000-0000-00000000c001','{tenant}',1,'config-e2e-v1','policy-e2e-v1',1,'PUBLISHED','{values}'::jsonb,decode('{hash}','hex'),'fixture bootstrap',now(),'fixture',now(),'fixture');\n\
-         UPDATE configuration_profiles SET current_published_version_id='00000000-0000-0000-0000-00000000c002' WHERE id='00000000-0000-0000-0000-00000000c001';\n\
-         INSERT INTO configuration_active_scopes(tenant_id,owner,scope_type,scope_reference,profile_id,version_id,updated_at) VALUES\
-         ('{tenant}','ENGINE','TENANT','{tenant}','00000000-0000-0000-0000-00000000c001','00000000-0000-0000-0000-00000000c002',now());\n"
-    ))
+    Ok(migration)
+}
+
+fn seeded_configuration_policies(
+    engine: &Value,
+) -> [(&'static str, &'static str, &'static str, Value); 5] {
+    [
+        (
+            "ENGINE",
+            "00000000-0000-0000-0000-00000000c001",
+            "00000000-0000-0000-0000-00000000c002",
+            engine.clone(),
+        ),
+        (
+            "API_GATEWAY",
+            "00000000-0000-0000-0000-00000000c011",
+            "00000000-0000-0000-0000-00000000c012",
+            json!({
+                "rate_limit_requests": 1000,
+                "rate_limit_window_ms": "60000",
+                "upstream_timeout_ms": "3000",
+                "circuit_breaker_failure_threshold": 5,
+                "circuit_breaker_open_ms": "1000",
+                "bulkhead_max_concurrency": 128,
+                "max_request_body_bytes": "65536",
+                "max_upstream_response_bytes": "1048576",
+                "batch_chunk_size": 100,
+                "batch_concurrency": 4
+            }),
+        ),
+        (
+            "HUMAN_RUNTIME",
+            "00000000-0000-0000-0000-00000000c021",
+            "00000000-0000-0000-0000-00000000c022",
+            json!({
+                "projection_batch_size": 64,
+                "escalation_batch_size": 32,
+                "escalation_lease_ms": "5000",
+                "escalation_retry_ms": "1000",
+                "escalation_poll_ms": "250",
+                "engine_command_timeout_ms": "3000",
+                "max_assignment_candidates": 100,
+                "max_delegation_depth": 8
+            }),
+        ),
+        (
+            "PROJECTION",
+            "00000000-0000-0000-0000-00000000c031",
+            "00000000-0000-0000-0000-00000000c032",
+            json!({
+                "consume_batch_size": 64,
+                "rebuild_batch_size": 256,
+                "query_default_page_size": 50,
+                "query_max_page_size": 200,
+                "realtime_publish_batch_size": 64,
+                "checkpoint_flush_ms": "1000",
+                "max_projection_lag_ms": "30000"
+            }),
+        ),
+        (
+            "GOVERNANCE",
+            "00000000-0000-0000-0000-00000000c041",
+            "00000000-0000-0000-0000-00000000c042",
+            json!({
+                "approval_ttl_ms": "300000",
+                "fresh_authentication_max_age_ms": "60000",
+                "kms_request_timeout_ms": "3000",
+                "kms_retry": {
+                    "max_attempts": 5,
+                    "initial_backoff_ms": "50",
+                    "max_backoff_ms": "1000",
+                    "multiplier_millis": 2000
+                },
+                "key_cache_ttl_ms": "30000",
+                "revocation_barrier_timeout_ms": "10000",
+                "reconciliation_batch_size": 64,
+                "max_pending_compensations": 1000
+            }),
+        ),
+    ]
 }
 
 fn seeded_migration(manifest: &Manifest) -> String {
@@ -612,6 +744,22 @@ fn validate_manifest(manifest: &Manifest) -> Result<()> {
         || manifest.engine_peer_listen_addresses.len() != 3
         || manifest.kafka.brokers.is_empty()
         || manifest.tls_dns_names.is_empty()
+        || manifest
+            .kafka
+            .consumer_groups
+            .engine_configuration_reloaders
+            .len()
+            != 3
+        || manifest
+            .kafka
+            .consumer_groups
+            .projection_configuration_reloader
+            .is_empty()
+        || manifest
+            .kafka
+            .consumer_groups
+            .governance_configuration_reloader
+            .is_empty()
     {
         anyhow::bail!(
             "E2E manifest must define exactly three engines and non-empty brokers/TLS SANs"

@@ -20,9 +20,12 @@ Human Runtime projection, stops the bootstrap leader, completes the work item
 through the surviving Raft majority and waits for the committed completion
 event to update PostgreSQL.
 
-The configuration probe also publishes a workflow-scoped Engine profile.
-Configuration Service emits it through its ordered outbox and all Engine nodes
-consume the publication before acknowledging their Kafka offsets.
+The configuration probe publishes a workflow-scoped Engine profile and new
+versions for the seeded API Gateway and Human Runtime profiles. Configuration
+Service emits them through its ordered outbox. All three Engine node groups,
+the Gateway group and the Human Runtime group must reach zero lag; each owner
+resolves and installs its own authoritative snapshot before committing.
 
-Use `-KeepRunning` for inspection. Use `-SkipBuild` only when all three local
-images already match the current source.
+Use `-KeepRunning` for inspection. Use `-SkipBuild` only when all four local
+images already match the current source. The operational build and deployment
+sequence is documented in `docs/build-and-deploy.md`.

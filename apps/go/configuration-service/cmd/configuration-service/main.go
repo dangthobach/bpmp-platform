@@ -131,10 +131,18 @@ func run(path string) error {
 	if !clientCAs.AppendCertsFromPEM(clientCABytes) {
 		return errors.New("client CA contains no certificates")
 	}
+	serverCertificate, err := tls.LoadX509KeyPair(
+		config.TLS.Certificate,
+		config.TLS.PrivateKey,
+	)
+	if err != nil {
+		return fmt.Errorf("load configuration service certificate: %w", err)
+	}
 	tlsSettings := &tls.Config{
-		MinVersion: tls.VersionTLS13,
-		ClientAuth: tls.RequireAndVerifyClientCert,
-		ClientCAs:  clientCAs,
+		MinVersion:   tls.VersionTLS13,
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+		ClientCAs:    clientCAs,
+		Certificates: []tls.Certificate{serverCertificate},
 	}
 	resolver, err := grpcapi.New(service)
 	if err != nil {

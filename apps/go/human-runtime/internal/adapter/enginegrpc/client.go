@@ -24,6 +24,23 @@ type SecurityProvider interface {
 type Client struct {
 	client   enginev1.EngineCommandServiceClient
 	security SecurityProvider
+	timeout  func() (time.Duration, error)
+}
+
+func NewWithTimeout(
+	client enginev1.EngineCommandServiceClient,
+	security SecurityProvider,
+	timeout func() (time.Duration, error),
+) (*Client, error) {
+	value, err := New(client, security)
+	if err != nil {
+		return nil, err
+	}
+	if timeout == nil {
+		return nil, errors.New("engine command timeout policy is required")
+	}
+	value.timeout = timeout
+	return value, nil
 }
 
 func New(client enginev1.EngineCommandServiceClient, security SecurityProvider) (*Client, error) {
@@ -36,6 +53,18 @@ func New(client enginev1.EngineCommandServiceClient, security SecurityProvider) 
 func (c *Client) CompleteUserTask(ctx context.Context, command application.EngineCompleteCommand) error {
 	if command.OccurredAt.IsZero() {
 		return errors.New("command occurrence time is required")
+	}
+	if c.timeout != nil {
+		timeout, err := c.timeout()
+		if err != nil {
+			return err
+		}
+		if timeout <= 0 {
+			return errors.New("engine command timeout policy is invalid")
+		}
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
 	}
 	snapshot, err := c.security.ForTenant(
 		ctx,

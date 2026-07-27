@@ -14,8 +14,16 @@
       "human_escalations": "bpmp.human.escalations.v1.e2e"
     },
     "consumer_groups": {
-      "engine_configuration_reloader": "bpmp.engine.configuration-reloader.v1.e2e",
-      "human_committed_events": "bpmp.human.committed-events.v1.e2e"
+      "engine_configuration_reloaders": [
+        "bpmp.engine.configuration-reloader-node-1.v1.e2e",
+        "bpmp.engine.configuration-reloader-node-2.v1.e2e",
+        "bpmp.engine.configuration-reloader-node-3.v1.e2e"
+      ],
+      "human_committed_events": "bpmp.human.committed-events.v1.e2e",
+      "api_gateway_configuration_reloader": "bpmp.api-gateway.configuration-reloader.v1.e2e",
+      "human_runtime_configuration_reloader": "bpmp.human-runtime.configuration-reloader.v1.e2e",
+      "projection_configuration_reloader": "bpmp.projection.configuration-reloader.v1.e2e",
+      "governance_configuration_reloader": "bpmp.governance.configuration-reloader.v1.e2e"
     }
   },
   "postgres_dsn": "postgres://bpmp:bpmp-e2e@postgres:5432/human_runtime?sslmode=disable",

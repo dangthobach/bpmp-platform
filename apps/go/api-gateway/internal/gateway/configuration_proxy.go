@@ -57,8 +57,14 @@ func (h *Handler) configuration(w http.ResponseWriter, r *http.Request) {
 	target.RawQuery = r.URL.RawQuery
 
 	var body io.Reader
+	maxRequestBytes := h.configurationProxy.maxRequestBytes
+	maxResponseBytes := h.configurationProxy.maxResponseBytes
+	if h.policyProvider != nil {
+		maxRequestBytes = scope.runtimePolicy.MaxRequestBodyBytes
+		maxResponseBytes = scope.runtimePolicy.MaxUpstreamResponseBytes
+	}
 	if r.Body != nil {
-		body = http.MaxBytesReader(w, r.Body, h.configurationProxy.maxRequestBytes)
+		body = http.MaxBytesReader(w, r.Body, maxRequestBytes)
 	}
 	upstreamRequest, err := http.NewRequestWithContext(
 		upstreamContext(r, scope),
@@ -80,9 +86,9 @@ func (h *Handler) configuration(w http.ResponseWriter, r *http.Request) {
 	defer response.Body.Close()
 	responseBody, err := io.ReadAll(io.LimitReader(
 		response.Body,
-		h.configurationProxy.maxResponseBytes+1,
+		maxResponseBytes+1,
 	))
-	if err != nil || int64(len(responseBody)) > h.configurationProxy.maxResponseBytes {
+	if err != nil || int64(len(responseBody)) > maxResponseBytes {
 		writeError(w, errUpstream)
 		return
 	}

@@ -102,34 +102,41 @@ single-node profile into `production-ha`.
 
 1. Provision separate PostgreSQL databases and credentials for each owning Go
    or control-plane service. No service receives another service's credential.
-2. Provision Kafka topics for committed engine events and Human Runtime
-   escalation. Configure retention and ACLs from environment policy.
+2. Provision Kafka topics for committed engine events, configuration
+   publications and Human Runtime escalation. Configure retention and ACLs
+   from the centrally managed environment topology.
 3. Provision persistent volumes for every engine member. For HA, place members
    in separate failure domains and create the headless peer-discovery service.
 4. Issue separate TLS identities for API Gateway, Human Runtime and every
    engine member. Engine requires and verifies client certificates.
 5. Publish signed WIR, versioned configuration snapshots, signed authorization
    bundles, JWKS and pinned WASM artifacts to the configured registries.
+   Allocate a distinct stable configuration-reloader group per process replica;
+   publication is broadcast invalidation rather than queue-style distribution.
 6. Materialize service configuration from the configuration/secret stores.
    Validate it with the service binary before opening traffic.
 
 ## 5. Deployment order
 
-1. Apply Human Runtime PostgreSQL migrations as a dedicated migration job.
+1. Apply Configuration Service and Human Runtime PostgreSQL migrations as
+   dedicated migration jobs with separate database owners.
 2. Start Kafka and verify topic metadata, producer idempotence and consumer
    group permissions.
-3. Start the engine. For single-node, verify encrypted append/replay and local
+3. Start Configuration Service, verify HTTP plus mTLS gRPC readiness, and
+   publish complete owner policies for every initial tenant.
+4. Start the engine. For single-node, verify encrypted append/replay and local
    RocksDB recovery. For HA, bootstrap membership once, wait for quorum and
    verify the elected leader before accepting commands.
-4. Verify engine mTLS, WIR signature loading, configuration/policy version
+5. Verify engine mTLS, WIR signature loading, configuration/policy version
    loading, payload-key resolution, scheduler leases, local WASM registry and
    outbox publisher checkpoint.
-5. Start Human Runtime. Verify PostgreSQL readiness, Kafka projection lag,
+6. Start Human Runtime. Verify PostgreSQL readiness, Kafka projection lag,
    escalation publisher ACK and mTLS connection to engine.
-6. Start API Gateway last. Keep public routing disabled until upstream mTLS,
+7. Start API Gateway last. Keep public routing disabled until upstream mTLS,
    coarse JWT verification, rate-limit configuration and a synthetic command
    pass.
-7. Enable traffic gradually. Observe command p95/p99, RocksDB/Raft commit
+8. Confirm every configuration-reloader group is at zero lag, then enable
+   traffic gradually. Observe command p95/p99, RocksDB/Raft commit
    latency, quorum health, outbox lag, projection lag, scheduler lease
    conflicts, WASM traps and authorization denials.
 

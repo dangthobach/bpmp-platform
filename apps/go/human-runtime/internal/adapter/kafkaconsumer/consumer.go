@@ -17,18 +17,39 @@ type Client interface {
 type Consumer struct {
 	client    Client
 	handler   Handler
-	batchSize int
+	batchSize func() (int, error)
 }
 
 func New(client Client, handler Handler, batchSize int) (*Consumer, error) {
 	if client == nil || handler == nil || batchSize <= 0 {
 		return nil, errors.New("Kafka client, handler, and positive batch size are required")
 	}
+	return &Consumer{
+		client: client, handler: handler,
+		batchSize: func() (int, error) { return batchSize, nil },
+	}, nil
+}
+
+func NewDynamic(
+	client Client,
+	handler Handler,
+	batchSize func() (int, error),
+) (*Consumer, error) {
+	if client == nil || handler == nil || batchSize == nil {
+		return nil, errors.New("Kafka client, handler, and batch policy are required")
+	}
 	return &Consumer{client: client, handler: handler, batchSize: batchSize}, nil
 }
 func (c *Consumer) Run(ctx context.Context) error {
 	for ctx.Err() == nil {
-		fetches := c.client.PollRecords(ctx, c.batchSize)
+		batchSize, err := c.batchSize()
+		if err != nil {
+			return err
+		}
+		if batchSize <= 0 {
+			return errors.New("Kafka batch policy is invalid")
+		}
+		fetches := c.client.PollRecords(ctx, batchSize)
 		if errs := fetches.Errors(); len(errs) > 0 {
 			return errs[0].Err
 		}

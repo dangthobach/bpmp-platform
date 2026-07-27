@@ -12,6 +12,14 @@ $runtime = Join-Path $PSScriptRoot "runtime"
 
 if (-not (Test-Path $envFile)) {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot ".env.example") -Destination $envFile
+} else {
+    $currentSettings = Get-Content $envFile -Raw | ConvertFrom-StringData
+    $exampleSettings = Get-Content (Join-Path $PSScriptRoot ".env.example") -Raw | ConvertFrom-StringData
+    foreach ($entry in $exampleSettings.GetEnumerator()) {
+        if (-not $currentSettings.ContainsKey($entry.Key)) {
+            Add-Content -LiteralPath $envFile -Value "$($entry.Key)=$($entry.Value)"
+        }
+    }
 }
 
 function Invoke-Compose {
@@ -83,6 +91,31 @@ function Invoke-GetRequestEventually {
     throw "GET request did not succeed before its retry deadline"
 }
 
+function Wait-KafkaConsumerGroup {
+    param(
+        [Parameter(Mandatory)][string]$ConsumerGroup,
+        [int]$TimeoutSeconds = 60
+    )
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    do {
+        $description = Invoke-Compose exec -T redpanda rpk group describe $ConsumerGroup -c
+        $rows = @($description | Select-Object -Skip 1 | Where-Object { $_.Trim() })
+        $caughtUp = $rows.Count -gt 0
+        foreach ($row in $rows) {
+            $columns = @($row -split '\s+' | Where-Object { $_ })
+            if ($columns.Count -lt 6 -or $columns[5] -notin "0", "-") {
+                $caughtUp = $false
+                break
+            }
+        }
+        if ($caughtUp) {
+            return
+        }
+        Start-Sleep -Milliseconds 250
+    } while ((Get-Date) -lt $deadline)
+    throw "Kafka consumer group '$ConsumerGroup' did not commit through the topic end"
+}
+
 $resolvedRuntime = [System.IO.Path]::GetFullPath($runtime)
 $resolvedE2E = [System.IO.Path]::GetFullPath($PSScriptRoot)
 if (-not $resolvedRuntime.StartsWith($resolvedE2E, [StringComparison]::OrdinalIgnoreCase)) {
@@ -110,7 +143,7 @@ try {
     Invoke-Compose --profile setup run --rm fixture-generator
     Invoke-Compose up -d
 
-    $settings = Get-Content $envFile | ConvertFrom-StringData
+    $settings = Get-Content $envFile -Raw | ConvertFrom-StringData
     $gatewayPort = $settings.GATEWAY_PORT
     $deadline = (Get-Date).AddMinutes(3)
     do {
@@ -184,7 +217,7 @@ try {
             owner = "ENGINE"
             scope = @{ type = "WORKFLOW_TYPE"; reference = "approval" }
             schema_version = 1
-            policy_version = "policy-$suffix"
+            policy_version = "policy-e2e-v1"
             reason = "broker E2E bootstrap"
             values = $configurationPolicy
         } | ConvertTo-Json -Depth 8 -Compress)
@@ -204,6 +237,105 @@ try {
         -Body (@{ expected_version = 1; reason = "activate broker E2E policy" } | ConvertTo-Json -Compress)
     if (-not $publishedConfiguration.current_published_version_id -or $publishedConfiguration.aggregate_version -ne 2) {
         throw "configuration lifecycle did not publish a version"
+    }
+    $gatewayConfigurationHeaders = $configurationHeaders.Clone()
+    $gatewayConfigurationHeaders["X-Command-ID"] = "gateway-configuration-draft-$suffix"
+    $gatewayConfigurationHeaders["Idempotency-Key"] = "gateway-configuration-draft-idem-$suffix"
+    $gatewayPolicy = @{
+        rate_limit_requests = 1000
+        rate_limit_window_ms = "60000"
+        upstream_timeout_ms = "3000"
+        circuit_breaker_failure_threshold = 5
+        circuit_breaker_open_ms = "1000"
+        bulkhead_max_concurrency = 128
+        max_request_body_bytes = "65536"
+        max_upstream_response_bytes = "1048576"
+        batch_chunk_size = 100
+        batch_concurrency = 4
+    }
+    $configurationProfiles = Invoke-GetRequestEventually `
+        -Path "/v1/configuration/profiles?page_size=100" `
+        -Headers $queryHeaders
+    $gatewaySeedProfile = @($configurationProfiles.profiles | Where-Object {
+        $_.owner -eq "API_GATEWAY"
+    })
+    $humanSeedProfile = @($configurationProfiles.profiles | Where-Object {
+        $_.owner -eq "HUMAN_RUNTIME"
+    })
+    if ($gatewaySeedProfile.Count -ne 1 -or $humanSeedProfile.Count -ne 1) {
+        throw "seeded runtime configuration profiles are not unique"
+    }
+    $gatewayDraft = Invoke-JsonRequestEventually `
+        -Path "/v1/configuration/profiles/$($gatewaySeedProfile[0].id)/versions" `
+        -Headers $gatewayConfigurationHeaders `
+        -Body (@{
+            expected_version = $gatewaySeedProfile[0].aggregate_version
+            schema_version = 1
+            policy_version = "policy-api-gateway-e2e-v1"
+            reason = "broker E2E runtime cache"
+            values = $gatewayPolicy
+        } | ConvertTo-Json -Depth 5 -Compress)
+    $gatewayProfileDetail = Invoke-GetRequestEventually `
+        -Path "/v1/configuration/profiles/$($gatewaySeedProfile[0].id)" `
+        -Headers $queryHeaders
+    $gatewayConfigurationHeaders["X-Command-ID"] = "gateway-configuration-publish-$suffix"
+    $gatewayConfigurationHeaders["Idempotency-Key"] = "gateway-configuration-publish-idem-$suffix"
+    $gatewayPublished = Invoke-JsonRequestEventually `
+        -Path "/v1/configuration/profiles/$($gatewaySeedProfile[0].id)/versions/$($gatewayProfileDetail.versions[0].id)/publish" `
+        -Headers $gatewayConfigurationHeaders `
+        -Body (@{ expected_version = $gatewayDraft.aggregate_version; reason = "activate Gateway runtime policy" } | ConvertTo-Json -Compress)
+
+    $humanConfigurationHeaders = $configurationHeaders.Clone()
+    $humanConfigurationHeaders["X-Command-ID"] = "human-configuration-draft-$suffix"
+    $humanConfigurationHeaders["Idempotency-Key"] = "human-configuration-draft-idem-$suffix"
+    $humanPolicy = @{
+        projection_batch_size = 64
+        escalation_batch_size = 32
+        escalation_lease_ms = "5000"
+        escalation_retry_ms = "1000"
+        escalation_poll_ms = "250"
+        engine_command_timeout_ms = "3000"
+        max_assignment_candidates = 100
+        max_delegation_depth = 8
+    }
+    $humanDraft = Invoke-JsonRequestEventually `
+        -Path "/v1/configuration/profiles/$($humanSeedProfile[0].id)/versions" `
+        -Headers $humanConfigurationHeaders `
+        -Body (@{
+            expected_version = $humanSeedProfile[0].aggregate_version
+            schema_version = 1
+            policy_version = "policy-human-runtime-e2e-v1"
+            reason = "broker E2E runtime cache"
+            values = $humanPolicy
+        } | ConvertTo-Json -Depth 5 -Compress)
+    $humanProfileDetail = Invoke-GetRequestEventually `
+        -Path "/v1/configuration/profiles/$($humanSeedProfile[0].id)" `
+        -Headers $queryHeaders
+    $humanConfigurationHeaders["X-Command-ID"] = "human-configuration-publish-$suffix"
+    $humanConfigurationHeaders["Idempotency-Key"] = "human-configuration-publish-idem-$suffix"
+    $humanPublished = Invoke-JsonRequestEventually `
+        -Path "/v1/configuration/profiles/$($humanSeedProfile[0].id)/versions/$($humanProfileDetail.versions[0].id)/publish" `
+        -Headers $humanConfigurationHeaders `
+        -Body (@{ expected_version = $humanDraft.aggregate_version; reason = "activate Human Runtime policy" } | ConvertTo-Json -Compress)
+    if (
+        -not $gatewayPublished.current_published_version_id -or
+        -not $humanPublished.current_published_version_id
+    ) {
+        throw "runtime cache owner profiles were not published"
+    }
+
+    $engineConfigurations = 1..3 | ForEach-Object {
+        Get-Content (Join-Path $runtime "engine-$_.json") -Raw | ConvertFrom-Json
+    }
+    $gatewayConfiguration = Get-Content (Join-Path $runtime "api-gateway.json") -Raw | ConvertFrom-Json
+    $humanConfiguration = Get-Content (Join-Path $runtime "human-runtime.json") -Raw | ConvertFrom-Json
+    $consumerGroups = @($engineConfigurations | ForEach-Object {
+        $_.kafka.consumer_groups.configuration_reloader
+    })
+    $consumerGroups += $gatewayConfiguration.runtime_configuration.kafka.consumer_group
+    $consumerGroups += $humanConfiguration.runtime_configuration.kafka.consumer_group
+    $consumerGroups | ForEach-Object {
+        Wait-KafkaConsumerGroup -ConsumerGroup $_
     }
 
     $instance = "e2e-$suffix"

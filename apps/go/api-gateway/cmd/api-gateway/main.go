@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
 	"syscall"
 	"time"
 
@@ -21,12 +22,15 @@ import (
 	"google.golang.org/grpc/credentials"
 
 	"github.com/dangthobach/bpmp-platform/apps/go/api-gateway/internal/adapter/redislimit"
+	"github.com/dangthobach/bpmp-platform/apps/go/api-gateway/internal/adapter/runtimepolicy"
 	"github.com/dangthobach/bpmp-platform/apps/go/api-gateway/internal/config"
 	"github.com/dangthobach/bpmp-platform/apps/go/api-gateway/internal/gateway"
+	configurationv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/configuration/v1"
 	enginev1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/engine/v1"
 	humanv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/human/v1"
 	platformgrpc "github.com/dangthobach/bpmp-platform/go/platform/grpcclient"
 	platformhealth "github.com/dangthobach/bpmp-platform/go/platform/health"
+	"github.com/dangthobach/bpmp-platform/go/platform/runtimeconfig"
 	platformtelemetry "github.com/dangthobach/bpmp-platform/go/platform/telemetry"
 )
 
@@ -93,6 +97,57 @@ func run(path string) error {
 		return err
 	}
 	defer humanConn.Close()
+	configurationConn, err := grpc.NewClient(
+		value.RuntimeConfig.ResolverAddress,
+		grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
+			MinVersion: tls.VersionTLS13, ServerName: value.UpstreamTLS.ConfigurationServerName,
+			RootCAs: roots, Certificates: []tls.Certificate{clientCertificate},
+		})),
+		grpc.WithStatsHandler(platformtelemetry.GRPCClientStatsHandler()),
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(value.GRPC.MaxReceiveBytes),
+			grpc.MaxCallSendMsgSize(value.GRPC.MaxSendBytes),
+		),
+	)
+	if err != nil {
+		return err
+	}
+	defer configurationConn.Close()
+	configurationConn.Connect()
+	configurationKafka, err := runtimeconfig.NewKafkaClient(value.RuntimeConfig.Kafka)
+	if err != nil {
+		return err
+	}
+	defer configurationKafka.Close()
+	configurationCache, err := runtimeconfig.NewCache(
+		configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_API_GATEWAY,
+	)
+	if err != nil {
+		return err
+	}
+	tenantIDs := make([]string, 0, len(value.TenantKeyScopes))
+	for tenantID := range value.TenantKeyScopes {
+		tenantIDs = append(tenantIDs, tenantID)
+	}
+	sort.Strings(tenantIDs)
+	configurationReloader, err := runtimeconfig.New(runtimeconfig.Config{
+		Owner:                configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_API_GATEWAY,
+		PlatformReference:    value.RuntimeConfig.PlatformReference,
+		EnvironmentReference: value.RuntimeConfig.EnvironmentReference,
+		InitialTenantIDs:     tenantIDs,
+		Kafka:                value.RuntimeConfig.Kafka,
+	}, configurationv1.NewConfigurationResolverServiceClient(configurationConn),
+		configurationKafka, configurationCache)
+	if err != nil {
+		return err
+	}
+	if err = configurationReloader.Bootstrap(ctx); err != nil {
+		return err
+	}
+	policyProvider, err := runtimepolicy.New(configurationCache)
+	if err != nil {
+		return err
+	}
 	configurationClient := &http.Client{
 		Timeout: time.Duration(value.Reliability.AttemptTimeoutMS) * time.Millisecond,
 		Transport: &http.Transport{
@@ -121,12 +176,11 @@ func run(path string) error {
 	})
 	defer redisClient.Close()
 	rateLimitTimeout := time.Duration(value.RateLimit.OperationTimeoutMS) * time.Millisecond
-	rateLimiter, err := redislimit.New(redisClient, redislimit.Config{
-		Prefix:           value.RateLimit.RedisKeyPrefix,
-		Requests:         value.RateLimit.Requests,
-		Window:           time.Duration(value.RateLimit.WindowMS) * time.Millisecond,
-		OperationTimeout: rateLimitTimeout,
-	})
+	rateLimiter, err := redislimit.NewDynamic(
+		redisClient,
+		value.RateLimit.RedisKeyPrefix,
+		rateLimitTimeout,
+	)
 	if err != nil {
 		return err
 	}
@@ -136,12 +190,13 @@ func run(path string) error {
 	if err != nil {
 		return fmt.Errorf("ping rate-limit Redis: %w", err)
 	}
-	handler, err := gateway.New(
+	handler, err := gateway.NewWithPolicy(
 		enginev1.NewEngineCommandServiceClient(engineConn),
 		humanv1.NewHumanRuntimeServiceClient(humanConn),
 		rateLimiter,
 		configurationClient,
 		value,
+		policyProvider,
 	)
 	if err != nil {
 		return err
@@ -154,15 +209,20 @@ func run(path string) error {
 		connectionReady(humanConn),
 		func(ctx context.Context) error { return redisClient.Ping(ctx).Err() },
 		httpReady(configurationClient, value.ConfigurationURL+"/readyz"),
+		func(context.Context) error { return configurationCache.Ready(tenantIDs) },
+		func(ctx context.Context) error { return configurationKafka.Ping(ctx) },
 	)
 	routes := http.NewServeMux()
 	routes.Handle("/livez", healthHandler)
 	routes.Handle("/readyz", healthHandler)
 	routes.Handle("/", handler.Routes())
 	server := &http.Server{Addr: value.ListenAddress, Handler: platformtelemetry.HTTPHandler(value.Telemetry.ServiceName, routes), ReadHeaderTimeout: value.HTTP.ReadHeaderTimeout(), ReadTimeout: value.HTTP.ReadTimeout(), WriteTimeout: value.HTTP.WriteTimeout(), IdleTimeout: value.HTTP.IdleTimeout()}
-	errorsChannel := make(chan error, 1)
+	errorsChannel := make(chan error, 2)
 	go func() {
 		errorsChannel <- server.ListenAndServeTLS(value.PublicTLS.Certificate, value.PublicTLS.PrivateKey)
+	}()
+	go func() {
+		errorsChannel <- configurationReloader.Run(ctx)
 	}()
 	slog.Info("api-gateway started", "listen_address", value.ListenAddress)
 	select {

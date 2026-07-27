@@ -7,6 +7,8 @@ import (
 	"net"
 	"os"
 	"time"
+
+	"github.com/dangthobach/bpmp-platform/go/platform/kafkaconfig"
 )
 
 type Config struct {
@@ -25,6 +27,7 @@ type Config struct {
 	Health           Health            `json:"health"`
 	Telemetry        Telemetry         `json:"telemetry"`
 	TenantKeyScopes  map[string]string `json:"tenant_key_scopes"`
+	RuntimeConfig    RuntimeConfig     `json:"runtime_configuration"`
 }
 
 type PublicTLS struct {
@@ -55,8 +58,6 @@ type Workload struct {
 	ProofTTLMS     int64  `json:"proof_ttl_ms"`
 }
 type RateLimit struct {
-	Requests           uint32 `json:"requests"`
-	WindowMS           int64  `json:"window_ms"`
 	RedisAddress       string `json:"redis_address"`
 	RedisUsername      string `json:"redis_username"`
 	RedisPasswordFile  string `json:"redis_password_file"`
@@ -97,6 +98,12 @@ type Telemetry struct {
 	SampleRatio     float64 `json:"sample_ratio"`
 	ExportTimeoutMS int64   `json:"export_timeout_ms"`
 }
+type RuntimeConfig struct {
+	ResolverAddress      string               `json:"resolver_address"`
+	PlatformReference    string               `json:"platform_reference"`
+	EnvironmentReference string               `json:"environment_reference"`
+	Kafka                kafkaconfig.Consumer `json:"kafka"`
+}
 
 func Load(path string) (Config, error) {
 	var value Config
@@ -124,12 +131,17 @@ func (c Config) Validate() error {
 		c.Workload.PrivateKeyPath == "" || len(c.TenantKeyScopes) == 0 {
 		return errors.New("api-gateway configuration is incomplete")
 	}
+	if c.RuntimeConfig.ResolverAddress == "" ||
+		c.RuntimeConfig.PlatformReference == "" ||
+		c.RuntimeConfig.EnvironmentReference == "" ||
+		c.RuntimeConfig.Kafka.Validate() != nil {
+		return errors.New("api-gateway runtime configuration is invalid")
+	}
 	if _, _, err := net.SplitHostPort(c.ListenAddress); err != nil {
 		return err
 	}
 	if c.Identity.MaxTokenBytes <= 0 || c.Identity.MaxJWKSKeys <= 0 ||
-		c.Workload.ProofTTLMS <= 0 || c.RateLimit.Requests == 0 ||
-		c.RateLimit.WindowMS <= 0 || c.RateLimit.RedisAddress == "" ||
+		c.Workload.ProofTTLMS <= 0 || c.RateLimit.RedisAddress == "" ||
 		c.RateLimit.RedisKeyPrefix == "" || c.RateLimit.OperationTimeoutMS <= 0 ||
 		c.HTTP.ReadHeaderTimeoutMS <= 0 || c.HTTP.ReadTimeoutMS <= 0 ||
 		c.HTTP.WriteTimeoutMS <= 0 || c.HTTP.IdleTimeoutMS <= 0 ||

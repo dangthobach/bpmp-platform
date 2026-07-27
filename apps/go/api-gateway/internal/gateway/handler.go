@@ -31,6 +31,22 @@ type Handler struct {
 	maxBody            int64
 	now                func() time.Time
 	configurationProxy *configurationProxy
+	policyProvider     PolicyProvider
+}
+
+type RuntimePolicy struct {
+	RateLimitRequests        uint32
+	RateLimitWindow          time.Duration
+	MaxRequestBodyBytes      int64
+	MaxUpstreamResponseBytes int64
+}
+
+type PolicyProvider interface {
+	Policy(string) (RuntimePolicy, error)
+}
+
+type dynamicRateLimiter interface {
+	AllowPolicy(context.Context, string, uint32, time.Duration) (bool, error)
 }
 
 func New(
@@ -39,6 +55,17 @@ func New(
 	limiter ports.RateLimiter,
 	configurationClient httpDoer,
 	value config.Config,
+) (*Handler, error) {
+	return NewWithPolicy(engine, human, limiter, configurationClient, value, nil)
+}
+
+func NewWithPolicy(
+	engine ports.Engine,
+	human ports.HumanRuntime,
+	limiter ports.RateLimiter,
+	configurationClient httpDoer,
+	value config.Config,
+	policyProvider PolicyProvider,
 ) (*Handler, error) {
 	identity, err := newVerifier(value.Identity)
 	if err != nil {
@@ -60,6 +87,7 @@ func New(
 	if err != nil {
 		return nil, err
 	}
+	handler.policyProvider = policyProvider
 	handler.configurationProxy, err = newConfigurationProxy(
 		configurationClient,
 		value.ConfigurationURL,
@@ -110,6 +138,7 @@ type requestScope struct {
 	tenantID, commandID, idempotencyKey, correlationID, rawToken, actorID string
 	traceParent, traceState                                               string
 	occurredAt                                                            time.Time
+	runtimePolicy                                                         RuntimePolicy
 }
 
 func (h *Handler) authenticate(r *http.Request) (requestScope, error) {
@@ -145,14 +174,37 @@ func (h *Handler) authenticateRequest(r *http.Request, commandRequired bool) (re
 	if err != nil {
 		return requestScope{}, err
 	}
-	allowed, err := h.limiter.Allow(r.Context(), tenant+"\x00"+actor.ID)
+	policy := RuntimePolicy{
+		RateLimitRequests:        1,
+		RateLimitWindow:          time.Second,
+		MaxRequestBodyBytes:      h.maxBody,
+		MaxUpstreamResponseBytes: h.maxBody,
+	}
+	if h.policyProvider != nil {
+		policy, err = h.policyProvider.Policy(tenant)
+		if err != nil {
+			return requestScope{}, errUpstream
+		}
+	}
+	subject := tenant + "\x00" + actor.ID
+	allowed := false
+	if limiter, dynamic := h.limiter.(dynamicRateLimiter); dynamic && h.policyProvider != nil {
+		allowed, err = limiter.AllowPolicy(
+			r.Context(),
+			subject,
+			policy.RateLimitRequests,
+			policy.RateLimitWindow,
+		)
+	} else {
+		allowed, err = h.limiter.Allow(r.Context(), subject)
+	}
 	if err != nil {
 		return requestScope{}, errUpstream
 	}
 	if !allowed {
 		return requestScope{}, errRateLimited
 	}
-	return requestScope{tenantID: tenant, commandID: command, idempotencyKey: idempotency, correlationID: correlation, rawToken: raw, actorID: actor.ID, traceParent: traceParent, traceState: traceState, occurredAt: now}, nil
+	return requestScope{tenantID: tenant, commandID: command, idempotencyKey: idempotency, correlationID: correlation, rawToken: raw, actorID: actor.ID, traceParent: traceParent, traceState: traceState, occurredAt: now, runtimePolicy: policy}, nil
 }
 
 func actorProof(scope requestScope) *authv1.ActorProof {
@@ -306,7 +358,7 @@ func (h *Handler) startWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body startRequest
-	if err = decodeBody(w, r, &body, h.maxBody); err != nil {
+	if err = decodeBody(w, r, &body, scope.runtimePolicy.MaxRequestBodyBytes); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -328,6 +380,14 @@ func (h *Handler) startWorkflow(w http.ResponseWriter, r *http.Request) {
 	envelope := &enginev1.CommandEnvelope{TenantId: scope.tenantID, InstanceId: body.InstanceID, CommandId: scope.commandID, IdempotencyKey: scope.idempotencyKey, CorrelationId: scope.correlationID, ActorId: scope.actorID, WorkflowType: workflowType, WorkflowVersion: body.WorkflowVersion, OccurredAtEpochMs: uint64(scope.occurredAt.UnixMilli()), EncryptionKeyScope: keyScope, Command: &enginev1.CommandEnvelope_StartWorkflow{StartWorkflow: &enginev1.StartWorkflow{}}, AuthorizationContext: &authv1.AuthorizationContext{TenantId: scope.tenantID, CommandId: scope.commandID, CorrelationId: scope.correlationID, EvaluatedAtEpochMs: uint64(scope.occurredAt.UnixMilli()), ActorProof: actorProof(scope), WorkloadProof: &authv1.WorkloadProof{SignedProof: workload}, Resource: &authv1.TransitionResource{WorkflowType: workflowType, WorkflowVersion: body.WorkflowVersion, InstanceId: body.InstanceID, ActiveNodeId: body.StartNodeID, Action: "START"}}}
 	receipt, err := h.engine.HandleCommand(upstreamContext(r, scope), envelope)
 	if err != nil {
+		slog.Error(
+			"engine command failed",
+			"error", err,
+			"tenant_id", scope.tenantID,
+			"correlation_id", scope.correlationID,
+			"command_id", scope.commandID,
+			"workflow_type", workflowType,
+		)
 		writeError(w, errUpstream)
 		return
 	}
@@ -348,7 +408,7 @@ func (h *Handler) completeWorkItem(w http.ResponseWriter, r *http.Request) {
 	}
 	id := r.PathValue("workItemID")
 	var body completeRequest
-	if err = decodeBody(w, r, &body, h.maxBody); err != nil || !validID(id) || strings.TrimSpace(body.Decision) == "" {
+	if err = decodeBody(w, r, &body, scope.runtimePolicy.MaxRequestBodyBytes); err != nil || !validID(id) || strings.TrimSpace(body.Decision) == "" {
 		writeError(w, errInvalid)
 		return
 	}
@@ -375,7 +435,7 @@ func (h *Handler) delegateWorkItem(w http.ResponseWriter, r *http.Request) {
 	}
 	id := r.PathValue("workItemID")
 	var body delegateRequest
-	if err = decodeBody(w, r, &body, h.maxBody); err != nil || !validID(id) || (body.AssigneeID == "") == (body.CandidateGroup == "") {
+	if err = decodeBody(w, r, &body, scope.runtimePolicy.MaxRequestBodyBytes); err != nil || !validID(id) || (body.AssigneeID == "") == (body.CandidateGroup == "") {
 		writeError(w, errInvalid)
 		return
 	}

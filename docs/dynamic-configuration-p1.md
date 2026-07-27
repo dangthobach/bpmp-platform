@@ -34,6 +34,13 @@ No service reads the configuration database directly.
    snapshot and replacing all affected registry entries at an exclusive safe
    point. Commands, boundary transitions, and local task completions hold a
    shared permit for their complete execution.
+8. API Gateway and Human Runtime use the shared tenant cache consumer. They
+   disable auto commit, validate publication metadata, resolve over mTLS, reject
+   stale ordinals or hash mismatches, atomically replace an immutable snapshot,
+   and only then commit the record.
+9. API Gateway reads tenant rate limits and request/response bounds from the
+   cache. Human Runtime reads projection batch, escalation batch/lease/retry/
+   poll and Engine command timeout from the cache.
 
 Profiles contain complete policies. Resolution selects the most specific
 matching published profile in this order:
@@ -77,12 +84,16 @@ than trusting Kafka as a configuration store.
 
 ## Remaining P1 breadth
 
-Engine hot reload and all five typed schemas are implemented. Remaining work is:
+Engine, API Gateway and Human Runtime runtime consumers are implemented and
+covered by the broker-backed process E2E. All five typed schemas are supported
+by Configuration Service. Remaining work is:
 
-- connect the typed API Gateway, Human Runtime, Projection, and Governance
-  snapshots to their live runtime caches and safe reconfiguration boundaries;
+- create the real Projection and Governance deployable composition roots, then
+  connect their typed snapshots to owned stores and safe lifecycle boundaries;
+- apply the remaining API Gateway circuit-breaker/bulkhead and batch controls,
+  plus Human Runtime assignment/delegation bounds, at safe runtime boundaries;
 - handle approved-instance overrides through an instance-scoped cache rather
   than replacing a workflow-wide registry entry;
 - expose retire/restore lifecycle and diff query;
-- add PostgreSQL query plans and broker crash/replay tests in an environment
-  with Docker/PostgreSQL/Kafka available.
+- add PostgreSQL query-plan gates and crash injection around every resolver,
+  cache-install and offset-commit boundary.
