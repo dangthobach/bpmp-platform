@@ -44,9 +44,10 @@ type identityConfig struct {
 }
 
 type grpcConfig struct {
-	ListenAddress   string `json:"listen_address"`
-	MaxReceiveBytes int    `json:"max_receive_bytes"`
-	MaxSendBytes    int    `json:"max_send_bytes"`
+	ListenAddress     string `json:"listen_address"`
+	MaxReceiveBytes   int    `json:"max_receive_bytes"`
+	MaxSendBytes      int    `json:"max_send_bytes"`
+	ReflectionEnabled bool   `json:"reflection_enabled"`
 }
 
 type outboxConfig struct {

@@ -340,10 +340,23 @@ pub async fn run(path: PathBuf) -> Result<()> {
     let tls = ServerTlsConfig::new()
         .identity(Identity::from_pem(server_certificate, server_private_key))
         .client_ca_root(Certificate::from_pem(client_ca));
+    let reflection = config
+        .grpc
+        .reflection_enabled
+        .then(|| {
+            tonic_reflection::server::Builder::configure()
+                .register_encoded_file_descriptor_set(bpmp_contracts::PUBLIC_FILE_DESCRIPTOR_SET)
+                .with_service_name("bpmp.engine.v1.EngineCommandService")
+                .with_service_name("bpmp.governance.v1.EngineGovernanceService")
+                .build_v1()
+        })
+        .transpose()
+        .context("build engine gRPC reflection service")?;
     let server = Server::builder()
         .tls_config(tls)?
         .add_service(grpc)
         .add_service(governance_grpc)
+        .add_optional_service(reflection)
         .serve_with_shutdown(config.listen_addr, shutdown());
     tokio::pin!(server);
     let result = if let Some(worker) = configuration_worker.as_mut() {

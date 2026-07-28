@@ -36,6 +36,7 @@ import (
 	enginev1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/engine/v1"
 	humanv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/human/v1"
 	platformgrpc "github.com/dangthobach/bpmp-platform/go/platform/grpcclient"
+	platformgrpcserver "github.com/dangthobach/bpmp-platform/go/platform/grpcserver"
 	platformhealth "github.com/dangthobach/bpmp-platform/go/platform/health"
 	platformruntimeconfig "github.com/dangthobach/bpmp-platform/go/platform/runtimeconfig"
 	platformtelemetry "github.com/dangthobach/bpmp-platform/go/platform/telemetry"
@@ -286,6 +287,7 @@ func run(configPath string) error {
 		grpc.MaxSendMsgSize(config.GRPC.MaxSendBytes),
 	)
 	humanv1.RegisterHumanRuntimeServiceServer(grpcServer, humanServer)
+	platformgrpcserver.RegisterReflection(grpcServer, config.GRPC.ReflectionEnabled)
 
 	errorsChannel := make(chan error, 5)
 	go func() { errorsChannel <- consumer.Run(ctx) }()

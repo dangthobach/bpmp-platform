@@ -2,6 +2,9 @@
 
 pub use bpmp_authz_contracts::authorization;
 
+pub const PUBLIC_FILE_DESCRIPTOR_SET: &[u8] =
+    tonic::include_file_descriptor_set!("bpmp_public_descriptor");
+
 pub mod configuration {
     #[allow(
         clippy::default_trait_access,

@@ -470,7 +470,7 @@ fn engine_config(manifest: &Manifest, mount: &str, index: usize, keys: &[&AuthKe
             "max_conditions": 512, "max_mutations": 512, "max_batch_bytes": 4_194_304, "max_snapshot_bytes": 67_108_864,
             "append_only_column_families": ["events","dedup","outbox","idempotency","authorization_audit","compensation_ledger","governance_audit","raft_applied_commands"]
         },
-        "grpc": {"max_decoding_bytes": 1_048_576, "max_encoding_bytes": 1_048_576},
+        "grpc": {"max_decoding_bytes": 1_048_576, "max_encoding_bytes": 1_048_576, "reflection_enabled": true},
         "workers": {"poll_interval_ms": 100, "outbox_batch_size": 64, "outbox_max_attempts": 10, "outbox_initial_retry_ms": 50, "outbox_max_retry_ms": 1000, "outbox_retry_multiplier_millis": 2000, "boundary": boundary_config(&format!("engine-{}-boundary", index + 1)), "local_task_batch_size": 32, "local_task_max_attempts": 3, "local_task_initial_retry_ms": 25, "local_task_max_retry_ms": 250, "local_task_retry_multiplier_millis": 2000},
         "kafka": {
             "brokers": manifest.kafka.brokers,
@@ -501,7 +501,7 @@ fn human_config(manifest: &Manifest, mount: &str, workload: &AuthKey, internal: 
         "kafka": {"brokers": manifest.kafka.brokers, "committed_event_topic": manifest.kafka.topics.engine_committed_events, "escalation_topic": manifest.kafka.topics.human_escalations, "consumer_group": manifest.kafka.consumer_groups.human_committed_events},
         "identity": {"jwks_path": path("jwks.json"), "internal_keys": {(internal.id.clone()): path(&internal.public_path)}, "issuers": [manifest.actor_issuer], "audiences": [manifest.actor_audience], "allowed_jwt_methods": ["EdDSA"], "workload_id": "human-runtime", "max_proof_bytes": 16384, "max_jwks_keys": 16, "max_roles": 32, "max_capabilities": 64, "clock_skew_ms": 30000},
         "workload": {"id": "human-runtime", "signing_key_id": workload.id, "private_key_path": path(&workload.private_path), "proof_ttl_ms": 60000},
-        "grpc": {"max_receive_bytes": 1_048_576, "max_send_bytes": 1_048_576},
+        "grpc": {"max_receive_bytes": 1_048_576, "max_send_bytes": 1_048_576, "reflection_enabled": true},
         "health": {"listen_address": manifest.human_health_address, "readiness_timeout_ms": 1000},
         "telemetry": {"service_name": "human-runtime-e2e", "service_version": "e2e", "endpoint": manifest.otel_endpoint, "insecure": true, "sample_ratio": 0.0, "export_timeout_ms": 1000},
         "escalation": {"worker_id": "human-e2e"},
@@ -543,6 +543,12 @@ fn gateway_config(manifest: &Manifest, mount: &str, workload: &AuthKey) -> Value
         "grpc": {"max_receive_bytes": 1_048_576, "max_send_bytes": 1_048_576},
         "health": {"readiness_timeout_ms": 1000},
         "telemetry": {"service_name": "api-gateway-e2e", "service_version": "e2e", "endpoint": manifest.otel_endpoint, "insecure": true, "sample_ratio": 0.0, "export_timeout_ms": 1000},
+        "api_docs": {
+            "enabled": true,
+            "openapi_path": "/openapi/v1.json",
+            "reference_path": "/docs",
+            "scalar_script_url": "https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.63.0"
+        },
         "runtime_configuration": {
             "resolver_address": manifest.configuration_grpc_url.trim_start_matches("https://"),
             "platform_reference": "bpmp",
@@ -583,7 +589,7 @@ fn projection_config(manifest: &Manifest, mount: &str) -> Value {
             "configuration_ca": path("secrets/ca.pem"),
             "configuration_server_name": "configuration-service"
         },
-        "grpc": {"max_receive_bytes": 1_048_576, "max_send_bytes": 1_048_576},
+        "grpc": {"max_receive_bytes": 1_048_576, "max_send_bytes": 1_048_576, "reflection_enabled": true},
         "health": {"readiness_timeout_ms": 1000, "shutdown_timeout_ms": 5000},
         "telemetry": {
             "service_name": "projection-service-e2e",
@@ -678,7 +684,8 @@ fn governance_config(manifest: &Manifest, mount: &str) -> Value {
         },
         "grpc": {
             "max_decoding_bytes": 1_048_576,
-            "max_encoding_bytes": 1_048_576
+            "max_encoding_bytes": 1_048_576,
+            "reflection_enabled": true
         }
     })
 }
@@ -698,7 +705,8 @@ fn configuration_config(manifest: &Manifest, mount: &str) -> Value {
         "grpc": {
             "listen_address": manifest.configuration_grpc_listen_address,
             "max_receive_bytes": 1_048_576,
-            "max_send_bytes": 1_048_576
+            "max_send_bytes": 1_048_576,
+            "reflection_enabled": true
         },
         "kafka": {
             "brokers": manifest.kafka.brokers,

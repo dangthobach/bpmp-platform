@@ -149,6 +149,7 @@ pub struct WorkerConfig {
 pub struct GrpcConfig {
     pub max_decoding_bytes: usize,
     pub max_encoding_bytes: usize,
+    pub reflection_enabled: bool,
 }
 
 #[derive(Debug, Error)]
@@ -218,7 +219,8 @@ mod tests {
             },
             "grpc": {
                 "max_decoding_bytes": 1_048_576,
-                "max_encoding_bytes": 1_048_576
+                "max_encoding_bytes": 1_048_576,
+                "reflection_enabled": true
             }
         })
     }

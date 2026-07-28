@@ -371,6 +371,7 @@ pub struct RaftPeerConfig {
 pub struct GrpcConfig {
     pub max_decoding_bytes: usize,
     pub max_encoding_bytes: usize,
+    pub reflection_enabled: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]

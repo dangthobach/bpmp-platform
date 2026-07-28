@@ -11,7 +11,8 @@
   "grpc": {
     "listen_address": "127.0.0.1:8091",
     "max_receive_bytes": 1048576,
-    "max_send_bytes": 1048576
+    "max_send_bytes": 1048576,
+    "reflection_enabled": false
   },
   "kafka": {
     "brokers": ["127.0.0.1:9093"],

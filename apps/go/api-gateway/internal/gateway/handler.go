@@ -125,22 +125,55 @@ func NewHandler(
 
 func (h *Handler) Routes() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /v1/workflows/{workflowType}/instances", h.startWorkflow)
-	mux.HandleFunc("GET /v1/work-items", h.listWorkItems)
-	mux.HandleFunc("GET /v1/work-items/{workItemID}", h.getWorkItem)
-	mux.HandleFunc("POST /v1/work-items/{workItemID}/complete", h.completeWorkItem)
-	mux.HandleFunc("POST /v1/work-items/{workItemID}/delegate", h.delegateWorkItem)
-	mux.HandleFunc("GET /v1/cases/{caseID}", h.getCase)
-	mux.HandleFunc("GET /v1/audit-records", h.listAuditRecords)
-	if h.configurationProxy != nil {
-		mux.HandleFunc("GET /v1/configuration/profiles", h.configuration)
-		mux.HandleFunc("POST /v1/configuration/profiles", h.configuration)
-		mux.HandleFunc("GET /v1/configuration/profiles/{profileID}", h.configuration)
-		mux.HandleFunc("POST /v1/configuration/profiles/{profileID}/versions", h.configuration)
-		mux.HandleFunc("POST /v1/configuration/profiles/{profileID}/versions/{versionID}/publish", h.configuration)
-		mux.HandleFunc("POST /v1/configuration/profiles/{profileID}/versions/{versionID}/rollback", h.configuration)
+	for _, definition := range publicOperationDefinitions {
+		if definition.configuration && h.configurationProxy == nil {
+			continue
+		}
+		definition := definition
+		mux.HandleFunc(
+			definition.Method+" "+definition.Path,
+			func(w http.ResponseWriter, r *http.Request) {
+				definition.handler(h, w, r)
+			},
+		)
 	}
 	return mux
+}
+
+type PublicOperation struct {
+	Method      string
+	Path        string
+	OperationID string
+}
+
+type publicOperationDefinition struct {
+	PublicOperation
+	handler       func(*Handler, http.ResponseWriter, *http.Request)
+	configuration bool
+}
+
+var publicOperationDefinitions = []publicOperationDefinition{
+	{PublicOperation{http.MethodPost, "/v1/workflows/{workflowType}/instances", "startWorkflow"}, (*Handler).startWorkflow, false},
+	{PublicOperation{http.MethodGet, "/v1/work-items", "listWorkItems"}, (*Handler).listWorkItems, false},
+	{PublicOperation{http.MethodGet, "/v1/work-items/{workItemID}", "getWorkItem"}, (*Handler).getWorkItem, false},
+	{PublicOperation{http.MethodPost, "/v1/work-items/{workItemID}/complete", "completeWorkItem"}, (*Handler).completeWorkItem, false},
+	{PublicOperation{http.MethodPost, "/v1/work-items/{workItemID}/delegate", "delegateWorkItem"}, (*Handler).delegateWorkItem, false},
+	{PublicOperation{http.MethodGet, "/v1/cases/{caseID}", "getCase"}, (*Handler).getCase, false},
+	{PublicOperation{http.MethodGet, "/v1/audit-records", "listAuditRecords"}, (*Handler).listAuditRecords, false},
+	{PublicOperation{http.MethodGet, "/v1/configuration/profiles", "listConfigurationProfiles"}, (*Handler).configuration, true},
+	{PublicOperation{http.MethodPost, "/v1/configuration/profiles", "createConfigurationProfile"}, (*Handler).configuration, true},
+	{PublicOperation{http.MethodGet, "/v1/configuration/profiles/{profileID}", "getConfigurationProfile"}, (*Handler).configuration, true},
+	{PublicOperation{http.MethodPost, "/v1/configuration/profiles/{profileID}/versions", "addConfigurationDraft"}, (*Handler).configuration, true},
+	{PublicOperation{http.MethodPost, "/v1/configuration/profiles/{profileID}/versions/{versionID}/publish", "publishConfigurationVersion"}, (*Handler).configuration, true},
+	{PublicOperation{http.MethodPost, "/v1/configuration/profiles/{profileID}/versions/{versionID}/rollback", "rollbackConfigurationVersion"}, (*Handler).configuration, true},
+}
+
+func PublicOperations() []PublicOperation {
+	operations := make([]PublicOperation, 0, len(publicOperationDefinitions))
+	for _, definition := range publicOperationDefinitions {
+		operations = append(operations, definition.PublicOperation)
+	}
+	return operations
 }
 
 type requestScope struct {

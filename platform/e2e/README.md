@@ -26,6 +26,11 @@ Service emits them through its ordered outbox. All three Engine node groups,
 the Gateway group and the Human Runtime group must reach zero lag; each owner
 resolves and installs its own authoritative snapshot before committing.
 
+Before issuing business commands, the probe validates the embedded OpenAPI 3.1
+contract and discovers the Governance API through authenticated gRPC
+reflection. This catches missing documentation assets and descriptor wiring in
+the deployed process topology.
+
 Use `-KeepRunning` for inspection. Use `-SkipBuild` only when all four local
 images already match the current source. The operational build and deployment
 sequence is documented in `docs/build-and-deploy.md`.

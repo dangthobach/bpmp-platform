@@ -1,5 +1,8 @@
 # BPMP Build and Deploy Runbook
 
+Public OpenAPI/Scalar and internal gRPC reflection configuration is documented
+in [API integration](api-integration.md).
+
 ## Supported toolchain
 
 Use the pinned or declared versions from the repository:

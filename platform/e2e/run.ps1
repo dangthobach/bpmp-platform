@@ -172,6 +172,35 @@ try {
     $governancePort = $settings.GOVERNANCE_PORT
     $token = (Get-Content (Join-Path $runtime "actor.jwt") -Raw).Trim()
     $suffix = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    $openAPI = Invoke-RestMethod `
+        -SkipCertificateCheck `
+        -Method Get `
+        -Uri "https://localhost:$gatewayPort/openapi/v1.json"
+    if ($openAPI.openapi -ne "3.1.0" -or
+        @($openAPI.paths.PSObject.Properties).Count -ne 12) {
+        throw "API Gateway OpenAPI contract is unavailable or incomplete"
+    }
+    $apiReference = Invoke-WebRequest `
+        -SkipCertificateCheck `
+        -Method Get `
+        -Uri "https://localhost:$gatewayPort/docs"
+    if ($apiReference.StatusCode -ne 200 -or
+        $apiReference.Content -notmatch 'data-url="/openapi/v1.json"') {
+        throw "API Gateway interactive API reference is unavailable"
+    }
+    $reflectedServices = & buf curl `
+        --protocol grpc `
+        --list-services `
+        --cacert (Join-Path $runtime "secrets/ca.pem") `
+        --cert (Join-Path $runtime "secrets/tls.pem") `
+        --key (Join-Path $runtime "secrets/tls-key.pem") `
+        --servername governance-service `
+        "https://localhost:$governancePort"
+    if ($LASTEXITCODE -ne 0 -or
+        $reflectedServices -notcontains "bpmp.governance.v1.GovernanceApprovalService" -or
+        $reflectedServices -contains "bpmp.raft.v1.RaftPeerService") {
+        throw "Governance gRPC reflection is unavailable"
+    }
     $configurationHeaders = @{
         Authorization = "Bearer $token"
         "X-BPMP-Tenant-ID" = "tenant-e2e"

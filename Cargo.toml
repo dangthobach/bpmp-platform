@@ -43,6 +43,7 @@ proptest = "1.9.0"
 prost = "0.14.4"
 tonic = { version = "0.14.6", features = ["transport", "tls-ring"] }
 tonic-prost = "0.14.6"
+tonic-reflection = "=0.14.6"
 tokio = { version = "~1.51.4", features = ["macros", "rt-multi-thread", "net", "signal", "sync", "time"] }
 tokio-stream = { version = "0.1.18", features = ["net"] }
 quick-xml = "0.41.0"

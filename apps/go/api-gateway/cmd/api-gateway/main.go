@@ -23,6 +23,7 @@ import (
 
 	"github.com/dangthobach/bpmp-platform/apps/go/api-gateway/internal/adapter/redislimit"
 	"github.com/dangthobach/bpmp-platform/apps/go/api-gateway/internal/adapter/runtimepolicy"
+	"github.com/dangthobach/bpmp-platform/apps/go/api-gateway/internal/apidocs"
 	"github.com/dangthobach/bpmp-platform/apps/go/api-gateway/internal/config"
 	"github.com/dangthobach/bpmp-platform/apps/go/api-gateway/internal/gateway"
 	configurationv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/configuration/v1"
@@ -205,6 +206,17 @@ func run(path string) error {
 	routes := http.NewServeMux()
 	routes.Handle("/livez", healthHandler)
 	routes.Handle("/readyz", healthHandler)
+	if value.APIDocs.Enabled {
+		apiReference, docsErr := apidocs.New(apidocs.Config{
+			OpenAPIPath:     value.APIDocs.OpenAPIPath,
+			ReferencePath:   value.APIDocs.ReferencePath,
+			ScalarScriptURL: value.APIDocs.ScalarScriptURL,
+		})
+		if docsErr != nil {
+			return docsErr
+		}
+		apiReference.Register(routes)
+	}
 	routes.Handle("/", handler.Routes())
 	server := &http.Server{Addr: value.ListenAddress, Handler: platformtelemetry.HTTPHandler(value.Telemetry.ServiceName, routes), ReadHeaderTimeout: value.HTTP.ReadHeaderTimeout(), ReadTimeout: value.HTTP.ReadTimeout(), WriteTimeout: value.HTTP.WriteTimeout(), IdleTimeout: value.HTTP.IdleTimeout()}
 	errorsChannel := make(chan error, 2)

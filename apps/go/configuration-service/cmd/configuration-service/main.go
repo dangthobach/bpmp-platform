@@ -28,6 +28,7 @@ import (
 	postgresadapter "github.com/dangthobach/bpmp-platform/apps/go/configuration-service/internal/adapter/postgres"
 	"github.com/dangthobach/bpmp-platform/apps/go/configuration-service/internal/application"
 	configurationv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/configuration/v1"
+	platformgrpcserver "github.com/dangthobach/bpmp-platform/go/platform/grpcserver"
 	platformhealth "github.com/dangthobach/bpmp-platform/go/platform/health"
 	platformtelemetry "github.com/dangthobach/bpmp-platform/go/platform/telemetry"
 )
@@ -154,6 +155,7 @@ func run(path string) error {
 		grpc.MaxSendMsgSize(config.GRPC.MaxSendBytes),
 	)
 	configurationv1.RegisterConfigurationResolverServiceServer(grpcServer, resolver)
+	platformgrpcserver.RegisterReflection(grpcServer, config.GRPC.ReflectionEnabled)
 	grpcListener, err := net.Listen("tcp", config.GRPC.ListenAddress)
 	if err != nil {
 		return fmt.Errorf("listen configuration gRPC: %w", err)

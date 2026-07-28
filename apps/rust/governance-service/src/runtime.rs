@@ -54,9 +54,21 @@ pub async fn run(path: PathBuf) -> Result<()> {
     );
     let health_worker = tokio::spawn(run_health_server(config.health_addr, store));
     info!(listen_addr = %config.listen_addr, "starting governance-service");
+    let reflection = config
+        .grpc
+        .reflection_enabled
+        .then(|| {
+            tonic_reflection::server::Builder::configure()
+                .register_encoded_file_descriptor_set(bpmp_contracts::PUBLIC_FILE_DESCRIPTOR_SET)
+                .with_service_name("bpmp.governance.v1.GovernanceApprovalService")
+                .build_v1()
+        })
+        .transpose()
+        .context("build governance gRPC reflection service")?;
     let server = Server::builder()
         .tls_config(tls)?
         .add_service(grpc)
+        .add_optional_service(reflection)
         .serve_with_shutdown(config.listen_addr, shutdown());
     tokio::pin!(server);
     let result = tokio::select! {

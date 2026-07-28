@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"net/url"
 	"os"
+	"path"
+	"strings"
 	"time"
 
 	"github.com/dangthobach/bpmp-platform/go/platform/kafkaconfig"
@@ -25,6 +28,7 @@ type Config struct {
 	GRPC             GRPC          `json:"grpc"`
 	Health           Health        `json:"health"`
 	Telemetry        Telemetry     `json:"telemetry"`
+	APIDocs          APIDocs       `json:"api_docs"`
 	RuntimeConfig    RuntimeConfig `json:"runtime_configuration"`
 }
 
@@ -84,6 +88,12 @@ type Telemetry struct {
 	Insecure        bool    `json:"insecure"`
 	SampleRatio     float64 `json:"sample_ratio"`
 	ExportTimeoutMS int64   `json:"export_timeout_ms"`
+}
+type APIDocs struct {
+	Enabled         bool   `json:"enabled"`
+	OpenAPIPath     string `json:"openapi_path"`
+	ReferencePath   string `json:"reference_path"`
+	ScalarScriptURL string `json:"scalar_script_url"`
 }
 type RuntimeConfig struct {
 	ResolverAddress      string               `json:"resolver_address"`
@@ -149,7 +159,34 @@ func (c Config) Validate() error {
 		c.Telemetry.ExportTimeoutMS <= 0 {
 		return errors.New("api-gateway health and telemetry configuration is invalid")
 	}
+	if err := c.APIDocs.Validate(); err != nil {
+		return err
+	}
 	return nil
+}
+func (c APIDocs) Validate() error {
+	if !c.Enabled {
+		return nil
+	}
+	if !validDocumentationPath(c.OpenAPIPath) ||
+		!validDocumentationPath(c.ReferencePath) ||
+		c.OpenAPIPath == c.ReferencePath {
+		return errors.New("api-gateway documentation paths are invalid")
+	}
+	scriptURL, err := url.Parse(c.ScalarScriptURL)
+	if err != nil || scriptURL.Scheme != "https" || scriptURL.Host == "" ||
+		scriptURL.User != nil || scriptURL.RawQuery != "" || scriptURL.Fragment != "" {
+		return errors.New("api-gateway Scalar script URL must be an HTTPS resource")
+	}
+	return nil
+}
+func validDocumentationPath(value string) bool {
+	if value == "" || value[0] != '/' || value == "/" ||
+		strings.ContainsAny(value, "{}*") || path.Clean(value) != value {
+		return false
+	}
+	return value != "/livez" && value != "/readyz" &&
+		value != "/v1" && !strings.HasPrefix(value, "/v1/")
 }
 func (c HTTP) ReadHeaderTimeout() time.Duration {
 	return time.Duration(c.ReadHeaderTimeoutMS) * time.Millisecond

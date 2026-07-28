@@ -26,6 +26,7 @@ import (
 	"github.com/dangthobach/bpmp-platform/apps/go/projection-service/internal/application"
 	configurationv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/configuration/v1"
 	projectionv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/projection/v1"
+	platformgrpcserver "github.com/dangthobach/bpmp-platform/go/platform/grpcserver"
 	platformhealth "github.com/dangthobach/bpmp-platform/go/platform/health"
 	platformruntimeconfig "github.com/dangthobach/bpmp-platform/go/platform/runtimeconfig"
 	platformtelemetry "github.com/dangthobach/bpmp-platform/go/platform/telemetry"
@@ -171,6 +172,7 @@ func run(configPath string) error {
 		grpc.MaxSendMsgSize(value.GRPC.MaxSendBytes),
 	)
 	projectionv1.RegisterProjectionQueryServiceServer(grpcServer, query)
+	platformgrpcserver.RegisterReflection(grpcServer, value.GRPC.ReflectionEnabled)
 
 	health := platformhealth.Handler(
 		milliseconds(value.Health.ReadinessTimeoutMS),

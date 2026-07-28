@@ -77,8 +77,9 @@ type workloadConfig struct {
 }
 
 type grpcConfig struct {
-	MaxReceiveBytes int `json:"max_receive_bytes"`
-	MaxSendBytes    int `json:"max_send_bytes"`
+	MaxReceiveBytes   int  `json:"max_receive_bytes"`
+	MaxSendBytes      int  `json:"max_send_bytes"`
+	ReflectionEnabled bool `json:"reflection_enabled"`
 }
 
 type healthConfig struct {
