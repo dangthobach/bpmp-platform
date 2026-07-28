@@ -26,7 +26,7 @@ func New(service *application.Service, consumerName string) (*Handler, error) {
 
 func (h *Handler) Handle(ctx context.Context, record *kgo.Record) error {
 	if record == nil {
-		return errors.New("Kafka record is required")
+		return errors.New("kafka record is required")
 	}
 	var envelope enginev1.EventEnvelope
 	if err := proto.Unmarshal(record.Value, &envelope); err != nil {

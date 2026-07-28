@@ -20,7 +20,7 @@ const (
 )
 
 var (
-	ErrInvalidConfig = errors.New("Kafka configuration is invalid")
+	ErrInvalidConfig = errors.New("kafka configuration is invalid")
 	namePattern      = regexp.MustCompile(`^bpmp\.[a-z0-9][a-z0-9-]*\.[a-z0-9][a-z0-9-]*\.v[1-9][0-9]*\.[a-z0-9][a-z0-9-]*$`)
 	clientIDPattern  = regexp.MustCompile(`^bpmp-[a-z0-9][a-z0-9-]*-[a-z0-9][a-z0-9-]*$`)
 )

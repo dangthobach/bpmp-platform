@@ -226,7 +226,7 @@ func loadTLS(config kafkaconfig.Bootstrap) (*tls.Config, error) {
 	}
 	roots := x509.NewCertPool()
 	if !roots.AppendCertsFromPEM(caPEM) {
-		return nil, errors.New("Kafka CA file contains no certificates")
+		return nil, errors.New("kafka CA file contains no certificates")
 	}
 	certificate, err := tls.LoadX509KeyPair(config.CertificateFile, config.PrivateKeyFile)
 	if err != nil {

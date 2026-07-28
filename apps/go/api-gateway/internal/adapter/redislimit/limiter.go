@@ -40,7 +40,7 @@ func New(client *redis.Client, config Config) (*Limiter, error) {
 		config.Requests == 0 ||
 		config.Window <= 0 ||
 		config.OperationTimeout <= 0 {
-		return nil, errors.New("Redis rate limiter configuration is invalid")
+		return nil, errors.New("redis rate limiter configuration is invalid")
 	}
 	return &Limiter{client: client, config: config}, nil
 }

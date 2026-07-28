@@ -8,7 +8,7 @@ in [API integration](api-integration.md).
 Use the pinned or declared versions from the repository:
 
 - Rust `1.91.1` with `rustfmt` and `clippy`;
-- Go `1.25.0`;
+- Go `1.25.12`;
 - Node.js `22` or newer for Cockpit;
 - Buf CLI compatible with `buf.yaml` v2;
 - Docker Engine with Compose v2 and BuildKit;
