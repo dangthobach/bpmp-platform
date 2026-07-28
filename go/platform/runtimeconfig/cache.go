@@ -17,9 +17,10 @@ var (
 // Cache swaps complete immutable snapshots under one short lock. A request
 // clones exactly one snapshot and cannot observe a partially applied policy.
 type Cache struct {
-	mu      sync.RWMutex
-	owner   configurationv1.ConfigurationOwner
-	tenants map[string]*configurationv1.ResolvedConfigurationSnapshot
+	mu        sync.RWMutex
+	owner     configurationv1.ConfigurationOwner
+	tenants   map[string]*configurationv1.ResolvedConfigurationSnapshot
+	instances map[string]map[string]*configurationv1.ResolvedConfigurationSnapshot
 }
 
 func NewCache(owner configurationv1.ConfigurationOwner) (*Cache, error) {
@@ -27,9 +28,35 @@ func NewCache(owner configurationv1.ConfigurationOwner) (*Cache, error) {
 		return nil, ErrInvalidSnapshot
 	}
 	return &Cache{
-		owner:   owner,
-		tenants: make(map[string]*configurationv1.ResolvedConfigurationSnapshot),
+		owner:     owner,
+		tenants:   make(map[string]*configurationv1.ResolvedConfigurationSnapshot),
+		instances: make(map[string]map[string]*configurationv1.ResolvedConfigurationSnapshot),
 	}, nil
+}
+
+func (c *Cache) InstallInstance(
+	tenantID string,
+	instanceID string,
+	snapshot *configurationv1.ResolvedConfigurationSnapshot,
+) error {
+	if tenantID == "" || instanceID == "" || !validSnapshot(c.owner, snapshot) ||
+		!hasScope(snapshot, configurationv1.ConfigurationScopeType_CONFIGURATION_SCOPE_TYPE_APPROVED_INSTANCE_OVERRIDE, instanceID) {
+		return ErrInvalidSnapshot
+	}
+	cloned := proto.Clone(snapshot).(*configurationv1.ResolvedConfigurationSnapshot)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	tenantInstances := c.instances[tenantID]
+	if tenantInstances == nil {
+		tenantInstances = make(map[string]*configurationv1.ResolvedConfigurationSnapshot)
+		c.instances[tenantID] = tenantInstances
+	}
+	current := tenantInstances[instanceID]
+	if current != nil && cloned.GetOrdinal() < current.GetOrdinal() {
+		return ErrStaleSnapshot
+	}
+	tenantInstances[instanceID] = cloned
+	return nil
 }
 
 func (c *Cache) Install(tenantID string, snapshot *configurationv1.ResolvedConfigurationSnapshot) error {
@@ -47,6 +74,25 @@ func (c *Cache) Install(tenantID string, snapshot *configurationv1.ResolvedConfi
 	return nil
 }
 
+func (c *Cache) GetForInstance(
+	tenantID string,
+	instanceID string,
+) (*configurationv1.ResolvedConfigurationSnapshot, error) {
+	c.mu.RLock()
+	var snapshot *configurationv1.ResolvedConfigurationSnapshot
+	if tenantInstances := c.instances[tenantID]; tenantInstances != nil {
+		snapshot = tenantInstances[instanceID]
+	}
+	if snapshot == nil {
+		snapshot = c.tenants[tenantID]
+	}
+	c.mu.RUnlock()
+	if snapshot == nil {
+		return nil, ErrMissingSnapshot
+	}
+	return proto.Clone(snapshot).(*configurationv1.ResolvedConfigurationSnapshot), nil
+}
+
 func (c *Cache) Get(tenantID string) (*configurationv1.ResolvedConfigurationSnapshot, error) {
 	c.mu.RLock()
 	snapshot := c.tenants[tenantID]
@@ -55,6 +101,19 @@ func (c *Cache) Get(tenantID string) (*configurationv1.ResolvedConfigurationSnap
 		return nil, ErrMissingSnapshot
 	}
 	return proto.Clone(snapshot).(*configurationv1.ResolvedConfigurationSnapshot), nil
+}
+
+func hasScope(
+	snapshot *configurationv1.ResolvedConfigurationSnapshot,
+	scopeType configurationv1.ConfigurationScopeType,
+	reference string,
+) bool {
+	for _, scope := range snapshot.GetResolvedScopes() {
+		if scope.GetType() == scopeType && scope.GetReference() == reference {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *Cache) Ready(tenantIDs []string) error {

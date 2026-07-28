@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/dangthobach/bpmp-platform/apps/go/human-runtime/internal/application"
@@ -9,7 +10,9 @@ import (
 )
 
 func (s *Store) ListWorkItems(ctx context.Context, tenantID, actorID string, groups []string, limit int, cursor *application.PageCursor) ([]domain.WorkItem, *application.PageCursor, error) {
-	limit = application.NormalizePageSize(limit)
+	if limit <= 0 {
+		return nil, nil, errors.New("work-item query limit must be normalized")
+	}
 	cursorTime := time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
 	cursorID := "~"
 	if cursor != nil {
@@ -70,8 +73,8 @@ func (s *Store) GetCase(ctx context.Context, tenantID, caseID string) (applicati
 }
 
 func (s *Store) ListAuditRecords(ctx context.Context, tenantID, workItemID, caseID string, limit int, cursor *application.AuditCursor) ([]application.AuditRecord, *application.AuditCursor, error) {
-	if limit <= 0 || limit > 200 {
-		limit = 50
+	if limit <= 0 {
+		return nil, nil, errors.New("audit query limit must be normalized")
 	}
 	cursorTime := time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
 	cursorID := "~"

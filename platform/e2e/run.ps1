@@ -1,7 +1,9 @@
 [CmdletBinding()]
 param(
     [switch]$KeepRunning,
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    [ValidateRange(10, 600)]
+    [int]$StartupTimeoutSeconds = 90
 )
 
 $ErrorActionPreference = "Stop"
@@ -26,6 +28,21 @@ function Invoke-Compose {
     docker compose --env-file $envFile -f $compose @args
     if ($LASTEXITCODE -ne 0) {
         throw "docker compose failed: $($args -join ' ')"
+    }
+}
+
+function Invoke-TimedPhase {
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][scriptblock]$Action
+    )
+    $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    Write-Host "==> $Name"
+    try {
+        & $Action
+    } finally {
+        $stopwatch.Stop()
+        Write-Host ("<== {0}: {1:n1}s" -f $Name, $stopwatch.Elapsed.TotalSeconds)
     }
 }
 
@@ -123,43 +140,35 @@ if (-not $resolvedRuntime.StartsWith($resolvedE2E, [StringComparison]::OrdinalIg
 }
 
 try {
-    Invoke-Compose down --volumes --remove-orphans
-    if (Test-Path $runtime) {
-        Remove-Item -LiteralPath $runtime -Recurse -Force
+    Invoke-TimedPhase -Name "Clean previous E2E state" -Action {
+        Invoke-Compose down --volumes --remove-orphans
+        if (Test-Path $runtime) {
+            Remove-Item -LiteralPath $runtime -Recurse -Force
+        }
+        New-Item -ItemType Directory -Path $runtime | Out-Null
     }
-    New-Item -ItemType Directory -Path $runtime | Out-Null
 
     if (-not $SkipBuild) {
-        docker build -f (Join-Path $PSScriptRoot "Dockerfile.rust") -t bpmp/e2e-rust:local $root
-        if ($LASTEXITCODE -ne 0) { throw "Rust E2E image build failed" }
-        docker build -f (Join-Path $PSScriptRoot "Dockerfile.human-runtime") -t bpmp/e2e-human-runtime:local $root
-        if ($LASTEXITCODE -ne 0) { throw "Human Runtime E2E image build failed" }
-        docker build -f (Join-Path $PSScriptRoot "Dockerfile.api-gateway") -t bpmp/e2e-api-gateway:local $root
-        if ($LASTEXITCODE -ne 0) { throw "API Gateway E2E image build failed" }
-        docker build -f (Join-Path $PSScriptRoot "Dockerfile.configuration-service") -t bpmp/e2e-configuration-service:local $root
-        if ($LASTEXITCODE -ne 0) { throw "Configuration Service E2E image build failed" }
+        Invoke-TimedPhase -Name "Build E2E images in parallel" -Action {
+            Invoke-Compose --profile setup build
+        }
     }
 
-    Invoke-Compose --profile setup run --rm fixture-generator
-    Invoke-Compose up -d
+    Invoke-TimedPhase -Name "Generate E2E fixtures" -Action {
+        Invoke-Compose --profile setup run --rm fixture-generator
+    }
+    try {
+        Invoke-TimedPhase -Name "Start and health-check E2E services" -Action {
+            Invoke-Compose up -d --wait --wait-timeout $StartupTimeoutSeconds
+        }
+    } catch {
+        Invoke-Compose ps
+        Invoke-Compose logs --no-color --tail 200
+        throw
+    }
 
     $settings = Get-Content $envFile -Raw | ConvertFrom-StringData
     $gatewayPort = $settings.GATEWAY_PORT
-    $deadline = (Get-Date).AddMinutes(3)
-    do {
-        try {
-            $ready = Invoke-WebRequest -SkipCertificateCheck -Uri "https://localhost:$gatewayPort/readyz" -TimeoutSec 2
-            if ($ready.StatusCode -eq 200) { break }
-        } catch {
-            Start-Sleep -Seconds 2
-        }
-    } while ((Get-Date) -lt $deadline)
-    if (-not $ready -or $ready.StatusCode -ne 200) {
-        Invoke-Compose ps
-        Invoke-Compose logs --no-color --tail 200
-        throw "API Gateway did not become ready"
-    }
-
     $token = (Get-Content (Join-Path $runtime "actor.jwt") -Raw).Trim()
     $suffix = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
     $configurationHeaders = @{
@@ -252,6 +261,13 @@ try {
         max_upstream_response_bytes = "1048576"
         batch_chunk_size = 100
         batch_concurrency = 4
+        upstream_retry = @{
+            max_attempts = 3
+            initial_backoff_ms = "25"
+            max_backoff_ms = "250"
+            multiplier_millis = 2000
+        }
+        encryption_key_scope = $configurationPolicy.event_payload_key_scope
     }
     $configurationProfiles = Invoke-GetRequestEventually `
         -Path "/v1/configuration/profiles?page_size=100" `
@@ -297,6 +313,17 @@ try {
         engine_command_timeout_ms = "3000"
         max_assignment_candidates = 100
         max_delegation_depth = 8
+        query_default_page_size = 50
+        query_max_page_size = 200
+        engine_retry = @{
+            max_attempts = 5
+            initial_backoff_ms = "50"
+            max_backoff_ms = "1000"
+            multiplier_millis = 2000
+        }
+        engine_circuit_breaker_failure_threshold = 5
+        engine_circuit_breaker_open_ms = "1000"
+        engine_retryable_codes = @("UNAVAILABLE", "DEADLINE_EXCEEDED")
     }
     $humanDraft = Invoke-JsonRequestEventually `
         -Path "/v1/configuration/profiles/$($humanSeedProfile[0].id)/versions" `

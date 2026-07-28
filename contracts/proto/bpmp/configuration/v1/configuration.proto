@@ -91,6 +91,8 @@ message ApiGatewayPolicy {
   uint64 max_upstream_response_bytes = 8;
   uint32 batch_chunk_size = 9;
   uint32 batch_concurrency = 10;
+  RetryPolicy upstream_retry = 11;
+  string encryption_key_scope = 12;
 }
 
 message HumanRuntimePolicy {
@@ -102,6 +104,12 @@ message HumanRuntimePolicy {
   uint64 engine_command_timeout_ms = 6;
   uint32 max_assignment_candidates = 7;
   uint32 max_delegation_depth = 8;
+  uint32 query_default_page_size = 9;
+  uint32 query_max_page_size = 10;
+  RetryPolicy engine_retry = 11;
+  uint32 engine_circuit_breaker_failure_threshold = 12;
+  uint64 engine_circuit_breaker_open_ms = 13;
+  repeated string engine_retryable_codes = 14;
 }
 
 message ProjectionPolicy {

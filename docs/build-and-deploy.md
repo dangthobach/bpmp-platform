@@ -18,6 +18,18 @@ confirming a stale native artifact or file lock, and never while an Engine or
 test process still owns a RocksDB path. Generated E2E runtime material,
 `target/`, web `node_modules/` and `dist/` are ignored by Git and Docker.
 
+When the user-profile Go cache is locked or unavailable, keep the replacement
+inside the ignored target tree:
+
+```powershell
+$env:GOCACHE = "$PWD\target\go-build"
+go test ./...
+```
+
+Do not run concurrent Go module builds against the same newly-created cache;
+give each concurrent job a separate `target/go-build-<module>` directory or run
+the modules sequentially.
+
 ## Source gates
 
 Run these gates from the repository root before building release images:
@@ -70,6 +82,25 @@ configuration under the ignored `platform/e2e/runtime/` directory:
 .\platform\e2e\run.ps1
 ```
 
+The harness prints elapsed time for cleanup, parallel image build, fixture
+generation, and health-based startup. `-StartupTimeoutSeconds` bounds startup
+between 10 and 600 seconds. Compose waits on real dependency health checks;
+the Configuration Service probe uses the generated client certificate because
+its HTTPS endpoint requires mTLS. On a startup failure the harness prints
+container state and the final 200 log lines before exiting.
+
+Build time is not startup time. A source change can invalidate the Rust image
+layer and compile RocksDB/native dependencies, while a warm BuildKit cache
+should reduce the image phase substantially. The Go Dockerfiles preserve both
+the module and compiler caches, and Compose builds independent images in
+parallel. Do not delete BuildKit or Cargo caches as a routine response to a
+slow run.
+
+The verified warm-cache baseline on the reference local environment was:
+parallel image build `8.9s`, fixture generation `0.7s`, and all services
+healthy in `22.8s`. Treat a material regression in one phase independently
+from the others.
+
 The successful probe proves all of the following:
 
 - Configuration Service publishes ordered Protobuf invalidations through its
@@ -115,7 +146,10 @@ at startup, so a new group does not depend on replaying historical publications.
 1. Publish immutable image digests, Protobuf descriptors, signed WIR and policy
    bundles. Mount credentials and private keys from the secret manager.
 2. Provision separate PostgreSQL databases and credentials for Configuration
-   Service and Human Runtime. Apply their migrations as one-shot jobs.
+   Service and Human Runtime. Apply their migrations as ordered one-shot jobs.
+   Existing Human Runtime databases must apply
+   `002_delegation_depth.sql` before deploying a binary that enforces dynamic
+   delegation depth.
 3. Provision Kafka topics, ACLs and retention from the centralized topology.
    Verify idempotent producer and manual-commit consumer permissions.
 4. Start Configuration Service and wait for both HTTP and mTLS gRPC readiness.

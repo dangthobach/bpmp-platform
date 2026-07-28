@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/dangthobach/bpmp-platform/apps/go/human-runtime/internal/domain"
@@ -49,21 +50,19 @@ type ActorVerificationRequest struct {
 	Credential  ActorCredential
 }
 
-const (
-	DefaultPageSize = 50
-	MaxPageSize     = 200
-)
-
-func NormalizePageSize(limit int) int {
-	if limit <= 0 || limit > MaxPageSize {
-		return DefaultPageSize
+func NormalizePageSize(limit int, policy RuntimePolicy) (int, error) {
+	if policy.QueryDefaultPageSize == 0 ||
+		policy.QueryMaxPageSize < policy.QueryDefaultPageSize {
+		return 0, errors.New("query page policy is invalid")
 	}
-	return limit
+	if limit <= 0 || uint64(limit) > uint64(policy.QueryMaxPageSize) {
+		return int(policy.QueryDefaultPageSize), nil
+	}
+	return limit, nil
 }
 
 // BuildWorkItemPage converts a limit+1 keyset query result into a bounded page.
 func BuildWorkItemPage(items []domain.WorkItem, limit int) ([]domain.WorkItem, *PageCursor) {
-	limit = NormalizePageSize(limit)
 	if len(items) <= limit {
 		return items, nil
 	}

@@ -128,11 +128,19 @@ func newGRPCHarness(tb testing.TB) grpcHarness {
 		tb.Fatal(err)
 	}
 	store := benchmarkStore{}
-	service, err := application.NewService(store, engineClient)
+	policy := application.RuntimePolicyProviderFunc(func() (application.RuntimePolicy, error) {
+		return application.RuntimePolicy{
+			MaxAssignmentCandidates: 16,
+			MaxDelegationDepth:      3,
+			QueryDefaultPageSize:    50,
+			QueryMaxPageSize:        200,
+		}, nil
+	})
+	service, err := application.NewService(store, engineClient, policy)
 	if err != nil {
 		tb.Fatal(err)
 	}
-	humanServerAdapter, err := humangrpc.New(service, store, verifier, func() time.Time { return now })
+	humanServerAdapter, err := humangrpc.New(service, store, verifier, policy, func() time.Time { return now })
 	if err != nil {
 		tb.Fatal(err)
 	}

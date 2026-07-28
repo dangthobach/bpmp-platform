@@ -22,7 +22,6 @@ type runtimeConfig struct {
 	Identity        identityConfig             `json:"identity"`
 	Workload        workloadConfig             `json:"workload"`
 	GRPC            grpcConfig                 `json:"grpc"`
-	Reliability     reliabilityConfig          `json:"reliability"`
 	Health          healthConfig               `json:"health"`
 	Telemetry       telemetryConfig            `json:"telemetry"`
 	Escalation      escalationConfig           `json:"escalation"`
@@ -45,6 +44,7 @@ type dynamicConfigurationConfig struct {
 	ResolverAddress      string               `json:"resolver_address"`
 	PlatformReference    string               `json:"platform_reference"`
 	EnvironmentReference string               `json:"environment_reference"`
+	ResolveTimeoutMS     int64                `json:"resolve_timeout_ms"`
 	Kafka                kafkaconfig.Consumer `json:"kafka"`
 }
 
@@ -79,16 +79,6 @@ type workloadConfig struct {
 type grpcConfig struct {
 	MaxReceiveBytes int `json:"max_receive_bytes"`
 	MaxSendBytes    int `json:"max_send_bytes"`
-}
-
-type reliabilityConfig struct {
-	MaxAttempts      uint32   `json:"max_attempts"`
-	InitialBackoffMS int64    `json:"initial_backoff_ms"`
-	MaxBackoffMS     int64    `json:"max_backoff_ms"`
-	AttemptTimeoutMS int64    `json:"attempt_timeout_ms"`
-	FailureThreshold uint32   `json:"failure_threshold"`
-	OpenDurationMS   int64    `json:"open_duration_ms"`
-	RetryableCodes   []string `json:"retryable_codes"`
 }
 
 type healthConfig struct {
@@ -135,6 +125,7 @@ func (c runtimeConfig) validate() error {
 		c.RuntimeConfig.ResolverAddress == "" ||
 		c.RuntimeConfig.PlatformReference == "" ||
 		c.RuntimeConfig.EnvironmentReference == "" ||
+		c.RuntimeConfig.ResolveTimeoutMS <= 0 ||
 		c.RuntimeConfig.Kafka.Validate() != nil {
 		return errors.New("human-runtime dynamic configuration is invalid")
 	}
@@ -152,14 +143,7 @@ func (c runtimeConfig) validate() error {
 	if _, _, err := net.SplitHostPort(c.Health.ListenAddress); err != nil {
 		return err
 	}
-	if c.Reliability.MaxAttempts == 0 ||
-		c.Reliability.InitialBackoffMS <= 0 ||
-		c.Reliability.MaxBackoffMS < c.Reliability.InitialBackoffMS ||
-		c.Reliability.AttemptTimeoutMS <= 0 ||
-		c.Reliability.FailureThreshold == 0 ||
-		c.Reliability.OpenDurationMS <= 0 ||
-		len(c.Reliability.RetryableCodes) == 0 ||
-		c.Health.ReadinessTimeoutMS <= 0 ||
+	if c.Health.ReadinessTimeoutMS <= 0 ||
 		c.Telemetry.ServiceName == "" ||
 		c.Telemetry.ServiceVersion == "" ||
 		c.Telemetry.Endpoint == "" ||

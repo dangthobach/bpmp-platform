@@ -2,7 +2,9 @@ package runtimeconfig
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 	"google.golang.org/grpc"
@@ -15,15 +17,74 @@ import (
 type fakeResolver struct {
 	snapshot *configurationv1.ResolvedConfigurationSnapshot
 	calls    int
+	request  *configurationv1.ResolveConfigurationRequest
 }
 
 func (f *fakeResolver) ResolveConfiguration(
-	context.Context,
-	*configurationv1.ResolveConfigurationRequest,
-	...grpc.CallOption,
+	_ context.Context,
+	request *configurationv1.ResolveConfigurationRequest,
+	_ ...grpc.CallOption,
 ) (*configurationv1.ResolveConfigurationResponse, error) {
 	f.calls++
+	f.request = proto.Clone(request).(*configurationv1.ResolveConfigurationRequest)
 	return &configurationv1.ResolveConfigurationResponse{Snapshot: f.snapshot}, nil
+}
+
+func TestInstancePublicationInstallsOnlyInstanceSnapshot(t *testing.T) {
+	cache, _ := NewCache(configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_API_GATEWAY)
+	if err := cache.Install("tenant-a", gatewaySnapshot(1)); err != nil {
+		t.Fatal(err)
+	}
+	override := gatewaySnapshot(2)
+	override.ConfigId = "config-a"
+	override.ResolvedScopes = append(override.ResolvedScopes, &configurationv1.ConfigurationScope{
+		Type:      configurationv1.ConfigurationScopeType_CONFIGURATION_SCOPE_TYPE_APPROVED_INSTANCE_OVERRIDE,
+		Reference: "instance-1",
+	})
+	resolver := &fakeResolver{snapshot: override}
+	consumer := &fakeConsumer{}
+	reloader, err := New(testReloaderConfig(), resolver, consumer, cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := publication(configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_API_GATEWAY)
+	event.Scope = &configurationv1.ConfigurationScope{
+		Type:      configurationv1.ConfigurationScopeType_CONFIGURATION_SCOPE_TYPE_APPROVED_INSTANCE_OVERRIDE,
+		Reference: "instance-1",
+	}
+	payload, _ := proto.Marshal(event)
+	if err = reloader.HandleRecord(context.Background(), &kgo.Record{Value: payload}); err != nil {
+		t.Fatal(err)
+	}
+	if resolver.request.GetInstanceId() != "instance-1" {
+		t.Fatalf("instance scope was not resolved: %+v", resolver.request)
+	}
+	tenant, _ := cache.Get("tenant-a")
+	instance, _ := cache.GetForInstance("tenant-a", "instance-1")
+	if tenant.GetOrdinal() != 1 || instance.GetOrdinal() != 2 {
+		t.Fatalf("instance publication contaminated tenant snapshot: tenant=%d instance=%d", tenant.GetOrdinal(), instance.GetOrdinal())
+	}
+}
+
+func testReloaderConfig() Config {
+	return Config{
+		Owner:                configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_API_GATEWAY,
+		PlatformReference:    "bpmp",
+		EnvironmentReference: "test",
+		InitialTenantIDs:     []string{"tenant-a"},
+		ResolveTimeout:       time.Second,
+		Kafka: kafkaconfig.Consumer{
+			Bootstrap: kafkaconfig.Bootstrap{
+				Brokers: []string{"kafka:9092"}, ClientID: "bpmp-gateway-configuration",
+				SecurityProtocol: kafkaconfig.ProtocolPlaintext,
+				DialTimeoutMS:    1000, RequestTimeoutMS: 1000,
+			},
+			Topic:         "bpmp.configuration.publications.v1.test",
+			ConsumerGroup: "bpmp.gateway.configuration-reloader.v1.test",
+			BatchSize:     10, MaxMessageBytes: 1 << 20, PollTimeoutMS: 100,
+			SessionTimeoutMS: 1000,
+		},
+	}
 }
 
 type fakeConsumer struct{ commits int }
@@ -43,6 +104,7 @@ func TestHandleRecordResolvesBeforeCommitAndIgnoresOtherOwners(t *testing.T) {
 		PlatformReference:    "bpmp",
 		EnvironmentReference: "test",
 		InitialTenantIDs:     []string{"tenant-a"},
+		ResolveTimeout:       time.Second,
 		Kafka: kafkaconfig.Consumer{
 			Bootstrap: kafkaconfig.Bootstrap{
 				Brokers: []string{"kafka:9092"}, ClientID: "bpmp-gateway-configuration",
@@ -74,6 +136,45 @@ func TestHandleRecordResolvesBeforeCommitAndIgnoresOtherOwners(t *testing.T) {
 	if resolver.calls != 1 || consumer.commits != 2 {
 		t.Fatal("unrelated owner was not acknowledged without resolving")
 	}
+}
+
+type blockingResolver struct{}
+
+func (blockingResolver) ResolveConfiguration(
+	ctx context.Context,
+	_ *configurationv1.ResolveConfigurationRequest,
+	_ ...grpc.CallOption,
+) (*configurationv1.ResolveConfigurationResponse, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func TestBootstrapBoundsUnavailableResolver(t *testing.T) {
+	config := testReloaderConfig()
+	config.ResolveTimeout = 25 * time.Millisecond
+	reloader, err := New(config, blockingResolver{}, &fakeConsumer{}, mustGatewayCache(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	startedAt := time.Now()
+	err = reloader.Bootstrap(context.Background())
+	elapsed := time.Since(startedAt)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected resolver deadline, got %v", err)
+	}
+	if elapsed > 250*time.Millisecond {
+		t.Fatalf("resolver deadline was not bounded: elapsed=%s", elapsed)
+	}
+}
+
+func mustGatewayCache(t *testing.T) *Cache {
+	t.Helper()
+	cache, err := NewCache(configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_API_GATEWAY)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cache
 }
 
 func publication(owner configurationv1.ConfigurationOwner) *configurationv1.ConfigurationPublicationEvent {

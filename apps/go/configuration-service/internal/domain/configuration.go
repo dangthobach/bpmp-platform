@@ -243,6 +243,7 @@ func ValidateEnginePolicy(policy *configurationv1.EnginePolicy) error {
 }
 
 func validateAPIGatewayPolicy(policy *configurationv1.ApiGatewayPolicy) error {
+	retry := policy.GetUpstreamRetry()
 	if policy.GetRateLimitRequests() == 0 ||
 		policy.GetRateLimitWindowMs() == 0 ||
 		policy.GetUpstreamTimeoutMs() == 0 ||
@@ -253,13 +254,19 @@ func validateAPIGatewayPolicy(policy *configurationv1.ApiGatewayPolicy) error {
 		policy.GetMaxUpstreamResponseBytes() == 0 ||
 		policy.GetBatchChunkSize() == 0 ||
 		policy.GetBatchConcurrency() == 0 ||
-		policy.GetBatchConcurrency() > policy.GetBatchChunkSize() {
+		policy.GetBatchConcurrency() > policy.GetBatchChunkSize() ||
+		retry.GetMaxAttempts() == 0 ||
+		retry.GetInitialBackoffMs() == 0 ||
+		retry.GetMaxBackoffMs() < retry.GetInitialBackoffMs() ||
+		retry.GetMultiplierMillis() < 1000 ||
+		strings.TrimSpace(policy.GetEncryptionKeyScope()) == "" {
 		return ErrInvalid
 	}
 	return nil
 }
 
 func validateHumanRuntimePolicy(policy *configurationv1.HumanRuntimePolicy) error {
+	retry := policy.GetEngineRetry()
 	if policy.GetProjectionBatchSize() == 0 ||
 		policy.GetEscalationBatchSize() == 0 ||
 		policy.GetEscalationLeaseMs() == 0 ||
@@ -267,8 +274,24 @@ func validateHumanRuntimePolicy(policy *configurationv1.HumanRuntimePolicy) erro
 		policy.GetEscalationPollMs() == 0 ||
 		policy.GetEngineCommandTimeoutMs() == 0 ||
 		policy.GetMaxAssignmentCandidates() == 0 ||
-		policy.GetMaxDelegationDepth() == 0 {
+		policy.GetMaxDelegationDepth() == 0 ||
+		policy.GetQueryDefaultPageSize() == 0 ||
+		policy.GetQueryMaxPageSize() < policy.GetQueryDefaultPageSize() ||
+		retry.GetMaxAttempts() == 0 ||
+		retry.GetInitialBackoffMs() == 0 ||
+		retry.GetMaxBackoffMs() < retry.GetInitialBackoffMs() ||
+		retry.GetMultiplierMillis() < 1000 ||
+		policy.GetEngineCircuitBreakerFailureThreshold() == 0 ||
+		policy.GetEngineCircuitBreakerOpenMs() == 0 ||
+		len(policy.GetEngineRetryableCodes()) == 0 {
 		return ErrInvalid
+	}
+	for _, code := range policy.GetEngineRetryableCodes() {
+		switch code {
+		case "UNAVAILABLE", "RESOURCE_EXHAUSTED", "DEADLINE_EXCEEDED", "ABORTED":
+		default:
+			return ErrInvalid
+		}
 	}
 	return nil
 }

@@ -36,6 +36,7 @@ type Config struct {
 	PlatformReference    string
 	EnvironmentReference string
 	InitialTenantIDs     []string
+	ResolveTimeout       time.Duration
 	Kafka                kafkaconfig.Consumer
 }
 
@@ -51,6 +52,7 @@ func New(config Config, resolver Resolver, consumer Consumer, cache *Cache) (*Re
 		config.PlatformReference == "" ||
 		config.EnvironmentReference == "" ||
 		len(config.InitialTenantIDs) == 0 ||
+		config.ResolveTimeout <= 0 ||
 		resolver == nil ||
 		consumer == nil ||
 		cache == nil ||
@@ -124,14 +126,22 @@ func (r *Reloader) resolveAndInstall(
 	tenantID string,
 	event *configurationv1.ConfigurationPublicationEvent,
 ) error {
-	response, err := r.resolver.ResolveConfiguration(ctx, &configurationv1.ResolveConfigurationRequest{
+	resolveCtx, cancel := context.WithTimeout(ctx, r.config.ResolveTimeout)
+	defer cancel()
+	response, err := r.resolver.ResolveConfiguration(resolveCtx, &configurationv1.ResolveConfigurationRequest{
 		TenantId:             tenantID,
 		PlatformReference:    r.config.PlatformReference,
 		EnvironmentReference: r.config.EnvironmentReference,
+		InstanceId:           instanceReference(event),
 		Owner:                r.config.Owner,
 	}, grpc.WaitForReady(true))
 	if err != nil {
-		return fmt.Errorf("resolve authoritative runtime configuration: %w", err)
+		return fmt.Errorf(
+			"resolve authoritative runtime configuration for tenant %s within %s: %w",
+			tenantID,
+			r.config.ResolveTimeout,
+			err,
+		)
 	}
 	snapshot := response.GetSnapshot()
 	if event != nil && snapshot != nil && snapshot.GetConfigId() == event.GetProfileId() {
@@ -143,10 +153,23 @@ func (r *Reloader) resolveAndInstall(
 			return errors.New("resolved configuration hash does not match publication")
 		}
 	}
-	if err = r.cache.Install(tenantID, snapshot); err != nil {
+	if instanceID := instanceReference(event); instanceID != "" {
+		err = r.cache.InstallInstance(tenantID, instanceID, snapshot)
+	} else {
+		err = r.cache.Install(tenantID, snapshot)
+	}
+	if err != nil {
 		return fmt.Errorf("install runtime configuration: %w", err)
 	}
 	return nil
+}
+
+func instanceReference(event *configurationv1.ConfigurationPublicationEvent) string {
+	if event != nil &&
+		event.GetScope().GetType() == configurationv1.ConfigurationScopeType_CONFIGURATION_SCOPE_TYPE_APPROVED_INSTANCE_OVERRIDE {
+		return event.GetScope().GetReference()
+	}
+	return ""
 }
 
 func validateEvent(event *configurationv1.ConfigurationPublicationEvent) error {

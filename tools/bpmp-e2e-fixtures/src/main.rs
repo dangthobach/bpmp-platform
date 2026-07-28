@@ -466,7 +466,6 @@ fn human_config(manifest: &Manifest, mount: &str, workload: &AuthKey, internal: 
         "identity": {"jwks_path": path("jwks.json"), "internal_keys": {(internal.id.clone()): path(&internal.public_path)}, "issuers": [manifest.actor_issuer], "audiences": [manifest.actor_audience], "allowed_jwt_methods": ["EdDSA"], "workload_id": "human-runtime", "max_proof_bytes": 16384, "max_jwks_keys": 16, "max_roles": 32, "max_capabilities": 64, "clock_skew_ms": 30000},
         "workload": {"id": "human-runtime", "signing_key_id": workload.id, "private_key_path": path(&workload.private_path), "proof_ttl_ms": 60000},
         "grpc": {"max_receive_bytes": 1_048_576, "max_send_bytes": 1_048_576},
-        "reliability": {"max_attempts": 5, "initial_backoff_ms": 50, "max_backoff_ms": 1000, "attempt_timeout_ms": 3000, "failure_threshold": 5, "open_duration_ms": 1000, "retryable_codes": ["UNAVAILABLE","DEADLINE_EXCEEDED"]},
         "health": {"listen_address": manifest.human_health_address, "readiness_timeout_ms": 1000},
         "telemetry": {"service_name": "human-runtime-e2e", "service_version": "e2e", "endpoint": manifest.otel_endpoint, "insecure": true, "sample_ratio": 0.0, "export_timeout_ms": 1000},
         "escalation": {"worker_id": "human-e2e"},
@@ -475,6 +474,7 @@ fn human_config(manifest: &Manifest, mount: &str, workload: &AuthKey, internal: 
             "resolver_address": manifest.configuration_grpc_url.trim_start_matches("https://"),
             "platform_reference": "bpmp",
             "environment_reference": "e2e",
+            "resolve_timeout_ms": 5000,
             "kafka": {
                 "brokers": manifest.kafka.brokers,
                 "client_id": "bpmp-human-runtime-configuration",
@@ -503,16 +503,16 @@ fn gateway_config(manifest: &Manifest, mount: &str, workload: &AuthKey) -> Value
         "identity": {"jwks_path": path("jwks.json"), "issuers": [manifest.actor_issuer], "audiences": [manifest.actor_audience], "algorithms": ["EdDSA"], "max_token_bytes": 16384, "max_jwks_keys": 16, "clock_skew_seconds": 30},
         "workload": {"id": "api-gateway", "signing_key_id": workload.id, "private_key_path": path(&workload.private_path), "proof_ttl_ms": 60000},
         "rate_limit": {"redis_address": manifest.redis_address, "redis_username": "", "redis_password_file": "", "redis_database": 0, "redis_key_prefix": "bpmp:e2e", "operation_timeout_ms": 1000},
-        "http": {"read_header_timeout_ms": 2000, "read_timeout_ms": 5000, "write_timeout_ms": 5000, "idle_timeout_ms": 10000, "shutdown_timeout_ms": 5000, "max_body_bytes": 65536, "max_upstream_response_bytes": 1_048_576},
+        "http": {"read_header_timeout_ms": 2000, "read_timeout_ms": 5000, "write_timeout_ms": 5000, "idle_timeout_ms": 10000, "shutdown_timeout_ms": 5000},
         "grpc": {"max_receive_bytes": 1_048_576, "max_send_bytes": 1_048_576},
-        "reliability": {"max_attempts": 5, "initial_backoff_ms": 50, "max_backoff_ms": 1000, "attempt_timeout_ms": 3000, "failure_threshold": 5, "open_duration_ms": 1000, "retryable_codes": ["UNAVAILABLE","DEADLINE_EXCEEDED"]},
         "health": {"readiness_timeout_ms": 1000},
         "telemetry": {"service_name": "api-gateway-e2e", "service_version": "e2e", "endpoint": manifest.otel_endpoint, "insecure": true, "sample_ratio": 0.0, "export_timeout_ms": 1000},
-        "tenant_key_scopes": {(manifest.tenant_id.clone()): format!("{}/operational", manifest.tenant_id)},
         "runtime_configuration": {
             "resolver_address": manifest.configuration_grpc_url.trim_start_matches("https://"),
             "platform_reference": "bpmp",
             "environment_reference": "e2e",
+            "initial_tenant_ids": [manifest.tenant_id],
+            "resolve_timeout_ms": 5000,
             "kafka": {
                 "brokers": manifest.kafka.brokers,
                 "client_id": "bpmp-api-gateway-configuration",
@@ -608,7 +608,7 @@ fn seeded_configuration_migration(manifest: &Manifest) -> Result<String> {
         .pointer("/snapshot/engine")
         .context("E2E configuration snapshot has no engine policy")?;
     let tenant = sql_literal(&manifest.tenant_id);
-    let policies = seeded_configuration_policies(engine);
+    let policies = seeded_configuration_policies(engine, &manifest.tenant_id);
     let mut migration = format!("{CONFIGURATION_MIGRATION}\n");
     for (owner, profile_id, version_id, policy) in policies {
         let raw = serde_json::to_vec(&policy)?;
@@ -639,6 +639,7 @@ fn seeded_configuration_migration(manifest: &Manifest) -> Result<String> {
 
 fn seeded_configuration_policies(
     engine: &Value,
+    tenant_id: &str,
 ) -> [(&'static str, &'static str, &'static str, Value); 5] {
     [
         (
@@ -661,7 +662,14 @@ fn seeded_configuration_policies(
                 "max_request_body_bytes": "65536",
                 "max_upstream_response_bytes": "1048576",
                 "batch_chunk_size": 100,
-                "batch_concurrency": 4
+                "batch_concurrency": 4,
+                "upstream_retry": {
+                    "max_attempts": 3,
+                    "initial_backoff_ms": "25",
+                    "max_backoff_ms": "250",
+                    "multiplier_millis": 2000
+                },
+                "encryption_key_scope": format!("{tenant_id}/operational")
             }),
         ),
         (
@@ -676,7 +684,18 @@ fn seeded_configuration_policies(
                 "escalation_poll_ms": "250",
                 "engine_command_timeout_ms": "3000",
                 "max_assignment_candidates": 100,
-                "max_delegation_depth": 8
+                "max_delegation_depth": 8,
+                "query_default_page_size": 50,
+                "query_max_page_size": 200,
+                "engine_retry": {
+                    "max_attempts": 5,
+                    "initial_backoff_ms": "50",
+                    "max_backoff_ms": "1000",
+                    "multiplier_millis": 2000
+                },
+                "engine_circuit_breaker_failure_threshold": 5,
+                "engine_circuit_breaker_open_ms": "1000",
+                "engine_retryable_codes": ["UNAVAILABLE", "DEADLINE_EXCEEDED"]
             }),
         ),
         (

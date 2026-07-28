@@ -106,21 +106,6 @@ func run(configPath string) error {
 	if err != nil {
 		return err
 	}
-	engineInterceptor, err := reliabilityInterceptor(config.Reliability)
-	if err != nil {
-		return err
-	}
-	engineConn, err := grpc.NewClient(config.EngineAddress,
-		grpc.WithTransportCredentials(credentials.NewTLS(clientTLS)),
-		grpc.WithUnaryInterceptor(engineInterceptor),
-		grpc.WithStatsHandler(platformtelemetry.GRPCClientStatsHandler()),
-		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(config.GRPC.MaxReceiveBytes), grpc.MaxCallSendMsgSize(config.GRPC.MaxSendBytes)),
-	)
-	if err != nil {
-		return fmt.Errorf("connect engine: %w", err)
-	}
-	defer engineConn.Close()
-	engineConn.Connect()
 	configurationTLS := clientTLS.Clone()
 	configurationTLS.ServerName = config.TLS.ConfigurationServerName
 	configurationConn, err := grpc.NewClient(
@@ -153,15 +138,19 @@ func run(configPath string) error {
 		PlatformReference:    config.RuntimeConfig.PlatformReference,
 		EnvironmentReference: config.RuntimeConfig.EnvironmentReference,
 		InitialTenantIDs:     []string{config.RuntimeConfig.TenantID},
+		ResolveTimeout:       time.Duration(config.RuntimeConfig.ResolveTimeoutMS) * time.Millisecond,
 		Kafka:                config.RuntimeConfig.Kafka,
 	}, configurationv1.NewConfigurationResolverServiceClient(configurationConn),
 		configurationKafka, configurationCache)
 	if err != nil {
 		return err
 	}
+	bootstrapStarted := time.Now()
+	slog.Info("bootstrapping Human Runtime configuration", "tenant_id", config.RuntimeConfig.TenantID)
 	if err = configurationReloader.Bootstrap(ctx); err != nil {
 		return err
 	}
+	slog.Info("Human Runtime configuration ready", "elapsed", time.Since(bootstrapStarted))
 	policyProvider, err := runtimepolicy.New(
 		configurationCache,
 		config.RuntimeConfig.TenantID,
@@ -169,6 +158,21 @@ func run(configPath string) error {
 	if err != nil {
 		return err
 	}
+	engineInterceptor, err := dynamicReliabilityInterceptor(policyProvider)
+	if err != nil {
+		return err
+	}
+	engineConn, err := grpc.NewClient(config.EngineAddress,
+		grpc.WithTransportCredentials(credentials.NewTLS(clientTLS)),
+		grpc.WithUnaryInterceptor(engineInterceptor),
+		grpc.WithStatsHandler(platformtelemetry.GRPCClientStatsHandler()),
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(config.GRPC.MaxReceiveBytes), grpc.MaxCallSendMsgSize(config.GRPC.MaxSendBytes)),
+	)
+	if err != nil {
+		return fmt.Errorf("connect engine: %w", err)
+	}
+	defer engineConn.Close()
+	engineConn.Connect()
 
 	privateKey, err := readPrivateKey(config.Workload.PrivateKeyPath)
 	if err != nil {
@@ -192,7 +196,7 @@ func run(configPath string) error {
 	if err != nil {
 		return err
 	}
-	service, err := application.NewService(store, engineClient)
+	service, err := application.NewService(store, engineClient, policyProvider)
 	if err != nil {
 		return err
 	}
@@ -200,7 +204,7 @@ func run(configPath string) error {
 	if err != nil {
 		return err
 	}
-	humanServer, err := humangrpc.New(service, store, verifier, time.Now)
+	humanServer, err := humangrpc.New(service, store, verifier, policyProvider, time.Now)
 	if err != nil {
 		return err
 	}
@@ -310,19 +314,28 @@ func run(configPath string) error {
 	}
 }
 
-func reliabilityInterceptor(value reliabilityConfig) (grpc.UnaryClientInterceptor, error) {
-	retryable, err := platformgrpc.RetryableCodes(value.RetryableCodes)
-	if err != nil {
-		return nil, err
-	}
-	return platformgrpc.UnaryClientInterceptor(platformgrpc.Config{
-		MaxAttempts:      value.MaxAttempts,
-		InitialBackoff:   time.Duration(value.InitialBackoffMS) * time.Millisecond,
-		MaxBackoff:       time.Duration(value.MaxBackoffMS) * time.Millisecond,
-		AttemptTimeout:   time.Duration(value.AttemptTimeoutMS) * time.Millisecond,
-		FailureThreshold: value.FailureThreshold,
-		OpenDuration:     time.Duration(value.OpenDurationMS) * time.Millisecond,
-		RetryableCodes:   retryable,
+func dynamicReliabilityInterceptor(
+	provider application.RuntimePolicyProvider,
+) (grpc.UnaryClientInterceptor, error) {
+	return platformgrpc.DynamicUnaryClientInterceptor(func() (platformgrpc.Config, error) {
+		policy, err := provider.Policy()
+		if err != nil {
+			return platformgrpc.Config{}, err
+		}
+		retryable, err := platformgrpc.RetryableCodes(policy.EngineRetryableCodes)
+		if err != nil {
+			return platformgrpc.Config{}, err
+		}
+		return platformgrpc.Config{
+			MaxAttempts:      policy.EngineRetry.MaxAttempts,
+			InitialBackoff:   policy.EngineRetry.InitialBackoff,
+			MaxBackoff:       policy.EngineRetry.MaxBackoff,
+			MultiplierMillis: policy.EngineRetry.MultiplierMillis,
+			AttemptTimeout:   policy.EngineCommandTimeout,
+			FailureThreshold: policy.EngineCircuitThreshold,
+			OpenDuration:     policy.EngineCircuitOpen,
+			RetryableCodes:   retryable,
+		}, nil
 	})
 }
 

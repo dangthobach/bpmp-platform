@@ -83,6 +83,7 @@ message WorkItem {
   string decision = 12;
   uint64 sla_deadline_epoch_ms = 13;
   int64 version = 14;
+  uint32 delegation_depth = 15;
 }
 
 message GetCaseRequest {

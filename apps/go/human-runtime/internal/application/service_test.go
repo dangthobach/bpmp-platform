@@ -49,6 +49,15 @@ type recordingEngine struct {
 	err     error
 }
 
+var testPolicyProvider = RuntimePolicyProviderFunc(func() (RuntimePolicy, error) {
+	return RuntimePolicy{
+		MaxAssignmentCandidates: 16,
+		MaxDelegationDepth:      3,
+		QueryDefaultPageSize:    50,
+		QueryMaxPageSize:        200,
+	}, nil
+})
+
 func (r *recordingEngine) CompleteUserTask(_ context.Context, command EngineCompleteCommand) error {
 	r.command = command
 	r.calls++
@@ -58,7 +67,7 @@ func (r *recordingEngine) CompleteUserTask(_ context.Context, command EngineComp
 func TestCompleteRetriesSameDurableCommandAfterEngineFailure(t *testing.T) {
 	store := &fakeStore{item: assignedItem()}
 	engine := &recordingEngine{err: errors.New("engine unavailable")}
-	service, _ := NewService(store, engine)
+	service, _ := NewService(store, engine, testPolicyProvider)
 	request := CompleteRequest{
 		TenantID: "tenant-a", WorkItemID: "work-1", CommandID: "command-1",
 		Decision: "approved", ExpectedVersion: 1,
@@ -87,7 +96,7 @@ func TestCompleteRetriesSameDurableCommandAfterEngineFailure(t *testing.T) {
 func TestWorkloadCannotReplaceMissingActorProof(t *testing.T) {
 	store := &fakeStore{item: assignedItem()}
 	engine := &recordingEngine{}
-	service, _ := NewService(store, engine)
+	service, _ := NewService(store, engine, testPolicyProvider)
 	err := service.Complete(context.Background(), CompleteRequest{
 		TenantID: "tenant-a", WorkItemID: "work-1", ExpectedVersion: 1,
 		Actor: ActorCredential{ActorID: "alice"}, Decision: "approved", OccurredAt: time.Now(),
@@ -100,7 +109,7 @@ func TestWorkloadCannotReplaceMissingActorProof(t *testing.T) {
 func TestCompleteForwardsOriginalActorTokenUnchanged(t *testing.T) {
 	store := &fakeStore{item: assignedItem()}
 	engine := &recordingEngine{}
-	service, _ := NewService(store, engine)
+	service, _ := NewService(store, engine, testPolicyProvider)
 	token := []byte("signed.actor.jwt")
 	err := service.Complete(context.Background(), CompleteRequest{
 		TenantID: "tenant-a", WorkItemID: "work-1", CommandID: "command-1",
@@ -115,6 +124,49 @@ func TestCompleteForwardsOriginalActorTokenUnchanged(t *testing.T) {
 	}
 	if store.item.Status != domain.WorkItemCompletionRequested {
 		t.Fatalf("work item finalized before committed event: %s", store.item.Status)
+	}
+}
+
+func TestDynamicPolicyBoundsAssignmentClaimsAndDelegationDepth(t *testing.T) {
+	policy := RuntimePolicyProviderFunc(func() (RuntimePolicy, error) {
+		return RuntimePolicy{
+			MaxAssignmentCandidates: 1,
+			MaxDelegationDepth:      1,
+			QueryDefaultPageSize:    25,
+			QueryMaxPageSize:        100,
+		}, nil
+	})
+	item := assignedItem()
+	store := &fakeStore{item: item}
+	service, err := NewService(store, &recordingEngine{}, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := DelegateRequest{
+		TenantID: "tenant-a", WorkItemID: "work-1", CommandID: "delegate-1",
+		ExpectedVersion: 1, Actor: ActorCredential{
+			ActorID: "alice", OriginalSignedToken: []byte("signed"),
+		},
+		ActorGroups: map[string]struct{}{"group-a": {}, "group-b": {}},
+		Assignment:  domain.Assignment{AssigneeID: "bob"},
+		OccurredAt:  time.Unix(20, 0).UTC(),
+	}
+	if err = service.Delegate(context.Background(), request); !errors.Is(err, ErrPolicyLimit) {
+		t.Fatalf("candidate claim limit was not enforced: %v", err)
+	}
+	request.ActorGroups = nil
+	if err = service.Delegate(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	if store.item.DelegationDepth != 1 {
+		t.Fatalf("delegation depth was not persisted in domain state: %d", store.item.DelegationDepth)
+	}
+	request.CommandID = "delegate-2"
+	request.ExpectedVersion = store.item.Version
+	request.Actor.ActorID = "bob"
+	request.Assignment = domain.Assignment{AssigneeID: "carol"}
+	if err = service.Delegate(context.Background(), request); !errors.Is(err, ErrPolicyLimit) {
+		t.Fatalf("delegation depth limit was not enforced: %v", err)
 	}
 }
 

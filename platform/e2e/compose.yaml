@@ -1,7 +1,12 @@
 name: bpmp-broker-e2e
 
+x-rust-build: &rust-build
+  context: ../..
+  dockerfile: platform/e2e/Dockerfile.rust
+
 x-engine: &engine
   image: ${RUST_IMAGE:?set RUST_IMAGE}
+  build: *rust-build
   restart: "no"
   environment:
     RUST_LOG: ${ENGINE_LOG_LEVEL:-info}
@@ -11,11 +16,12 @@ x-engine: &engine
     topic-init:
       condition: service_completed_successfully
     configuration-service:
-      condition: service_started
+      condition: service_healthy
 
 services:
   fixture-generator:
     image: ${RUST_IMAGE:?set RUST_IMAGE}
+    build: *rust-build
     entrypoint: ["/usr/local/bin/bpmp-e2e-fixtures"]
     command: ["--manifest", "/e2e/manifest.json", "--output", "/runtime"]
     volumes:
@@ -115,6 +121,9 @@ services:
 
   human-runtime:
     image: ${HUMAN_IMAGE:?set HUMAN_IMAGE}
+    build:
+      context: ../..
+      dockerfile: platform/e2e/Dockerfile.human-runtime
     command: ["--config", "/runtime/human-runtime.json"]
     volumes:
       - ./runtime:/runtime:ro
@@ -125,9 +134,20 @@ services:
         condition: service_completed_successfully
       engine2:
         condition: service_started
+      configuration-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:7202/readyz"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 2s
 
   configuration-service:
     image: ${CONFIGURATION_IMAGE:?set CONFIGURATION_IMAGE}
+    build:
+      context: ../..
+      dockerfile: platform/e2e/Dockerfile.configuration-service
     command: ["--config", "/runtime/configuration-service.json"]
     volumes:
       - ./runtime:/runtime:ro
@@ -136,9 +156,30 @@ services:
         condition: service_healthy
       otel-collector:
         condition: service_started
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - --fail
+        - --silent
+        - --show-error
+        - --cert
+        - /runtime/secrets/tls.pem
+        - --key
+        - /runtime/secrets/tls-key.pem
+        - --cacert
+        - /runtime/secrets/ca.pem
+        - https://localhost:7301/readyz
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 2s
 
   api-gateway:
     image: ${GATEWAY_IMAGE:?set GATEWAY_IMAGE}
+    build:
+      context: ../..
+      dockerfile: platform/e2e/Dockerfile.api-gateway
     command: ["--config", "/runtime/api-gateway.json"]
     volumes:
       - ./runtime:/runtime:ro
@@ -148,11 +189,25 @@ services:
       redis:
         condition: service_healthy
       human-runtime:
-        condition: service_started
+        condition: service_healthy
       engine2:
         condition: service_started
       configuration-service:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - --fail
+        - --silent
+        - --show-error
+        - --cacert
+        - /runtime/secrets/ca.pem
+        - https://localhost:8443/readyz
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 2s
 
 volumes:
   engine1-data:

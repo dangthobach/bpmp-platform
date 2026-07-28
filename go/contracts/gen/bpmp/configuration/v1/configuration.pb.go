@@ -678,6 +678,8 @@ type ApiGatewayPolicy struct {
 	MaxUpstreamResponseBytes       uint64                 `protobuf:"varint,8,opt,name=max_upstream_response_bytes,json=maxUpstreamResponseBytes,proto3" json:"max_upstream_response_bytes,omitempty"`
 	BatchChunkSize                 uint32                 `protobuf:"varint,9,opt,name=batch_chunk_size,json=batchChunkSize,proto3" json:"batch_chunk_size,omitempty"`
 	BatchConcurrency               uint32                 `protobuf:"varint,10,opt,name=batch_concurrency,json=batchConcurrency,proto3" json:"batch_concurrency,omitempty"`
+	UpstreamRetry                  *RetryPolicy           `protobuf:"bytes,11,opt,name=upstream_retry,json=upstreamRetry,proto3" json:"upstream_retry,omitempty"`
+	EncryptionKeyScope             string                 `protobuf:"bytes,12,opt,name=encryption_key_scope,json=encryptionKeyScope,proto3" json:"encryption_key_scope,omitempty"`
 	unknownFields                  protoimpl.UnknownFields
 	sizeCache                      protoimpl.SizeCache
 }
@@ -782,18 +784,38 @@ func (x *ApiGatewayPolicy) GetBatchConcurrency() uint32 {
 	return 0
 }
 
+func (x *ApiGatewayPolicy) GetUpstreamRetry() *RetryPolicy {
+	if x != nil {
+		return x.UpstreamRetry
+	}
+	return nil
+}
+
+func (x *ApiGatewayPolicy) GetEncryptionKeyScope() string {
+	if x != nil {
+		return x.EncryptionKeyScope
+	}
+	return ""
+}
+
 type HumanRuntimePolicy struct {
-	state                   protoimpl.MessageState `protogen:"open.v1"`
-	ProjectionBatchSize     uint32                 `protobuf:"varint,1,opt,name=projection_batch_size,json=projectionBatchSize,proto3" json:"projection_batch_size,omitempty"`
-	EscalationBatchSize     uint32                 `protobuf:"varint,2,opt,name=escalation_batch_size,json=escalationBatchSize,proto3" json:"escalation_batch_size,omitempty"`
-	EscalationLeaseMs       uint64                 `protobuf:"varint,3,opt,name=escalation_lease_ms,json=escalationLeaseMs,proto3" json:"escalation_lease_ms,omitempty"`
-	EscalationRetryMs       uint64                 `protobuf:"varint,4,opt,name=escalation_retry_ms,json=escalationRetryMs,proto3" json:"escalation_retry_ms,omitempty"`
-	EscalationPollMs        uint64                 `protobuf:"varint,5,opt,name=escalation_poll_ms,json=escalationPollMs,proto3" json:"escalation_poll_ms,omitempty"`
-	EngineCommandTimeoutMs  uint64                 `protobuf:"varint,6,opt,name=engine_command_timeout_ms,json=engineCommandTimeoutMs,proto3" json:"engine_command_timeout_ms,omitempty"`
-	MaxAssignmentCandidates uint32                 `protobuf:"varint,7,opt,name=max_assignment_candidates,json=maxAssignmentCandidates,proto3" json:"max_assignment_candidates,omitempty"`
-	MaxDelegationDepth      uint32                 `protobuf:"varint,8,opt,name=max_delegation_depth,json=maxDelegationDepth,proto3" json:"max_delegation_depth,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	state                                protoimpl.MessageState `protogen:"open.v1"`
+	ProjectionBatchSize                  uint32                 `protobuf:"varint,1,opt,name=projection_batch_size,json=projectionBatchSize,proto3" json:"projection_batch_size,omitempty"`
+	EscalationBatchSize                  uint32                 `protobuf:"varint,2,opt,name=escalation_batch_size,json=escalationBatchSize,proto3" json:"escalation_batch_size,omitempty"`
+	EscalationLeaseMs                    uint64                 `protobuf:"varint,3,opt,name=escalation_lease_ms,json=escalationLeaseMs,proto3" json:"escalation_lease_ms,omitempty"`
+	EscalationRetryMs                    uint64                 `protobuf:"varint,4,opt,name=escalation_retry_ms,json=escalationRetryMs,proto3" json:"escalation_retry_ms,omitempty"`
+	EscalationPollMs                     uint64                 `protobuf:"varint,5,opt,name=escalation_poll_ms,json=escalationPollMs,proto3" json:"escalation_poll_ms,omitempty"`
+	EngineCommandTimeoutMs               uint64                 `protobuf:"varint,6,opt,name=engine_command_timeout_ms,json=engineCommandTimeoutMs,proto3" json:"engine_command_timeout_ms,omitempty"`
+	MaxAssignmentCandidates              uint32                 `protobuf:"varint,7,opt,name=max_assignment_candidates,json=maxAssignmentCandidates,proto3" json:"max_assignment_candidates,omitempty"`
+	MaxDelegationDepth                   uint32                 `protobuf:"varint,8,opt,name=max_delegation_depth,json=maxDelegationDepth,proto3" json:"max_delegation_depth,omitempty"`
+	QueryDefaultPageSize                 uint32                 `protobuf:"varint,9,opt,name=query_default_page_size,json=queryDefaultPageSize,proto3" json:"query_default_page_size,omitempty"`
+	QueryMaxPageSize                     uint32                 `protobuf:"varint,10,opt,name=query_max_page_size,json=queryMaxPageSize,proto3" json:"query_max_page_size,omitempty"`
+	EngineRetry                          *RetryPolicy           `protobuf:"bytes,11,opt,name=engine_retry,json=engineRetry,proto3" json:"engine_retry,omitempty"`
+	EngineCircuitBreakerFailureThreshold uint32                 `protobuf:"varint,12,opt,name=engine_circuit_breaker_failure_threshold,json=engineCircuitBreakerFailureThreshold,proto3" json:"engine_circuit_breaker_failure_threshold,omitempty"`
+	EngineCircuitBreakerOpenMs           uint64                 `protobuf:"varint,13,opt,name=engine_circuit_breaker_open_ms,json=engineCircuitBreakerOpenMs,proto3" json:"engine_circuit_breaker_open_ms,omitempty"`
+	EngineRetryableCodes                 []string               `protobuf:"bytes,14,rep,name=engine_retryable_codes,json=engineRetryableCodes,proto3" json:"engine_retryable_codes,omitempty"`
+	unknownFields                        protoimpl.UnknownFields
+	sizeCache                            protoimpl.SizeCache
 }
 
 func (x *HumanRuntimePolicy) Reset() {
@@ -880,6 +902,48 @@ func (x *HumanRuntimePolicy) GetMaxDelegationDepth() uint32 {
 		return x.MaxDelegationDepth
 	}
 	return 0
+}
+
+func (x *HumanRuntimePolicy) GetQueryDefaultPageSize() uint32 {
+	if x != nil {
+		return x.QueryDefaultPageSize
+	}
+	return 0
+}
+
+func (x *HumanRuntimePolicy) GetQueryMaxPageSize() uint32 {
+	if x != nil {
+		return x.QueryMaxPageSize
+	}
+	return 0
+}
+
+func (x *HumanRuntimePolicy) GetEngineRetry() *RetryPolicy {
+	if x != nil {
+		return x.EngineRetry
+	}
+	return nil
+}
+
+func (x *HumanRuntimePolicy) GetEngineCircuitBreakerFailureThreshold() uint32 {
+	if x != nil {
+		return x.EngineCircuitBreakerFailureThreshold
+	}
+	return 0
+}
+
+func (x *HumanRuntimePolicy) GetEngineCircuitBreakerOpenMs() uint64 {
+	if x != nil {
+		return x.EngineCircuitBreakerOpenMs
+	}
+	return 0
+}
+
+func (x *HumanRuntimePolicy) GetEngineRetryableCodes() []string {
+	if x != nil {
+		return x.EngineRetryableCodes
+	}
+	return nil
 }
 
 type ProjectionPolicy struct {
@@ -1549,7 +1613,7 @@ const file_bpmp_configuration_v1_configuration_proto_rawDesc = "" +
 	"max_tables\x18\b \x01(\rR\tmaxTables\x12!\n" +
 	"\fmax_memories\x18\t \x01(\rR\vmaxMemories\x12\x12\n" +
 	"\x04fuel\x18\n" +
-	" \x01(\x04R\x04fuel\"\xaa\x04\n" +
+	" \x01(\x04R\x04fuel\"\xa7\x05\n" +
 	"\x10ApiGatewayPolicy\x12.\n" +
 	"\x13rate_limit_requests\x18\x01 \x01(\rR\x11rateLimitRequests\x12/\n" +
 	"\x14rate_limit_window_ms\x18\x02 \x01(\x04R\x11rateLimitWindowMs\x12.\n" +
@@ -1561,7 +1625,9 @@ const file_bpmp_configuration_v1_configuration_proto_rawDesc = "" +
 	"\x1bmax_upstream_response_bytes\x18\b \x01(\x04R\x18maxUpstreamResponseBytes\x12(\n" +
 	"\x10batch_chunk_size\x18\t \x01(\rR\x0ebatchChunkSize\x12+\n" +
 	"\x11batch_concurrency\x18\n" +
-	" \x01(\rR\x10batchConcurrency\"\xb3\x03\n" +
+	" \x01(\rR\x10batchConcurrency\x12I\n" +
+	"\x0eupstream_retry\x18\v \x01(\v2\".bpmp.configuration.v1.RetryPolicyR\rupstreamRetry\x120\n" +
+	"\x14encryption_key_scope\x18\f \x01(\tR\x12encryptionKeyScope\"\xb2\x06\n" +
 	"\x12HumanRuntimePolicy\x122\n" +
 	"\x15projection_batch_size\x18\x01 \x01(\rR\x13projectionBatchSize\x122\n" +
 	"\x15escalation_batch_size\x18\x02 \x01(\rR\x13escalationBatchSize\x12.\n" +
@@ -1570,7 +1636,14 @@ const file_bpmp_configuration_v1_configuration_proto_rawDesc = "" +
 	"\x12escalation_poll_ms\x18\x05 \x01(\x04R\x10escalationPollMs\x129\n" +
 	"\x19engine_command_timeout_ms\x18\x06 \x01(\x04R\x16engineCommandTimeoutMs\x12:\n" +
 	"\x19max_assignment_candidates\x18\a \x01(\rR\x17maxAssignmentCandidates\x120\n" +
-	"\x14max_delegation_depth\x18\b \x01(\rR\x12maxDelegationDepth\"\xf6\x02\n" +
+	"\x14max_delegation_depth\x18\b \x01(\rR\x12maxDelegationDepth\x125\n" +
+	"\x17query_default_page_size\x18\t \x01(\rR\x14queryDefaultPageSize\x12-\n" +
+	"\x13query_max_page_size\x18\n" +
+	" \x01(\rR\x10queryMaxPageSize\x12E\n" +
+	"\fengine_retry\x18\v \x01(\v2\".bpmp.configuration.v1.RetryPolicyR\vengineRetry\x12V\n" +
+	"(engine_circuit_breaker_failure_threshold\x18\f \x01(\rR$engineCircuitBreakerFailureThreshold\x12B\n" +
+	"\x1eengine_circuit_breaker_open_ms\x18\r \x01(\x04R\x1aengineCircuitBreakerOpenMs\x124\n" +
+	"\x16engine_retryable_codes\x18\x0e \x03(\tR\x14engineRetryableCodes\"\xf6\x02\n" +
 	"\x10ProjectionPolicy\x12,\n" +
 	"\x12consume_batch_size\x18\x01 \x01(\rR\x10consumeBatchSize\x12,\n" +
 	"\x12rebuild_batch_size\x18\x02 \x01(\rR\x10rebuildBatchSize\x125\n" +
@@ -1697,26 +1770,28 @@ var file_bpmp_configuration_v1_configuration_proto_depIdxs = []int32{
 	4,  // 1: bpmp.configuration.v1.EnginePolicy.optimistic_conflict_retry:type_name -> bpmp.configuration.v1.RetryPolicy
 	7,  // 2: bpmp.configuration.v1.EnginePolicy.local_wasm:type_name -> bpmp.configuration.v1.LocalWasmPolicy
 	6,  // 3: bpmp.configuration.v1.EnginePolicy.boundary_runtime:type_name -> bpmp.configuration.v1.BoundaryRuntimePolicy
-	4,  // 4: bpmp.configuration.v1.GovernancePolicy.kms_retry:type_name -> bpmp.configuration.v1.RetryPolicy
-	3,  // 5: bpmp.configuration.v1.ResolvedConfigurationSnapshot.resolved_scopes:type_name -> bpmp.configuration.v1.ConfigurationScope
-	5,  // 6: bpmp.configuration.v1.ResolvedConfigurationSnapshot.engine:type_name -> bpmp.configuration.v1.EnginePolicy
-	1,  // 7: bpmp.configuration.v1.ResolvedConfigurationSnapshot.owner:type_name -> bpmp.configuration.v1.ConfigurationOwner
-	8,  // 8: bpmp.configuration.v1.ResolvedConfigurationSnapshot.api_gateway:type_name -> bpmp.configuration.v1.ApiGatewayPolicy
-	9,  // 9: bpmp.configuration.v1.ResolvedConfigurationSnapshot.human_runtime:type_name -> bpmp.configuration.v1.HumanRuntimePolicy
-	10, // 10: bpmp.configuration.v1.ResolvedConfigurationSnapshot.projection:type_name -> bpmp.configuration.v1.ProjectionPolicy
-	11, // 11: bpmp.configuration.v1.ResolvedConfigurationSnapshot.governance:type_name -> bpmp.configuration.v1.GovernancePolicy
-	1,  // 12: bpmp.configuration.v1.ResolveConfigurationRequest.owner:type_name -> bpmp.configuration.v1.ConfigurationOwner
-	12, // 13: bpmp.configuration.v1.ResolveConfigurationResponse.snapshot:type_name -> bpmp.configuration.v1.ResolvedConfigurationSnapshot
-	1,  // 14: bpmp.configuration.v1.ConfigurationPublicationEvent.owner:type_name -> bpmp.configuration.v1.ConfigurationOwner
-	3,  // 15: bpmp.configuration.v1.ConfigurationPublicationEvent.scope:type_name -> bpmp.configuration.v1.ConfigurationScope
-	2,  // 16: bpmp.configuration.v1.ConfigurationPublicationEvent.kind:type_name -> bpmp.configuration.v1.ConfigurationPublicationKind
-	13, // 17: bpmp.configuration.v1.ConfigurationResolverService.ResolveConfiguration:input_type -> bpmp.configuration.v1.ResolveConfigurationRequest
-	14, // 18: bpmp.configuration.v1.ConfigurationResolverService.ResolveConfiguration:output_type -> bpmp.configuration.v1.ResolveConfigurationResponse
-	18, // [18:19] is the sub-list for method output_type
-	17, // [17:18] is the sub-list for method input_type
-	17, // [17:17] is the sub-list for extension type_name
-	17, // [17:17] is the sub-list for extension extendee
-	0,  // [0:17] is the sub-list for field type_name
+	4,  // 4: bpmp.configuration.v1.ApiGatewayPolicy.upstream_retry:type_name -> bpmp.configuration.v1.RetryPolicy
+	4,  // 5: bpmp.configuration.v1.HumanRuntimePolicy.engine_retry:type_name -> bpmp.configuration.v1.RetryPolicy
+	4,  // 6: bpmp.configuration.v1.GovernancePolicy.kms_retry:type_name -> bpmp.configuration.v1.RetryPolicy
+	3,  // 7: bpmp.configuration.v1.ResolvedConfigurationSnapshot.resolved_scopes:type_name -> bpmp.configuration.v1.ConfigurationScope
+	5,  // 8: bpmp.configuration.v1.ResolvedConfigurationSnapshot.engine:type_name -> bpmp.configuration.v1.EnginePolicy
+	1,  // 9: bpmp.configuration.v1.ResolvedConfigurationSnapshot.owner:type_name -> bpmp.configuration.v1.ConfigurationOwner
+	8,  // 10: bpmp.configuration.v1.ResolvedConfigurationSnapshot.api_gateway:type_name -> bpmp.configuration.v1.ApiGatewayPolicy
+	9,  // 11: bpmp.configuration.v1.ResolvedConfigurationSnapshot.human_runtime:type_name -> bpmp.configuration.v1.HumanRuntimePolicy
+	10, // 12: bpmp.configuration.v1.ResolvedConfigurationSnapshot.projection:type_name -> bpmp.configuration.v1.ProjectionPolicy
+	11, // 13: bpmp.configuration.v1.ResolvedConfigurationSnapshot.governance:type_name -> bpmp.configuration.v1.GovernancePolicy
+	1,  // 14: bpmp.configuration.v1.ResolveConfigurationRequest.owner:type_name -> bpmp.configuration.v1.ConfigurationOwner
+	12, // 15: bpmp.configuration.v1.ResolveConfigurationResponse.snapshot:type_name -> bpmp.configuration.v1.ResolvedConfigurationSnapshot
+	1,  // 16: bpmp.configuration.v1.ConfigurationPublicationEvent.owner:type_name -> bpmp.configuration.v1.ConfigurationOwner
+	3,  // 17: bpmp.configuration.v1.ConfigurationPublicationEvent.scope:type_name -> bpmp.configuration.v1.ConfigurationScope
+	2,  // 18: bpmp.configuration.v1.ConfigurationPublicationEvent.kind:type_name -> bpmp.configuration.v1.ConfigurationPublicationKind
+	13, // 19: bpmp.configuration.v1.ConfigurationResolverService.ResolveConfiguration:input_type -> bpmp.configuration.v1.ResolveConfigurationRequest
+	14, // 20: bpmp.configuration.v1.ConfigurationResolverService.ResolveConfiguration:output_type -> bpmp.configuration.v1.ResolveConfigurationResponse
+	20, // [20:21] is the sub-list for method output_type
+	19, // [19:20] is the sub-list for method input_type
+	19, // [19:19] is the sub-list for extension type_name
+	19, // [19:19] is the sub-list for extension extendee
+	0,  // [0:19] is the sub-list for field type_name
 }
 
 func init() { file_bpmp_configuration_v1_configuration_proto_init() }

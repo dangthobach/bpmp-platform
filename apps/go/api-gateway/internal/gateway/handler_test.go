@@ -30,6 +30,23 @@ func (function doerFunc) Do(request *http.Request) (*http.Response, error) {
 	return function(request)
 }
 
+type staticPolicyProvider struct{}
+
+func (staticPolicyProvider) Policy(string) (RuntimePolicy, error) {
+	return RuntimePolicy{
+		RateLimitRequests: 10, RateLimitWindow: time.Minute,
+		UpstreamTimeout: time.Second, CircuitBreakerFailureThreshold: 3,
+		CircuitBreakerOpen: time.Second, BulkheadMaxConcurrency: 4,
+		MaxRequestBodyBytes: 4096, MaxUpstreamResponseBytes: 4096,
+		BatchChunkSize: 10, BatchConcurrency: 2,
+		UpstreamRetry: RetryPolicy{
+			MaxAttempts: 2, InitialBackoff: time.Millisecond,
+			MaxBackoff: 10 * time.Millisecond, MultiplierMillis: 2000,
+		},
+		EncryptionKeyScope: "tenant-a/workflows",
+	}, nil
+}
+
 type recordingEngine struct {
 	enginev1.EngineCommandServiceClient
 	envelope *enginev1.CommandEnvelope
@@ -72,7 +89,7 @@ func TestGatewayPreservesActorProofAndIdempotencyKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	engine := &recordingEngine{}
-	handler, err := NewHandler(engine, &recordingHuman{}, &verifier{keys: map[string]crypto.PublicKey{"actor-key": public}, issuers: map[string]struct{}{"issuer": {}}, audiences: map[string]struct{}{"gateway": {}}, methods: []string{"EdDSA"}, maxTokenBytes: 4096}, &workloadSigner{id: "api-gateway", keyID: "workload-key", key: private, ttl: time.Minute}, newModelRateLimiter(10, time.Minute), map[string]string{"tenant-a": "tenant-a/workflows"}, 4096)
+	handler, err := NewHandler(engine, &recordingHuman{}, &verifier{keys: map[string]crypto.PublicKey{"actor-key": public}, issuers: map[string]struct{}{"issuer": {}}, audiences: map[string]struct{}{"gateway": {}}, methods: []string{"EdDSA"}, maxTokenBytes: 4096}, &workloadSigner{id: "api-gateway", keyID: "workload-key", key: private, ttl: time.Minute}, newModelRateLimiter(10, time.Minute), staticPolicyProvider{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +131,7 @@ func TestListWorkItemsForwardsTenantActorAndCursor(t *testing.T) {
 		t.Fatal(err)
 	}
 	human := &recordingHuman{}
-	handler, err := NewHandler(&recordingEngine{}, human, &verifier{keys: map[string]crypto.PublicKey{"actor-key": public}, issuers: map[string]struct{}{"issuer": {}}, audiences: map[string]struct{}{"gateway": {}}, methods: []string{"EdDSA"}, maxTokenBytes: 4096}, &workloadSigner{id: "api-gateway", keyID: "workload-key", key: private, ttl: time.Minute}, newModelRateLimiter(10, time.Minute), map[string]string{"tenant-a": "tenant-a/workflows"}, 4096)
+	handler, err := NewHandler(&recordingEngine{}, human, &verifier{keys: map[string]crypto.PublicKey{"actor-key": public}, issuers: map[string]struct{}{"issuer": {}}, audiences: map[string]struct{}{"gateway": {}}, methods: []string{"EdDSA"}, maxTokenBytes: 4096}, &workloadSigner{id: "api-gateway", keyID: "workload-key", key: private, ttl: time.Minute}, newModelRateLimiter(10, time.Minute), staticPolicyProvider{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,8 +194,7 @@ func TestConfigurationFacadePreservesAuthenticatedCommandScope(t *testing.T) {
 		},
 		&workloadSigner{id: "api-gateway", keyID: "workload-key", key: private, ttl: time.Minute},
 		newModelRateLimiter(10, time.Minute),
-		map[string]string{"tenant-a": "tenant-a/workflows"},
-		4096,
+		staticPolicyProvider{},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -187,8 +203,6 @@ func TestConfigurationFacadePreservesAuthenticatedCommandScope(t *testing.T) {
 	handler.configurationProxy, err = newConfigurationProxy(
 		client,
 		"https://configuration.internal",
-		4096,
-		4096,
 	)
 	if err != nil {
 		t.Fatal(err)

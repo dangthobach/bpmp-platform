@@ -134,7 +134,14 @@ func TestPostgresProjectionAuditLockingAndLeaseRecovery(t *testing.T) {
 	if err = pool.QueryRow(ctx, `SELECT count(*) FROM human_event_inbox WHERE tenant_id='tenant-a' AND event_id='event-missing'`).Scan(&missingCheckpoint); err != nil || missingCheckpoint != 0 {
 		t.Fatalf("failed projection checkpoint was committed: count=%d err=%v", missingCheckpoint, err)
 	}
-	service, err := application.NewService(store, integrationEngine{})
+	service, err := application.NewService(store, integrationEngine{}, application.RuntimePolicyProviderFunc(func() (application.RuntimePolicy, error) {
+		return application.RuntimePolicy{
+			MaxAssignmentCandidates: 16,
+			MaxDelegationDepth:      3,
+			QueryDefaultPageSize:    50,
+			QueryMaxPageSize:        200,
+		}, nil
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -30,6 +30,33 @@ func TestCacheRejectsStaleAndReturnsClones(t *testing.T) {
 	}
 }
 
+func TestInstanceOverrideDoesNotReplaceTenantSnapshot(t *testing.T) {
+	cache, err := NewCache(configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_API_GATEWAY)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenant := gatewaySnapshot(2)
+	if err = cache.Install("tenant-a", tenant); err != nil {
+		t.Fatal(err)
+	}
+	instance := gatewaySnapshot(3)
+	instance.ConfigId = "instance-config"
+	instance.ApiGateway.RateLimitRequests = 1
+	instance.ResolvedScopes = append(instance.ResolvedScopes, &configurationv1.ConfigurationScope{
+		Type:      configurationv1.ConfigurationScopeType_CONFIGURATION_SCOPE_TYPE_APPROVED_INSTANCE_OVERRIDE,
+		Reference: "instance-1",
+	})
+	if err = cache.InstallInstance("tenant-a", "instance-1", instance); err != nil {
+		t.Fatal(err)
+	}
+	tenantLoaded, _ := cache.Get("tenant-a")
+	instanceLoaded, _ := cache.GetForInstance("tenant-a", "instance-1")
+	if tenantLoaded.GetConfigId() != tenant.GetConfigId() ||
+		instanceLoaded.GetConfigId() != "instance-config" {
+		t.Fatalf("instance override contaminated tenant cache: tenant=%s instance=%s", tenantLoaded.GetConfigId(), instanceLoaded.GetConfigId())
+	}
+}
+
 func gatewaySnapshot(ordinal uint64) *configurationv1.ResolvedConfigurationSnapshot {
 	return &configurationv1.ResolvedConfigurationSnapshot{
 		ConfigId: "config-a", ConfigVersion: "config-v1", PolicyVersion: "policy-v1",

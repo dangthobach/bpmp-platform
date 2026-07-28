@@ -38,9 +38,18 @@ No service reads the configuration database directly.
    disable auto commit, validate publication metadata, resolve over mTLS, reject
    stale ordinals or hash mismatches, atomically replace an immutable snapshot,
    and only then commit the record.
-9. API Gateway reads tenant rate limits and request/response bounds from the
-   cache. Human Runtime reads projection batch, escalation batch/lease/retry/
-   poll and Engine command timeout from the cache.
+9. API Gateway reads tenant rate limits, request/response bounds, total upstream
+   deadline, bounded retry/backoff, circuit threshold/open interval, bulkhead,
+   UI batch controls and encryption key scope from the cache. There is no
+   reliability interceptor or tenant key-scope map in bootstrap configuration.
+10. Human Runtime reads projection/escalation worker controls, Engine command
+    timeout, retry/backoff/multiplier and retryable codes, circuit threshold and
+    open interval, assignment claim bound, durable delegation-depth bound and
+    query page bounds from the cache. Reliability changes apply per gRPC call
+    without restarting the process.
+11. Approved instance publications resolve with `instance_id` and install into
+    an instance cache entry. They never replace the tenant snapshot. A workflow
+    start uses the scoped policy after its bounded body has been decoded.
 
 Profiles contain complete policies. Resolution selects the most specific
 matching published profile in this order:
@@ -90,10 +99,10 @@ by Configuration Service. Remaining work is:
 
 - create the real Projection and Governance deployable composition roots, then
   connect their typed snapshots to owned stores and safe lifecycle boundaries;
-- apply the remaining API Gateway circuit-breaker/bulkhead and batch controls,
-  plus Human Runtime assignment/delegation bounds, at safe runtime boundaries;
-- handle approved-instance overrides through an instance-scoped cache rather
-  than replacing a workflow-wide registry entry;
+- expose browser-safe batch controls from the resolved Gateway snapshot instead
+  of Cockpit deployment JSON;
+- add workflow type/version scoped cache keys for non-Engine consumers when
+  those request paths carry both dimensions;
 - expose retire/restore lifecycle and diff query;
 - add PostgreSQL query-plan gates and crash injection around every resolver,
   cache-install and offset-commit boundary.

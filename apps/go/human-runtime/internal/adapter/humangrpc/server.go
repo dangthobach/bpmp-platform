@@ -20,14 +20,15 @@ type Server struct {
 	service  *application.Service
 	query    application.QueryPort
 	verifier application.ActorVerifier
+	policy   application.RuntimePolicyProvider
 	now      func() time.Time
 }
 
-func New(service *application.Service, query application.QueryPort, verifier application.ActorVerifier, now func() time.Time) (*Server, error) {
-	if service == nil || query == nil || verifier == nil || now == nil {
-		return nil, errors.New("service, query, verifier, and clock are required")
+func New(service *application.Service, query application.QueryPort, verifier application.ActorVerifier, policy application.RuntimePolicyProvider, now func() time.Time) (*Server, error) {
+	if service == nil || query == nil || verifier == nil || policy == nil || now == nil {
+		return nil, errors.New("service, query, verifier, policy, and clock are required")
 	}
-	return &Server{service: service, query: query, verifier: verifier, now: now}, nil
+	return &Server{service: service, query: query, verifier: verifier, policy: policy, now: now}, nil
 }
 
 func (s *Server) GetWorkItem(ctx context.Context, r *humanv1.GetWorkItemRequest) (*humanv1.GetWorkItemResponse, error) {
@@ -54,10 +55,21 @@ func (s *Server) ListWorkItems(ctx context.Context, r *humanv1.ListWorkItemsRequ
 		return nil, status.Error(codes.InvalidArgument, "invalid page token")
 	}
 	groups := make([]string, 0, len(identity.Groups))
+	policy, err := s.policy.Policy()
+	if err != nil {
+		return nil, status.Error(codes.Unavailable, "runtime policy unavailable")
+	}
+	if uint32(len(identity.Groups)) > policy.MaxAssignmentCandidates {
+		return nil, status.Error(codes.ResourceExhausted, "assignment candidate limit exceeded")
+	}
+	pageSize, err := application.NormalizePageSize(int(r.GetPageSize()), policy)
+	if err != nil {
+		return nil, status.Error(codes.Unavailable, "runtime policy invalid")
+	}
 	for group := range identity.Groups {
 		groups = append(groups, group)
 	}
-	items, next, err := s.query.ListWorkItems(ctx, r.GetTenantId(), identity.ActorID, groups, int(r.GetPageSize()), cursor)
+	items, next, err := s.query.ListWorkItems(ctx, r.GetTenantId(), identity.ActorID, groups, pageSize, cursor)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "query work items")
 	}
@@ -129,7 +141,15 @@ func (s *Server) ListAuditRecords(ctx context.Context, r *humanv1.ListAuditRecor
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid audit page token")
 	}
-	records, next, err := s.query.ListAuditRecords(ctx, r.GetTenantId(), r.GetWorkItemId(), r.GetCaseId(), int(r.GetPageSize()), cursor)
+	policy, err := s.policy.Policy()
+	if err != nil {
+		return nil, status.Error(codes.Unavailable, "runtime policy unavailable")
+	}
+	pageSize, err := application.NormalizePageSize(int(r.GetPageSize()), policy)
+	if err != nil {
+		return nil, status.Error(codes.Unavailable, "runtime policy invalid")
+	}
+	records, next, err := s.query.ListAuditRecords(ctx, r.GetTenantId(), r.GetWorkItemId(), r.GetCaseId(), pageSize, cursor)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "query audit records")
 	}
@@ -176,7 +196,7 @@ func toProtoWorkItem(w domain.WorkItem) *humanv1.WorkItem {
 	if w.SLADeadline != nil {
 		deadline = uint64(w.SLADeadline.UnixMilli())
 	}
-	return &humanv1.WorkItem{TenantId: w.TenantID, WorkItemId: w.ID, InstanceId: w.InstanceID, WorkflowType: w.WorkflowType, WorkflowVersion: w.WorkflowVersion, NodeId: w.NodeID, TaskType: w.TaskType, AssigneeId: w.Assignment.AssigneeID, CandidateGroup: w.Assignment.CandidateGroup, FormKey: w.FormKey, Status: string(w.Status), Decision: w.Decision, SlaDeadlineEpochMs: deadline, Version: w.Version}
+	return &humanv1.WorkItem{TenantId: w.TenantID, WorkItemId: w.ID, InstanceId: w.InstanceID, WorkflowType: w.WorkflowType, WorkflowVersion: w.WorkflowVersion, NodeId: w.NodeID, TaskType: w.TaskType, AssigneeId: w.Assignment.AssigneeID, CandidateGroup: w.Assignment.CandidateGroup, FormKey: w.FormKey, Status: string(w.Status), Decision: w.Decision, SlaDeadlineEpochMs: deadline, Version: w.Version, DelegationDepth: w.DelegationDepth}
 }
 func mapError(err error) error {
 	switch {
@@ -188,6 +208,8 @@ func mapError(err error) error {
 		return status.Error(codes.Aborted, err.Error())
 	case errors.Is(err, application.ErrIdempotencyConflict):
 		return status.Error(codes.AlreadyExists, err.Error())
+	case errors.Is(err, application.ErrPolicyLimit):
+		return status.Error(codes.ResourceExhausted, err.Error())
 	default:
 		return status.Error(codes.FailedPrecondition, err.Error())
 	}

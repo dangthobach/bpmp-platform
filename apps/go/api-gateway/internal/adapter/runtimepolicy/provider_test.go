@@ -30,6 +30,11 @@ func TestProviderMapsTenantSnapshot(t *testing.T) {
 			CircuitBreakerOpenMs: 1000, BulkheadMaxConcurrency: 20,
 			MaxRequestBodyBytes: 4096, MaxUpstreamResponseBytes: 8192,
 			BatchChunkSize: 10, BatchConcurrency: 2,
+			UpstreamRetry: &configurationv1.RetryPolicy{
+				MaxAttempts: 3, InitialBackoffMs: 25, MaxBackoffMs: 250,
+				MultiplierMillis: 2000,
+			},
+			EncryptionKeyScope: "tenant-a/workflows",
 		},
 	}
 	if err = cache.Install("tenant-a", snapshot); err != nil {
@@ -45,8 +50,16 @@ func TestProviderMapsTenantSnapshot(t *testing.T) {
 	}
 	if policy.RateLimitRequests != 50 ||
 		policy.RateLimitWindow != 2500*time.Millisecond ||
+		policy.UpstreamTimeout != 3*time.Second ||
+		policy.CircuitBreakerFailureThreshold != 5 ||
+		policy.CircuitBreakerOpen != time.Second ||
+		policy.BulkheadMaxConcurrency != 20 ||
 		policy.MaxRequestBodyBytes != 4096 ||
-		policy.MaxUpstreamResponseBytes != 8192 {
+		policy.MaxUpstreamResponseBytes != 8192 ||
+		policy.BatchChunkSize != 10 ||
+		policy.BatchConcurrency != 2 ||
+		policy.UpstreamRetry.MaxAttempts != 3 ||
+		policy.EncryptionKeyScope != "tenant-a/workflows" {
 		t.Fatalf("unexpected mapped policy: %+v", policy)
 	}
 }

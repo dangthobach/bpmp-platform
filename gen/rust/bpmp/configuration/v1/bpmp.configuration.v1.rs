@@ -89,7 +89,7 @@ pub struct LocalWasmPolicy {
     #[prost(uint64, tag="10")]
     pub fuel: u64,
 }
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ApiGatewayPolicy {
     #[prost(uint32, tag="1")]
     pub rate_limit_requests: u32,
@@ -111,8 +111,12 @@ pub struct ApiGatewayPolicy {
     pub batch_chunk_size: u32,
     #[prost(uint32, tag="10")]
     pub batch_concurrency: u32,
+    #[prost(message, optional, tag="11")]
+    pub upstream_retry: ::core::option::Option<RetryPolicy>,
+    #[prost(string, tag="12")]
+    pub encryption_key_scope: ::prost::alloc::string::String,
 }
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct HumanRuntimePolicy {
     #[prost(uint32, tag="1")]
     pub projection_batch_size: u32,
@@ -130,6 +134,18 @@ pub struct HumanRuntimePolicy {
     pub max_assignment_candidates: u32,
     #[prost(uint32, tag="8")]
     pub max_delegation_depth: u32,
+    #[prost(uint32, tag="9")]
+    pub query_default_page_size: u32,
+    #[prost(uint32, tag="10")]
+    pub query_max_page_size: u32,
+    #[prost(message, optional, tag="11")]
+    pub engine_retry: ::core::option::Option<RetryPolicy>,
+    #[prost(uint32, tag="12")]
+    pub engine_circuit_breaker_failure_threshold: u32,
+    #[prost(uint64, tag="13")]
+    pub engine_circuit_breaker_open_ms: u64,
+    #[prost(string, repeated, tag="14")]
+    pub engine_retryable_codes: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ProjectionPolicy {

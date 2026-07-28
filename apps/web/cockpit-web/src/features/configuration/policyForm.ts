@@ -56,7 +56,12 @@ const boundedContextFields: Record<Exclude<ConfigurationOwner, "ENGINE">, readon
     ["max_upstream_response_bytes", "Max response bytes"],
     ["batch_chunk_size", "Batch chunk size"],
     ["batch_concurrency", "Batch concurrency"],
-  ].map((entry) => ({ key: entry[0]!, label: entry[1]!, group: "API Gateway", integer: true })),
+    ["upstream_retry.max_attempts", "Upstream retry attempts"],
+    ["upstream_retry.initial_backoff_ms", "Initial retry backoff (ms)"],
+    ["upstream_retry.max_backoff_ms", "Max retry backoff (ms)"],
+    ["upstream_retry.multiplier_millis", "Retry multiplier"],
+  ].map<PolicyField>((entry) => ({ key: entry[0]!, label: entry[1]!, group: "API Gateway", integer: true }))
+    .concat([{ key: "encryption_key_scope", label: "Encryption key scope", group: "API Gateway", integer: false }]),
   HUMAN_RUNTIME: [
     ["projection_batch_size", "Projection batch size"],
     ["escalation_batch_size", "Escalation batch size"],
@@ -66,7 +71,21 @@ const boundedContextFields: Record<Exclude<ConfigurationOwner, "ENGINE">, readon
     ["engine_command_timeout_ms", "Engine command timeout (ms)"],
     ["max_assignment_candidates", "Assignment candidates"],
     ["max_delegation_depth", "Delegation depth"],
-  ].map((entry) => ({ key: entry[0]!, label: entry[1]!, group: "Human Runtime", integer: true })),
+    ["query_default_page_size", "Default page size"],
+    ["query_max_page_size", "Max page size"],
+    ["engine_retry.max_attempts", "Engine retry attempts"],
+    ["engine_retry.initial_backoff_ms", "Engine initial backoff (ms)"],
+    ["engine_retry.max_backoff_ms", "Engine max backoff (ms)"],
+    ["engine_retry.multiplier_millis", "Engine retry multiplier"],
+    ["engine_circuit_breaker_failure_threshold", "Engine circuit threshold"],
+    ["engine_circuit_breaker_open_ms", "Engine circuit open (ms)"],
+  ].map<PolicyField>((entry) => ({ key: entry[0]!, label: entry[1]!, group: "Human Runtime", integer: true }))
+    .concat([{
+      key: "engine_retryable_codes",
+      label: "Engine retryable codes",
+      group: "Human Runtime",
+      integer: false,
+    }]),
   PROJECTION: [
     ["consume_batch_size", "Consume batch size"],
     ["rebuild_batch_size", "Rebuild batch size"],
@@ -111,10 +130,13 @@ export function buildPolicy(form: PolicyForm, owner: ConfigurationOwner = "ENGIN
   };
   const text = (key: string) => form[key]!.trim();
   if (owner !== "ENGINE") {
-    const flat = Object.fromEntries(fields.map(({ key }) => [key, positive(key)]));
+    const flat = Object.fromEntries(fields.map(({ key, integer }) => [
+      key,
+      integer === false ? text(key) : positive(key),
+    ]));
     const value = (key: string) => {
       const result = flat[key];
-      if (result === undefined) throw new Error(`${key} is required`);
+      if (typeof result !== "number") throw new Error(`${key} is required`);
       return result;
     };
     if (owner === "API_GATEWAY" && value("batch_concurrency") > value("batch_chunk_size")) {
@@ -122,6 +144,24 @@ export function buildPolicy(form: PolicyForm, owner: ConfigurationOwner = "ENGIN
     }
     if (owner === "PROJECTION" && value("query_max_page_size") < value("query_default_page_size")) {
       throw new Error("Max page size cannot be less than default page size");
+    }
+    if (owner === "HUMAN_RUNTIME" && value("query_max_page_size") < value("query_default_page_size")) {
+      throw new Error("Max page size cannot be less than default page size");
+    }
+    if (owner === "API_GATEWAY") {
+      if (value("upstream_retry.max_backoff_ms") < value("upstream_retry.initial_backoff_ms")) {
+        throw new Error("Upstream max backoff cannot be less than initial backoff");
+      }
+      if (value("upstream_retry.multiplier_millis") < 1000) {
+        throw new Error("Upstream retry multiplier must be at least 1000");
+      }
+      const upstreamRetry = Object.fromEntries(Object.entries(flat)
+        .filter(([key]) => key.startsWith("upstream_retry."))
+        .map(([key, entry]) => [key.slice(15), entry]));
+      return {
+        ...Object.fromEntries(Object.entries(flat).filter(([key]) => !key.startsWith("upstream_retry."))),
+        upstream_retry: upstreamRetry,
+      };
     }
     if (owner === "GOVERNANCE") {
       if (value("kms_retry.max_backoff_ms") < value("kms_retry.initial_backoff_ms")) {
@@ -136,6 +176,28 @@ export function buildPolicy(form: PolicyForm, owner: ConfigurationOwner = "ENGIN
       return {
         ...Object.fromEntries(Object.entries(flat).filter(([key]) => !key.startsWith("kms_retry."))),
         kms_retry: kmsRetry,
+      };
+    }
+    if (owner === "HUMAN_RUNTIME") {
+      if (value("engine_retry.max_backoff_ms") < value("engine_retry.initial_backoff_ms")) {
+        throw new Error("Engine max backoff cannot be less than initial backoff");
+      }
+      if (value("engine_retry.multiplier_millis") < 1000) {
+        throw new Error("Engine retry multiplier must be at least 1000");
+      }
+      const retryableCodes = text("engine_retryable_codes")
+        .split(",")
+        .map((code) => code.trim())
+        .filter(Boolean);
+      if (retryableCodes.length === 0) throw new Error("At least one engine retryable code is required");
+      const engineRetry = Object.fromEntries(Object.entries(flat)
+        .filter(([key]) => key.startsWith("engine_retry."))
+        .map(([key, entry]) => [key.slice(13), entry]));
+      return {
+        ...Object.fromEntries(Object.entries(flat).filter(([key]) =>
+          !key.startsWith("engine_retry.") && key !== "engine_retryable_codes")),
+        engine_retry: engineRetry,
+        engine_retryable_codes: retryableCodes,
       };
     }
     return flat;
@@ -181,11 +243,19 @@ export function policyToForm(
   const form = emptyPolicyForm(owner);
   if (owner !== "ENGINE") {
     const kmsRetry = record(policy.kms_retry);
+    const upstreamRetry = record(policy.upstream_retry);
+    const engineRetry = record(policy.engine_retry);
     for (const field of policyFieldsFor(owner)) {
       const value = field.key.startsWith("kms_retry.")
         ? kmsRetry[field.key.slice(10)]
-        : policy[field.key];
-      form[field.key] = value === undefined || value === null ? "" : String(value);
+        : field.key.startsWith("upstream_retry.")
+          ? upstreamRetry[field.key.slice(15)]
+          : field.key.startsWith("engine_retry.")
+            ? engineRetry[field.key.slice(13)]
+            : policy[field.key];
+      form[field.key] = Array.isArray(value)
+        ? value.join(", ")
+        : value === undefined || value === null ? "" : String(value);
     }
     return form;
   }

@@ -12,22 +12,20 @@ import (
 )
 
 type Config struct {
-	ListenAddress    string            `json:"listen_address"`
-	EngineAddress    string            `json:"engine_address"`
-	HumanAddress     string            `json:"human_address"`
-	ConfigurationURL string            `json:"configuration_url"`
-	PublicTLS        PublicTLS         `json:"public_tls"`
-	UpstreamTLS      UpstreamTLS       `json:"upstream_tls"`
-	Identity         Identity          `json:"identity"`
-	Workload         Workload          `json:"workload"`
-	RateLimit        RateLimit         `json:"rate_limit"`
-	HTTP             HTTP              `json:"http"`
-	GRPC             GRPC              `json:"grpc"`
-	Reliability      Reliability       `json:"reliability"`
-	Health           Health            `json:"health"`
-	Telemetry        Telemetry         `json:"telemetry"`
-	TenantKeyScopes  map[string]string `json:"tenant_key_scopes"`
-	RuntimeConfig    RuntimeConfig     `json:"runtime_configuration"`
+	ListenAddress    string        `json:"listen_address"`
+	EngineAddress    string        `json:"engine_address"`
+	HumanAddress     string        `json:"human_address"`
+	ConfigurationURL string        `json:"configuration_url"`
+	PublicTLS        PublicTLS     `json:"public_tls"`
+	UpstreamTLS      UpstreamTLS   `json:"upstream_tls"`
+	Identity         Identity      `json:"identity"`
+	Workload         Workload      `json:"workload"`
+	RateLimit        RateLimit     `json:"rate_limit"`
+	HTTP             HTTP          `json:"http"`
+	GRPC             GRPC          `json:"grpc"`
+	Health           Health        `json:"health"`
+	Telemetry        Telemetry     `json:"telemetry"`
+	RuntimeConfig    RuntimeConfig `json:"runtime_configuration"`
 }
 
 type PublicTLS struct {
@@ -66,26 +64,15 @@ type RateLimit struct {
 	OperationTimeoutMS int64  `json:"operation_timeout_ms"`
 }
 type HTTP struct {
-	ReadHeaderTimeoutMS      int64 `json:"read_header_timeout_ms"`
-	ReadTimeoutMS            int64 `json:"read_timeout_ms"`
-	WriteTimeoutMS           int64 `json:"write_timeout_ms"`
-	IdleTimeoutMS            int64 `json:"idle_timeout_ms"`
-	ShutdownTimeoutMS        int64 `json:"shutdown_timeout_ms"`
-	MaxBodyBytes             int64 `json:"max_body_bytes"`
-	MaxUpstreamResponseBytes int64 `json:"max_upstream_response_bytes"`
+	ReadHeaderTimeoutMS int64 `json:"read_header_timeout_ms"`
+	ReadTimeoutMS       int64 `json:"read_timeout_ms"`
+	WriteTimeoutMS      int64 `json:"write_timeout_ms"`
+	IdleTimeoutMS       int64 `json:"idle_timeout_ms"`
+	ShutdownTimeoutMS   int64 `json:"shutdown_timeout_ms"`
 }
 type GRPC struct {
 	MaxReceiveBytes int `json:"max_receive_bytes"`
 	MaxSendBytes    int `json:"max_send_bytes"`
-}
-type Reliability struct {
-	MaxAttempts      uint32   `json:"max_attempts"`
-	InitialBackoffMS int64    `json:"initial_backoff_ms"`
-	MaxBackoffMS     int64    `json:"max_backoff_ms"`
-	AttemptTimeoutMS int64    `json:"attempt_timeout_ms"`
-	FailureThreshold uint32   `json:"failure_threshold"`
-	OpenDurationMS   int64    `json:"open_duration_ms"`
-	RetryableCodes   []string `json:"retryable_codes"`
 }
 type Health struct {
 	ReadinessTimeoutMS int64 `json:"readiness_timeout_ms"`
@@ -102,6 +89,8 @@ type RuntimeConfig struct {
 	ResolverAddress      string               `json:"resolver_address"`
 	PlatformReference    string               `json:"platform_reference"`
 	EnvironmentReference string               `json:"environment_reference"`
+	InitialTenantIDs     []string             `json:"initial_tenant_ids"`
+	ResolveTimeoutMS     int64                `json:"resolve_timeout_ms"`
 	Kafka                kafkaconfig.Consumer `json:"kafka"`
 }
 
@@ -128,12 +117,14 @@ func (c Config) Validate() error {
 		c.Identity.JWKSPath == "" || len(c.Identity.Issuers) == 0 ||
 		len(c.Identity.Audiences) == 0 || len(c.Identity.Algorithms) == 0 ||
 		c.Workload.ID == "" || c.Workload.SigningKeyID == "" ||
-		c.Workload.PrivateKeyPath == "" || len(c.TenantKeyScopes) == 0 {
+		c.Workload.PrivateKeyPath == "" {
 		return errors.New("api-gateway configuration is incomplete")
 	}
 	if c.RuntimeConfig.ResolverAddress == "" ||
 		c.RuntimeConfig.PlatformReference == "" ||
 		c.RuntimeConfig.EnvironmentReference == "" ||
+		len(c.RuntimeConfig.InitialTenantIDs) == 0 ||
+		c.RuntimeConfig.ResolveTimeoutMS <= 0 ||
 		c.RuntimeConfig.Kafka.Validate() != nil {
 		return errors.New("api-gateway runtime configuration is invalid")
 	}
@@ -145,26 +136,18 @@ func (c Config) Validate() error {
 		c.RateLimit.RedisKeyPrefix == "" || c.RateLimit.OperationTimeoutMS <= 0 ||
 		c.HTTP.ReadHeaderTimeoutMS <= 0 || c.HTTP.ReadTimeoutMS <= 0 ||
 		c.HTTP.WriteTimeoutMS <= 0 || c.HTTP.IdleTimeoutMS <= 0 ||
-		c.HTTP.ShutdownTimeoutMS <= 0 || c.HTTP.MaxBodyBytes <= 0 ||
-		c.HTTP.MaxUpstreamResponseBytes <= 0 ||
+		c.HTTP.ShutdownTimeoutMS <= 0 ||
 		c.GRPC.MaxReceiveBytes <= 0 || c.GRPC.MaxSendBytes <= 0 {
 		return errors.New("api-gateway bounds must be positive")
 	}
-	if c.Reliability.MaxAttempts == 0 ||
-		c.Reliability.InitialBackoffMS <= 0 ||
-		c.Reliability.MaxBackoffMS < c.Reliability.InitialBackoffMS ||
-		c.Reliability.AttemptTimeoutMS <= 0 ||
-		c.Reliability.FailureThreshold == 0 ||
-		c.Reliability.OpenDurationMS <= 0 ||
-		len(c.Reliability.RetryableCodes) == 0 ||
-		c.Health.ReadinessTimeoutMS <= 0 ||
+	if c.Health.ReadinessTimeoutMS <= 0 ||
 		c.Telemetry.ServiceName == "" ||
 		c.Telemetry.ServiceVersion == "" ||
 		c.Telemetry.Endpoint == "" ||
 		c.Telemetry.SampleRatio < 0 ||
 		c.Telemetry.SampleRatio > 1 ||
 		c.Telemetry.ExportTimeoutMS <= 0 {
-		return errors.New("api-gateway reliability and health configuration is invalid")
+		return errors.New("api-gateway health and telemetry configuration is invalid")
 	}
 	return nil
 }
@@ -182,4 +165,7 @@ func (c Health) ReadinessTimeout() time.Duration {
 }
 func (c Telemetry) ExportTimeout() time.Duration {
 	return time.Duration(c.ExportTimeoutMS) * time.Millisecond
+}
+func (c RuntimeConfig) ResolveTimeout() time.Duration {
+	return time.Duration(c.ResolveTimeoutMS) * time.Millisecond
 }

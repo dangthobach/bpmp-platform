@@ -44,6 +44,7 @@ func testConfig() Config {
 		MaxAttempts:      3,
 		InitialBackoff:   time.Millisecond,
 		MaxBackoff:       2 * time.Millisecond,
+		MultiplierMillis: 2000,
 		AttemptTimeout:   time.Second,
 		FailureThreshold: 2,
 		OpenDuration:     time.Minute,
@@ -58,16 +59,35 @@ func TestCircuitThresholdProperty(t *testing.T) {
 		failures := uint32(rawFailures % 16)
 		config := testConfig()
 		config.FailureThreshold = threshold
-		breaker := circuitBreaker{config: config}
+		breaker := circuitBreaker{}
 		now := time.Unix(1_000, 0)
 		for range failures {
-			breaker.recordFailure(now)
+			breaker.recordFailure(now, threshold)
 		}
-		allowed := breaker.allow(now)
+		allowed := breaker.allow(now, config.OpenDuration)
 		return allowed == (failures < threshold)
 	}
 	if err := quick.Check(property, &quick.Config{MaxCount: 256}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDynamicInterceptorUsesLatestPolicy(t *testing.T) {
+	config := testConfig()
+	interceptor, err := DynamicUnaryClientInterceptor(func() (Config, error) {
+		return config, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.MaxAttempts = 1
+	attempts := 0
+	err = interceptor(context.Background(), "/test", nil, nil, nil, func(context.Context, string, any, any, *grpc.ClientConn, ...grpc.CallOption) error {
+		attempts++
+		return status.Error(codes.Unavailable, "retry")
+	})
+	if status.Code(err) != codes.Unavailable || attempts != 1 {
+		t.Fatalf("latest retry policy was not used: attempts=%d error=%v", attempts, err)
 	}
 }
 

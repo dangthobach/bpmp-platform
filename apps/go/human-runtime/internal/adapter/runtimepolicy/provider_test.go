@@ -29,6 +29,13 @@ func TestProviderMapsTenantSnapshot(t *testing.T) {
 			EscalationLeaseMs: 5000, EscalationRetryMs: 1000,
 			EscalationPollMs: 250, EngineCommandTimeoutMs: 3000,
 			MaxAssignmentCandidates: 100, MaxDelegationDepth: 8,
+			QueryDefaultPageSize: 50, QueryMaxPageSize: 200,
+			EngineRetry: &configurationv1.RetryPolicy{
+				MaxAttempts: 3, InitialBackoffMs: 25, MaxBackoffMs: 250, MultiplierMillis: 2000,
+			},
+			EngineCircuitBreakerFailureThreshold: 5,
+			EngineCircuitBreakerOpenMs:           1000,
+			EngineRetryableCodes:                 []string{"UNAVAILABLE", "DEADLINE_EXCEEDED"},
 		},
 	}
 	if err = cache.Install("tenant-a", snapshot); err != nil {
@@ -47,7 +54,15 @@ func TestProviderMapsTenantSnapshot(t *testing.T) {
 		policy.EscalationLease != 5*time.Second ||
 		policy.EscalationPoll != 250*time.Millisecond ||
 		policy.EngineCommandTimeout != 3*time.Second ||
-		policy.MaxDelegationDepth != 8 {
+		policy.MaxAssignmentCandidates != 100 ||
+		policy.MaxDelegationDepth != 8 ||
+		policy.QueryDefaultPageSize != 50 ||
+		policy.QueryMaxPageSize != 200 ||
+		policy.EngineRetry.MaxAttempts != 3 ||
+		policy.EngineRetry.InitialBackoff != 25*time.Millisecond ||
+		policy.EngineCircuitThreshold != 5 ||
+		policy.EngineCircuitOpen != time.Second ||
+		len(policy.EngineRetryableCodes) != 2 {
 		t.Fatalf("unexpected mapped policy: %+v", policy)
 	}
 }

@@ -116,6 +116,8 @@ pub struct WorkItem {
     pub sla_deadline_epoch_ms: u64,
     #[prost(int64, tag="14")]
     pub version: i64,
+    #[prost(uint32, tag="15")]
+    pub delegation_depth: u32,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct GetCaseRequest {

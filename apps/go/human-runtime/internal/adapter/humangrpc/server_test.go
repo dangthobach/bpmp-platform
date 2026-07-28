@@ -16,6 +16,15 @@ import (
 
 type testQuery struct{ item domain.WorkItem }
 
+var testPolicy = application.RuntimePolicyProviderFunc(func() (application.RuntimePolicy, error) {
+	return application.RuntimePolicy{
+		MaxAssignmentCandidates: 16,
+		MaxDelegationDepth:      3,
+		QueryDefaultPageSize:    50,
+		QueryMaxPageSize:        200,
+	}, nil
+})
+
 func (q testQuery) GetWorkItem(context.Context, string, string) (domain.WorkItem, error) {
 	return q.item, nil
 }
@@ -93,9 +102,9 @@ func TestGetWorkItemRejectsUnassignedActor(t *testing.T) {
 	item := domain.WorkItem{TenantID: "tenant-a", ID: "work-1", Status: domain.WorkItemActive, Assignment: domain.Assignment{AssigneeID: "alice"}}
 	store := &testStore{item: item}
 	engine := &testEngine{}
-	service, _ := application.NewService(store, engine)
+	service, _ := application.NewService(store, engine, testPolicy)
 	verifier := &testVerifier{actor: application.ActorIdentity{ActorID: "mallory", Groups: map[string]struct{}{}}}
-	server, _ := New(service, testQuery{item: item}, verifier, func() time.Time { return time.Unix(1, 0).UTC() })
+	server, _ := New(service, testQuery{item: item}, verifier, testPolicy, func() time.Time { return time.Unix(1, 0).UTC() })
 	_, err := server.GetWorkItem(context.Background(), &humanv1.GetWorkItemRequest{TenantId: "tenant-a", WorkItemId: "work-1", ActorProof: originalJWT("signed-jwt")})
 	if status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("expected permission denied, got %v", err)
@@ -109,9 +118,9 @@ func TestCompleteForwardsVerifiedOriginalProof(t *testing.T) {
 	item := domain.WorkItem{TenantID: "tenant-a", ID: "work-1", InstanceID: "instance-1", NodeID: "review", Status: domain.WorkItemActive, Assignment: domain.Assignment{AssigneeID: "alice"}, Version: 1}
 	store := &testStore{item: item}
 	engine := &testEngine{}
-	service, _ := application.NewService(store, engine)
+	service, _ := application.NewService(store, engine, testPolicy)
 	verifier := &testVerifier{actor: application.ActorIdentity{ActorID: "alice", Groups: map[string]struct{}{}}}
-	server, _ := New(service, testQuery{item: item}, verifier, func() time.Time { return time.Unix(2, 0).UTC() })
+	server, _ := New(service, testQuery{item: item}, verifier, testPolicy, func() time.Time { return time.Unix(2, 0).UTC() })
 	_, err := server.CompleteWorkItem(context.Background(), &humanv1.CompleteWorkItemRequest{TenantId: "tenant-a", WorkItemId: "work-1", CommandId: "command-1", Decision: "approved", ExpectedVersion: 1, ActorProof: originalJWT("signed-jwt")})
 	if err != nil {
 		t.Fatal(err)
@@ -124,8 +133,8 @@ func TestCompleteForwardsVerifiedOriginalProof(t *testing.T) {
 func TestMissingProofIsUnauthenticated(t *testing.T) {
 	item := domain.WorkItem{Assignment: domain.Assignment{AssigneeID: "alice"}}
 	store := &testStore{item: item}
-	service, _ := application.NewService(store, &testEngine{})
-	server, _ := New(service, testQuery{item: item}, &testVerifier{}, time.Now)
+	service, _ := application.NewService(store, &testEngine{}, testPolicy)
+	server, _ := New(service, testQuery{item: item}, &testVerifier{}, testPolicy, time.Now)
 	_, err := server.GetWorkItem(context.Background(), &humanv1.GetWorkItemRequest{TenantId: "tenant-a", WorkItemId: "work-1"})
 	if status.Code(err) != codes.Unauthenticated {
 		t.Fatalf("expected unauthenticated, got %v", err)
@@ -135,9 +144,9 @@ func TestMissingProofIsUnauthenticated(t *testing.T) {
 func TestAuditQueryRequiresExplicitCapability(t *testing.T) {
 	item := domain.WorkItem{Assignment: domain.Assignment{AssigneeID: "alice"}}
 	store := &testStore{item: item}
-	service, _ := application.NewService(store, &testEngine{})
+	service, _ := application.NewService(store, &testEngine{}, testPolicy)
 	verifier := &testVerifier{actor: application.ActorIdentity{ActorID: "alice", Groups: map[string]struct{}{}}}
-	server, _ := New(service, testQuery{item: item}, verifier, time.Now)
+	server, _ := New(service, testQuery{item: item}, verifier, testPolicy, time.Now)
 	_, err := server.ListAuditRecords(context.Background(), &humanv1.ListAuditRecordsRequest{TenantId: "tenant-a", ActorProof: originalJWT("signed")})
 	if status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("expected permission denied, got %v", err)
