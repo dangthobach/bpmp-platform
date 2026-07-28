@@ -50,6 +50,11 @@ No service reads the configuration database directly.
 11. Approved instance publications resolve with `instance_id` and install into
     an instance cache entry. They never replace the tenant snapshot. A workflow
     start uses the scoped policy after its bounded body has been decoded.
+12. Projection Service installs typed query/projection bounds before committing
+    a configuration Kafka offset. Governance Service installs typed approval,
+    proof, KMS retry, revocation barrier and reconciliation bounds; its Engine
+    commit remains authoritative and its key lifecycle worker starts only after
+    the Raft commit is projected locally.
 
 Profiles contain complete policies. Resolution selects the most specific
 matching published profile in this order:
@@ -93,12 +98,10 @@ than trusting Kafka as a configuration store.
 
 ## Remaining P1 breadth
 
-Engine, API Gateway and Human Runtime runtime consumers are implemented and
-covered by the broker-backed process E2E. All five typed schemas are supported
-by Configuration Service. Remaining work is:
+Engine, API Gateway, Human Runtime, Projection and Governance runtime consumers
+are implemented and covered by the broker-backed process E2E. All five typed
+schemas are supported by Configuration Service. Remaining work is:
 
-- create the real Projection and Governance deployable composition roots, then
-  connect their typed snapshots to owned stores and safe lifecycle boundaries;
 - expose browser-safe batch controls from the resolved Gateway snapshot instead
   of Cockpit deployment JSON;
 - add workflow type/version scoped cache keys for non-Engine consumers when

@@ -20,6 +20,7 @@
         "bpmp.engine.configuration-reloader-node-3.v1.e2e"
       ],
       "human_committed_events": "bpmp.human.committed-events.v1.e2e",
+      "projection_committed_events": "bpmp.projection.committed-events.v1.e2e",
       "api_gateway_configuration_reloader": "bpmp.api-gateway.configuration-reloader.v1.e2e",
       "human_runtime_configuration_reloader": "bpmp.human-runtime.configuration-reloader.v1.e2e",
       "projection_configuration_reloader": "bpmp.projection.configuration-reloader.v1.e2e",
@@ -28,6 +29,8 @@
   },
   "postgres_dsn": "postgres://bpmp:bpmp-e2e@postgres:5432/human_runtime?sslmode=disable",
   "configuration_postgres_dsn": "postgres://bpmp:bpmp-e2e@configuration-postgres:5432/configuration?sslmode=disable",
+  "projection_postgres_dsn": "postgres://bpmp:bpmp-e2e@projection-postgres:5432/projection?sslmode=disable",
+  "governance_postgres_dsn": "postgres://bpmp:bpmp-e2e@governance-postgres:5432/governance?sslmode=disable",
   "redis_address": "redis:6379",
   "otel_endpoint": "otel-collector:4317",
   "runtime_mount": "/runtime",
@@ -38,10 +41,14 @@
   "human_address": "human-runtime:7201",
   "human_listen_address": "0.0.0.0:7201",
   "human_health_address": "0.0.0.0:7202",
+  "projection_listen_address": "0.0.0.0:7401",
+  "projection_health_address": "0.0.0.0:7402",
+  "governance_listen_address": "0.0.0.0:7501",
+  "governance_health_address": "0.0.0.0:7502",
   "gateway_listen_address": "0.0.0.0:8443",
   "configuration_url": "https://configuration-service:7301",
   "configuration_listen_address": "0.0.0.0:7301",
   "configuration_grpc_url": "https://configuration-service:7302",
   "configuration_grpc_listen_address": "0.0.0.0:7302",
-  "tls_dns_names": ["localhost", "engine1", "engine2", "engine3", "human-runtime", "api-gateway", "configuration-service"]
+  "tls_dns_names": ["localhost", "engine1", "engine2", "engine3", "human-runtime", "api-gateway", "configuration-service", "projection-service", "governance-service"]
 }

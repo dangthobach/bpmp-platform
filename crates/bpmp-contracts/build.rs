@@ -3,6 +3,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let protos = [
         format!("{root}/bpmp/configuration/v1/configuration.proto"),
         format!("{root}/bpmp/engine/v1/engine.proto"),
+        format!("{root}/bpmp/governance/v1/governance.proto"),
         format!("{root}/bpmp/raft/v1/raft.proto"),
         format!("{root}/bpmp/storage/v1/storage.proto"),
         format!("{root}/bpmp/wir/v1/wir.proto"),

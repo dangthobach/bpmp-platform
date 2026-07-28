@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package bpmp.projection.v1;
+
+message WorkflowInstanceReadModel {
+  string tenant_id = 1;
+  string instance_id = 2;
+  string workflow_type = 3;
+  string workflow_version = 4;
+  string status = 5;
+  string active_node_id = 6;
+  uint64 last_event_sequence = 7;
+  uint64 started_at_epoch_ms = 8;
+  uint64 updated_at_epoch_ms = 9;
+  uint64 completed_at_epoch_ms = 10;
+  string config_version = 11;
+  string policy_version = 12;
+  bool is_deleted = 13;
+  uint64 version = 14;
+}
+
+message GetWorkflowInstanceRequest {
+  string tenant_id = 1;
+  string instance_id = 2;
+}
+
+message GetWorkflowInstanceResponse {
+  WorkflowInstanceReadModel instance = 1;
+}
+
+message ListWorkflowInstancesRequest {
+  string tenant_id = 1;
+  repeated string statuses = 2;
+  string workflow_type = 3;
+  bool include_deleted = 4;
+  uint32 page_size = 5;
+  string page_token = 6;
+}
+
+message ListWorkflowInstancesResponse {
+  repeated WorkflowInstanceReadModel instances = 1;
+  string next_page_token = 2;
+}
+
+service ProjectionQueryService {
+  rpc GetWorkflowInstance(GetWorkflowInstanceRequest) returns (GetWorkflowInstanceResponse);
+  rpc ListWorkflowInstances(ListWorkflowInstancesRequest) returns (ListWorkflowInstancesResponse);
+}

@@ -30,15 +30,16 @@ use bpmp_engine::{
     BoundaryDispatchCredentialsPort, BoundaryDispatchRequest, BoundaryRuntime,
     BoundaryRuntimeError, ConfigurationLookup, ConfigurationProviderPort,
     EmbeddedAuthorizationProvider, Engine, EngineBoundaryCommandDispatcher,
-    GrpcEngineCommandService, GrpcTransportConfig, LocalTaskActivation,
-    LocalTaskCompletionDispatcherPort, LocalTaskExecutionOutcome, LocalTaskExecutorPort,
-    LocalTaskKind, LocalTaskRetryPolicy, LocalTaskRuntime, LocalTaskRuntimeError,
-    OutboxBoundaryEventSource, OutboxError, OutboxPublisher, OutboxPublisherConfig, OutboxRecord,
-    OutboxStorePort, PublishAcknowledgement, RetryDelayPort, RetryingLocalTaskExecutor,
-    RuntimeConfigurationUpdate, RuntimeRegistry, RuntimeSafePointGate, SafePointCommandHandler,
-    SystemClock, WirLoader, WorkflowDefinitionProviderPort,
-    configuration_publication_matches_scope,
+    GrpcEngineCommandService, GrpcEngineGovernanceService, GrpcTransportConfig,
+    LocalTaskActivation, LocalTaskCompletionDispatcherPort, LocalTaskExecutionOutcome,
+    LocalTaskExecutorPort, LocalTaskKind, LocalTaskRetryPolicy, LocalTaskRuntime,
+    LocalTaskRuntimeError, OutboxBoundaryEventSource, OutboxError, OutboxPublisher,
+    OutboxPublisherConfig, OutboxRecord, OutboxStorePort, PublishAcknowledgement, RetryDelayPort,
+    RetryingLocalTaskExecutor, RuntimeConfigurationUpdate, RuntimeGovernancePolicyUpdate,
+    RuntimeRegistry, RuntimeSafePointGate, SafePointCommandHandler, SystemClock, WirLoader,
+    WorkflowDefinitionProviderPort, configuration_publication_matches_scope,
 };
+use bpmp_governance_domain::GovernancePolicy;
 use bpmp_payload_crypto::{AesGcmPayloadCrypto, CryptoError, DataKeyResolverPort, ResolvedDataKey};
 use bpmp_raft_state_machine::{AuthoritativeStateMachine, StateMachineLimits, TypeConfig};
 use jsonwebtoken::Algorithm;
@@ -62,6 +63,7 @@ use crate::config::{
     BoundaryWorkerConfig, ConfigurationResolverConfig, KafkaConfig, PayloadKeyConfig,
     RuntimeConfig, VerificationKeyConfig, WasmModuleConfig,
 };
+use crate::governance_runtime::AuthoritativeGovernanceHandler;
 use crate::raft_runtime::{
     ForwardingCommandHandler, PeerDirectory, RaftPeer, RaftWorkflowStore, TonicRaftNetworkFactory,
     TonicRaftPeerService,
@@ -147,6 +149,15 @@ pub async fn run(path: PathBuf) -> Result<()> {
         config.grpc.max_decoding_bytes,
         config.grpc.max_encoding_bytes,
     )?);
+    let governance_grpc = GrpcEngineGovernanceService::new(AuthoritativeGovernanceHandler::new(
+        store.clone(),
+        raft_store.clone(),
+        registry.clone(),
+    ))
+    .into_server(
+        config.grpc.max_decoding_bytes,
+        config.grpc.max_encoding_bytes,
+    );
     let peer_grpc = TonicRaftPeerService::new(raft.clone(), local_handler, peer_directory.clone())
         .into_server(
             config.grpc.max_decoding_bytes,
@@ -332,6 +343,7 @@ pub async fn run(path: PathBuf) -> Result<()> {
     let server = Server::builder()
         .tls_config(tls)?
         .add_service(grpc)
+        .add_service(governance_grpc)
         .serve_with_shutdown(config.listen_addr, shutdown());
     tokio::pin!(server);
     let result = if let Some(worker) = configuration_worker.as_mut() {
@@ -663,9 +675,12 @@ async fn reconcile_configuration_event(
     gate: &RuntimeSafePointGate,
 ) -> Result<usize> {
     validate_configuration_event(event)?;
-    if configurationv1::ConfigurationOwner::try_from(event.owner)?
-        != configurationv1::ConfigurationOwner::Engine
-    {
+    let owner = configurationv1::ConfigurationOwner::try_from(event.owner)?;
+    if !matches!(
+        owner,
+        configurationv1::ConfigurationOwner::Engine
+            | configurationv1::ConfigurationOwner::Governance
+    ) {
         return Ok(0);
     }
     let scope = event
@@ -700,7 +715,8 @@ async fn reconcile_configuration_event(
             )
         })
         .collect::<Vec<_>>();
-    let mut updates = Vec::with_capacity(candidates.len());
+    let mut engine_updates = Vec::with_capacity(candidates.len());
+    let mut governance_updates = Vec::with_capacity(candidates.len());
     for candidate in candidates {
         let response = client
             .resolve_configuration(configurationv1::ResolveConfigurationRequest {
@@ -710,7 +726,7 @@ async fn reconcile_configuration_event(
                 platform_reference: resolver.platform_reference.clone(),
                 environment_reference: resolver.environment_reference.clone(),
                 instance_id: String::new(),
-                owner: configurationv1::ConfigurationOwner::Engine as i32,
+                owner: owner as i32,
             })
             .await
             .context("resolve hot configuration snapshot")?
@@ -721,15 +737,40 @@ async fn reconcile_configuration_event(
         if snapshot.config_id == event.profile_id && snapshot.ordinal < event.ordinal {
             anyhow::bail!("configuration resolver returned a stale publication ordinal");
         }
-        updates.push(RuntimeConfigurationUpdate {
-            tenant_id: candidate.tenant_id,
-            workflow_type: candidate.workflow_type,
-            workflow_version: candidate.workflow_version,
-            configuration: configuration_snapshot_from_proto(snapshot)?,
-        });
+        match owner {
+            configurationv1::ConfigurationOwner::Engine => {
+                engine_updates.push(RuntimeConfigurationUpdate {
+                    tenant_id: candidate.tenant_id,
+                    workflow_type: candidate.workflow_type,
+                    workflow_version: candidate.workflow_version,
+                    configuration: configuration_snapshot_from_proto(snapshot)?,
+                });
+            }
+            configurationv1::ConfigurationOwner::Governance => {
+                let (policy, config_version, policy_version) =
+                    governance_policy_from_proto(snapshot)?;
+                governance_updates.push(RuntimeGovernancePolicyUpdate {
+                    tenant_id: candidate.tenant_id,
+                    workflow_type: candidate.workflow_type,
+                    workflow_version: candidate.workflow_version,
+                    policy,
+                    config_version,
+                    policy_version,
+                });
+            }
+            _ => unreachable!("owner was filtered above"),
+        }
     }
-    gate.with_safe_point(|safe_point| registry.replace_configurations(updates, safe_point))?
-        .map_err(Into::into)
+    gate.with_safe_point(|safe_point| match owner {
+        configurationv1::ConfigurationOwner::Engine => {
+            registry.replace_configurations(engine_updates, safe_point)
+        }
+        configurationv1::ConfigurationOwner::Governance => {
+            registry.replace_governance_policies(governance_updates, safe_point)
+        }
+        _ => unreachable!("owner was filtered above"),
+    })?
+    .map_err(Into::into)
 }
 
 fn validate_configuration_event(
@@ -795,6 +836,32 @@ async fn load_runtime_registry(config: &RuntimeConfig) -> Result<RuntimeRegistry
                 .snapshot
                 .context("configuration resolver returned no snapshot")?;
             registry.install(definition, configuration_snapshot_from_proto(snapshot)?)?;
+            let response = client
+                .resolve_configuration(configurationv1::ResolveConfigurationRequest {
+                    tenant_id: tenant_id.as_str().to_owned(),
+                    workflow_type: workflow_type.as_str().to_owned(),
+                    workflow_version: workflow_version.as_str().to_owned(),
+                    platform_reference: resolver.platform_reference.clone(),
+                    environment_reference: resolver.environment_reference.clone(),
+                    instance_id: String::new(),
+                    owner: configurationv1::ConfigurationOwner::Governance as i32,
+                })
+                .await
+                .context("resolve published governance policy")?
+                .into_inner();
+            let governance = response
+                .snapshot
+                .context("configuration resolver returned no governance snapshot")?;
+            let (policy, config_version, policy_version) =
+                governance_policy_from_proto(governance)?;
+            registry.install_governance_policy(RuntimeGovernancePolicyUpdate {
+                tenant_id,
+                workflow_type,
+                workflow_version,
+                policy,
+                config_version,
+                policy_version,
+            })?;
         }
     } else {
         for path in &config.wir.configurations {
@@ -912,6 +979,53 @@ fn configuration_snapshot_from_proto(
         },
     )
     .map_err(Into::into)
+}
+
+fn governance_policy_from_proto(
+    snapshot: configurationv1::ResolvedConfigurationSnapshot,
+) -> Result<(GovernancePolicy, ConfigVersion, PolicyVersion)> {
+    if configurationv1::ConfigurationOwner::try_from(snapshot.owner)?
+        != configurationv1::ConfigurationOwner::Governance
+        || snapshot.ordinal == 0
+    {
+        anyhow::bail!("governance configuration owner or ordinal is invalid");
+    }
+    let governance = snapshot
+        .governance
+        .context("configuration resolver returned no governance policy")?;
+    let approval_public_keys = governance
+        .approval_keys
+        .into_iter()
+        .filter(|key| key.enabled)
+        .map(|key| {
+            let bytes = key
+                .ed25519_public_key
+                .try_into()
+                .map_err(|_| anyhow::anyhow!("governance approval key must contain 32 bytes"))?;
+            if key.key_id.trim().is_empty() {
+                anyhow::bail!("governance approval key id is empty");
+            }
+            Ok((key.key_id, bytes))
+        })
+        .collect::<Result<BTreeMap<_, _>>>()?;
+    let policy = GovernancePolicy {
+        abort_capability: governance.abort_capability,
+        accepted_auth_assurance: governance.accepted_auth_assurance.into_iter().collect(),
+        approval_public_keys,
+        required_approver_count: u16::try_from(governance.required_approver_count)
+            .context("governance approver count exceeds u16")?,
+        max_proof_age_ms: governance.fresh_authentication_max_age_ms,
+        max_approval_ttl_ms: governance.approval_ttl_ms,
+        max_pending_ledger_entries: governance.max_pending_compensations,
+    };
+    policy
+        .validate()
+        .map_err(|error| anyhow::anyhow!("invalid governance policy: {error}"))?;
+    Ok((
+        policy,
+        ConfigVersion::new(snapshot.config_version)?,
+        PolicyVersion::new(snapshot.policy_version)?,
+    ))
 }
 
 fn load_authorization(config: &RuntimeConfig) -> Result<EmbeddedAuthorizationProvider> {

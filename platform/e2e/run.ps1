@@ -169,6 +169,7 @@ try {
 
     $settings = Get-Content $envFile -Raw | ConvertFrom-StringData
     $gatewayPort = $settings.GATEWAY_PORT
+    $governancePort = $settings.GOVERNANCE_PORT
     $token = (Get-Content (Join-Path $runtime "actor.jwt") -Raw).Trim()
     $suffix = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
     $configurationHeaders = @{
@@ -356,11 +357,15 @@ try {
     }
     $gatewayConfiguration = Get-Content (Join-Path $runtime "api-gateway.json") -Raw | ConvertFrom-Json
     $humanConfiguration = Get-Content (Join-Path $runtime "human-runtime.json") -Raw | ConvertFrom-Json
+    $projectionConfiguration = Get-Content (Join-Path $runtime "projection-service.json") -Raw | ConvertFrom-Json
+    $governanceConfiguration = Get-Content (Join-Path $runtime "governance-service.json") -Raw | ConvertFrom-Json
     $consumerGroups = @($engineConfigurations | ForEach-Object {
         $_.kafka.consumer_groups.configuration_reloader
     })
     $consumerGroups += $gatewayConfiguration.runtime_configuration.kafka.consumer_group
     $consumerGroups += $humanConfiguration.runtime_configuration.kafka.consumer_group
+    $consumerGroups += $projectionConfiguration.runtime_configuration.kafka.consumer_group
+    $consumerGroups += $governanceConfiguration.kafka.consumer_group
     $consumerGroups | ForEach-Object {
         Wait-KafkaConsumerGroup -ConsumerGroup $_
     }
@@ -386,6 +391,50 @@ try {
         -Body (@{ instance_id = $instance; workflow_version = "1"; start_node_id = "start" } | ConvertTo-Json -Compress)
     if (-not $duplicate.duplicate -or $duplicate.committed_sequence -ne $start.committed_sequence) {
         throw "idempotent start did not return the original result"
+    }
+
+    $governanceRequestId = "governance-$suffix"
+    $governanceCreatedAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    $governancePayload = @{
+        request_id = $governanceRequestId
+        idempotency_key = "governance-create-idem-$suffix"
+        created_at_epoch_ms = "$governanceCreatedAt"
+        spec = @{
+            tenant_id = "tenant-e2e"
+            instance_id = $instance
+            workflow_type = "approval"
+            workflow_version = "1"
+            policy_id = "abort-and-reconcile-e2e"
+            legal_deadline_epoch_ms = "$($governanceCreatedAt + 3600000)"
+            key_scope = "tenant-e2e/subject-$suffix"
+            key_epoch = "1"
+            reason_code = "E2E_GOVERNANCE_SMOKE"
+        }
+    } | ConvertTo-Json -Depth 4 -Compress
+    $governanceResponseJson = & buf curl `
+        --schema (Join-Path $root "contracts/proto") `
+        --protocol grpc `
+        --cacert (Join-Path $runtime "secrets/ca.pem") `
+        --cert (Join-Path $runtime "secrets/tls.pem") `
+        --key (Join-Path $runtime "secrets/tls-key.pem") `
+        --servername governance-service `
+        -d $governancePayload `
+        "https://localhost:$governancePort/bpmp.governance.v1.GovernanceApprovalService/CreateApproval"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Governance CreateApproval gRPC request failed"
+    }
+    $governanceResponse = $governanceResponseJson | ConvertFrom-Json
+    if (
+        $governanceResponse.approval.requestId -ne $governanceRequestId -or
+        $governanceResponse.approval.status -ne "APPROVAL_REQUEST_STATUS_PENDING" -or
+        -not $governanceResponse.approval.requestDigest
+    ) {
+        throw "Governance CreateApproval returned an invalid durable approval"
+    }
+    $governanceRequestCount = [int](Invoke-Compose exec -T governance-postgres psql -U $settings.POSTGRES_USER -d governance -Atc "SELECT count(*) FROM governance_approval_requests WHERE tenant_id='tenant-e2e' AND request_id='$governanceRequestId'").Trim()
+    $governanceAuditCount = [int](Invoke-Compose exec -T governance-postgres psql -U $settings.POSTGRES_USER -d governance -Atc "SELECT count(*) FROM governance_service_audit WHERE tenant_id='tenant-e2e' AND request_id='$governanceRequestId' AND action='CREATED'").Trim()
+    if ($governanceRequestCount -ne 1 -or $governanceAuditCount -ne 1) {
+        throw "Governance approval or immutable creation audit was not committed"
     }
 
     $workItem = ""
@@ -429,8 +478,22 @@ try {
     if ($inboxCount -lt 2) {
         throw "Kafka consumer inbox does not contain both activation and completion"
     }
+    $projectionStatus = ""
+    $deadline = (Get-Date).AddMinutes(2)
+    do {
+        $projectionStatus = (Invoke-Compose exec -T projection-postgres psql -U $settings.POSTGRES_USER -d projection -Atc "SELECT status FROM workflow_instance_read_models WHERE tenant_id='tenant-e2e' AND instance_id='$instance'").Trim()
+        if ($projectionStatus -eq "COMPLETED") { break }
+        Start-Sleep -Milliseconds 500
+    } while ((Get-Date) -lt $deadline)
+    if ($projectionStatus -ne "COMPLETED") {
+        throw "workflow instance was not projected to the durable query read model"
+    }
+    $projectionInboxCount = [int](Invoke-Compose exec -T projection-postgres psql -U $settings.POSTGRES_USER -d projection -Atc "SELECT count(*) FROM projection_event_inbox WHERE tenant_id='tenant-e2e' AND instance_id='$instance'").Trim()
+    if ($projectionInboxCount -lt 3) {
+        throw "projection inbox does not contain the committed workflow lifecycle"
+    }
 
-    Write-Host "Broker-backed E2E passed with dynamic configuration and leader failover: config=$($configuration.id) instance=$instance work_item=$workItem inbox=$inboxCount"
+    Write-Host "Broker-backed E2E passed with Projection, Governance and leader failover: config=$($configuration.id) governance=$governanceRequestId instance=$instance work_item=$workItem human_inbox=$inboxCount projection_inbox=$projectionInboxCount"
 } finally {
     if (-not $KeepRunning) {
         Invoke-Compose down --volumes --remove-orphans

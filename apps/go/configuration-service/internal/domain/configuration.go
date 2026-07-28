@@ -311,6 +311,20 @@ func validateProjectionPolicy(policy *configurationv1.ProjectionPolicy) error {
 
 func validateGovernancePolicy(policy *configurationv1.GovernancePolicy) error {
 	retry := policy.GetKmsRetry()
+	keyIDs := make(map[string]struct{}, len(policy.GetApprovalKeys()))
+	enabledKeys := 0
+	for _, key := range policy.GetApprovalKeys() {
+		if key.GetKeyId() == "" || len(key.GetEd25519PublicKey()) != 32 {
+			return ErrInvalid
+		}
+		if _, exists := keyIDs[key.GetKeyId()]; exists {
+			return ErrInvalid
+		}
+		keyIDs[key.GetKeyId()] = struct{}{}
+		if key.GetEnabled() {
+			enabledKeys++
+		}
+	}
 	if policy.GetApprovalTtlMs() == 0 ||
 		policy.GetFreshAuthenticationMaxAgeMs() == 0 ||
 		policy.GetKmsRequestTimeoutMs() == 0 ||
@@ -321,8 +335,18 @@ func validateGovernancePolicy(policy *configurationv1.GovernancePolicy) error {
 		policy.GetKeyCacheTtlMs() == 0 ||
 		policy.GetRevocationBarrierTimeoutMs() == 0 ||
 		policy.GetReconciliationBatchSize() == 0 ||
-		policy.GetMaxPendingCompensations() == 0 {
+		policy.GetMaxPendingCompensations() == 0 ||
+		policy.GetAbortCapability() == "" ||
+		len(policy.GetAcceptedAuthAssurance()) == 0 ||
+		len(policy.GetApprovalKeys()) == 0 ||
+		enabledKeys == 0 ||
+		policy.GetRequiredApproverCount() == 0 {
 		return ErrInvalid
+	}
+	for _, assurance := range policy.GetAcceptedAuthAssurance() {
+		if assurance == "" {
+			return ErrInvalid
+		}
 	}
 	return nil
 }

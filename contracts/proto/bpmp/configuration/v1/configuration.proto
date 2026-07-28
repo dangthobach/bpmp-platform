@@ -131,6 +131,16 @@ message GovernancePolicy {
   uint64 revocation_barrier_timeout_ms = 6;
   uint32 reconciliation_batch_size = 7;
   uint32 max_pending_compensations = 8;
+  string abort_capability = 9;
+  repeated string accepted_auth_assurance = 10;
+  repeated GovernanceApprovalKey approval_keys = 11;
+  uint32 required_approver_count = 12;
+}
+
+message GovernanceApprovalKey {
+  string key_id = 1;
+  bytes ed25519_public_key = 2;
+  bool enabled = 3;
 }
 
 message ResolvedConfigurationSnapshot {

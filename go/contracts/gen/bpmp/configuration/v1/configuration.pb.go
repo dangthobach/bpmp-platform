@@ -1039,15 +1039,19 @@ func (x *ProjectionPolicy) GetMaxProjectionLagMs() uint64 {
 }
 
 type GovernancePolicy struct {
-	state                       protoimpl.MessageState `protogen:"open.v1"`
-	ApprovalTtlMs               uint64                 `protobuf:"varint,1,opt,name=approval_ttl_ms,json=approvalTtlMs,proto3" json:"approval_ttl_ms,omitempty"`
-	FreshAuthenticationMaxAgeMs uint64                 `protobuf:"varint,2,opt,name=fresh_authentication_max_age_ms,json=freshAuthenticationMaxAgeMs,proto3" json:"fresh_authentication_max_age_ms,omitempty"`
-	KmsRequestTimeoutMs         uint64                 `protobuf:"varint,3,opt,name=kms_request_timeout_ms,json=kmsRequestTimeoutMs,proto3" json:"kms_request_timeout_ms,omitempty"`
-	KmsRetry                    *RetryPolicy           `protobuf:"bytes,4,opt,name=kms_retry,json=kmsRetry,proto3" json:"kms_retry,omitempty"`
-	KeyCacheTtlMs               uint64                 `protobuf:"varint,5,opt,name=key_cache_ttl_ms,json=keyCacheTtlMs,proto3" json:"key_cache_ttl_ms,omitempty"`
-	RevocationBarrierTimeoutMs  uint64                 `protobuf:"varint,6,opt,name=revocation_barrier_timeout_ms,json=revocationBarrierTimeoutMs,proto3" json:"revocation_barrier_timeout_ms,omitempty"`
-	ReconciliationBatchSize     uint32                 `protobuf:"varint,7,opt,name=reconciliation_batch_size,json=reconciliationBatchSize,proto3" json:"reconciliation_batch_size,omitempty"`
-	MaxPendingCompensations     uint32                 `protobuf:"varint,8,opt,name=max_pending_compensations,json=maxPendingCompensations,proto3" json:"max_pending_compensations,omitempty"`
+	state                       protoimpl.MessageState   `protogen:"open.v1"`
+	ApprovalTtlMs               uint64                   `protobuf:"varint,1,opt,name=approval_ttl_ms,json=approvalTtlMs,proto3" json:"approval_ttl_ms,omitempty"`
+	FreshAuthenticationMaxAgeMs uint64                   `protobuf:"varint,2,opt,name=fresh_authentication_max_age_ms,json=freshAuthenticationMaxAgeMs,proto3" json:"fresh_authentication_max_age_ms,omitempty"`
+	KmsRequestTimeoutMs         uint64                   `protobuf:"varint,3,opt,name=kms_request_timeout_ms,json=kmsRequestTimeoutMs,proto3" json:"kms_request_timeout_ms,omitempty"`
+	KmsRetry                    *RetryPolicy             `protobuf:"bytes,4,opt,name=kms_retry,json=kmsRetry,proto3" json:"kms_retry,omitempty"`
+	KeyCacheTtlMs               uint64                   `protobuf:"varint,5,opt,name=key_cache_ttl_ms,json=keyCacheTtlMs,proto3" json:"key_cache_ttl_ms,omitempty"`
+	RevocationBarrierTimeoutMs  uint64                   `protobuf:"varint,6,opt,name=revocation_barrier_timeout_ms,json=revocationBarrierTimeoutMs,proto3" json:"revocation_barrier_timeout_ms,omitempty"`
+	ReconciliationBatchSize     uint32                   `protobuf:"varint,7,opt,name=reconciliation_batch_size,json=reconciliationBatchSize,proto3" json:"reconciliation_batch_size,omitempty"`
+	MaxPendingCompensations     uint32                   `protobuf:"varint,8,opt,name=max_pending_compensations,json=maxPendingCompensations,proto3" json:"max_pending_compensations,omitempty"`
+	AbortCapability             string                   `protobuf:"bytes,9,opt,name=abort_capability,json=abortCapability,proto3" json:"abort_capability,omitempty"`
+	AcceptedAuthAssurance       []string                 `protobuf:"bytes,10,rep,name=accepted_auth_assurance,json=acceptedAuthAssurance,proto3" json:"accepted_auth_assurance,omitempty"`
+	ApprovalKeys                []*GovernanceApprovalKey `protobuf:"bytes,11,rep,name=approval_keys,json=approvalKeys,proto3" json:"approval_keys,omitempty"`
+	RequiredApproverCount       uint32                   `protobuf:"varint,12,opt,name=required_approver_count,json=requiredApproverCount,proto3" json:"required_approver_count,omitempty"`
 	unknownFields               protoimpl.UnknownFields
 	sizeCache                   protoimpl.SizeCache
 }
@@ -1138,6 +1142,94 @@ func (x *GovernancePolicy) GetMaxPendingCompensations() uint32 {
 	return 0
 }
 
+func (x *GovernancePolicy) GetAbortCapability() string {
+	if x != nil {
+		return x.AbortCapability
+	}
+	return ""
+}
+
+func (x *GovernancePolicy) GetAcceptedAuthAssurance() []string {
+	if x != nil {
+		return x.AcceptedAuthAssurance
+	}
+	return nil
+}
+
+func (x *GovernancePolicy) GetApprovalKeys() []*GovernanceApprovalKey {
+	if x != nil {
+		return x.ApprovalKeys
+	}
+	return nil
+}
+
+func (x *GovernancePolicy) GetRequiredApproverCount() uint32 {
+	if x != nil {
+		return x.RequiredApproverCount
+	}
+	return 0
+}
+
+type GovernanceApprovalKey struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	KeyId            string                 `protobuf:"bytes,1,opt,name=key_id,json=keyId,proto3" json:"key_id,omitempty"`
+	Ed25519PublicKey []byte                 `protobuf:"bytes,2,opt,name=ed25519_public_key,json=ed25519PublicKey,proto3" json:"ed25519_public_key,omitempty"`
+	Enabled          bool                   `protobuf:"varint,3,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *GovernanceApprovalKey) Reset() {
+	*x = GovernanceApprovalKey{}
+	mi := &file_bpmp_configuration_v1_configuration_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GovernanceApprovalKey) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GovernanceApprovalKey) ProtoMessage() {}
+
+func (x *GovernanceApprovalKey) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_configuration_v1_configuration_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GovernanceApprovalKey.ProtoReflect.Descriptor instead.
+func (*GovernanceApprovalKey) Descriptor() ([]byte, []int) {
+	return file_bpmp_configuration_v1_configuration_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *GovernanceApprovalKey) GetKeyId() string {
+	if x != nil {
+		return x.KeyId
+	}
+	return ""
+}
+
+func (x *GovernanceApprovalKey) GetEd25519PublicKey() []byte {
+	if x != nil {
+		return x.Ed25519PublicKey
+	}
+	return nil
+}
+
+func (x *GovernanceApprovalKey) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
 type ResolvedConfigurationSnapshot struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	ConfigId       string                 `protobuf:"bytes,1,opt,name=config_id,json=configId,proto3" json:"config_id,omitempty"`
@@ -1159,7 +1251,7 @@ type ResolvedConfigurationSnapshot struct {
 
 func (x *ResolvedConfigurationSnapshot) Reset() {
 	*x = ResolvedConfigurationSnapshot{}
-	mi := &file_bpmp_configuration_v1_configuration_proto_msgTypes[9]
+	mi := &file_bpmp_configuration_v1_configuration_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1171,7 +1263,7 @@ func (x *ResolvedConfigurationSnapshot) String() string {
 func (*ResolvedConfigurationSnapshot) ProtoMessage() {}
 
 func (x *ResolvedConfigurationSnapshot) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_configuration_v1_configuration_proto_msgTypes[9]
+	mi := &file_bpmp_configuration_v1_configuration_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1184,7 +1276,7 @@ func (x *ResolvedConfigurationSnapshot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolvedConfigurationSnapshot.ProtoReflect.Descriptor instead.
 func (*ResolvedConfigurationSnapshot) Descriptor() ([]byte, []int) {
-	return file_bpmp_configuration_v1_configuration_proto_rawDescGZIP(), []int{9}
+	return file_bpmp_configuration_v1_configuration_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ResolvedConfigurationSnapshot) GetConfigId() string {
@@ -1293,7 +1385,7 @@ type ResolveConfigurationRequest struct {
 
 func (x *ResolveConfigurationRequest) Reset() {
 	*x = ResolveConfigurationRequest{}
-	mi := &file_bpmp_configuration_v1_configuration_proto_msgTypes[10]
+	mi := &file_bpmp_configuration_v1_configuration_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1305,7 +1397,7 @@ func (x *ResolveConfigurationRequest) String() string {
 func (*ResolveConfigurationRequest) ProtoMessage() {}
 
 func (x *ResolveConfigurationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_configuration_v1_configuration_proto_msgTypes[10]
+	mi := &file_bpmp_configuration_v1_configuration_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1318,7 +1410,7 @@ func (x *ResolveConfigurationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveConfigurationRequest.ProtoReflect.Descriptor instead.
 func (*ResolveConfigurationRequest) Descriptor() ([]byte, []int) {
-	return file_bpmp_configuration_v1_configuration_proto_rawDescGZIP(), []int{10}
+	return file_bpmp_configuration_v1_configuration_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ResolveConfigurationRequest) GetTenantId() string {
@@ -1379,7 +1471,7 @@ type ResolveConfigurationResponse struct {
 
 func (x *ResolveConfigurationResponse) Reset() {
 	*x = ResolveConfigurationResponse{}
-	mi := &file_bpmp_configuration_v1_configuration_proto_msgTypes[11]
+	mi := &file_bpmp_configuration_v1_configuration_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1391,7 +1483,7 @@ func (x *ResolveConfigurationResponse) String() string {
 func (*ResolveConfigurationResponse) ProtoMessage() {}
 
 func (x *ResolveConfigurationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_configuration_v1_configuration_proto_msgTypes[11]
+	mi := &file_bpmp_configuration_v1_configuration_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1404,7 +1496,7 @@ func (x *ResolveConfigurationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveConfigurationResponse.ProtoReflect.Descriptor instead.
 func (*ResolveConfigurationResponse) Descriptor() ([]byte, []int) {
-	return file_bpmp_configuration_v1_configuration_proto_rawDescGZIP(), []int{11}
+	return file_bpmp_configuration_v1_configuration_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ResolveConfigurationResponse) GetSnapshot() *ResolvedConfigurationSnapshot {
@@ -1436,7 +1528,7 @@ type ConfigurationPublicationEvent struct {
 
 func (x *ConfigurationPublicationEvent) Reset() {
 	*x = ConfigurationPublicationEvent{}
-	mi := &file_bpmp_configuration_v1_configuration_proto_msgTypes[12]
+	mi := &file_bpmp_configuration_v1_configuration_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1448,7 +1540,7 @@ func (x *ConfigurationPublicationEvent) String() string {
 func (*ConfigurationPublicationEvent) ProtoMessage() {}
 
 func (x *ConfigurationPublicationEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_configuration_v1_configuration_proto_msgTypes[12]
+	mi := &file_bpmp_configuration_v1_configuration_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1461,7 +1553,7 @@ func (x *ConfigurationPublicationEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfigurationPublicationEvent.ProtoReflect.Descriptor instead.
 func (*ConfigurationPublicationEvent) Descriptor() ([]byte, []int) {
-	return file_bpmp_configuration_v1_configuration_proto_rawDescGZIP(), []int{12}
+	return file_bpmp_configuration_v1_configuration_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ConfigurationPublicationEvent) GetSchemaVersion() uint32 {
@@ -1651,7 +1743,7 @@ const file_bpmp_configuration_v1_configuration_proto_rawDesc = "" +
 	"\x13query_max_page_size\x18\x04 \x01(\rR\x10queryMaxPageSize\x12=\n" +
 	"\x1brealtime_publish_batch_size\x18\x05 \x01(\rR\x18realtimePublishBatchSize\x12.\n" +
 	"\x13checkpoint_flush_ms\x18\x06 \x01(\x04R\x11checkpointFlushMs\x121\n" +
-	"\x15max_projection_lag_ms\x18\a \x01(\x04R\x12maxProjectionLagMs\"\xda\x03\n" +
+	"\x15max_projection_lag_ms\x18\a \x01(\x04R\x12maxProjectionLagMs\"\xc8\x05\n" +
 	"\x10GovernancePolicy\x12&\n" +
 	"\x0fapproval_ttl_ms\x18\x01 \x01(\x04R\rapprovalTtlMs\x12D\n" +
 	"\x1ffresh_authentication_max_age_ms\x18\x02 \x01(\x04R\x1bfreshAuthenticationMaxAgeMs\x123\n" +
@@ -1660,7 +1752,16 @@ const file_bpmp_configuration_v1_configuration_proto_rawDesc = "" +
 	"\x10key_cache_ttl_ms\x18\x05 \x01(\x04R\rkeyCacheTtlMs\x12A\n" +
 	"\x1drevocation_barrier_timeout_ms\x18\x06 \x01(\x04R\x1arevocationBarrierTimeoutMs\x12:\n" +
 	"\x19reconciliation_batch_size\x18\a \x01(\rR\x17reconciliationBatchSize\x12:\n" +
-	"\x19max_pending_compensations\x18\b \x01(\rR\x17maxPendingCompensations\"\xec\x05\n" +
+	"\x19max_pending_compensations\x18\b \x01(\rR\x17maxPendingCompensations\x12)\n" +
+	"\x10abort_capability\x18\t \x01(\tR\x0fabortCapability\x126\n" +
+	"\x17accepted_auth_assurance\x18\n" +
+	" \x03(\tR\x15acceptedAuthAssurance\x12Q\n" +
+	"\rapproval_keys\x18\v \x03(\v2,.bpmp.configuration.v1.GovernanceApprovalKeyR\fapprovalKeys\x126\n" +
+	"\x17required_approver_count\x18\f \x01(\rR\x15requiredApproverCount\"v\n" +
+	"\x15GovernanceApprovalKey\x12\x15\n" +
+	"\x06key_id\x18\x01 \x01(\tR\x05keyId\x12,\n" +
+	"\x12ed25519_public_key\x18\x02 \x01(\fR\x10ed25519PublicKey\x12\x18\n" +
+	"\aenabled\x18\x03 \x01(\bR\aenabled\"\xec\x05\n" +
 	"\x1dResolvedConfigurationSnapshot\x12\x1b\n" +
 	"\tconfig_id\x18\x01 \x01(\tR\bconfigId\x12%\n" +
 	"\x0econfig_version\x18\x02 \x01(\tR\rconfigVersion\x12%\n" +
@@ -1746,7 +1847,7 @@ func file_bpmp_configuration_v1_configuration_proto_rawDescGZIP() []byte {
 }
 
 var file_bpmp_configuration_v1_configuration_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_bpmp_configuration_v1_configuration_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_bpmp_configuration_v1_configuration_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_bpmp_configuration_v1_configuration_proto_goTypes = []any{
 	(ConfigurationScopeType)(0),           // 0: bpmp.configuration.v1.ConfigurationScopeType
 	(ConfigurationOwner)(0),               // 1: bpmp.configuration.v1.ConfigurationOwner
@@ -1760,10 +1861,11 @@ var file_bpmp_configuration_v1_configuration_proto_goTypes = []any{
 	(*HumanRuntimePolicy)(nil),            // 9: bpmp.configuration.v1.HumanRuntimePolicy
 	(*ProjectionPolicy)(nil),              // 10: bpmp.configuration.v1.ProjectionPolicy
 	(*GovernancePolicy)(nil),              // 11: bpmp.configuration.v1.GovernancePolicy
-	(*ResolvedConfigurationSnapshot)(nil), // 12: bpmp.configuration.v1.ResolvedConfigurationSnapshot
-	(*ResolveConfigurationRequest)(nil),   // 13: bpmp.configuration.v1.ResolveConfigurationRequest
-	(*ResolveConfigurationResponse)(nil),  // 14: bpmp.configuration.v1.ResolveConfigurationResponse
-	(*ConfigurationPublicationEvent)(nil), // 15: bpmp.configuration.v1.ConfigurationPublicationEvent
+	(*GovernanceApprovalKey)(nil),         // 12: bpmp.configuration.v1.GovernanceApprovalKey
+	(*ResolvedConfigurationSnapshot)(nil), // 13: bpmp.configuration.v1.ResolvedConfigurationSnapshot
+	(*ResolveConfigurationRequest)(nil),   // 14: bpmp.configuration.v1.ResolveConfigurationRequest
+	(*ResolveConfigurationResponse)(nil),  // 15: bpmp.configuration.v1.ResolveConfigurationResponse
+	(*ConfigurationPublicationEvent)(nil), // 16: bpmp.configuration.v1.ConfigurationPublicationEvent
 }
 var file_bpmp_configuration_v1_configuration_proto_depIdxs = []int32{
 	0,  // 0: bpmp.configuration.v1.ConfigurationScope.type:type_name -> bpmp.configuration.v1.ConfigurationScopeType
@@ -1773,25 +1875,26 @@ var file_bpmp_configuration_v1_configuration_proto_depIdxs = []int32{
 	4,  // 4: bpmp.configuration.v1.ApiGatewayPolicy.upstream_retry:type_name -> bpmp.configuration.v1.RetryPolicy
 	4,  // 5: bpmp.configuration.v1.HumanRuntimePolicy.engine_retry:type_name -> bpmp.configuration.v1.RetryPolicy
 	4,  // 6: bpmp.configuration.v1.GovernancePolicy.kms_retry:type_name -> bpmp.configuration.v1.RetryPolicy
-	3,  // 7: bpmp.configuration.v1.ResolvedConfigurationSnapshot.resolved_scopes:type_name -> bpmp.configuration.v1.ConfigurationScope
-	5,  // 8: bpmp.configuration.v1.ResolvedConfigurationSnapshot.engine:type_name -> bpmp.configuration.v1.EnginePolicy
-	1,  // 9: bpmp.configuration.v1.ResolvedConfigurationSnapshot.owner:type_name -> bpmp.configuration.v1.ConfigurationOwner
-	8,  // 10: bpmp.configuration.v1.ResolvedConfigurationSnapshot.api_gateway:type_name -> bpmp.configuration.v1.ApiGatewayPolicy
-	9,  // 11: bpmp.configuration.v1.ResolvedConfigurationSnapshot.human_runtime:type_name -> bpmp.configuration.v1.HumanRuntimePolicy
-	10, // 12: bpmp.configuration.v1.ResolvedConfigurationSnapshot.projection:type_name -> bpmp.configuration.v1.ProjectionPolicy
-	11, // 13: bpmp.configuration.v1.ResolvedConfigurationSnapshot.governance:type_name -> bpmp.configuration.v1.GovernancePolicy
-	1,  // 14: bpmp.configuration.v1.ResolveConfigurationRequest.owner:type_name -> bpmp.configuration.v1.ConfigurationOwner
-	12, // 15: bpmp.configuration.v1.ResolveConfigurationResponse.snapshot:type_name -> bpmp.configuration.v1.ResolvedConfigurationSnapshot
-	1,  // 16: bpmp.configuration.v1.ConfigurationPublicationEvent.owner:type_name -> bpmp.configuration.v1.ConfigurationOwner
-	3,  // 17: bpmp.configuration.v1.ConfigurationPublicationEvent.scope:type_name -> bpmp.configuration.v1.ConfigurationScope
-	2,  // 18: bpmp.configuration.v1.ConfigurationPublicationEvent.kind:type_name -> bpmp.configuration.v1.ConfigurationPublicationKind
-	13, // 19: bpmp.configuration.v1.ConfigurationResolverService.ResolveConfiguration:input_type -> bpmp.configuration.v1.ResolveConfigurationRequest
-	14, // 20: bpmp.configuration.v1.ConfigurationResolverService.ResolveConfiguration:output_type -> bpmp.configuration.v1.ResolveConfigurationResponse
-	20, // [20:21] is the sub-list for method output_type
-	19, // [19:20] is the sub-list for method input_type
-	19, // [19:19] is the sub-list for extension type_name
-	19, // [19:19] is the sub-list for extension extendee
-	0,  // [0:19] is the sub-list for field type_name
+	12, // 7: bpmp.configuration.v1.GovernancePolicy.approval_keys:type_name -> bpmp.configuration.v1.GovernanceApprovalKey
+	3,  // 8: bpmp.configuration.v1.ResolvedConfigurationSnapshot.resolved_scopes:type_name -> bpmp.configuration.v1.ConfigurationScope
+	5,  // 9: bpmp.configuration.v1.ResolvedConfigurationSnapshot.engine:type_name -> bpmp.configuration.v1.EnginePolicy
+	1,  // 10: bpmp.configuration.v1.ResolvedConfigurationSnapshot.owner:type_name -> bpmp.configuration.v1.ConfigurationOwner
+	8,  // 11: bpmp.configuration.v1.ResolvedConfigurationSnapshot.api_gateway:type_name -> bpmp.configuration.v1.ApiGatewayPolicy
+	9,  // 12: bpmp.configuration.v1.ResolvedConfigurationSnapshot.human_runtime:type_name -> bpmp.configuration.v1.HumanRuntimePolicy
+	10, // 13: bpmp.configuration.v1.ResolvedConfigurationSnapshot.projection:type_name -> bpmp.configuration.v1.ProjectionPolicy
+	11, // 14: bpmp.configuration.v1.ResolvedConfigurationSnapshot.governance:type_name -> bpmp.configuration.v1.GovernancePolicy
+	1,  // 15: bpmp.configuration.v1.ResolveConfigurationRequest.owner:type_name -> bpmp.configuration.v1.ConfigurationOwner
+	13, // 16: bpmp.configuration.v1.ResolveConfigurationResponse.snapshot:type_name -> bpmp.configuration.v1.ResolvedConfigurationSnapshot
+	1,  // 17: bpmp.configuration.v1.ConfigurationPublicationEvent.owner:type_name -> bpmp.configuration.v1.ConfigurationOwner
+	3,  // 18: bpmp.configuration.v1.ConfigurationPublicationEvent.scope:type_name -> bpmp.configuration.v1.ConfigurationScope
+	2,  // 19: bpmp.configuration.v1.ConfigurationPublicationEvent.kind:type_name -> bpmp.configuration.v1.ConfigurationPublicationKind
+	14, // 20: bpmp.configuration.v1.ConfigurationResolverService.ResolveConfiguration:input_type -> bpmp.configuration.v1.ResolveConfigurationRequest
+	15, // 21: bpmp.configuration.v1.ConfigurationResolverService.ResolveConfiguration:output_type -> bpmp.configuration.v1.ResolveConfigurationResponse
+	21, // [21:22] is the sub-list for method output_type
+	20, // [20:21] is the sub-list for method input_type
+	20, // [20:20] is the sub-list for extension type_name
+	20, // [20:20] is the sub-list for extension extendee
+	0,  // [0:20] is the sub-list for field type_name
 }
 
 func init() { file_bpmp_configuration_v1_configuration_proto_init() }
@@ -1805,7 +1908,7 @@ func file_bpmp_configuration_v1_configuration_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bpmp_configuration_v1_configuration_proto_rawDesc), len(file_bpmp_configuration_v1_configuration_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   13,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

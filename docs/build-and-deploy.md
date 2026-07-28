@@ -105,12 +105,17 @@ The successful probe proves all of the following:
 
 - Configuration Service publishes ordered Protobuf invalidations through its
   transactional outbox.
-- All three Engine processes, API Gateway and Human Runtime resolve the
-  authoritative snapshot over mTLS and commit Kafka offsets only after cache
-  installation.
+- All three Engine processes, API Gateway, Human Runtime, Projection Service
+  and Governance Service resolve authoritative snapshots over mTLS and commit
+  Kafka offsets only after cache installation.
 - A workflow start passes through API Gateway and the Raft authoritative path,
   with an idempotent retry returning the original receipt.
 - Human Runtime consumes committed events and creates one PostgreSQL work item.
+- Projection Service transactionally records the event inbox, read model and
+  checkpoint before acknowledging Kafka.
+- Governance Service creates a durable approval over mTLS, binds it to the
+  Engine-prepared stream and compensation-ledger digests, and appends an
+  immutable PostgreSQL audit record.
 - The bootstrap leader is stopped; the surviving majority completes the work
   item and projects the completion back to PostgreSQL.
 
@@ -146,7 +151,8 @@ at startup, so a new group does not depend on replaying historical publications.
 1. Publish immutable image digests, Protobuf descriptors, signed WIR and policy
    bundles. Mount credentials and private keys from the secret manager.
 2. Provision separate PostgreSQL databases and credentials for Configuration
-   Service and Human Runtime. Apply their migrations as ordered one-shot jobs.
+   Service, Human Runtime, Projection Service and Governance Service. Apply
+   migrations as ordered one-shot jobs using the owning service credential.
    Existing Human Runtime databases must apply
    `002_delegation_depth.sql` before deploying a binary that enforces dynamic
    delegation depth.
@@ -158,16 +164,16 @@ at startup, so a new group does not depend on replaying historical publications.
    `config_version` and ordinal for runtime configuration revisions.
 6. Start three or five Engine members with separate volumes, TLS identities and
    configuration-reloader groups. Bootstrap membership once and wait for quorum.
-7. Start Human Runtime, then API Gateway. Readiness requires PostgreSQL/Redis,
+7. Start Projection Service. Readiness requires its PostgreSQL schema,
+   Configuration resolver and Kafka subscription; it owns read models,
+   transactional inbox and checkpoints only.
+8. Start Governance Service after the revocation barrier and KMS endpoints are
+   ready. It owns approval/audit/key-shred workflow in PostgreSQL and calls the
+   Engine governance API; it never writes Engine RocksDB or Raft state directly.
+9. Start Human Runtime, then API Gateway. Readiness requires PostgreSQL/Redis,
    upstream gRPC, Kafka and all initial tenant cache entries.
-8. Enable ingress only after the acceptance transaction and consumer lag checks
-   pass.
-
-Projection Service currently contains a projector library but no production
-composition root. Governance currently contains the pure Rust domain crate but
-no deployable service. Do not deploy placeholder health-only containers or
-claim their runtime cache integration is complete; add their real binaries,
-owned stores and lifecycle workers before enabling those owners.
+10. Enable ingress only after the acceptance transaction and every
+    configuration-reloader group reaches zero lag.
 
 ## Rollout and rollback
 

@@ -20,8 +20,10 @@ atomic replicated batch.
 
 This is not yet sufficient to label a release `production-ha`. The repository
 now has a broker-backed multi-process harness with Kafka-compatible Redpanda,
-PostgreSQL, three engine processes, Human Runtime and API Gateway. Its probe
-executes leader loss and completes through the surviving Raft majority.
+four isolated PostgreSQL databases, three engine processes, Projection Service,
+Governance Service, Human Runtime and API Gateway. Its probe creates a durable
+governance approval, executes leader loss and completes through the surviving
+Raft majority.
 Remaining release blockers are the incomplete P1-P53 property catalog and the
 P46-P52 production governance/erasure gates.
 
@@ -53,9 +55,10 @@ P46-P52 production governance/erasure gates.
   proves event, work item and governance audit all remain absent.
 - `platform/e2e/run.ps1` generates ephemeral signed fixtures and mTLS material,
   starts the complete broker-backed process topology, verifies API idempotency,
-  Kafka-to-PostgreSQL projection, stops the bootstrap leader, then completes
-  the work item through the surviving majority and verifies the committed
-  completion projection.
+  Human Runtime and query-side Kafka-to-PostgreSQL projection, and creates an
+  Engine-bound Governance approval with append-only audit. It then stops the
+  bootstrap leader, completes the work item through the surviving majority and
+  verifies the committed completion projection.
 
 The process harness satisfies the functional real-process gate in section 3.4.
 It does not replace the remaining `production-ha` chaos, KMS, erasure,
@@ -100,15 +103,17 @@ single-node profile into `production-ha`.
 
 ## 4. Provisioning order
 
-1. Provision separate PostgreSQL databases and credentials for each owning Go
-   or control-plane service. No service receives another service's credential.
+1. Provision separate PostgreSQL databases and credentials for Configuration,
+   Human Runtime, Projection and Governance. No service receives another
+   service's credential.
 2. Provision Kafka topics for committed engine events, configuration
    publications and Human Runtime escalation. Configure retention and ACLs
    from the centrally managed environment topology.
 3. Provision persistent volumes for every engine member. For HA, place members
    in separate failure domains and create the headless peer-discovery service.
-4. Issue separate TLS identities for API Gateway, Human Runtime and every
-   engine member. Engine requires and verifies client certificates.
+4. Issue separate TLS identities for API Gateway, Human Runtime, Projection,
+   Governance, Configuration and every engine member. Internal gRPC servers
+   require and verify client certificates.
 5. Publish signed WIR, versioned configuration snapshots, signed authorization
    bundles, JWKS and pinned WASM artifacts to the configured registries.
    Allocate a distinct stable configuration-reloader group per process replica;
@@ -118,8 +123,9 @@ single-node profile into `production-ha`.
 
 ## 5. Deployment order
 
-1. Apply Configuration Service and Human Runtime PostgreSQL migrations as
-   dedicated migration jobs with separate database owners.
+1. Apply Configuration Service, Human Runtime, Projection Service and
+   Governance Service PostgreSQL migrations as dedicated migration jobs with
+   separate database owners.
 2. Start Kafka and verify topic metadata, producer idempotence and consumer
    group permissions.
 3. Start Configuration Service, verify HTTP plus mTLS gRPC readiness, and
@@ -130,12 +136,17 @@ single-node profile into `production-ha`.
 5. Verify engine mTLS, WIR signature loading, configuration/policy version
    loading, payload-key resolution, scheduler leases, local WASM registry and
    outbox publisher checkpoint.
-6. Start Human Runtime. Verify PostgreSQL readiness, Kafka projection lag,
+6. Start Projection Service. Verify PostgreSQL readiness, committed-event lag,
+   transactional inbox/read-model/checkpoint updates and bounded query paging.
+7. Start Governance Service only after the revocation barrier and KMS adapter
+   are ready. Verify policy resolution, Engine-prepared digest binding,
+   append-only approval audit and leased key-shred recovery.
+8. Start Human Runtime. Verify PostgreSQL readiness, Kafka projection lag,
    escalation publisher ACK and mTLS connection to engine.
-7. Start API Gateway last. Keep public routing disabled until upstream mTLS,
+9. Start API Gateway last. Keep public routing disabled until upstream mTLS,
    coarse JWT verification, rate-limit configuration and a synthetic command
    pass.
-8. Confirm every configuration-reloader group is at zero lag, then enable
+10. Confirm every configuration-reloader group is at zero lag, then enable
    traffic gradually. Observe command p95/p99, RocksDB/Raft commit
    latency, quorum health, outbox lag, projection lag, scheduler lease
    conflicts, WASM traps and authorization denials.
@@ -158,6 +169,9 @@ and a pinned local service/script task:
    re-enters the authoritative command path with a stable internal command ID.
 7. Retrying every client-visible command returns the prior committed result
    without adding duplicate events or work items.
+8. Projection Service reaches the terminal read-model state after its durable
+   inbox transaction, and Governance Service can create exactly one pending
+   approval plus immutable audit for the active authoritative stream.
 
 ## 7. Rollback and recovery
 

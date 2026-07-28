@@ -13,6 +13,7 @@ mod dead_letter_replay;
 mod dispatch_credit;
 mod event_codec;
 mod governance;
+mod governance_transport;
 mod local_task_runtime;
 pub mod memory;
 mod outbox;
@@ -54,6 +55,9 @@ pub use governance::{
     GovernanceCommandContext, GovernanceTransitionError, GovernanceTransitionPlan,
     prepare_abort_and_reconcile,
 };
+pub use governance_transport::{
+    EngineGovernanceHandlerPort, GovernanceTransportError, GrpcEngineGovernanceService,
+};
 pub use local_task_runtime::{
     LocalTaskActivation, LocalTaskCompletionDispatcherPort, LocalTaskExecutionOutcome,
     LocalTaskExecutorPort, LocalTaskKind, LocalTaskRetryPolicy, LocalTaskRunOutcome,
@@ -69,8 +73,9 @@ pub use ports::{
     ConfigurationProviderPort, LoadedInstance, StoreError, WorkflowStorePort,
 };
 pub use runtime_registry::{
-    MigrationSafePoint, RuntimeConfigurationUpdate, RuntimeReferenceKind, RuntimeRegistry,
-    RuntimeRegistryError, RuntimeSafePointGate, RuntimeScopeDescriptor, RuntimeWorkPermit,
+    MigrationSafePoint, ResolvedGovernancePolicy, RuntimeConfigurationUpdate,
+    RuntimeGovernancePolicyUpdate, RuntimeReferenceKind, RuntimeRegistry, RuntimeRegistryError,
+    RuntimeSafePointGate, RuntimeScopeDescriptor, RuntimeWorkPermit,
     configuration_publication_matches_scope,
 };
 pub use snapshot_codec::{SNAPSHOT_SCHEMA_VERSION, SnapshotCodec, SnapshotCodecError};

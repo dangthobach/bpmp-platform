@@ -3,6 +3,7 @@ members = [
     "apps/rust/bpmn-compiler",
     "apps/rust/bpmp-engine",
     "apps/rust/bpmp-engine-server",
+    "apps/rust/governance-service",
     "crates/bpmp-authz-contracts",
     "crates/bpmp-contracts",
     "crates/bpmp-domain-core",
@@ -61,6 +62,8 @@ wasmtime = { version = "=36.0.4", default-features = false, features = ["craneli
 wat = "1.236.0"
 zeroize = "1.9.0"
 rcgen = "0.14.5"
+reqwest = { version = "0.12.24", default-features = false, features = ["json", "rustls-tls"] }
+sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio-rustls", "postgres", "json"] }
 
 [workspace.dependencies.tonic-prost-build]
 version = "0.14.6"

@@ -21,7 +21,7 @@ use bpmp_engine::{
     LoadedInstance, StoreError, TransportError, WorkflowStorePort,
 };
 use bpmp_payload_crypto::PayloadCryptoPort;
-use bpmp_raft_state_machine::TypeConfig;
+use bpmp_raft_state_machine::{ApplyResponse, PreparedAtomicBatch, TypeConfig};
 use openraft::error::{NetworkError, RPCError, RaftError, RemoteError};
 use openraft::network::RPCOption;
 use openraft::raft::{
@@ -581,6 +581,34 @@ impl<C> RaftWorkflowStore<C> {
             runtime,
             proposal_lock: Mutex::new(()),
         }
+    }
+
+    /// Proposes a pre-materialized authoritative batch through the local Raft
+    /// node and waits for quorum commit plus local state-machine apply.
+    ///
+    /// # Errors
+    ///
+    /// Returns a leader hint or an unavailable error without bypassing Raft.
+    pub fn propose_prepared(
+        &self,
+        batch: PreparedAtomicBatch,
+    ) -> Result<ApplyResponse, StoreError> {
+        let _proposal_guard = self.proposal_lock.lock().map_err(|error| {
+            StoreError::Unavailable(format!("Raft proposal lock failed: {error}"))
+        })?;
+        self.runtime
+            .block_on(self.raft.client_write(batch))
+            .map(|response| response.data)
+            .map_err(|error| {
+                if let Some(forward) = error.forward_to_leader() {
+                    StoreError::NotLeader {
+                        leader_id: forward.leader_id,
+                        leader_address: forward.leader_node.as_ref().map(|node| node.addr.clone()),
+                    }
+                } else {
+                    StoreError::Unavailable(format!("Raft client write failed: {error}"))
+                }
+            })
     }
 }
 

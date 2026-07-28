@@ -164,7 +164,7 @@ pub struct ProjectionPolicy {
     #[prost(uint64, tag="7")]
     pub max_projection_lag_ms: u64,
 }
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GovernancePolicy {
     #[prost(uint64, tag="1")]
     pub approval_ttl_ms: u64,
@@ -182,6 +182,23 @@ pub struct GovernancePolicy {
     pub reconciliation_batch_size: u32,
     #[prost(uint32, tag="8")]
     pub max_pending_compensations: u32,
+    #[prost(string, tag="9")]
+    pub abort_capability: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag="10")]
+    pub accepted_auth_assurance: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(message, repeated, tag="11")]
+    pub approval_keys: ::prost::alloc::vec::Vec<GovernanceApprovalKey>,
+    #[prost(uint32, tag="12")]
+    pub required_approver_count: u32,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct GovernanceApprovalKey {
+    #[prost(string, tag="1")]
+    pub key_id: ::prost::alloc::string::String,
+    #[prost(bytes="vec", tag="2")]
+    pub ed25519_public_key: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bool, tag="3")]
+    pub enabled: bool,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ResolvedConfigurationSnapshot {
