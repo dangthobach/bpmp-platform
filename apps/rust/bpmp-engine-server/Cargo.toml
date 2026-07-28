@@ -19,6 +19,7 @@ bpmp-authz-contracts.workspace = true
 bpmp-contracts.workspace = true
 bpmp-domain-core.workspace = true
 bpmp-engine = { path = "../bpmp-engine" }
+bpmp-governance-domain.workspace = true
 bpmp-payload-crypto.workspace = true
 bpmp-raft-state-machine.workspace = true
 clap.workspace = true
@@ -32,6 +33,7 @@ sha2.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tonic.workspace = true
+tonic-reflection.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 zeroize.workspace = true

@@ -1,7 +1,12 @@
 name: bpmp-broker-e2e
 
+x-rust-build: &rust-build
+  context: ../..
+  dockerfile: platform/e2e/Dockerfile.rust
+
 x-engine: &engine
   image: ${RUST_IMAGE:?set RUST_IMAGE}
+  build: *rust-build
   restart: "no"
   environment:
     RUST_LOG: ${ENGINE_LOG_LEVEL:-info}
@@ -11,11 +16,12 @@ x-engine: &engine
     topic-init:
       condition: service_completed_successfully
     configuration-service:
-      condition: service_started
+      condition: service_healthy
 
 services:
   fixture-generator:
     image: ${RUST_IMAGE:?set RUST_IMAGE}
+    build: *rust-build
     entrypoint: ["/usr/local/bin/bpmp-e2e-fixtures"]
     command: ["--manifest", "/e2e/manifest.json", "--output", "/runtime"]
     volumes:
@@ -45,6 +51,32 @@ services:
       POSTGRES_DB: configuration
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d configuration"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  projection-postgres:
+    image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE}
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: projection
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d projection"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  governance-postgres:
+    image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE}
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: governance
+    volumes:
+      - ./runtime/governance-service.sql:/docker-entrypoint-initdb.d/001-governance.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d governance"]
       interval: 2s
       timeout: 2s
       retries: 30
@@ -82,12 +114,9 @@ services:
       redpanda:
         condition: service_healthy
     entrypoint: ["/bin/bash", "-ec"]
-    command:
-      - >
-        rpk topic create bpmp.engine.events.e2e --brokers redpanda:9092 --partitions 3 --replicas 1
-        || rpk topic describe bpmp.engine.events.e2e --brokers redpanda:9092;
-        rpk topic create bpmp.human.escalations.e2e --brokers redpanda:9092 --partitions 1 --replicas 1
-        || rpk topic describe bpmp.human.escalations.e2e --brokers redpanda:9092
+    command: ["bash /runtime/kafka-topics.sh"]
+    volumes:
+      - ./runtime:/runtime:ro
 
   otel-collector:
     image: ${OTEL_IMAGE:?set OTEL_IMAGE}
@@ -118,6 +147,9 @@ services:
 
   human-runtime:
     image: ${HUMAN_IMAGE:?set HUMAN_IMAGE}
+    build:
+      context: ../..
+      dockerfile: platform/e2e/Dockerfile.human-runtime
     command: ["--config", "/runtime/human-runtime.json"]
     volumes:
       - ./runtime:/runtime:ro
@@ -128,9 +160,20 @@ services:
         condition: service_completed_successfully
       engine2:
         condition: service_started
+      configuration-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:7202/readyz"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 2s
 
   configuration-service:
     image: ${CONFIGURATION_IMAGE:?set CONFIGURATION_IMAGE}
+    build:
+      context: ../..
+      dockerfile: platform/e2e/Dockerfile.configuration-service
     command: ["--config", "/runtime/configuration-service.json"]
     volumes:
       - ./runtime:/runtime:ro
@@ -139,9 +182,94 @@ services:
         condition: service_healthy
       otel-collector:
         condition: service_started
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - --fail
+        - --silent
+        - --show-error
+        - --cert
+        - /runtime/secrets/tls.pem
+        - --key
+        - /runtime/secrets/tls-key.pem
+        - --cacert
+        - /runtime/secrets/ca.pem
+        - https://localhost:7301/readyz
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 2s
+
+  projection-service:
+    image: ${PROJECTION_IMAGE:?set PROJECTION_IMAGE}
+    build:
+      context: ../..
+      dockerfile: platform/e2e/Dockerfile.projection-service
+    command: ["--config", "/runtime/projection-service.json"]
+    volumes:
+      - ./runtime:/runtime:ro
+    depends_on:
+      projection-postgres:
+        condition: service_healthy
+      topic-init:
+        condition: service_completed_successfully
+      configuration-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:7402/readyz"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 2s
+
+  key-lifecycle:
+    image: nginx:1.29-alpine
+    volumes:
+      - ./runtime/key-lifecycle-nginx.conf:/etc/nginx/nginx.conf:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8080/"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  governance-service:
+    image: ${GOVERNANCE_IMAGE:?set GOVERNANCE_IMAGE}
+    build:
+      context: ../..
+      dockerfile: platform/e2e/Dockerfile.governance-service
+    command: ["--config", "/runtime/governance-service.json"]
+    volumes:
+      - ./runtime:/runtime:ro
+    ports:
+      - "${GOVERNANCE_PORT:?set GOVERNANCE_PORT}:7501"
+    depends_on:
+      governance-postgres:
+        condition: service_healthy
+      topic-init:
+        condition: service_completed_successfully
+      configuration-service:
+        condition: service_healthy
+      engine1:
+        condition: service_started
+      engine2:
+        condition: service_started
+      engine3:
+        condition: service_started
+      key-lifecycle:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:7502/readyz"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 2s
 
   api-gateway:
     image: ${GATEWAY_IMAGE:?set GATEWAY_IMAGE}
+    build:
+      context: ../..
+      dockerfile: platform/e2e/Dockerfile.api-gateway
     command: ["--config", "/runtime/api-gateway.json"]
     volumes:
       - ./runtime:/runtime:ro
@@ -151,11 +279,25 @@ services:
       redis:
         condition: service_healthy
       human-runtime:
-        condition: service_started
+        condition: service_healthy
       engine2:
         condition: service_started
       configuration-service:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - --fail
+        - --silent
+        - --show-error
+        - --cacert
+        - /runtime/secrets/ca.pem
+        - https://localhost:8443/readyz
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 2s
 
 volumes:
   engine1-data:

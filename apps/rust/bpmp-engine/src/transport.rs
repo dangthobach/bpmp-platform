@@ -16,7 +16,7 @@ use tonic::{Request, Response, Status};
 
 use crate::{
     ActorProofKind, AuthorizationProviderPort, AuthorizedCommand, ConfigurationProviderPort,
-    Engine, EngineError, HandleOutcome, WorkflowStorePort,
+    Engine, EngineError, HandleOutcome, RuntimeSafePointGate, WorkflowStorePort,
 };
 
 pub trait CommandDefinitionProviderPort: Send + Sync {
@@ -40,6 +40,30 @@ pub trait EngineCommandHandlerPort: Send + Sync + 'static {
     ///
     /// Returns [`TransportError`] before mutation on invalid scope or failed execution.
     fn handle(&self, envelope: CommandEnvelope) -> Result<CommandReceipt, TransportError>;
+}
+
+pub struct SafePointCommandHandler<H> {
+    inner: H,
+    gate: RuntimeSafePointGate,
+}
+
+impl<H> SafePointCommandHandler<H> {
+    pub const fn new(inner: H, gate: RuntimeSafePointGate) -> Self {
+        Self { inner, gate }
+    }
+}
+
+impl<H> EngineCommandHandlerPort for SafePointCommandHandler<H>
+where
+    H: EngineCommandHandlerPort,
+{
+    fn handle(&self, envelope: CommandEnvelope) -> Result<CommandReceipt, TransportError> {
+        let _permit = self
+            .gate
+            .enter_work()
+            .map_err(|error| TransportError::RuntimeSafePoint(error.to_string()))?;
+        self.inner.handle(envelope)
+    }
 }
 
 pub struct AuthoritativeCommandHandler<C, S, A, D> {
@@ -416,6 +440,8 @@ pub enum TransportError {
     DefinitionScopeMismatch,
     #[error("gRPC transport message limits must be greater than zero")]
     InvalidTransportConfiguration,
+    #[error("runtime safe-point gate failed: {0}")]
+    RuntimeSafePoint(String),
     #[error(transparent)]
     Engine(EngineError),
 }
@@ -430,7 +456,9 @@ impl From<TransportError> for Status {
                 );
                 Self::permission_denied("engine authorization denied the command")
             }
-            TransportError::Definition(_) => Self::unavailable(error.to_string()),
+            TransportError::Definition(_) | TransportError::RuntimeSafePoint(_) => {
+                Self::unavailable(error.to_string())
+            }
             TransportError::Engine(_) | TransportError::DefinitionScopeMismatch => {
                 Self::failed_precondition(error.to_string())
             }

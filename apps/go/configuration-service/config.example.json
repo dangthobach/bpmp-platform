@@ -2,7 +2,7 @@
   "listen_address": "127.0.0.1:8090",
   "postgres_dsn": "postgres://bpmp_configuration:change-me@127.0.0.1:5432/bpmp_configuration",
   "apply_migrations": true,
-  "migration_path": "../../../db/configuration-service/migrations/001_configuration.sql",
+  "migration_path": "../../../db/configuration-service/migrations",
   "tls": {
     "certificate": "runtime/tls.pem",
     "private_key": "runtime/tls-key.pem",
@@ -11,7 +11,33 @@
   "grpc": {
     "listen_address": "127.0.0.1:8091",
     "max_receive_bytes": 1048576,
-    "max_send_bytes": 1048576
+    "max_send_bytes": 1048576,
+    "reflection_enabled": false
+  },
+  "kafka": {
+    "brokers": ["127.0.0.1:9093"],
+    "client_id": "bpmp-configuration-publisher",
+    "security_protocol": "TLS",
+    "ca_file": "runtime/kafka-ca.pem",
+    "certificate_file": "runtime/kafka-client.pem",
+    "private_key_file": "runtime/kafka-client-key.pem",
+    "dial_timeout_ms": 3000,
+    "request_timeout_ms": 5000,
+    "topic": "bpmp.configuration.publications.v1.development",
+    "message_timeout_ms": 10000,
+    "max_inflight": 1,
+    "max_message_bytes": 1048576,
+    "required_acks": "ALL",
+    "enable_idempotence": true
+  },
+  "outbox": {
+    "worker_id": "configuration-publisher-1",
+    "batch_size": 100,
+    "lease_duration_ms": 30000,
+    "poll_interval_ms": 500,
+    "initial_retry_delay_ms": 1000,
+    "max_retry_delay_ms": 60000,
+    "retry_multiplier_millis": 2000
   },
   "identity": {
     "jwks_path": "runtime/jwks.json",

@@ -19,6 +19,7 @@ type Repository interface {
 	Create(context.Context, domain.Actor, domain.Profile, domain.Version) (domain.Profile, error)
 	List(context.Context, string, string, string, int) ([]domain.Profile, error)
 	Get(context.Context, string, string) (domain.Profile, []domain.Version, error)
+	ProfileOwner(context.Context, string, string) (domain.Owner, error)
 	AddDraft(context.Context, domain.Actor, string, int64, domain.Version) (domain.Profile, error)
 	Publish(context.Context, domain.Actor, string, string, int64, string, time.Time) (domain.Profile, error)
 	Rollback(context.Context, domain.Actor, string, string, int64, domain.Version, time.Time) (domain.Profile, error)
@@ -35,8 +36,10 @@ func (s *Service) Resolve(
 	lookup.PlatformReference = strings.TrimSpace(lookup.PlatformReference)
 	lookup.EnvironmentReference = strings.TrimSpace(lookup.EnvironmentReference)
 	lookup.InstanceID = strings.TrimSpace(lookup.InstanceID)
-	if lookup.TenantID == "" || lookup.WorkflowType == "" ||
-		lookup.WorkflowVersion == "" || lookup.PlatformReference == "" ||
+	if lookup.TenantID == "" || domain.ValidateOwner(lookup.Owner) != nil ||
+		(lookup.Owner == domain.OwnerEngine && (lookup.WorkflowType == "" ||
+			lookup.WorkflowVersion == "")) ||
+		lookup.PlatformReference == "" ||
 		lookup.EnvironmentReference == "" {
 		return domain.ResolvedConfiguration{}, domain.ErrInvalid
 	}
@@ -59,6 +62,7 @@ type Service struct {
 
 type CreateInput struct {
 	Name          string
+	Owner         domain.Owner
 	Scope         domain.Scope
 	SchemaVersion uint32
 	PolicyVersion string
@@ -103,10 +107,11 @@ func (s *Service) Create(ctx context.Context, actor domain.Actor, input CreateIn
 	reason := strings.TrimSpace(input.Reason)
 	policyVersion := strings.TrimSpace(input.PolicyVersion)
 	if name == "" || len(name) > 160 || reason == "" || policyVersion == "" ||
-		input.SchemaVersion == 0 || domain.ValidateScope(input.Scope) != nil {
+		input.SchemaVersion == 0 || domain.ValidateOwner(input.Owner) != nil ||
+		domain.ValidateScope(input.Scope) != nil {
 		return domain.Profile{}, domain.ErrInvalid
 	}
-	_, canonical, hash, err := domain.ParsePolicy(input.Values)
+	_, canonical, hash, err := domain.ParsePolicy(input.Owner, input.Values)
 	if err != nil {
 		return domain.Profile{}, err
 	}
@@ -116,6 +121,7 @@ func (s *Service) Create(ctx context.Context, actor domain.Actor, input CreateIn
 	profile := domain.Profile{
 		ID:               profileID,
 		TenantID:         actor.TenantID,
+		Owner:            input.Owner,
 		Name:             name,
 		Scope:            input.Scope,
 		AggregateVersion: 1,
@@ -138,10 +144,10 @@ func (s *Service) Create(ctx context.Context, actor domain.Actor, input CreateIn
 		CreatedBy:     actor.ActorID,
 	}
 	actor.RequestDigest = digest(struct {
-		Name, ScopeType, ScopeReference, PolicyVersion, Reason string
-		SchemaVersion                                          uint32
-		ContentHash                                            [32]byte
-	}{name, string(input.Scope.Type), input.Scope.Reference, policyVersion, reason, input.SchemaVersion, hash})
+		Name, Owner, ScopeType, ScopeReference, PolicyVersion, Reason string
+		SchemaVersion                                                 uint32
+		ContentHash                                                   [32]byte
+	}{name, string(input.Owner), string(input.Scope.Type), input.Scope.Reference, policyVersion, reason, input.SchemaVersion, hash})
 	return s.repository.Create(ctx, actor, profile, version)
 }
 
@@ -155,7 +161,11 @@ func (s *Service) AddDraft(ctx context.Context, actor domain.Actor, profileID st
 		reason == "" || policyVersion == "" {
 		return domain.Profile{}, domain.ErrInvalid
 	}
-	_, canonical, hash, err := domain.ParsePolicy(input.Values)
+	owner, err := s.repository.ProfileOwner(ctx, actor.TenantID, profileID)
+	if err != nil {
+		return domain.Profile{}, err
+	}
+	_, canonical, hash, err := domain.ParsePolicy(owner, input.Values)
 	if err != nil {
 		return domain.Profile{}, err
 	}

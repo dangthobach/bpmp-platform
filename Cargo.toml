@@ -3,6 +3,7 @@ members = [
     "apps/rust/bpmn-compiler",
     "apps/rust/bpmp-engine",
     "apps/rust/bpmp-engine-server",
+    "apps/rust/governance-service",
     "crates/bpmp-authz-contracts",
     "crates/bpmp-contracts",
     "crates/bpmp-domain-core",
@@ -42,6 +43,7 @@ proptest = "1.9.0"
 prost = "0.14.4"
 tonic = { version = "0.14.6", features = ["transport", "tls-ring"] }
 tonic-prost = "0.14.6"
+tonic-reflection = "=0.14.6"
 tokio = { version = "~1.51.4", features = ["macros", "rt-multi-thread", "net", "signal", "sync", "time"] }
 tokio-stream = { version = "0.1.18", features = ["net"] }
 quick-xml = "0.41.0"
@@ -61,6 +63,8 @@ wasmtime = { version = "=36.0.4", default-features = false, features = ["craneli
 wat = "1.236.0"
 zeroize = "1.9.0"
 rcgen = "0.14.5"
+reqwest = { version = "0.12.24", default-features = false, features = ["json", "rustls-tls"] }
+sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio-rustls", "postgres", "json"] }
 
 [workspace.dependencies.tonic-prost-build]
 version = "0.14.6"

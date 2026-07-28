@@ -40,14 +40,46 @@ func New(client *redis.Client, config Config) (*Limiter, error) {
 		config.Requests == 0 ||
 		config.Window <= 0 ||
 		config.OperationTimeout <= 0 {
-		return nil, errors.New("Redis rate limiter configuration is invalid")
+		return nil, errors.New("redis rate limiter configuration is invalid")
 	}
 	return &Limiter{client: client, config: config}, nil
 }
 
+func NewDynamic(
+	client *redis.Client,
+	prefix string,
+	operationTimeout time.Duration,
+) (*Limiter, error) {
+	if client == nil || prefix == "" || operationTimeout <= 0 {
+		return nil, errors.New("dynamic Redis rate limiter configuration is invalid")
+	}
+	return &Limiter{
+		client: client,
+		config: Config{
+			Prefix:           prefix,
+			OperationTimeout: operationTimeout,
+		},
+	}, nil
+}
+
 func (l *Limiter) Allow(ctx context.Context, subject string) (bool, error) {
+	if l.config.Requests == 0 || l.config.Window <= 0 {
+		return false, errors.New("static rate limit policy is not configured")
+	}
+	return l.AllowPolicy(ctx, subject, l.config.Requests, l.config.Window)
+}
+
+func (l *Limiter) AllowPolicy(
+	ctx context.Context,
+	subject string,
+	requests uint32,
+	window time.Duration,
+) (bool, error) {
 	if subject == "" {
 		return false, errors.New("rate limit subject is required")
+	}
+	if requests == 0 || window <= 0 {
+		return false, errors.New("rate limit policy is invalid")
 	}
 	bounded, cancel := context.WithTimeout(ctx, l.config.OperationTimeout)
 	defer cancel()
@@ -57,8 +89,8 @@ func (l *Limiter) Allow(ctx context.Context, subject string) (bool, error) {
 		bounded,
 		l.client,
 		[]string{key},
-		l.config.Window.Milliseconds(),
-		strconv.FormatUint(uint64(l.config.Requests), 10),
+		window.Milliseconds(),
+		strconv.FormatUint(uint64(requests), 10),
 	).Int()
 	if err != nil {
 		return false, err

@@ -1,11 +1,11 @@
-go 1.25.0
+go 1.25.12
 
 use (
-	./apps/go/human-runtime
 	./apps/go/api-gateway
 	./apps/go/cockpit-gateway
-	./apps/go/projection-service
 	./apps/go/configuration-service
+	./apps/go/human-runtime
+	./apps/go/projection-service
 	./go/contracts
 	./go/platform
 )

@@ -39,6 +39,7 @@ CREATE TABLE work_items (
     sla_deadline timestamptz,
     escalation_policy_ref text,
     completion_command_id text,
+    delegation_depth integer NOT NULL DEFAULT 0 CHECK (delegation_depth >= 0),
     version bigint NOT NULL CHECK (version > 0),
     is_deleted boolean NOT NULL DEFAULT false,
     created_at timestamptz NOT NULL,

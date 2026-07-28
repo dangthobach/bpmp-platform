@@ -30,6 +30,10 @@ use sha2::{Digest as _, Sha256};
 const MIGRATION: &str = include_str!("../../../db/human-runtime/migrations/001_human_runtime.sql");
 const CONFIGURATION_MIGRATION: &str =
     include_str!("../../../db/configuration-service/migrations/001_configuration.sql");
+const PROJECTION_MIGRATION: &str =
+    include_str!("../../../db/projection-service/migrations/001_projection.sql");
+const GOVERNANCE_MIGRATION: &str =
+    include_str!("../../../db/governance-service/migrations/001_governance.sql");
 
 #[derive(Debug, Parser)]
 struct Arguments {
@@ -48,11 +52,11 @@ struct Manifest {
     actor_id: String,
     actor_issuer: String,
     actor_audience: String,
-    kafka_brokers: Vec<String>,
-    committed_event_topic: String,
-    escalation_topic: String,
+    kafka: KafkaTopology,
     postgres_dsn: String,
     configuration_postgres_dsn: String,
+    projection_postgres_dsn: String,
+    governance_postgres_dsn: String,
     redis_address: String,
     otel_endpoint: String,
     runtime_mount: String,
@@ -63,12 +67,45 @@ struct Manifest {
     human_address: String,
     human_listen_address: String,
     human_health_address: String,
+    projection_listen_address: String,
+    projection_health_address: String,
+    governance_listen_address: String,
+    governance_health_address: String,
     gateway_listen_address: String,
     configuration_url: String,
     configuration_listen_address: String,
     configuration_grpc_url: String,
     configuration_grpc_listen_address: String,
     tls_dns_names: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct KafkaTopology {
+    brokers: Vec<String>,
+    security_protocol: String,
+    topics: KafkaTopics,
+    consumer_groups: KafkaConsumerGroups,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct KafkaTopics {
+    engine_committed_events: String,
+    configuration_publications: String,
+    human_escalations: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct KafkaConsumerGroups {
+    engine_configuration_reloaders: Vec<String>,
+    human_committed_events: String,
+    projection_committed_events: String,
+    api_gateway_configuration_reloader: String,
+    human_runtime_configuration_reloader: String,
+    projection_configuration_reloader: String,
+    governance_configuration_reloader: String,
 }
 
 #[derive(Serialize)]
@@ -174,6 +211,17 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
         &EncodingKey::from_ed_der(jwt_private.as_bytes()),
     )?;
     write(&output.join("actor.jwt"), token.as_bytes())?;
+    for label in ["governance-requester", "governance-approver"] {
+        let key = SigningKey::from_bytes(&derive_key(manifest, label));
+        write(
+            &secrets.join(format!("{label}-private.key")),
+            key.to_bytes(),
+        )?;
+        write(
+            &secrets.join(format!("{label}-public.key")),
+            key.verifying_key().to_bytes(),
+        )?;
+    }
 
     write_json(
         &output.join("workflow-config.json"),
@@ -207,6 +255,14 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
         &output.join("configuration-service.json"),
         &configuration_config(manifest, mount),
     )?;
+    write_json(
+        &output.join("projection-service.json"),
+        &projection_config(manifest, mount),
+    )?;
+    write_json(
+        &output.join("governance-service.json"),
+        &governance_config(manifest, mount),
+    )?;
     write(
         &output.join("human-runtime.sql"),
         seeded_migration(manifest).as_bytes(),
@@ -214,6 +270,16 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
     write(
         &output.join("configuration-service.sql"),
         seeded_configuration_migration(manifest)?.as_bytes(),
+    )?;
+    write(&output.join("projection-service.sql"), PROJECTION_MIGRATION)?;
+    write(&output.join("governance-service.sql"), GOVERNANCE_MIGRATION)?;
+    write(
+        &output.join("key-lifecycle-nginx.conf"),
+        b"events {}\nhttp { server { listen 8080; location = / { return 200 'ok'; } location = /barrier { return 204; } location = /shred { return 204; } } }\n",
+    )?;
+    write(
+        &output.join("kafka-topics.sh"),
+        kafka_topics_script(manifest).as_bytes(),
     )?;
     Ok(())
 }
@@ -404,9 +470,23 @@ fn engine_config(manifest: &Manifest, mount: &str, index: usize, keys: &[&AuthKe
             "max_conditions": 512, "max_mutations": 512, "max_batch_bytes": 4_194_304, "max_snapshot_bytes": 67_108_864,
             "append_only_column_families": ["events","dedup","outbox","idempotency","authorization_audit","compensation_ledger","governance_audit","raft_applied_commands"]
         },
-        "grpc": {"max_decoding_bytes": 1_048_576, "max_encoding_bytes": 1_048_576},
+        "grpc": {"max_decoding_bytes": 1_048_576, "max_encoding_bytes": 1_048_576, "reflection_enabled": true},
         "workers": {"poll_interval_ms": 100, "outbox_batch_size": 64, "outbox_max_attempts": 10, "outbox_initial_retry_ms": 50, "outbox_max_retry_ms": 1000, "outbox_retry_multiplier_millis": 2000, "boundary": boundary_config(&format!("engine-{}-boundary", index + 1)), "local_task_batch_size": 32, "local_task_max_attempts": 3, "local_task_initial_retry_ms": 25, "local_task_max_retry_ms": 250, "local_task_retry_multiplier_millis": 2000},
-        "kafka": {"brokers": manifest.kafka_brokers, "topic": manifest.committed_event_topic, "client_id": format!("bpmp-engine-{}", index + 1), "message_timeout_ms": 5000},
+        "kafka": {
+            "brokers": manifest.kafka.brokers,
+            "client_id": format!("bpmp-engine-{}", index + 1),
+            "security": {"protocol": manifest.kafka.security_protocol, "ca_location": null, "certificate_location": null, "key_location": null},
+            "topics": {
+                "committed_events": manifest.kafka.topics.engine_committed_events,
+                "configuration_publications": manifest.kafka.topics.configuration_publications
+            },
+            "consumer_groups": {"configuration_reloader": manifest.kafka.consumer_groups.engine_configuration_reloaders[index]},
+            "message_timeout_ms": 5000,
+            "max_message_bytes": 1_048_576,
+            "max_inflight": 1,
+            "consumer_poll_timeout_ms": 250,
+            "consumer_session_timeout_ms": 6000
+        },
         "wasm_modules": []
     })
 }
@@ -417,15 +497,34 @@ fn human_config(manifest: &Manifest, mount: &str, workload: &AuthKey, internal: 
         "listen_address": manifest.human_listen_address, "postgres_dsn": manifest.postgres_dsn,
         "apply_migrations": true, "migration_path": path("human-runtime.sql"),
         "engine_address": manifest.engine_public_addresses[1],
-        "tls": {"server_certificate": path("secrets/tls.pem"), "server_private_key": path("secrets/tls-key.pem"), "client_certificate": path("secrets/tls.pem"), "client_private_key": path("secrets/tls-key.pem"), "client_ca": path("secrets/ca.pem"), "engine_ca": path("secrets/ca.pem"), "engine_server_name": "engine2"},
-        "kafka": {"brokers": manifest.kafka_brokers, "committed_event_topic": manifest.committed_event_topic, "escalation_topic": manifest.escalation_topic, "consumer_group": "human-runtime-e2e", "batch_size": 64},
+        "tls": {"server_certificate": path("secrets/tls.pem"), "server_private_key": path("secrets/tls-key.pem"), "client_certificate": path("secrets/tls.pem"), "client_private_key": path("secrets/tls-key.pem"), "client_ca": path("secrets/ca.pem"), "engine_ca": path("secrets/ca.pem"), "engine_server_name": "engine2", "configuration_server_name": "configuration-service"},
+        "kafka": {"brokers": manifest.kafka.brokers, "committed_event_topic": manifest.kafka.topics.engine_committed_events, "escalation_topic": manifest.kafka.topics.human_escalations, "consumer_group": manifest.kafka.consumer_groups.human_committed_events},
         "identity": {"jwks_path": path("jwks.json"), "internal_keys": {(internal.id.clone()): path(&internal.public_path)}, "issuers": [manifest.actor_issuer], "audiences": [manifest.actor_audience], "allowed_jwt_methods": ["EdDSA"], "workload_id": "human-runtime", "max_proof_bytes": 16384, "max_jwks_keys": 16, "max_roles": 32, "max_capabilities": 64, "clock_skew_ms": 30000},
         "workload": {"id": "human-runtime", "signing_key_id": workload.id, "private_key_path": path(&workload.private_path), "proof_ttl_ms": 60000},
-        "grpc": {"max_receive_bytes": 1_048_576, "max_send_bytes": 1_048_576},
-        "reliability": {"max_attempts": 5, "initial_backoff_ms": 50, "max_backoff_ms": 1000, "attempt_timeout_ms": 3000, "failure_threshold": 5, "open_duration_ms": 1000, "retryable_codes": ["UNAVAILABLE","DEADLINE_EXCEEDED"]},
+        "grpc": {"max_receive_bytes": 1_048_576, "max_send_bytes": 1_048_576, "reflection_enabled": true},
         "health": {"listen_address": manifest.human_health_address, "readiness_timeout_ms": 1000},
         "telemetry": {"service_name": "human-runtime-e2e", "service_version": "e2e", "endpoint": manifest.otel_endpoint, "insecure": true, "sample_ratio": 0.0, "export_timeout_ms": 1000},
-        "escalation": {"worker_id": "human-e2e", "batch_size": 32, "lease_ms": 5000, "retry_ms": 1000, "poll_ms": 250}
+        "escalation": {"worker_id": "human-e2e"},
+        "runtime_configuration": {
+            "tenant_id": manifest.tenant_id,
+            "resolver_address": manifest.configuration_grpc_url.trim_start_matches("https://"),
+            "platform_reference": "bpmp",
+            "environment_reference": "e2e",
+            "resolve_timeout_ms": 5000,
+            "kafka": {
+                "brokers": manifest.kafka.brokers,
+                "client_id": "bpmp-human-runtime-configuration",
+                "security_protocol": manifest.kafka.security_protocol,
+                "dial_timeout_ms": 2000,
+                "request_timeout_ms": 5000,
+                "topic": manifest.kafka.topics.configuration_publications,
+                "consumer_group": manifest.kafka.consumer_groups.human_runtime_configuration_reloader,
+                "batch_size": 64,
+                "max_message_bytes": 1_048_576,
+                "poll_timeout_ms": 250,
+                "session_timeout_ms": 6000
+            }
+        }
     })
 }
 
@@ -439,13 +538,155 @@ fn gateway_config(manifest: &Manifest, mount: &str, workload: &AuthKey) -> Value
         "upstream_tls": {"certificate": path("secrets/tls.pem"), "private_key": path("secrets/tls-key.pem"), "ca": path("secrets/ca.pem"), "engine_server_name": "engine2", "human_server_name": "human-runtime", "configuration_server_name": "configuration-service"},
         "identity": {"jwks_path": path("jwks.json"), "issuers": [manifest.actor_issuer], "audiences": [manifest.actor_audience], "algorithms": ["EdDSA"], "max_token_bytes": 16384, "max_jwks_keys": 16, "clock_skew_seconds": 30},
         "workload": {"id": "api-gateway", "signing_key_id": workload.id, "private_key_path": path(&workload.private_path), "proof_ttl_ms": 60000},
-        "rate_limit": {"requests": 1000, "window_ms": 60000, "redis_address": manifest.redis_address, "redis_username": "", "redis_password_file": "", "redis_database": 0, "redis_key_prefix": "bpmp:e2e", "operation_timeout_ms": 1000},
-        "http": {"read_header_timeout_ms": 2000, "read_timeout_ms": 5000, "write_timeout_ms": 5000, "idle_timeout_ms": 10000, "shutdown_timeout_ms": 5000, "max_body_bytes": 65536, "max_upstream_response_bytes": 1_048_576},
+        "rate_limit": {"redis_address": manifest.redis_address, "redis_username": "", "redis_password_file": "", "redis_database": 0, "redis_key_prefix": "bpmp:e2e", "operation_timeout_ms": 1000},
+        "http": {"read_header_timeout_ms": 2000, "read_timeout_ms": 5000, "write_timeout_ms": 5000, "idle_timeout_ms": 10000, "shutdown_timeout_ms": 5000},
         "grpc": {"max_receive_bytes": 1_048_576, "max_send_bytes": 1_048_576},
-        "reliability": {"max_attempts": 5, "initial_backoff_ms": 50, "max_backoff_ms": 1000, "attempt_timeout_ms": 3000, "failure_threshold": 5, "open_duration_ms": 1000, "retryable_codes": ["UNAVAILABLE","DEADLINE_EXCEEDED"]},
         "health": {"readiness_timeout_ms": 1000},
         "telemetry": {"service_name": "api-gateway-e2e", "service_version": "e2e", "endpoint": manifest.otel_endpoint, "insecure": true, "sample_ratio": 0.0, "export_timeout_ms": 1000},
-        "tenant_key_scopes": {(manifest.tenant_id.clone()): format!("{}/operational", manifest.tenant_id)}
+        "api_docs": {
+            "enabled": true,
+            "openapi_path": "/openapi/v1.json",
+            "reference_path": "/docs",
+            "scalar_script_url": "https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.63.0"
+        },
+        "runtime_configuration": {
+            "resolver_address": manifest.configuration_grpc_url.trim_start_matches("https://"),
+            "platform_reference": "bpmp",
+            "environment_reference": "e2e",
+            "initial_tenant_ids": [manifest.tenant_id],
+            "resolve_timeout_ms": 5000,
+            "kafka": {
+                "brokers": manifest.kafka.brokers,
+                "client_id": "bpmp-api-gateway-configuration",
+                "security_protocol": manifest.kafka.security_protocol,
+                "dial_timeout_ms": 2000,
+                "request_timeout_ms": 5000,
+                "topic": manifest.kafka.topics.configuration_publications,
+                "consumer_group": manifest.kafka.consumer_groups.api_gateway_configuration_reloader,
+                "batch_size": 64,
+                "max_message_bytes": 1_048_576,
+                "poll_timeout_ms": 250,
+                "session_timeout_ms": 6000
+            }
+        }
+    })
+}
+
+fn projection_config(manifest: &Manifest, mount: &str) -> Value {
+    let path = |name: &str| format!("{mount}/{name}");
+    json!({
+        "listen_address": manifest.projection_listen_address,
+        "health_address": manifest.projection_health_address,
+        "postgres_dsn": manifest.projection_postgres_dsn,
+        "apply_migrations": true,
+        "migration_path": path("projection-service.sql"),
+        "tls": {
+            "server_certificate": path("secrets/tls.pem"),
+            "server_private_key": path("secrets/tls-key.pem"),
+            "client_certificate": path("secrets/tls.pem"),
+            "client_private_key": path("secrets/tls-key.pem"),
+            "client_ca": path("secrets/ca.pem"),
+            "configuration_ca": path("secrets/ca.pem"),
+            "configuration_server_name": "configuration-service"
+        },
+        "grpc": {"max_receive_bytes": 1_048_576, "max_send_bytes": 1_048_576, "reflection_enabled": true},
+        "health": {"readiness_timeout_ms": 1000, "shutdown_timeout_ms": 5000},
+        "telemetry": {
+            "service_name": "projection-service-e2e",
+            "service_version": "e2e",
+            "endpoint": manifest.otel_endpoint,
+            "insecure": true,
+            "sample_ratio": 0.0,
+            "export_timeout_ms": 1000
+        },
+        "kafka": {
+            "brokers": manifest.kafka.brokers,
+            "client_id": "bpmp-projection-committed-events",
+            "security_protocol": manifest.kafka.security_protocol,
+            "dial_timeout_ms": 2000,
+            "request_timeout_ms": 5000,
+            "topic": manifest.kafka.topics.engine_committed_events,
+            "consumer_group": manifest.kafka.consumer_groups.projection_committed_events,
+            "batch_size": 128,
+            "max_message_bytes": 1_048_576,
+            "poll_timeout_ms": 250,
+            "session_timeout_ms": 6000
+        },
+        "runtime_configuration": {
+            "resolver_address": manifest.configuration_grpc_url.trim_start_matches("https://"),
+            "platform_reference": "bpmp",
+            "environment_reference": "e2e",
+            "initial_tenant_ids": [manifest.tenant_id],
+            "resolve_timeout_ms": 5000,
+            "kafka": {
+                "brokers": manifest.kafka.brokers,
+                "client_id": "bpmp-projection-configuration",
+                "security_protocol": manifest.kafka.security_protocol,
+                "dial_timeout_ms": 2000,
+                "request_timeout_ms": 5000,
+                "topic": manifest.kafka.topics.configuration_publications,
+                "consumer_group": manifest.kafka.consumer_groups.projection_configuration_reloader,
+                "batch_size": 64,
+                "max_message_bytes": 1_048_576,
+                "poll_timeout_ms": 250,
+                "session_timeout_ms": 6000
+            }
+        }
+    })
+}
+
+fn governance_config(manifest: &Manifest, mount: &str) -> Value {
+    let path = |name: &str| format!("{mount}/{name}");
+    json!({
+        "listen_addr": manifest.governance_listen_address,
+        "health_addr": manifest.governance_health_address,
+        "postgres": {
+            "dsn": manifest.governance_postgres_dsn,
+            "max_connections": 16,
+            "acquire_timeout_ms": 3000
+        },
+        "tls": {
+            "server_certificate": path("secrets/tls.pem"),
+            "server_private_key": path("secrets/tls-key.pem"),
+            "client_ca": path("secrets/ca.pem")
+        },
+        "engines": manifest.engine_public_addresses.iter().map(|address| json!({
+            "endpoint": format!("https://{address}"),
+            "tls_domain": address.split(':').next().unwrap_or("localhost"),
+            "timeout_ms": 3000,
+            "connect_max_attempts": 30,
+            "connect_retry_ms": 250
+        })).collect::<Vec<_>>(),
+        "configuration_resolver": {
+            "endpoint": manifest.configuration_grpc_url,
+            "tls_domain": "configuration-service",
+            "platform_reference": "bpmp",
+            "environment_reference": "e2e",
+            "timeout_ms": 3000
+        },
+        "kafka": {
+            "brokers": manifest.kafka.brokers,
+            "client_id": "bpmp-governance-service-e2e",
+            "consumer_group": manifest.kafka.consumer_groups.governance_configuration_reloader,
+            "configuration_topic": manifest.kafka.topics.configuration_publications,
+            "session_timeout_ms": 6000,
+            "max_message_bytes": 1_048_576
+        },
+        "key_lifecycle": {
+            "revocation_barrier_endpoint": "http://key-lifecycle:8080/barrier",
+            "kms_endpoint": "http://key-lifecycle:8080/shred"
+        },
+        "worker": {
+            "worker_id": "governance-e2e-1",
+            "poll_interval_ms": 100,
+            "shred_batch_size": 16,
+            "shred_lease_ms": 5000
+        },
+        "grpc": {
+            "max_decoding_bytes": 1_048_576,
+            "max_encoding_bytes": 1_048_576,
+            "reflection_enabled": true
+        }
     })
 }
 
@@ -464,7 +705,30 @@ fn configuration_config(manifest: &Manifest, mount: &str) -> Value {
         "grpc": {
             "listen_address": manifest.configuration_grpc_listen_address,
             "max_receive_bytes": 1_048_576,
-            "max_send_bytes": 1_048_576
+            "max_send_bytes": 1_048_576,
+            "reflection_enabled": true
+        },
+        "kafka": {
+            "brokers": manifest.kafka.brokers,
+            "client_id": "bpmp-configuration-publisher",
+            "security_protocol": manifest.kafka.security_protocol,
+            "dial_timeout_ms": 2000,
+            "request_timeout_ms": 5000,
+            "topic": manifest.kafka.topics.configuration_publications,
+            "message_timeout_ms": 5000,
+            "max_inflight": 1,
+            "max_message_bytes": 1_048_576,
+            "required_acks": "ALL",
+            "enable_idempotence": true
+        },
+        "outbox": {
+            "worker_id": "configuration-publisher-e2e",
+            "batch_size": 64,
+            "lease_duration_ms": 10000,
+            "poll_interval_ms": 100,
+            "initial_retry_delay_ms": 100,
+            "max_retry_delay_ms": 5000,
+            "retry_multiplier_millis": 2000
         },
         "identity": {
             "jwks_path": path("jwks.json"),
@@ -504,22 +768,152 @@ fn seeded_configuration_migration(manifest: &Manifest) -> Result<String> {
     let engine = snapshot
         .pointer("/snapshot/engine")
         .context("E2E configuration snapshot has no engine policy")?;
-    let values = sql_literal(&serde_json::to_string(engine)?);
     let tenant = sql_literal(&manifest.tenant_id);
-    let mut hash = String::with_capacity(64);
-    for byte in Sha256::digest(b"bpmp-e2e-config-v1") {
-        write!(&mut hash, "{byte:02x}")?;
+    let policies = seeded_configuration_policies(engine, manifest);
+    let mut migration = format!("{CONFIGURATION_MIGRATION}\n");
+    for (owner, profile_id, version_id, policy) in policies {
+        let raw = serde_json::to_vec(&policy)?;
+        let values = sql_literal(std::str::from_utf8(&raw)?);
+        let mut hash = String::with_capacity(64);
+        for byte in Sha256::digest(&raw) {
+            write!(&mut hash, "{byte:02x}")?;
+        }
+        let owner_slug = owner.to_ascii_lowercase().replace('_', "-");
+        let policy_version = if owner == "ENGINE" {
+            "policy-e2e-v1".to_owned()
+        } else {
+            format!("policy-{owner_slug}-e2e-v1")
+        };
+        write!(
+            &mut migration,
+            "INSERT INTO configuration_profiles(id,tenant_id,owner,name,scope_type,scope_reference,aggregate_version,is_deleted,created_at,created_by,updated_at,updated_by) VALUES\
+             ('{profile_id}','{tenant}','{owner}','E2E {owner_slug} policy','TENANT','{tenant}',2,false,now(),'fixture',now(),'fixture');\n\
+             INSERT INTO configuration_versions(id,profile_id,tenant_id,ordinal,config_version,policy_version,schema_version,status,values_json,content_hash,reason,created_at,created_by,published_at,published_by) VALUES\
+             ('{version_id}','{profile_id}','{tenant}',1,'config-{owner_slug}-e2e-v1','{policy_version}',1,'PUBLISHED','{values}'::jsonb,decode('{hash}','hex'),'fixture bootstrap',now(),'fixture',now(),'fixture');\n\
+             UPDATE configuration_profiles SET current_published_version_id='{version_id}' WHERE id='{profile_id}';\n\
+             INSERT INTO configuration_active_scopes(tenant_id,owner,scope_type,scope_reference,profile_id,version_id,updated_at) VALUES\
+             ('{tenant}','{owner}','TENANT','{tenant}','{profile_id}','{version_id}',now());\n"
+        )?;
     }
-    Ok(format!(
-        "{CONFIGURATION_MIGRATION}\n\
-         INSERT INTO configuration_profiles(id,tenant_id,name,scope_type,scope_reference,aggregate_version,is_deleted,created_at,created_by,updated_at,updated_by) VALUES\
-         ('00000000-0000-0000-0000-00000000c001','{tenant}','E2E tenant policy','TENANT','{tenant}',2,false,now(),'fixture',now(),'fixture');\n\
-         INSERT INTO configuration_versions(id,profile_id,tenant_id,ordinal,config_version,policy_version,schema_version,status,values_json,content_hash,reason,created_at,created_by,published_at,published_by) VALUES\
-         ('00000000-0000-0000-0000-00000000c002','00000000-0000-0000-0000-00000000c001','{tenant}',1,'config-e2e-v1','policy-e2e-v1',1,'PUBLISHED','{values}'::jsonb,decode('{hash}','hex'),'fixture bootstrap',now(),'fixture',now(),'fixture');\n\
-         UPDATE configuration_profiles SET current_published_version_id='00000000-0000-0000-0000-00000000c002' WHERE id='00000000-0000-0000-0000-00000000c001';\n\
-         INSERT INTO configuration_active_scopes(tenant_id,scope_type,scope_reference,profile_id,version_id,updated_at) VALUES\
-         ('{tenant}','TENANT','{tenant}','00000000-0000-0000-0000-00000000c001','00000000-0000-0000-0000-00000000c002',now());\n"
-    ))
+    Ok(migration)
+}
+
+fn seeded_configuration_policies(
+    engine: &Value,
+    manifest: &Manifest,
+) -> [(&'static str, &'static str, &'static str, Value); 5] {
+    let tenant_id = &manifest.tenant_id;
+    let requester_key = SigningKey::from_bytes(&derive_key(manifest, "governance-requester"));
+    let approver_key = SigningKey::from_bytes(&derive_key(manifest, "governance-approver"));
+    [
+        (
+            "ENGINE",
+            "00000000-0000-0000-0000-00000000c001",
+            "00000000-0000-0000-0000-00000000c002",
+            engine.clone(),
+        ),
+        (
+            "API_GATEWAY",
+            "00000000-0000-0000-0000-00000000c011",
+            "00000000-0000-0000-0000-00000000c012",
+            json!({
+                "rate_limit_requests": 1000,
+                "rate_limit_window_ms": "60000",
+                "upstream_timeout_ms": "3000",
+                "circuit_breaker_failure_threshold": 5,
+                "circuit_breaker_open_ms": "1000",
+                "bulkhead_max_concurrency": 128,
+                "max_request_body_bytes": "65536",
+                "max_upstream_response_bytes": "1048576",
+                "batch_chunk_size": 100,
+                "batch_concurrency": 4,
+                "upstream_retry": {
+                    "max_attempts": 3,
+                    "initial_backoff_ms": "25",
+                    "max_backoff_ms": "250",
+                    "multiplier_millis": 2000
+                },
+                "encryption_key_scope": format!("{tenant_id}/operational")
+            }),
+        ),
+        (
+            "HUMAN_RUNTIME",
+            "00000000-0000-0000-0000-00000000c021",
+            "00000000-0000-0000-0000-00000000c022",
+            json!({
+                "projection_batch_size": 64,
+                "escalation_batch_size": 32,
+                "escalation_lease_ms": "5000",
+                "escalation_retry_ms": "1000",
+                "escalation_poll_ms": "250",
+                "engine_command_timeout_ms": "3000",
+                "max_assignment_candidates": 100,
+                "max_delegation_depth": 8,
+                "query_default_page_size": 50,
+                "query_max_page_size": 200,
+                "engine_retry": {
+                    "max_attempts": 5,
+                    "initial_backoff_ms": "50",
+                    "max_backoff_ms": "1000",
+                    "multiplier_millis": 2000
+                },
+                "engine_circuit_breaker_failure_threshold": 5,
+                "engine_circuit_breaker_open_ms": "1000",
+                "engine_retryable_codes": ["UNAVAILABLE", "DEADLINE_EXCEEDED"]
+            }),
+        ),
+        (
+            "PROJECTION",
+            "00000000-0000-0000-0000-00000000c031",
+            "00000000-0000-0000-0000-00000000c032",
+            json!({
+                "consume_batch_size": 64,
+                "rebuild_batch_size": 256,
+                "query_default_page_size": 50,
+                "query_max_page_size": 200,
+                "realtime_publish_batch_size": 64,
+                "checkpoint_flush_ms": "1000",
+                "max_projection_lag_ms": "30000"
+            }),
+        ),
+        (
+            "GOVERNANCE",
+            "00000000-0000-0000-0000-00000000c041",
+            "00000000-0000-0000-0000-00000000c042",
+            json!({
+                "approval_ttl_ms": "300000",
+                "fresh_authentication_max_age_ms": "60000",
+                "kms_request_timeout_ms": "3000",
+                "kms_retry": {
+                    "max_attempts": 5,
+                    "initial_backoff_ms": "50",
+                    "max_backoff_ms": "1000",
+                    "multiplier_millis": 2000
+                },
+                "key_cache_ttl_ms": "30000",
+                "revocation_barrier_timeout_ms": "10000",
+                "reconciliation_batch_size": 64,
+                "max_pending_compensations": 1000,
+                "abort_capability": "governance.abort_and_reconcile",
+                "accepted_auth_assurance": ["mfa"],
+                "approval_keys": [
+                    {
+                        "key_id": "governance-requester-v1",
+                        "ed25519_public_key": base64::engine::general_purpose::STANDARD
+                            .encode(requester_key.verifying_key().to_bytes()),
+                        "enabled": true
+                    },
+                    {
+                        "key_id": "governance-approver-v1",
+                        "ed25519_public_key": base64::engine::general_purpose::STANDARD
+                            .encode(approver_key.verifying_key().to_bytes()),
+                        "enabled": true
+                    }
+                ],
+                "required_approver_count": 1
+            }),
+        ),
+    ]
 }
 
 fn seeded_migration(manifest: &Manifest) -> String {
@@ -548,14 +942,55 @@ fn validate_manifest(manifest: &Manifest) -> Result<()> {
     if manifest.engine_public_addresses.len() != 3
         || manifest.engine_peer_addresses.len() != 3
         || manifest.engine_peer_listen_addresses.len() != 3
-        || manifest.kafka_brokers.is_empty()
+        || manifest.kafka.brokers.is_empty()
         || manifest.tls_dns_names.is_empty()
+        || manifest
+            .kafka
+            .consumer_groups
+            .engine_configuration_reloaders
+            .len()
+            != 3
+        || manifest
+            .kafka
+            .consumer_groups
+            .projection_configuration_reloader
+            .is_empty()
+        || manifest
+            .kafka
+            .consumer_groups
+            .projection_committed_events
+            .is_empty()
+        || manifest
+            .kafka
+            .consumer_groups
+            .governance_configuration_reloader
+            .is_empty()
+        || manifest.governance_postgres_dsn.trim().is_empty()
+        || manifest.governance_listen_address.trim().is_empty()
+        || manifest.governance_health_address.trim().is_empty()
     {
         anyhow::bail!(
             "E2E manifest must define exactly three engines and non-empty brokers/TLS SANs"
         );
     }
     Ok(())
+}
+
+fn kafka_topics_script(manifest: &Manifest) -> String {
+    let brokers = manifest.kafka.brokers.join(",");
+    [
+        &manifest.kafka.topics.engine_committed_events,
+        &manifest.kafka.topics.configuration_publications,
+        &manifest.kafka.topics.human_escalations,
+    ]
+    .into_iter()
+    .map(|topic| {
+        format!(
+            "rpk topic create '{topic}' --brokers '{brokers}' --partitions 3 --replicas 1 || rpk topic describe '{topic}' --brokers '{brokers}'"
+        )
+    })
+    .collect::<Vec<_>>()
+    .join("\n")
 }
 
 fn write(path: &Path, bytes: impl AsRef<[u8]>) -> Result<()> {

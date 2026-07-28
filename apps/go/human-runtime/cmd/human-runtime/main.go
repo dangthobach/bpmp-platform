@@ -29,12 +29,16 @@ import (
 	"github.com/dangthobach/bpmp-platform/apps/go/human-runtime/internal/adapter/kafkaconsumer"
 	"github.com/dangthobach/bpmp-platform/apps/go/human-runtime/internal/adapter/kafkapublisher"
 	postgresadapter "github.com/dangthobach/bpmp-platform/apps/go/human-runtime/internal/adapter/postgres"
+	"github.com/dangthobach/bpmp-platform/apps/go/human-runtime/internal/adapter/runtimepolicy"
 	"github.com/dangthobach/bpmp-platform/apps/go/human-runtime/internal/adapter/workloadsecurity"
 	"github.com/dangthobach/bpmp-platform/apps/go/human-runtime/internal/application"
+	configurationv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/configuration/v1"
 	enginev1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/engine/v1"
 	humanv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/human/v1"
 	platformgrpc "github.com/dangthobach/bpmp-platform/go/platform/grpcclient"
+	platformgrpcserver "github.com/dangthobach/bpmp-platform/go/platform/grpcserver"
 	platformhealth "github.com/dangthobach/bpmp-platform/go/platform/health"
+	platformruntimeconfig "github.com/dangthobach/bpmp-platform/go/platform/runtimeconfig"
 	platformtelemetry "github.com/dangthobach/bpmp-platform/go/platform/telemetry"
 )
 
@@ -103,7 +107,59 @@ func run(configPath string) error {
 	if err != nil {
 		return err
 	}
-	engineInterceptor, err := reliabilityInterceptor(config.Reliability)
+	configurationTLS := clientTLS.Clone()
+	configurationTLS.ServerName = config.TLS.ConfigurationServerName
+	configurationConn, err := grpc.NewClient(
+		config.RuntimeConfig.ResolverAddress,
+		grpc.WithTransportCredentials(credentials.NewTLS(configurationTLS)),
+		grpc.WithStatsHandler(platformtelemetry.GRPCClientStatsHandler()),
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(config.GRPC.MaxReceiveBytes),
+			grpc.MaxCallSendMsgSize(config.GRPC.MaxSendBytes),
+		),
+	)
+	if err != nil {
+		return fmt.Errorf("connect configuration resolver: %w", err)
+	}
+	defer configurationConn.Close()
+	configurationConn.Connect()
+	configurationKafka, err := platformruntimeconfig.NewKafkaClient(config.RuntimeConfig.Kafka)
+	if err != nil {
+		return err
+	}
+	defer configurationKafka.Close()
+	configurationCache, err := platformruntimeconfig.NewCache(
+		configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_HUMAN_RUNTIME,
+	)
+	if err != nil {
+		return err
+	}
+	configurationReloader, err := platformruntimeconfig.New(platformruntimeconfig.Config{
+		Owner:                configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_HUMAN_RUNTIME,
+		PlatformReference:    config.RuntimeConfig.PlatformReference,
+		EnvironmentReference: config.RuntimeConfig.EnvironmentReference,
+		InitialTenantIDs:     []string{config.RuntimeConfig.TenantID},
+		ResolveTimeout:       time.Duration(config.RuntimeConfig.ResolveTimeoutMS) * time.Millisecond,
+		Kafka:                config.RuntimeConfig.Kafka,
+	}, configurationv1.NewConfigurationResolverServiceClient(configurationConn),
+		configurationKafka, configurationCache)
+	if err != nil {
+		return err
+	}
+	bootstrapStarted := time.Now()
+	slog.Info("bootstrapping Human Runtime configuration", "tenant_id", config.RuntimeConfig.TenantID)
+	if err = configurationReloader.Bootstrap(ctx); err != nil {
+		return err
+	}
+	slog.Info("Human Runtime configuration ready", "elapsed", time.Since(bootstrapStarted))
+	policyProvider, err := runtimepolicy.New(
+		configurationCache,
+		config.RuntimeConfig.TenantID,
+	)
+	if err != nil {
+		return err
+	}
+	engineInterceptor, err := dynamicReliabilityInterceptor(policyProvider)
 	if err != nil {
 		return err
 	}
@@ -130,11 +186,18 @@ func run(configPath string) error {
 	if err != nil {
 		return err
 	}
-	engineClient, err := enginegrpc.New(enginev1.NewEngineCommandServiceClient(engineConn), security)
+	engineClient, err := enginegrpc.NewWithTimeout(
+		enginev1.NewEngineCommandServiceClient(engineConn),
+		security,
+		func() (time.Duration, error) {
+			policy, policyErr := policyProvider.Policy()
+			return policy.EngineCommandTimeout, policyErr
+		},
+	)
 	if err != nil {
 		return err
 	}
-	service, err := application.NewService(store, engineClient)
+	service, err := application.NewService(store, engineClient, policyProvider)
 	if err != nil {
 		return err
 	}
@@ -142,7 +205,7 @@ func run(configPath string) error {
 	if err != nil {
 		return err
 	}
-	humanServer, err := humangrpc.New(service, store, verifier, time.Now)
+	humanServer, err := humangrpc.New(service, store, verifier, policyProvider, time.Now)
 	if err != nil {
 		return err
 	}
@@ -161,6 +224,10 @@ func run(configPath string) error {
 		config.Health.readinessTimeout(),
 		func(ctx context.Context) error { return pool.Ping(ctx) },
 		func(ctx context.Context) error { return kafkaClient.Ping(ctx) },
+		func(ctx context.Context) error { return configurationKafka.Ping(ctx) },
+		func(context.Context) error {
+			return configurationCache.Ready([]string{config.RuntimeConfig.TenantID})
+		},
 		func(context.Context) error {
 			if engineConn.GetState() != connectivity.Ready {
 				return fmt.Errorf("engine connection state is %s", engineConn.GetState())
@@ -180,7 +247,14 @@ func run(configPath string) error {
 	if err != nil {
 		return err
 	}
-	consumer, err := kafkaconsumer.New(kafkaClient, projection, config.Kafka.BatchSize)
+	consumer, err := kafkaconsumer.NewDynamic(
+		kafkaClient,
+		projection,
+		func() (int, error) {
+			policy, policyErr := policyProvider.Policy()
+			return policy.ProjectionBatchSize, policyErr
+		},
+	)
 	if err != nil {
 		return err
 	}
@@ -188,7 +262,16 @@ func run(configPath string) error {
 	if err != nil {
 		return err
 	}
-	escalationWorker, err := application.NewEscalationWorker(store, escalationPublisher, config.Escalation.WorkerID, config.Escalation.BatchSize, config.Escalation.lease(), config.Escalation.retry())
+	escalationWorker, err := application.NewDynamicEscalationWorker(
+		store,
+		escalationPublisher,
+		config.Escalation.WorkerID,
+		func() (int, time.Duration, time.Duration, error) {
+			policy, policyErr := policyProvider.Policy()
+			return policy.EscalationBatchSize, policy.EscalationLease,
+				policy.EscalationRetry, policyErr
+		},
+	)
 	if err != nil {
 		return err
 	}
@@ -204,10 +287,12 @@ func run(configPath string) error {
 		grpc.MaxSendMsgSize(config.GRPC.MaxSendBytes),
 	)
 	humanv1.RegisterHumanRuntimeServiceServer(grpcServer, humanServer)
+	platformgrpcserver.RegisterReflection(grpcServer, config.GRPC.ReflectionEnabled)
 
-	errorsChannel := make(chan error, 4)
+	errorsChannel := make(chan error, 5)
 	go func() { errorsChannel <- consumer.Run(ctx) }()
-	go func() { errorsChannel <- runEscalations(ctx, escalationWorker, config.Escalation.poll()) }()
+	go func() { errorsChannel <- runEscalations(ctx, escalationWorker, policyProvider) }()
+	go func() { errorsChannel <- configurationReloader.Run(ctx) }()
 	go func() { errorsChannel <- grpcServer.Serve(listener) }()
 	go func() { errorsChannel <- healthServer.ListenAndServe() }()
 	slog.Info("human-runtime started", "listen_address", config.ListenAddress)
@@ -231,30 +316,47 @@ func run(configPath string) error {
 	}
 }
 
-func reliabilityInterceptor(value reliabilityConfig) (grpc.UnaryClientInterceptor, error) {
-	retryable, err := platformgrpc.RetryableCodes(value.RetryableCodes)
-	if err != nil {
-		return nil, err
-	}
-	return platformgrpc.UnaryClientInterceptor(platformgrpc.Config{
-		MaxAttempts:      value.MaxAttempts,
-		InitialBackoff:   time.Duration(value.InitialBackoffMS) * time.Millisecond,
-		MaxBackoff:       time.Duration(value.MaxBackoffMS) * time.Millisecond,
-		AttemptTimeout:   time.Duration(value.AttemptTimeoutMS) * time.Millisecond,
-		FailureThreshold: value.FailureThreshold,
-		OpenDuration:     time.Duration(value.OpenDurationMS) * time.Millisecond,
-		RetryableCodes:   retryable,
+func dynamicReliabilityInterceptor(
+	provider application.RuntimePolicyProvider,
+) (grpc.UnaryClientInterceptor, error) {
+	return platformgrpc.DynamicUnaryClientInterceptor(func() (platformgrpc.Config, error) {
+		policy, err := provider.Policy()
+		if err != nil {
+			return platformgrpc.Config{}, err
+		}
+		retryable, err := platformgrpc.RetryableCodes(policy.EngineRetryableCodes)
+		if err != nil {
+			return platformgrpc.Config{}, err
+		}
+		return platformgrpc.Config{
+			MaxAttempts:      policy.EngineRetry.MaxAttempts,
+			InitialBackoff:   policy.EngineRetry.InitialBackoff,
+			MaxBackoff:       policy.EngineRetry.MaxBackoff,
+			MultiplierMillis: policy.EngineRetry.MultiplierMillis,
+			AttemptTimeout:   policy.EngineCommandTimeout,
+			FailureThreshold: policy.EngineCircuitThreshold,
+			OpenDuration:     policy.EngineCircuitOpen,
+			RetryableCodes:   retryable,
+		}, nil
 	})
 }
 
-func runEscalations(ctx context.Context, worker *application.EscalationWorker, interval time.Duration) error {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+func runEscalations(
+	ctx context.Context,
+	worker *application.EscalationWorker,
+	policies *runtimepolicy.Provider,
+) error {
 	for {
+		policy, err := policies.Policy()
+		if err != nil {
+			return err
+		}
+		timer := time.NewTimer(policy.EscalationPoll)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return nil
-		case now := <-ticker.C:
+		case now := <-timer.C:
 			if _, err := worker.RunOnce(ctx, now.UTC()); err != nil {
 				return err
 			}

@@ -10,6 +10,15 @@ export const configurationScopeTypeSchema = z.enum([
 ]);
 export type ConfigurationScopeType = z.infer<typeof configurationScopeTypeSchema>;
 
+export const configurationOwnerSchema = z.enum([
+  "ENGINE",
+  "API_GATEWAY",
+  "HUMAN_RUNTIME",
+  "PROJECTION",
+  "GOVERNANCE",
+]);
+export type ConfigurationOwner = z.infer<typeof configurationOwnerSchema>;
+
 export const configurationStatusSchema = z.enum(["DRAFT", "PUBLISHED", "RETIRED"]);
 export type ConfigurationStatus = z.infer<typeof configurationStatusSchema>;
 
@@ -28,6 +37,7 @@ const configurationVersionSummarySchema = z.object({
 export const configurationProfileSchema = z.object({
   id: z.string().uuid(),
   tenant_id: z.string(),
+  owner: configurationOwnerSchema,
   name: z.string(),
   scope: z.object({
     type: configurationScopeTypeSchema,
@@ -60,7 +70,7 @@ export const configurationDetailSchema = z.object({
   versions: z.array(configurationVersionSchema),
 });
 
-export interface ConfigurationPolicy {
+export interface EngineConfigurationPolicy {
   snapshot_interval_events: number;
   max_events_per_decision: number;
   command_timeout_ms: string;
@@ -78,8 +88,11 @@ export interface ConfigurationPolicy {
   boundary_runtime: Record<string, number | string>;
 }
 
+export type ConfigurationPolicy = Record<string, unknown> | EngineConfigurationPolicy;
+
 export interface CreateConfigurationInput {
   name: string;
+  owner: ConfigurationOwner;
   scope: { type: ConfigurationScopeType; reference: string };
   schema_version: number;
   policy_version: string;

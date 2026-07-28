@@ -20,7 +20,7 @@ type EscalationPublisher struct {
 
 func NewEscalationPublisher(producer SyncProducer, topic string) (*EscalationPublisher, error) {
 	if producer == nil || topic == "" {
-		return nil, errors.New("Kafka producer and escalation topic are required")
+		return nil, errors.New("kafka producer and escalation topic are required")
 	}
 	return &EscalationPublisher{producer: producer, topic: topic}, nil
 }

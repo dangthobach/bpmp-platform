@@ -49,6 +49,7 @@ type Config struct {
 	MaxAttempts      uint32
 	InitialBackoff   time.Duration
 	MaxBackoff       time.Duration
+	MultiplierMillis uint32
 	AttemptTimeout   time.Duration
 	FailureThreshold uint32
 	OpenDuration     time.Duration
@@ -83,6 +84,7 @@ func (c Config) Validate() error {
 	if c.MaxAttempts == 0 ||
 		c.InitialBackoff <= 0 ||
 		c.MaxBackoff < c.InitialBackoff ||
+		c.MultiplierMillis < 1000 ||
 		c.AttemptTimeout <= 0 ||
 		c.FailureThreshold == 0 ||
 		c.OpenDuration <= 0 ||
@@ -96,7 +98,22 @@ func UnaryClientInterceptor(config Config) (grpc.UnaryClientInterceptor, error) 
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	breaker := circuitBreaker{config: config}
+	return dynamicUnaryClientInterceptor(func() (Config, error) { return config, nil }), nil
+}
+
+func DynamicUnaryClientInterceptor(
+	provider func() (Config, error),
+) (grpc.UnaryClientInterceptor, error) {
+	if provider == nil {
+		return nil, errors.New("gRPC reliability configuration provider is required")
+	}
+	return dynamicUnaryClientInterceptor(provider), nil
+}
+
+func dynamicUnaryClientInterceptor(
+	provider func() (Config, error),
+) grpc.UnaryClientInterceptor {
+	breaker := circuitBreaker{}
 	return func(
 		ctx context.Context,
 		method string,
@@ -105,7 +122,14 @@ func UnaryClientInterceptor(config Config) (grpc.UnaryClientInterceptor, error) 
 		invoker grpc.UnaryInvoker,
 		opts ...grpc.CallOption,
 	) error {
-		if !breaker.allow(time.Now()) {
+		config, err := provider()
+		if err != nil {
+			return err
+		}
+		if err = config.Validate(); err != nil {
+			return err
+		}
+		if !breaker.allow(time.Now(), config.OpenDuration) {
 			return ErrCircuitOpen
 		}
 		delay := config.InitialBackoff
@@ -132,29 +156,28 @@ func UnaryClientInterceptor(config Config) (grpc.UnaryClientInterceptor, error) 
 				lastErr = ctx.Err()
 				attempt = config.MaxAttempts
 			case <-timer.C:
-				delay = min(delay*2, config.MaxBackoff)
+				delay = nextBackoff(delay, config)
 			}
 		}
-		breaker.recordFailure(time.Now())
+		breaker.recordFailure(time.Now(), config.FailureThreshold)
 		return lastErr
-	}, nil
+	}
 }
 
 type circuitBreaker struct {
-	config Config
 	mu     sync.Mutex
 	fails  uint32
 	opened time.Time
 	probe  bool
 }
 
-func (b *circuitBreaker) allow(now time.Time) bool {
+func (b *circuitBreaker) allow(now time.Time, openDuration time.Duration) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.opened.IsZero() {
 		return true
 	}
-	if now.Sub(b.opened) < b.config.OpenDuration || b.probe {
+	if now.Sub(b.opened) < openDuration || b.probe {
 		return false
 	}
 	b.probe = true
@@ -169,12 +192,30 @@ func (b *circuitBreaker) recordSuccess() {
 	b.probe = false
 }
 
-func (b *circuitBreaker) recordFailure(now time.Time) {
+func (b *circuitBreaker) recordFailure(now time.Time, failureThreshold uint32) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.probe = false
 	b.fails++
-	if b.fails >= b.config.FailureThreshold {
+	if b.fails >= failureThreshold {
 		b.opened = now
 	}
+}
+
+func nextBackoff(current time.Duration, config Config) time.Duration {
+	if current >= config.MaxBackoff {
+		return config.MaxBackoff
+	}
+	whole := time.Duration(config.MultiplierMillis / 1000)
+	remainder := time.Duration(config.MultiplierMillis % 1000)
+	if whole > 0 && current > config.MaxBackoff/whole {
+		return config.MaxBackoff
+	}
+	next := current * whole
+	fraction := (current/1000)*remainder + (current%1000)*remainder/1000
+	if fraction > config.MaxBackoff-next {
+		return config.MaxBackoff
+	}
+	next += fraction
+	return min(next, config.MaxBackoff)
 }

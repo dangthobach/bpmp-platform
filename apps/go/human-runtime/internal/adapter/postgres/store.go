@@ -71,11 +71,11 @@ func (s *Store) ProjectActivation(ctx context.Context, activation domain.Activat
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO work_items
         (tenant_id,work_item_id,activation_event_id,instance_id,workflow_type,workflow_version,node_id,task_type,
-         assignment_policy_ref,assignee_id,candidate_group,form_key,status,sla_deadline,escalation_policy_ref,version,created_at,updated_at)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,NULLIF($10,''),NULLIF($11,''),NULLIF($12,''),$13,$14,NULLIF($15,''),$16,$17,$17)`,
+         assignment_policy_ref,assignee_id,candidate_group,form_key,status,sla_deadline,escalation_policy_ref,delegation_depth,version,created_at,updated_at)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,NULLIF($10,''),NULLIF($11,''),NULLIF($12,''),$13,$14,NULLIF($15,''),$16,$17,$18,$18)`,
 		item.TenantID, item.ID, item.ActivationEventID, item.InstanceID, item.WorkflowType, item.WorkflowVersion,
 		item.NodeID, item.TaskType, item.AssignmentPolicyRef, item.Assignment.AssigneeID, item.Assignment.CandidateGroup,
-		item.FormKey, item.Status, item.SLADeadline, item.EscalationPolicyRef, item.Version, item.CreatedAt)
+		item.FormKey, item.Status, item.SLADeadline, item.EscalationPolicyRef, item.DelegationDepth, item.Version, item.CreatedAt)
 	if err != nil {
 		return domain.WorkItem{}, false, err
 	}
@@ -95,7 +95,8 @@ func (s *Store) RequestCompletion(ctx context.Context, item domain.WorkItem, com
 
 func (s *Store) Delegate(ctx context.Context, item domain.WorkItem, commandID, correlationID, actorID string) error {
 	return s.updateWorkItem(ctx, item, commandID, correlationID, actorID, "DELEGATED",
-		`assignee_id=NULLIF($1,''),candidate_group=NULLIF($2,'')`, item.Assignment.AssigneeID, item.Assignment.CandidateGroup)
+		`assignee_id=NULLIF($1,''),candidate_group=NULLIF($2,''),delegation_depth=$3`,
+		item.Assignment.AssigneeID, item.Assignment.CandidateGroup, item.DelegationDepth)
 }
 
 func (s *Store) updateWorkItem(ctx context.Context, item domain.WorkItem, commandID, correlationID, actorID, action, setSQL string, values ...any) error {
@@ -114,7 +115,7 @@ func (s *Store) updateWorkItem(ctx context.Context, item domain.WorkItem, comman
 	if result.RowsAffected() != 1 {
 		return application.ErrVersionConflict
 	}
-	details := map[string]any{"decision": item.Decision, "assignee_id": item.Assignment.AssigneeID, "candidate_group": item.Assignment.CandidateGroup}
+	details := map[string]any{"decision": item.Decision, "assignee_id": item.Assignment.AssigneeID, "candidate_group": item.Assignment.CandidateGroup, "delegation_depth": item.DelegationDepth}
 	if err = appendAudit(ctx, tx, item.TenantID, action+":"+commandID, item.ID, "", actorID, action, item.UpdatedAt, commandID, correlationID, item.Version-1, item.Version, details); err != nil {
 		return err
 	}
@@ -347,13 +348,13 @@ func (s *Store) transitionPlanItem(ctx context.Context, tenantID, caseID, itemID
 
 const workItemSelect = `SELECT tenant_id,work_item_id,activation_event_id,instance_id,workflow_type,workflow_version,node_id,task_type,
  assignment_policy_ref,COALESCE(assignee_id,''),COALESCE(candidate_group,''),COALESCE(form_key,''),status,COALESCE(decision,''),
- COALESCE(completion_command_id,''),sla_deadline,COALESCE(escalation_policy_ref,''),version,created_at,updated_at FROM work_items`
+ COALESCE(completion_command_id,''),delegation_depth,sla_deadline,COALESCE(escalation_policy_ref,''),version,created_at,updated_at FROM work_items`
 
 type rowScanner interface{ Scan(...any) error }
 
 func scanWorkItem(row rowScanner) (domain.WorkItem, error) {
 	var w domain.WorkItem
-	err := row.Scan(&w.TenantID, &w.ID, &w.ActivationEventID, &w.InstanceID, &w.WorkflowType, &w.WorkflowVersion, &w.NodeID, &w.TaskType, &w.AssignmentPolicyRef, &w.Assignment.AssigneeID, &w.Assignment.CandidateGroup, &w.FormKey, &w.Status, &w.Decision, &w.CompletionCommandID, &w.SLADeadline, &w.EscalationPolicyRef, &w.Version, &w.CreatedAt, &w.UpdatedAt)
+	err := row.Scan(&w.TenantID, &w.ID, &w.ActivationEventID, &w.InstanceID, &w.WorkflowType, &w.WorkflowVersion, &w.NodeID, &w.TaskType, &w.AssignmentPolicyRef, &w.Assignment.AssigneeID, &w.Assignment.CandidateGroup, &w.FormKey, &w.Status, &w.Decision, &w.CompletionCommandID, &w.DelegationDepth, &w.SLADeadline, &w.EscalationPolicyRef, &w.Version, &w.CreatedAt, &w.UpdatedAt)
 	return w, err
 }
 

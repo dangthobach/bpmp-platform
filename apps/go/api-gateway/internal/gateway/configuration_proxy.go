@@ -1,6 +1,8 @@
 package gateway
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -13,20 +15,16 @@ type httpDoer interface {
 }
 
 type configurationProxy struct {
-	client           httpDoer
-	baseURL          *url.URL
-	maxRequestBytes  int64
-	maxResponseBytes int64
+	client  httpDoer
+	baseURL *url.URL
 }
 
 func newConfigurationProxy(
 	client httpDoer,
 	rawBaseURL string,
-	maxRequestBytes int64,
-	maxResponseBytes int64,
 ) (*configurationProxy, error) {
-	if client == nil || maxRequestBytes <= 0 || maxResponseBytes <= 0 {
-		return nil, errors.New("configuration proxy bounds are invalid")
+	if client == nil {
+		return nil, errors.New("configuration proxy client is required")
 	}
 	baseURL, err := url.Parse(rawBaseURL)
 	if err != nil || baseURL.Scheme != "https" || baseURL.Host == "" ||
@@ -34,12 +32,7 @@ func newConfigurationProxy(
 		return nil, errors.New("configuration upstream URL must be an HTTPS origin")
 	}
 	baseURL.Path = strings.TrimRight(baseURL.Path, "/")
-	return &configurationProxy{
-		client:           client,
-		baseURL:          baseURL,
-		maxRequestBytes:  maxRequestBytes,
-		maxResponseBytes: maxResponseBytes,
-	}, nil
+	return &configurationProxy{client: client, baseURL: baseURL}, nil
 }
 
 func (h *Handler) configuration(w http.ResponseWriter, r *http.Request) {
@@ -56,23 +49,35 @@ func (h *Handler) configuration(w http.ResponseWriter, r *http.Request) {
 	target.RawPath = ""
 	target.RawQuery = r.URL.RawQuery
 
-	var body io.Reader
+	maxRequestBytes := scope.runtimePolicy.MaxRequestBodyBytes
+	maxResponseBytes := scope.runtimePolicy.MaxUpstreamResponseBytes
+	var requestBody []byte
 	if r.Body != nil {
-		body = http.MaxBytesReader(w, r.Body, h.configurationProxy.maxRequestBytes)
+		requestBody, err = io.ReadAll(io.LimitReader(r.Body, maxRequestBytes+1))
+		if err != nil || int64(len(requestBody)) > maxRequestBytes {
+			writeError(w, errInvalid)
+			return
+		}
 	}
-	upstreamRequest, err := http.NewRequestWithContext(
+	response, err := invokeUpstream(
+		h,
 		upstreamContext(r, scope),
-		r.Method,
-		target.String(),
-		body,
+		scope,
+		configurationDependency,
+		func(ctx context.Context) (*http.Response, error) {
+			upstreamRequest, requestErr := http.NewRequestWithContext(
+				ctx,
+				r.Method,
+				target.String(),
+				bytes.NewReader(requestBody),
+			)
+			if requestErr != nil {
+				return nil, requestErr
+			}
+			copyConfigurationHeaders(upstreamRequest.Header, r.Header)
+			return h.configurationProxy.client.Do(upstreamRequest)
+		},
 	)
-	if err != nil {
-		writeError(w, errUpstream)
-		return
-	}
-	copyConfigurationHeaders(upstreamRequest.Header, r.Header)
-
-	response, err := h.configurationProxy.client.Do(upstreamRequest)
 	if err != nil {
 		writeError(w, errUpstream)
 		return
@@ -80,9 +85,9 @@ func (h *Handler) configuration(w http.ResponseWriter, r *http.Request) {
 	defer response.Body.Close()
 	responseBody, err := io.ReadAll(io.LimitReader(
 		response.Body,
-		h.configurationProxy.maxResponseBytes+1,
+		maxResponseBytes+1,
 	))
-	if err != nil || int64(len(responseBody)) > h.configurationProxy.maxResponseBytes {
+	if err != nil || int64(len(responseBody)) > maxResponseBytes {
 		writeError(w, errUpstream)
 		return
 	}

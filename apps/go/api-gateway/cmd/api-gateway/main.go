@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
 	"syscall"
 	"time"
 
@@ -21,12 +22,15 @@ import (
 	"google.golang.org/grpc/credentials"
 
 	"github.com/dangthobach/bpmp-platform/apps/go/api-gateway/internal/adapter/redislimit"
+	"github.com/dangthobach/bpmp-platform/apps/go/api-gateway/internal/adapter/runtimepolicy"
+	"github.com/dangthobach/bpmp-platform/apps/go/api-gateway/internal/apidocs"
 	"github.com/dangthobach/bpmp-platform/apps/go/api-gateway/internal/config"
 	"github.com/dangthobach/bpmp-platform/apps/go/api-gateway/internal/gateway"
+	configurationv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/configuration/v1"
 	enginev1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/engine/v1"
 	humanv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/human/v1"
-	platformgrpc "github.com/dangthobach/bpmp-platform/go/platform/grpcclient"
 	platformhealth "github.com/dangthobach/bpmp-platform/go/platform/health"
+	"github.com/dangthobach/bpmp-platform/go/platform/runtimeconfig"
 	platformtelemetry "github.com/dangthobach/bpmp-platform/go/platform/telemetry"
 )
 
@@ -75,26 +79,69 @@ func run(path string) error {
 	if err != nil {
 		return err
 	}
-	engineInterceptor, err := reliabilityInterceptor(value.Reliability)
-	if err != nil {
-		return err
-	}
-	humanInterceptor, err := reliabilityInterceptor(value.Reliability)
-	if err != nil {
-		return err
-	}
-	engineConn, err := grpc.NewClient(value.EngineAddress, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, ServerName: value.UpstreamTLS.EngineServerName, RootCAs: roots, Certificates: []tls.Certificate{clientCertificate}})), grpc.WithUnaryInterceptor(engineInterceptor), grpc.WithStatsHandler(platformtelemetry.GRPCClientStatsHandler()), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(value.GRPC.MaxReceiveBytes), grpc.MaxCallSendMsgSize(value.GRPC.MaxSendBytes)))
+	engineConn, err := grpc.NewClient(value.EngineAddress, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, ServerName: value.UpstreamTLS.EngineServerName, RootCAs: roots, Certificates: []tls.Certificate{clientCertificate}})), grpc.WithStatsHandler(platformtelemetry.GRPCClientStatsHandler()), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(value.GRPC.MaxReceiveBytes), grpc.MaxCallSendMsgSize(value.GRPC.MaxSendBytes)))
 	if err != nil {
 		return err
 	}
 	defer engineConn.Close()
-	humanConn, err := grpc.NewClient(value.HumanAddress, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, ServerName: value.UpstreamTLS.HumanServerName, RootCAs: roots, Certificates: []tls.Certificate{clientCertificate}})), grpc.WithUnaryInterceptor(humanInterceptor), grpc.WithStatsHandler(platformtelemetry.GRPCClientStatsHandler()), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(value.GRPC.MaxReceiveBytes), grpc.MaxCallSendMsgSize(value.GRPC.MaxSendBytes)))
+	humanConn, err := grpc.NewClient(value.HumanAddress, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, ServerName: value.UpstreamTLS.HumanServerName, RootCAs: roots, Certificates: []tls.Certificate{clientCertificate}})), grpc.WithStatsHandler(platformtelemetry.GRPCClientStatsHandler()), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(value.GRPC.MaxReceiveBytes), grpc.MaxCallSendMsgSize(value.GRPC.MaxSendBytes)))
 	if err != nil {
 		return err
 	}
 	defer humanConn.Close()
+	configurationConn, err := grpc.NewClient(
+		value.RuntimeConfig.ResolverAddress,
+		grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
+			MinVersion: tls.VersionTLS13, ServerName: value.UpstreamTLS.ConfigurationServerName,
+			RootCAs: roots, Certificates: []tls.Certificate{clientCertificate},
+		})),
+		grpc.WithStatsHandler(platformtelemetry.GRPCClientStatsHandler()),
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(value.GRPC.MaxReceiveBytes),
+			grpc.MaxCallSendMsgSize(value.GRPC.MaxSendBytes),
+		),
+	)
+	if err != nil {
+		return err
+	}
+	defer configurationConn.Close()
+	configurationConn.Connect()
+	configurationKafka, err := runtimeconfig.NewKafkaClient(value.RuntimeConfig.Kafka)
+	if err != nil {
+		return err
+	}
+	defer configurationKafka.Close()
+	configurationCache, err := runtimeconfig.NewCache(
+		configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_API_GATEWAY,
+	)
+	if err != nil {
+		return err
+	}
+	tenantIDs := append([]string(nil), value.RuntimeConfig.InitialTenantIDs...)
+	sort.Strings(tenantIDs)
+	configurationReloader, err := runtimeconfig.New(runtimeconfig.Config{
+		Owner:                configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_API_GATEWAY,
+		PlatformReference:    value.RuntimeConfig.PlatformReference,
+		EnvironmentReference: value.RuntimeConfig.EnvironmentReference,
+		InitialTenantIDs:     tenantIDs,
+		ResolveTimeout:       value.RuntimeConfig.ResolveTimeout(),
+		Kafka:                value.RuntimeConfig.Kafka,
+	}, configurationv1.NewConfigurationResolverServiceClient(configurationConn),
+		configurationKafka, configurationCache)
+	if err != nil {
+		return err
+	}
+	bootstrapStarted := time.Now()
+	slog.Info("bootstrapping API Gateway runtime configuration", "tenant_count", len(tenantIDs))
+	if err = configurationReloader.Bootstrap(ctx); err != nil {
+		return err
+	}
+	slog.Info("API Gateway runtime configuration ready", "elapsed", time.Since(bootstrapStarted))
+	policyProvider, err := runtimepolicy.New(configurationCache)
+	if err != nil {
+		return err
+	}
 	configurationClient := &http.Client{
-		Timeout: time.Duration(value.Reliability.AttemptTimeoutMS) * time.Millisecond,
 		Transport: &http.Transport{
 			ForceAttemptHTTP2: true,
 			TLSClientConfig: &tls.Config{
@@ -103,7 +150,6 @@ func run(path string) error {
 				RootCAs:      roots,
 				Certificates: []tls.Certificate{clientCertificate},
 			},
-			ResponseHeaderTimeout: time.Duration(value.Reliability.AttemptTimeoutMS) * time.Millisecond,
 		},
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
@@ -121,12 +167,11 @@ func run(path string) error {
 	})
 	defer redisClient.Close()
 	rateLimitTimeout := time.Duration(value.RateLimit.OperationTimeoutMS) * time.Millisecond
-	rateLimiter, err := redislimit.New(redisClient, redislimit.Config{
-		Prefix:           value.RateLimit.RedisKeyPrefix,
-		Requests:         value.RateLimit.Requests,
-		Window:           time.Duration(value.RateLimit.WindowMS) * time.Millisecond,
-		OperationTimeout: rateLimitTimeout,
-	})
+	rateLimiter, err := redislimit.NewDynamic(
+		redisClient,
+		value.RateLimit.RedisKeyPrefix,
+		rateLimitTimeout,
+	)
 	if err != nil {
 		return err
 	}
@@ -136,12 +181,13 @@ func run(path string) error {
 	if err != nil {
 		return fmt.Errorf("ping rate-limit Redis: %w", err)
 	}
-	handler, err := gateway.New(
+	handler, err := gateway.NewWithPolicy(
 		enginev1.NewEngineCommandServiceClient(engineConn),
 		humanv1.NewHumanRuntimeServiceClient(humanConn),
 		rateLimiter,
 		configurationClient,
 		value,
+		policyProvider,
 	)
 	if err != nil {
 		return err
@@ -154,15 +200,31 @@ func run(path string) error {
 		connectionReady(humanConn),
 		func(ctx context.Context) error { return redisClient.Ping(ctx).Err() },
 		httpReady(configurationClient, value.ConfigurationURL+"/readyz"),
+		func(context.Context) error { return configurationCache.Ready(tenantIDs) },
+		func(ctx context.Context) error { return configurationKafka.Ping(ctx) },
 	)
 	routes := http.NewServeMux()
 	routes.Handle("/livez", healthHandler)
 	routes.Handle("/readyz", healthHandler)
+	if value.APIDocs.Enabled {
+		apiReference, docsErr := apidocs.New(apidocs.Config{
+			OpenAPIPath:     value.APIDocs.OpenAPIPath,
+			ReferencePath:   value.APIDocs.ReferencePath,
+			ScalarScriptURL: value.APIDocs.ScalarScriptURL,
+		})
+		if docsErr != nil {
+			return docsErr
+		}
+		apiReference.Register(routes)
+	}
 	routes.Handle("/", handler.Routes())
 	server := &http.Server{Addr: value.ListenAddress, Handler: platformtelemetry.HTTPHandler(value.Telemetry.ServiceName, routes), ReadHeaderTimeout: value.HTTP.ReadHeaderTimeout(), ReadTimeout: value.HTTP.ReadTimeout(), WriteTimeout: value.HTTP.WriteTimeout(), IdleTimeout: value.HTTP.IdleTimeout()}
-	errorsChannel := make(chan error, 1)
+	errorsChannel := make(chan error, 2)
 	go func() {
 		errorsChannel <- server.ListenAndServeTLS(value.PublicTLS.Certificate, value.PublicTLS.PrivateKey)
+	}()
+	go func() {
+		errorsChannel <- configurationReloader.Run(ctx)
 	}()
 	slog.Info("api-gateway started", "listen_address", value.ListenAddress)
 	select {
@@ -207,22 +269,6 @@ func readOptionalSecret(path string) (string, error) {
 	value = bytes.TrimSuffix(value, []byte("\n"))
 	value = bytes.TrimSuffix(value, []byte("\r"))
 	return string(value), nil
-}
-
-func reliabilityInterceptor(value config.Reliability) (grpc.UnaryClientInterceptor, error) {
-	retryable, err := platformgrpc.RetryableCodes(value.RetryableCodes)
-	if err != nil {
-		return nil, err
-	}
-	return platformgrpc.UnaryClientInterceptor(platformgrpc.Config{
-		MaxAttempts:      value.MaxAttempts,
-		InitialBackoff:   time.Duration(value.InitialBackoffMS) * time.Millisecond,
-		MaxBackoff:       time.Duration(value.MaxBackoffMS) * time.Millisecond,
-		AttemptTimeout:   time.Duration(value.AttemptTimeoutMS) * time.Millisecond,
-		FailureThreshold: value.FailureThreshold,
-		OpenDuration:     time.Duration(value.OpenDurationMS) * time.Millisecond,
-		RetryableCodes:   retryable,
-	})
 }
 
 func connectionReady(connection *grpc.ClientConn) platformhealth.Check {

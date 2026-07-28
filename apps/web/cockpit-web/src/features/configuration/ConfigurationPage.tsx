@@ -22,12 +22,13 @@ import { useRuntimeConfig } from "../../config/ConfigContext";
 import {
   buildPolicy,
   emptyPolicyForm,
-  policyFields,
+  policyFieldsFor,
   policyToForm,
   type PolicyForm,
 } from "./policyForm";
 import type {
   ConfigurationProfile,
+  ConfigurationOwner,
   ConfigurationScopeType,
   ConfigurationVersion,
 } from "./types";
@@ -41,6 +42,13 @@ const scopeTypes: readonly ConfigurationScopeType[] = [
   "WORKFLOW_VERSION",
   "APPROVED_INSTANCE_OVERRIDE",
 ];
+const configurationOwners: readonly ConfigurationOwner[] = [
+  "ENGINE",
+  "API_GATEWAY",
+  "HUMAN_RUNTIME",
+  "PROJECTION",
+  "GOVERNANCE",
+];
 
 export function ConfigurationPage() {
   const api = useApi();
@@ -52,6 +60,7 @@ export function ConfigurationPage() {
   const [selectedProfileId, setSelectedProfileId] = useState("");
   const [dialog, setDialog] = useState<DialogType>(null);
   const [name, setName] = useState("");
+  const [owner, setOwner] = useState<ConfigurationOwner>("ENGINE");
   const [scopeType, setScopeType] = useState<ConfigurationScopeType>("TENANT");
   const [scopeReference, setScopeReference] = useState(identity?.tenantId ?? "");
   const [schemaVersion, setSchemaVersion] = useState("1");
@@ -98,11 +107,12 @@ export function ConfigurationPage() {
   const createMutation = useMutation({
     mutationFn: (key: string) => api.createConfigurationProfile({
       name: name.trim(),
+      owner,
       scope: { type: scopeType, reference: scopeReference.trim() },
       schema_version: positive(schemaVersion, "Schema version"),
       policy_version: policyVersion.trim(),
       reason: reason.trim(),
-      values: buildPolicy(policyForm),
+      values: buildPolicy(policyForm, owner),
     }, key),
     async onSuccess(profile) {
       setSelectedProfileId(profile.id);
@@ -120,7 +130,7 @@ export function ConfigurationPage() {
         schema_version: positive(schemaVersion, "Schema version"),
         policy_version: policyVersion.trim(),
         reason: reason.trim(),
-        values: buildPolicy(policyForm),
+        values: buildPolicy(policyForm, detail.data.profile.owner),
       }, key);
     },
     async onSuccess() {
@@ -217,11 +227,13 @@ export function ConfigurationPage() {
 
   function openDraft() {
     const source = detail.data?.versions[0];
+    const profileOwner = detail.data?.profile.owner ?? "ENGINE";
     resetForm();
+    setOwner(profileOwner);
     if (source) {
       setSchemaVersion(String(source.schema_version));
       setPolicyVersion(source.policy_version);
-      setPolicyForm(policyToForm(source.values));
+      setPolicyForm(policyToForm(source.values, profileOwner));
     }
     setDialog("draft");
   }
@@ -238,10 +250,11 @@ export function ConfigurationPage() {
 
   function resetForm() {
     setName("");
+    setOwner("ENGINE");
     setSchemaVersion("1");
     setPolicyVersion("");
     setReason("");
-    setPolicyForm(emptyPolicyForm());
+    setPolicyForm(emptyPolicyForm("ENGINE"));
     setRollbackVersionId("");
     setFormError("");
     setIdempotencyKey("");
@@ -260,7 +273,7 @@ export function ConfigurationPage() {
       if (!policyVersion.trim() || !reason.trim() || (dialog === "create" && !name.trim())) {
         throw new Error("Profile metadata is required");
       }
-      buildPolicy(policyForm);
+      buildPolicy(policyForm, dialog === "draft" ? detail.data?.profile.owner ?? owner : owner);
       setFormError("");
       const key = idempotencyKey || crypto.randomUUID();
       setIdempotencyKey(key);
@@ -395,6 +408,16 @@ export function ConfigurationPage() {
               <>
                 <TextField label="Profile name" value={name} onChange={setName} />
                 <SelectField
+                  label="Owner"
+                  value={owner}
+                  options={configurationOwners}
+                  onChange={(value) => {
+                    const nextOwner = value as ConfigurationOwner;
+                    setOwner(nextOwner);
+                    setPolicyForm(emptyPolicyForm(nextOwner));
+                  }}
+                />
+                <SelectField
                   label="Scope type"
                   value={scopeType}
                   options={scopeTypes}
@@ -407,11 +430,11 @@ export function ConfigurationPage() {
             <TextField label="Policy version" value={policyVersion} onChange={setPolicyVersion} />
             <TextField label="Reason" value={reason} onChange={setReason} />
           </div>
-          {(["Engine", "Retry", "Local WASM", "Boundary runtime"] as const).map((group) => (
+          {[...new Set(policyFieldsFor(owner).map(({ group }) => group))].map((group) => (
             <fieldset key={group} className="configuration-fields">
               <legend>{group}</legend>
               <div className="field-grid">
-                {policyFields.filter((field) => field.group === group).map((field) => (
+                {policyFieldsFor(owner).filter((field) => field.group === group).map((field) => (
                   <TextField
                     key={field.key}
                     label={field.label}
@@ -650,5 +673,5 @@ function positive(raw: string, label: string): number {
 }
 
 function formatScope(profile: ConfigurationProfile): string {
-  return `${profile.scope.type.replaceAll("_", " ").toLowerCase()} · ${profile.scope.reference}`;
+  return `${profile.owner.replaceAll("_", " ").toLowerCase()} · ${profile.scope.type.replaceAll("_", " ").toLowerCase()} · ${profile.scope.reference}`;
 }

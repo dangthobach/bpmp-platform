@@ -15,7 +15,42 @@ var (
 	ErrVersionConflict      = errors.New("work item version conflict")
 	ErrIdempotencyConflict  = errors.New("command id was already used with different completion data")
 	ErrProjectionDependency = errors.New("committed event projection dependency is missing")
+	ErrPolicyLimit          = errors.New("human runtime policy limit exceeded")
 )
+
+type RuntimePolicy struct {
+	ProjectionBatchSize     int
+	EscalationBatchSize     int
+	EscalationLease         time.Duration
+	EscalationRetry         time.Duration
+	EscalationPoll          time.Duration
+	EngineCommandTimeout    time.Duration
+	MaxAssignmentCandidates uint32
+	MaxDelegationDepth      uint32
+	QueryDefaultPageSize    uint32
+	QueryMaxPageSize        uint32
+	EngineRetry             RetryPolicy
+	EngineCircuitThreshold  uint32
+	EngineCircuitOpen       time.Duration
+	EngineRetryableCodes    []string
+}
+
+type RetryPolicy struct {
+	MaxAttempts      uint32
+	InitialBackoff   time.Duration
+	MaxBackoff       time.Duration
+	MultiplierMillis uint32
+}
+
+type RuntimePolicyProvider interface {
+	Policy() (RuntimePolicy, error)
+}
+
+type RuntimePolicyProviderFunc func() (RuntimePolicy, error)
+
+func (function RuntimePolicyProviderFunc) Policy() (RuntimePolicy, error) {
+	return function()
+}
 
 type ActorCredential struct {
 	ActorID             string
@@ -139,13 +174,14 @@ type Store interface {
 type Service struct {
 	store  Store
 	engine EnginePort
+	policy RuntimePolicyProvider
 }
 
-func NewService(store Store, engine EnginePort) (*Service, error) {
-	if store == nil || engine == nil {
-		return nil, errors.New("store and engine ports are required")
+func NewService(store Store, engine EnginePort, policy RuntimePolicyProvider) (*Service, error) {
+	if store == nil || engine == nil || policy == nil {
+		return nil, errors.New("store, engine, and runtime policy ports are required")
 	}
-	return &Service{store: store, engine: engine}, nil
+	return &Service{store: store, engine: engine, policy: policy}, nil
 }
 
 func (s *Service) ProjectActivation(ctx context.Context, activation domain.Activation) (domain.WorkItem, bool, error) {
@@ -155,6 +191,13 @@ func (s *Service) ProjectActivation(ctx context.Context, activation domain.Activ
 func (s *Service) Complete(ctx context.Context, request CompleteRequest) error {
 	if err := request.Actor.Validate(); err != nil {
 		return err
+	}
+	policy, err := s.policy.Policy()
+	if err != nil {
+		return fmt.Errorf("load human runtime policy: %w", err)
+	}
+	if uint32(len(request.ActorGroups)) > policy.MaxAssignmentCandidates {
+		return ErrPolicyLimit
 	}
 	item, err := s.store.GetWorkItem(ctx, request.TenantID, request.WorkItemID)
 	if err != nil {
@@ -211,6 +254,13 @@ func (s *Service) Delegate(ctx context.Context, request DelegateRequest) error {
 	if request.IdempotencyKey == "" {
 		request.IdempotencyKey = request.CommandID
 	}
+	policy, err := s.policy.Policy()
+	if err != nil {
+		return fmt.Errorf("load human runtime policy: %w", err)
+	}
+	if uint32(len(request.ActorGroups)) > policy.MaxAssignmentCandidates {
+		return ErrPolicyLimit
+	}
 	item, err := s.store.GetWorkItem(ctx, request.TenantID, request.WorkItemID)
 	if err != nil {
 		return err
@@ -220,6 +270,9 @@ func (s *Service) Delegate(ctx context.Context, request DelegateRequest) error {
 	}
 	if !item.CanAct(request.Actor.ActorID, request.ActorGroups) {
 		return ErrForbidden
+	}
+	if item.DelegationDepth >= policy.MaxDelegationDepth {
+		return ErrPolicyLimit
 	}
 	delegated, err := domain.Delegate(item, request.Actor.ActorID, request.Assignment, request.OccurredAt)
 	if err != nil {

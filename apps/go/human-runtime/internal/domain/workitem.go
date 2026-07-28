@@ -43,6 +43,7 @@ type WorkItem struct {
 	Status              WorkItemStatus
 	Decision            string
 	CompletionCommandID string
+	DelegationDepth     uint32
 	SLADeadline         *time.Time
 	EscalationPolicyRef string
 	Version             int64
@@ -159,6 +160,7 @@ func Delegate(w WorkItem, actorID string, assignment Assignment, now time.Time) 
 		return WorkItem{}, err
 	}
 	w.Assignment = assignment
+	w.DelegationDepth++
 	w.Version++
 	w.UpdatedAt = now
 	return w, nil

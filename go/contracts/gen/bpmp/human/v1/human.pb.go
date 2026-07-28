@@ -574,6 +574,7 @@ type WorkItem struct {
 	Decision           string                 `protobuf:"bytes,12,opt,name=decision,proto3" json:"decision,omitempty"`
 	SlaDeadlineEpochMs uint64                 `protobuf:"varint,13,opt,name=sla_deadline_epoch_ms,json=slaDeadlineEpochMs,proto3" json:"sla_deadline_epoch_ms,omitempty"`
 	Version            int64                  `protobuf:"varint,14,opt,name=version,proto3" json:"version,omitempty"`
+	DelegationDepth    uint32                 `protobuf:"varint,15,opt,name=delegation_depth,json=delegationDepth,proto3" json:"delegation_depth,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -702,6 +703,13 @@ func (x *WorkItem) GetSlaDeadlineEpochMs() uint64 {
 func (x *WorkItem) GetVersion() int64 {
 	if x != nil {
 		return x.Version
+	}
+	return 0
+}
+
+func (x *WorkItem) GetDelegationDepth() uint32 {
+	if x != nil {
+		return x.DelegationDepth
 	}
 	return 0
 }
@@ -1279,7 +1287,7 @@ const file_bpmp_human_v1_human_proto_rawDesc = "" +
 	"\x18DelegateWorkItemResponse\x12\x1d\n" +
 	"\n" +
 	"command_id\x18\x01 \x01(\tR\tcommandId\x12*\n" +
-	"\x11work_item_version\x18\x02 \x01(\x03R\x0fworkItemVersion\"\xd6\x03\n" +
+	"\x11work_item_version\x18\x02 \x01(\x03R\x0fworkItemVersion\"\x81\x04\n" +
 	"\bWorkItem\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12 \n" +
 	"\fwork_item_id\x18\x02 \x01(\tR\n" +
@@ -1298,7 +1306,8 @@ const file_bpmp_human_v1_human_proto_rawDesc = "" +
 	"\x06status\x18\v \x01(\tR\x06status\x12\x1a\n" +
 	"\bdecision\x18\f \x01(\tR\bdecision\x121\n" +
 	"\x15sla_deadline_epoch_ms\x18\r \x01(\x04R\x12slaDeadlineEpochMs\x12\x18\n" +
-	"\aversion\x18\x0e \x01(\x03R\aversion\"\x8a\x01\n" +
+	"\aversion\x18\x0e \x01(\x03R\aversion\x12)\n" +
+	"\x10delegation_depth\x18\x0f \x01(\rR\x0fdelegationDepth\"\x8a\x01\n" +
 	"\x0eGetCaseRequest\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x17\n" +
 	"\acase_id\x18\x02 \x01(\tR\x06caseId\x12B\n" +

@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -667,6 +667,89 @@ impl<C: PayloadCryptoPort> RocksDbWorkflowStore<C> {
             }],
             entry.ledger_entry_id.as_bytes().to_vec(),
         ))
+    }
+
+    /// Loads the latest pending compensation entry for each ledger identity in
+    /// one tenant-scoped workflow instance.
+    ///
+    /// The scan is streaming and the retained identity set is bounded by
+    /// `max_entries`. Historical versions never count as additional pending
+    /// effects.
+    ///
+    /// # Errors
+    ///
+    /// Fails closed for zero bounds, corrupt/encrypted records, or when the
+    /// configured pending-entry bound is exceeded.
+    pub fn load_pending_compensation_entries(
+        &self,
+        tenant_id: &TenantId,
+        instance_id: &InstanceId,
+        max_entries: usize,
+    ) -> Result<Vec<CompensationLedgerEntry>, StoreError> {
+        if max_entries == 0 {
+            return Err(StoreError::InvalidGovernanceTransition(
+                "pending compensation bound must be positive".into(),
+            ));
+        }
+        let prefix = compensation_tenant_prefix(tenant_id);
+        let iterator = self.db.iterator_cf(
+            cf(&self.db, COMPENSATION_LEDGER_CF)?,
+            IteratorMode::From(&prefix, Direction::Forward),
+        );
+        let mut latest = BTreeMap::<String, CompensationLedgerEntry>::new();
+        for item in iterator {
+            let (key, value) = item.map_err(unavailable)?;
+            if !key.starts_with(&prefix) {
+                break;
+            }
+            let plaintext = decrypt_governance_record(&self.crypto, key.as_ref(), &value)?;
+            let record = CompensationLedgerRecord::decode(plaintext.as_slice())
+                .map_err(|error| StoreError::CorruptData(error.to_string()))?;
+            if record.tenant_id != tenant_id.as_str() || record.instance_id != instance_id.as_str()
+            {
+                continue;
+            }
+            let status = match record.status.as_str() {
+                "PENDING" => CompensationStatus::Pending,
+                "COMPENSATED" => CompensationStatus::Compensated,
+                "RECONCILIATION_REQUIRED" => CompensationStatus::ReconciliationRequired,
+                _ => {
+                    return Err(StoreError::CorruptData(
+                        "compensation ledger status is invalid".into(),
+                    ));
+                }
+            };
+            let candidate = CompensationLedgerEntry {
+                tenant_id: record.tenant_id,
+                instance_id: record.instance_id,
+                saga_ref: record.saga_ref,
+                ledger_entry_id: record.ledger_entry_id,
+                effect_sequence: record.effect_sequence,
+                ledger_sequence: record.ledger_sequence,
+                side_effect_type: record.side_effect_type,
+                target_system: record.target_system,
+                handler_ref: record.handler_ref,
+                opaque_operation_ref: record.opaque_operation_ref,
+                idempotency_key: record.idempotency_key,
+                status,
+                updated_at_epoch_ms: record.updated_at_epoch_ms,
+            };
+            let replace = latest
+                .get(&candidate.ledger_entry_id)
+                .is_none_or(|current| candidate.ledger_sequence > current.ledger_sequence);
+            if replace {
+                latest.insert(candidate.ledger_entry_id.clone(), candidate);
+            }
+            if latest.len() > max_entries {
+                return Err(StoreError::InvalidGovernanceTransition(format!(
+                    "pending compensation identity count exceeds configured bound {max_entries}"
+                )));
+            }
+        }
+        Ok(latest
+            .into_values()
+            .filter(|entry| entry.status == CompensationStatus::Pending)
+            .collect())
     }
 
     fn load_result(
@@ -2490,6 +2573,12 @@ fn compensation_ledger_storage_key(
     key
 }
 
+fn compensation_tenant_prefix(tenant: &TenantId) -> Vec<u8> {
+    let mut key = Vec::new();
+    push_component(&mut key, tenant.as_str());
+    key
+}
+
 fn reconciliation_storage_key(tenant: &TenantId, reconciliation_id: &str) -> Vec<u8> {
     let mut key = Vec::new();
     push_component(&mut key, tenant.as_str());
@@ -3609,6 +3698,14 @@ mod tests {
                 .outcome,
             ApplyOutcome::Applied
         );
+        let tenant_id = TenantId::new("tenant-a").unwrap();
+        let instance_id = InstanceId::new("instance-1").unwrap();
+        assert_eq!(
+            store
+                .load_pending_compensation_entries(&tenant_id, &instance_id, 1)
+                .unwrap(),
+            vec![ledger.clone()]
+        );
         let plan = governance_plan();
         let governance_batch = store
             .prepare_governance_batch(&plan, b"tenant/governance-command".to_vec())
@@ -3619,12 +3716,13 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.outcome, ApplyOutcome::Applied);
-        let loaded = store
-            .load(
-                &TenantId::new("tenant-a").unwrap(),
-                &InstanceId::new("instance-1").unwrap(),
-            )
-            .unwrap();
+        assert!(
+            store
+                .load_pending_compensation_entries(&tenant_id, &instance_id, 1)
+                .unwrap()
+                .is_empty()
+        );
+        let loaded = store.load(&tenant_id, &instance_id).unwrap();
         assert_eq!(loaded.version, 1);
         assert_eq!(
             loaded.snapshot.unwrap().state.lifecycle,

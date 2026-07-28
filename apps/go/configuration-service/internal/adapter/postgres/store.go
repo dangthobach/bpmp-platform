@@ -42,10 +42,10 @@ func (s *Store) Create(ctx context.Context, actor domain.Actor, profile domain.P
 		return loadProfile(ctx, s.pool, actor.TenantID, duplicateID)
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO configuration_profiles
-		(id,tenant_id,name,scope_type,scope_reference,aggregate_version,is_deleted,created_at,created_by,updated_at,updated_by)
-		VALUES($1,$2,$3,$4,$5,$6,false,$7,$8,$7,$8)`,
-		profile.ID, profile.TenantID, profile.Name, profile.Scope.Type, profile.Scope.Reference,
-		profile.AggregateVersion, profile.CreatedAt, actor.ActorID)
+		(id,tenant_id,owner,name,scope_type,scope_reference,aggregate_version,is_deleted,created_at,created_by,updated_at,updated_by)
+		VALUES($1,$2,$3,$4,$5,$6,$7,false,$8,$9,$8,$9)`,
+		profile.ID, profile.TenantID, profile.Owner, profile.Name, profile.Scope.Type,
+		profile.Scope.Reference, profile.AggregateVersion, profile.CreatedAt, actor.ActorID)
 	if err != nil {
 		return domain.Profile{}, mapError(err)
 	}
@@ -66,7 +66,7 @@ func (s *Store) Create(ctx context.Context, actor domain.Actor, profile domain.P
 }
 
 func (s *Store) List(ctx context.Context, tenantID, afterName, afterID string, limit int) ([]domain.Profile, error) {
-	rows, err := s.pool.Query(ctx, `SELECT p.id::text,p.tenant_id,p.name,p.scope_type,p.scope_reference,
+	rows, err := s.pool.Query(ctx, `SELECT p.id::text,p.tenant_id,p.owner,p.name,p.scope_type,p.scope_reference,
 		p.aggregate_version,COALESCE(p.current_published_version_id::text,''),p.is_deleted,p.created_at,p.updated_at,
 		COALESCE(v.id::text,''),COALESCE(v.ordinal,0),COALESCE(v.config_version,''),COALESCE(v.policy_version,''),
 		COALESCE(v.schema_version,0),COALESCE(v.status,''),COALESCE(v.reason,''),v.created_at,COALESCE(v.created_by,'')
@@ -90,6 +90,16 @@ func (s *Store) List(ctx context.Context, tenantID, afterName, afterID string, l
 		out = append(out, profile)
 	}
 	return out, rows.Err()
+}
+
+func (s *Store) ProfileOwner(ctx context.Context, tenantID, profileID string) (domain.Owner, error) {
+	var owner domain.Owner
+	err := s.pool.QueryRow(ctx, `SELECT owner FROM configuration_profiles
+		WHERE tenant_id=$1 AND id=$2 AND NOT is_deleted`, tenantID, profileID).Scan(&owner)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", domain.ErrNotFound
+	}
+	return owner, err
 }
 
 func (s *Store) Get(ctx context.Context, tenantID, profileID string) (domain.Profile, []domain.Version, error) {
@@ -121,7 +131,7 @@ func (s *Store) Resolve(
 	lookup domain.ResolutionLookup,
 ) (domain.ResolvedConfiguration, error) {
 	row := s.pool.QueryRow(ctx, `SELECT
-		p.id::text,p.tenant_id,p.name,p.scope_type,p.scope_reference,p.aggregate_version,
+		p.id::text,p.tenant_id,p.owner,p.name,p.scope_type,p.scope_reference,p.aggregate_version,
 		COALESCE(p.current_published_version_id::text,''),p.is_deleted,p.created_at,p.updated_at,
 		v.id::text,v.profile_id::text,v.tenant_id,v.ordinal,v.config_version,v.policy_version,
 		v.schema_version,v.status,v.values_json::text,v.content_hash,v.reason,v.created_at,v.created_by,
@@ -129,13 +139,13 @@ func (s *Store) Resolve(
 		FROM configuration_active_scopes a
 		JOIN configuration_profiles p ON p.id=a.profile_id AND p.tenant_id=a.tenant_id
 		JOIN configuration_versions v ON v.id=a.version_id AND v.profile_id=p.id
-		WHERE a.tenant_id=$1 AND NOT p.is_deleted AND v.status='PUBLISHED' AND (
-			(a.scope_type='APPROVED_INSTANCE_OVERRIDE' AND $6<>'' AND a.scope_reference=$6) OR
-			(a.scope_type='WORKFLOW_VERSION' AND a.scope_reference=$2 || ':' || $3) OR
-			(a.scope_type='WORKFLOW_TYPE' AND a.scope_reference=$2) OR
+		WHERE a.tenant_id=$1 AND a.owner=$2 AND NOT p.is_deleted AND v.status='PUBLISHED' AND (
+			(a.scope_type='APPROVED_INSTANCE_OVERRIDE' AND $7<>'' AND a.scope_reference=$7) OR
+			(a.scope_type='WORKFLOW_VERSION' AND a.scope_reference=$3 || ':' || $4) OR
+			(a.scope_type='WORKFLOW_TYPE' AND a.scope_reference=$3) OR
 			(a.scope_type='TENANT' AND a.scope_reference=$1) OR
-			(a.scope_type='ENVIRONMENT' AND a.scope_reference=$5) OR
-			(a.scope_type='PLATFORM' AND a.scope_reference=$4)
+			(a.scope_type='ENVIRONMENT' AND a.scope_reference=$6) OR
+			(a.scope_type='PLATFORM' AND a.scope_reference=$5)
 		)
 		ORDER BY CASE a.scope_type
 			WHEN 'APPROVED_INSTANCE_OVERRIDE' THEN 6
@@ -146,13 +156,13 @@ func (s *Store) Resolve(
 			WHEN 'PLATFORM' THEN 1
 			ELSE 0 END DESC
 		LIMIT 1`,
-		lookup.TenantID, lookup.WorkflowType, lookup.WorkflowVersion,
+		lookup.TenantID, lookup.Owner, lookup.WorkflowType, lookup.WorkflowVersion,
 		lookup.PlatformReference, lookup.EnvironmentReference, lookup.InstanceID)
 	var resolved domain.ResolvedConfiguration
 	var scopeType, status, values string
 	var hash []byte
 	err := row.Scan(
-		&resolved.Profile.ID, &resolved.Profile.TenantID, &resolved.Profile.Name,
+		&resolved.Profile.ID, &resolved.Profile.TenantID, &resolved.Profile.Owner, &resolved.Profile.Name,
 		&scopeType, &resolved.Profile.Scope.Reference, &resolved.Profile.AggregateVersion,
 		&resolved.Profile.CurrentPublishedVersionID, &resolved.Profile.IsDeleted,
 		&resolved.Profile.CreatedAt, &resolved.Profile.UpdatedAt,
@@ -361,20 +371,20 @@ func claimActiveScope(
 	versionID string,
 	now time.Time,
 ) error {
-	var scopeType, scopeReference string
-	err := tx.QueryRow(ctx, `SELECT scope_type,scope_reference FROM configuration_profiles
+	var owner, scopeType, scopeReference string
+	err := tx.QueryRow(ctx, `SELECT owner,scope_type,scope_reference FROM configuration_profiles
 		WHERE tenant_id=$1 AND id=$2 AND NOT is_deleted FOR UPDATE`,
-		tenantID, profileID).Scan(&scopeType, &scopeReference)
+		tenantID, profileID).Scan(&owner, &scopeType, &scopeReference)
 	if err != nil {
 		return err
 	}
 	tag, err := tx.Exec(ctx, `INSERT INTO configuration_active_scopes
-		(tenant_id,scope_type,scope_reference,profile_id,version_id,updated_at)
-		VALUES($1,$2,$3,$4,$5,$6)
-		ON CONFLICT (tenant_id,scope_type,scope_reference) DO UPDATE
+		(tenant_id,owner,scope_type,scope_reference,profile_id,version_id,updated_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7)
+		ON CONFLICT (tenant_id,owner,scope_type,scope_reference) DO UPDATE
 		SET version_id=EXCLUDED.version_id,updated_at=EXCLUDED.updated_at
 		WHERE configuration_active_scopes.profile_id=EXCLUDED.profile_id`,
-		tenantID, scopeType, scopeReference, profileID, versionID, now)
+		tenantID, owner, scopeType, scopeReference, profileID, versionID, now)
 	if err != nil {
 		return err
 	}
@@ -434,10 +444,16 @@ func insertOutbox(ctx context.Context, tx pgx.Tx, tenantID, profileID, versionID
 	if err != nil {
 		return err
 	}
+	var eventSequence int64
+	if err = tx.QueryRow(ctx, `UPDATE configuration_outbox_publish_state
+		SET next_sequence=next_sequence+1,updated_at=$1
+		WHERE singleton_id=1 RETURNING next_sequence`, now).Scan(&eventSequence); err != nil {
+		return err
+	}
 	_, err = tx.Exec(ctx, `INSERT INTO configuration_outbox
-		(event_id,tenant_id,profile_id,version_id,event_type,payload,occurred_at,next_attempt_at)
-		VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$7)`,
-		uuid.NewString(), tenantID, profileID, versionID, eventType, payload, now)
+		(event_id,event_sequence,tenant_id,profile_id,version_id,event_type,payload,occurred_at,next_attempt_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$8)`,
+		uuid.NewString(), eventSequence, tenantID, profileID, versionID, eventType, payload, now)
 	return err
 }
 
@@ -499,11 +515,11 @@ type queryer interface {
 func loadProfile(ctx context.Context, db queryer, tenantID, profileID string) (domain.Profile, error) {
 	var profile domain.Profile
 	var scopeType string
-	err := db.QueryRow(ctx, `SELECT id::text,tenant_id,name,scope_type,scope_reference,aggregate_version,
+	err := db.QueryRow(ctx, `SELECT id::text,tenant_id,owner,name,scope_type,scope_reference,aggregate_version,
 		COALESCE(current_published_version_id::text,''),is_deleted,created_at,updated_at
 		FROM configuration_profiles WHERE tenant_id=$1 AND id=$2 AND NOT is_deleted`,
 		tenantID, profileID).Scan(
-		&profile.ID, &profile.TenantID, &profile.Name, &scopeType, &profile.Scope.Reference,
+		&profile.ID, &profile.TenantID, &profile.Owner, &profile.Name, &scopeType, &profile.Scope.Reference,
 		&profile.AggregateVersion, &profile.CurrentPublishedVersionID, &profile.IsDeleted,
 		&profile.CreatedAt, &profile.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -520,7 +536,7 @@ func scanProfileWithLatest(row rowScanner) (domain.Profile, error) {
 	var schemaVersion uint32
 	var versionCreatedAt *time.Time
 	err := row.Scan(
-		&profile.ID, &profile.TenantID, &profile.Name, &scopeType, &profile.Scope.Reference,
+		&profile.ID, &profile.TenantID, &profile.Owner, &profile.Name, &scopeType, &profile.Scope.Reference,
 		&profile.AggregateVersion, &profile.CurrentPublishedVersionID, &profile.IsDeleted,
 		&profile.CreatedAt, &profile.UpdatedAt, &versionID, &ordinal, &configVersion,
 		&policyVersion, &schemaVersion, &status, &reason, &versionCreatedAt, &createdBy)

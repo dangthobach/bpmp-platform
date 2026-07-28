@@ -1,0 +1,253 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "BPMP Platform Public API",
+    "version": "1.0.0",
+    "description": "Authoritative public HTTP contract for workflow commands, human work, audit queries, and runtime configuration lifecycle.",
+    "license": {"name": "Apache-2.0", "identifier": "Apache-2.0"}
+  },
+  "servers": [{"url": "/"}],
+  "security": [{"bearerAuth": []}],
+  "tags": [
+    {"name": "Workflow", "description": "Authoritative workflow commands."},
+    {"name": "Human Work", "description": "Human work-item and case operations."},
+    {"name": "Audit", "description": "Immutable audit queries."},
+    {"name": "Configuration", "description": "Versioned runtime-configuration lifecycle."}
+  ],
+  "paths": {
+    "/v1/workflows/{workflowType}/instances": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantID"},
+        {"$ref": "#/components/parameters/CorrelationID"},
+        {"$ref": "#/components/parameters/CommandID"},
+        {"$ref": "#/components/parameters/IdempotencyKey"},
+        {"name": "workflowType", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}}
+      ],
+      "post": {
+        "summary": "Start a workflow instance",
+        "operationId": "startWorkflow",
+        "tags": ["Workflow"],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/StartWorkflowRequest"}}}},
+        "responses": {
+          "202": {"description": "Command durably committed", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CommandReceipt"}}}},
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "502": {"$ref": "#/components/responses/UpstreamUnavailable"}
+        }
+      }
+    },
+    "/v1/work-items": {
+      "parameters": [{"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"}],
+      "get": {
+        "summary": "List work items",
+        "operationId": "listWorkItems",
+        "tags": ["Human Work"],
+        "parameters": [{"$ref": "#/components/parameters/PageSize"}, {"$ref": "#/components/parameters/PageToken"}],
+        "responses": {
+          "200": {"description": "Work-item page", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ListWorkItemsResponse"}}}},
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "502": {"$ref": "#/components/responses/UpstreamUnavailable"}
+        }
+      }
+    },
+    "/v1/work-items/{workItemID}": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantID"},
+        {"$ref": "#/components/parameters/CorrelationID"},
+        {"name": "workItemID", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}}
+      ],
+      "get": {
+        "summary": "Get a work item",
+        "operationId": "getWorkItem",
+        "tags": ["Human Work"],
+        "responses": {
+          "200": {"description": "Work item", "content": {"application/json": {"schema": {"type": "object", "required": ["work_item"], "properties": {"work_item": {"$ref": "#/components/schemas/WorkItem"}}}}}},
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "502": {"$ref": "#/components/responses/UpstreamUnavailable"}
+        }
+      }
+    },
+    "/v1/work-items/{workItemID}/complete": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"},
+        {"$ref": "#/components/parameters/CommandID"}, {"$ref": "#/components/parameters/IdempotencyKey"},
+        {"name": "workItemID", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}}
+      ],
+      "post": {
+        "summary": "Complete a work item",
+        "operationId": "completeWorkItem",
+        "tags": ["Human Work"],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CompleteWorkItemRequest"}}}},
+        "responses": {
+          "202": {"description": "Completion accepted", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WorkItemCommandResponse"}}}},
+          "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"},
+          "429": {"$ref": "#/components/responses/RateLimited"}, "502": {"$ref": "#/components/responses/UpstreamUnavailable"}
+        }
+      }
+    },
+    "/v1/work-items/{workItemID}/delegate": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"},
+        {"$ref": "#/components/parameters/CommandID"}, {"$ref": "#/components/parameters/IdempotencyKey"},
+        {"name": "workItemID", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}}
+      ],
+      "post": {
+        "summary": "Delegate a work item",
+        "operationId": "delegateWorkItem",
+        "tags": ["Human Work"],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DelegateWorkItemRequest"}}}},
+        "responses": {
+          "200": {"description": "Delegation committed", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WorkItemCommandResponse"}}}},
+          "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"},
+          "429": {"$ref": "#/components/responses/RateLimited"}, "502": {"$ref": "#/components/responses/UpstreamUnavailable"}
+        }
+      }
+    },
+    "/v1/cases/{caseID}": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"},
+        {"name": "caseID", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}}
+      ],
+      "get": {
+        "summary": "Get a case",
+        "operationId": "getCase",
+        "tags": ["Human Work"],
+        "responses": {
+          "200": {"description": "Case view", "content": {"application/json": {"schema": {"type": "object", "required": ["case"], "properties": {"case": {"$ref": "#/components/schemas/Case"}}}}}},
+          "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"},
+          "502": {"$ref": "#/components/responses/UpstreamUnavailable"}
+        }
+      }
+    },
+    "/v1/audit-records": {
+      "parameters": [{"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"}],
+      "get": {
+        "summary": "List immutable audit records",
+        "operationId": "listAuditRecords",
+        "tags": ["Audit"],
+        "parameters": [
+          {"$ref": "#/components/parameters/PageSize"}, {"$ref": "#/components/parameters/PageToken"},
+          {"name": "work_item_id", "in": "query", "schema": {"$ref": "#/components/schemas/Identifier"}},
+          {"name": "case_id", "in": "query", "schema": {"$ref": "#/components/schemas/Identifier"}}
+        ],
+        "responses": {
+          "200": {"description": "Immutable audit page", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ListAuditRecordsResponse"}}}},
+          "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"},
+          "502": {"$ref": "#/components/responses/UpstreamUnavailable"}
+        }
+      }
+    },
+    "/v1/configuration/profiles": {
+      "parameters": [{"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"}],
+      "get": {
+        "summary": "List configuration profiles",
+        "operationId": "listConfigurationProfiles",
+        "tags": ["Configuration"],
+        "parameters": [{"$ref": "#/components/parameters/PageSize"}, {"$ref": "#/components/parameters/PageToken"}],
+        "responses": {"200": {"description": "Configuration profile page", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConfigurationProfilePage"}}}}, "403": {"$ref": "#/components/responses/Forbidden"}, "502": {"$ref": "#/components/responses/UpstreamUnavailable"}}
+      },
+      "post": {
+        "summary": "Create a configuration profile",
+        "operationId": "createConfigurationProfile",
+        "tags": ["Configuration"],
+        "parameters": [{"$ref": "#/components/parameters/CommandID"}, {"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateConfigurationProfileRequest"}}}},
+        "responses": {"201": {"description": "Profile created", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConfigurationProfile"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"}, "502": {"$ref": "#/components/responses/UpstreamUnavailable"}}
+      }
+    },
+    "/v1/configuration/profiles/{profileID}": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"},
+        {"name": "profileID", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}}
+      ],
+      "get": {
+        "summary": "Get a configuration profile and its versions",
+        "operationId": "getConfigurationProfile",
+        "tags": ["Configuration"],
+        "responses": {"200": {"description": "Profile and version history", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConfigurationProfileDetail"}}}}, "403": {"$ref": "#/components/responses/Forbidden"}, "404": {"$ref": "#/components/responses/NotFound"}, "502": {"$ref": "#/components/responses/UpstreamUnavailable"}}
+      }
+    },
+    "/v1/configuration/profiles/{profileID}/versions": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"},
+        {"$ref": "#/components/parameters/CommandID"}, {"$ref": "#/components/parameters/IdempotencyKey"},
+        {"name": "profileID", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}}
+      ],
+      "post": {
+        "summary": "Add a draft configuration version",
+        "operationId": "addConfigurationDraft",
+        "tags": ["Configuration"],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AddConfigurationDraftRequest"}}}},
+        "responses": {"201": {"description": "Draft version created", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConfigurationProfile"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"}, "409": {"$ref": "#/components/responses/Conflict"}, "502": {"$ref": "#/components/responses/UpstreamUnavailable"}}
+      }
+    },
+    "/v1/configuration/profiles/{profileID}/versions/{versionID}/publish": {
+      "parameters": [{"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"}, {"$ref": "#/components/parameters/CommandID"}, {"$ref": "#/components/parameters/IdempotencyKey"}, {"$ref": "#/components/parameters/ProfileID"}, {"$ref": "#/components/parameters/VersionID"}],
+      "post": {
+        "summary": "Publish a configuration version",
+        "operationId": "publishConfigurationVersion",
+        "tags": ["Configuration"],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConfigurationTransitionRequest"}}}},
+        "responses": {"200": {"description": "Version published", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConfigurationProfile"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"}, "409": {"$ref": "#/components/responses/Conflict"}, "502": {"$ref": "#/components/responses/UpstreamUnavailable"}}
+      }
+    },
+    "/v1/configuration/profiles/{profileID}/versions/{versionID}/rollback": {
+      "parameters": [{"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"}, {"$ref": "#/components/parameters/CommandID"}, {"$ref": "#/components/parameters/IdempotencyKey"}, {"$ref": "#/components/parameters/ProfileID"}, {"$ref": "#/components/parameters/VersionID"}],
+      "post": {
+        "summary": "Rollback to a configuration version",
+        "operationId": "rollbackConfigurationVersion",
+        "tags": ["Configuration"],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConfigurationTransitionRequest"}}}},
+        "responses": {"200": {"description": "Rollback version published", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConfigurationProfile"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"}, "409": {"$ref": "#/components/responses/Conflict"}, "502": {"$ref": "#/components/responses/UpstreamUnavailable"}}
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}},
+    "parameters": {
+      "TenantID": {"name": "X-BPMP-Tenant-ID", "in": "header", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}},
+      "CorrelationID": {"name": "X-Correlation-ID", "in": "header", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}},
+      "CommandID": {"name": "X-Command-ID", "in": "header", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}},
+      "IdempotencyKey": {"name": "Idempotency-Key", "in": "header", "required": true, "schema": {"type": "string", "minLength": 1, "maxLength": 256}},
+      "PageSize": {"name": "page_size", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 4294967295}},
+      "PageToken": {"name": "page_token", "in": "query", "schema": {"type": "string"}},
+      "ProfileID": {"name": "profileID", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}},
+      "VersionID": {"name": "versionID", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}}
+    },
+    "responses": {
+      "BadRequest": {"description": "Invalid request", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+      "Forbidden": {"description": "Authentication or tenant authorization failed", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+      "NotFound": {"description": "Resource not found", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+      "Conflict": {"description": "Optimistic version conflict", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+      "RateLimited": {"description": "Rate limit exceeded", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+      "UpstreamUnavailable": {"description": "Authoritative service unavailable", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+    },
+    "schemas": {
+      "Identifier": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9_.:-]+$"},
+      "Error": {"type": "object", "required": ["error"], "properties": {"error": {"type": "string"}, "correlation_id": {"type": "string"}}},
+      "StartWorkflowRequest": {"type": "object", "additionalProperties": false, "required": ["instance_id", "workflow_version", "start_node_id"], "properties": {"instance_id": {"$ref": "#/components/schemas/Identifier"}, "workflow_version": {"$ref": "#/components/schemas/Identifier"}, "start_node_id": {"$ref": "#/components/schemas/Identifier"}}},
+      "CommandReceipt": {"type": "object", "required": ["command_id", "committed_sequence", "duplicate"], "properties": {"command_id": {"type": "string"}, "committed_sequence": {"type": "integer", "minimum": 0}, "duplicate": {"type": "boolean"}}},
+      "CompleteWorkItemRequest": {"type": "object", "additionalProperties": false, "required": ["decision", "expected_version"], "properties": {"decision": {"type": "string", "minLength": 1}, "expected_version": {"type": "integer", "minimum": 0}}},
+      "DelegateWorkItemRequest": {"type": "object", "additionalProperties": false, "required": ["expected_version"], "properties": {"expected_version": {"type": "integer", "minimum": 0}, "assignee_id": {"type": "string", "minLength": 1}, "candidate_group": {"type": "string", "minLength": 1}}, "oneOf": [{"required": ["assignee_id"], "properties": {"assignee_id": {"type": "string", "minLength": 1}}}, {"required": ["candidate_group"], "properties": {"candidate_group": {"type": "string", "minLength": 1}}}]},
+      "WorkItemCommandResponse": {"type": "object", "required": ["command_id", "work_item_version"], "properties": {"command_id": {"type": "string"}, "work_item_version": {"type": "integer"}}},
+      "WorkItem": {"type": "object", "required": ["tenant_id", "work_item_id", "instance_id", "workflow_type", "workflow_version", "node_id", "task_type", "status", "version"], "properties": {"tenant_id": {"type": "string"}, "work_item_id": {"type": "string"}, "instance_id": {"type": "string"}, "workflow_type": {"type": "string"}, "workflow_version": {"type": "string"}, "node_id": {"type": "string"}, "task_type": {"type": "string"}, "assignee_id": {"type": "string"}, "candidate_group": {"type": "string"}, "form_key": {"type": "string"}, "status": {"type": "string"}, "decision": {"type": "string"}, "sla_deadline_epoch_ms": {"type": "integer", "minimum": 0}, "version": {"type": "integer"}, "delegation_depth": {"type": "integer", "minimum": 0}}},
+      "ListWorkItemsResponse": {"type": "object", "required": ["work_items"], "properties": {"work_items": {"type": "array", "items": {"$ref": "#/components/schemas/WorkItem"}}, "next_page_token": {"type": "string"}}},
+      "CasePlanItem": {"type": "object", "required": ["plan_item_id", "kind", "status", "version"], "properties": {"plan_item_id": {"type": "string"}, "kind": {"type": "string"}, "status": {"type": "string"}, "version": {"type": "integer"}}},
+      "Case": {"type": "object", "required": ["tenant_id", "case_id", "case_type", "status", "plan_items", "version"], "properties": {"tenant_id": {"type": "string"}, "case_id": {"type": "string"}, "case_type": {"type": "string"}, "status": {"type": "string"}, "plan_items": {"type": "array", "items": {"$ref": "#/components/schemas/CasePlanItem"}}, "version": {"type": "integer"}}},
+      "AuditRecord": {"type": "object", "required": ["audit_id", "actor_id", "action", "occurred_at_epoch_ms", "correlation_id"], "properties": {"audit_id": {"type": "string"}, "work_item_id": {"type": "string"}, "case_id": {"type": "string"}, "actor_id": {"type": "string"}, "action": {"type": "string"}, "occurred_at_epoch_ms": {"type": "integer", "minimum": 0}, "command_id": {"type": "string"}, "correlation_id": {"type": "string"}, "from_version": {"type": "integer"}, "to_version": {"type": "integer"}, "details_json": {"type": "string", "contentEncoding": "base64"}}},
+      "ListAuditRecordsResponse": {"type": "object", "required": ["records"], "properties": {"records": {"type": "array", "items": {"$ref": "#/components/schemas/AuditRecord"}}, "next_page_token": {"type": "string"}}},
+      "ConfigurationScope": {"type": "object", "additionalProperties": false, "required": ["type", "reference"], "properties": {"type": {"type": "string", "enum": ["PLATFORM", "ENVIRONMENT", "TENANT", "WORKFLOW_TYPE", "WORKFLOW_VERSION", "APPROVED_INSTANCE_OVERRIDE"]}, "reference": {"type": "string", "minLength": 1}}},
+      "CreateConfigurationProfileRequest": {"type": "object", "additionalProperties": false, "required": ["name", "owner", "scope", "schema_version", "policy_version", "reason", "values"], "properties": {"name": {"type": "string"}, "owner": {"type": "string", "enum": ["ENGINE", "API_GATEWAY", "HUMAN_RUNTIME", "PROJECTION", "GOVERNANCE"]}, "scope": {"$ref": "#/components/schemas/ConfigurationScope"}, "schema_version": {"type": "integer", "minimum": 1}, "policy_version": {"type": "string"}, "reason": {"type": "string"}, "values": {"type": "object", "additionalProperties": true}}},
+      "AddConfigurationDraftRequest": {"type": "object", "additionalProperties": false, "required": ["expected_version", "schema_version", "policy_version", "reason", "values"], "properties": {"expected_version": {"type": "integer", "minimum": 0}, "schema_version": {"type": "integer", "minimum": 1}, "policy_version": {"type": "string"}, "reason": {"type": "string"}, "values": {"type": "object", "additionalProperties": true}}},
+      "ConfigurationTransitionRequest": {"type": "object", "additionalProperties": false, "required": ["expected_version", "reason"], "properties": {"expected_version": {"type": "integer", "minimum": 0}, "policy_version": {"type": "string"}, "reason": {"type": "string"}}},
+      "ConfigurationProfile": {"type": "object", "additionalProperties": false, "required": ["id", "tenant_id", "owner", "name", "scope", "aggregate_version", "is_deleted", "created_at", "updated_at"], "properties": {"id": {"type": "string"}, "tenant_id": {"type": "string"}, "owner": {"type": "string", "enum": ["ENGINE", "API_GATEWAY", "HUMAN_RUNTIME", "PROJECTION", "GOVERNANCE"]}, "name": {"type": "string"}, "scope": {"$ref": "#/components/schemas/ConfigurationScope"}, "aggregate_version": {"type": "integer"}, "current_published_version_id": {"type": "string"}, "is_deleted": {"type": "boolean"}, "created_at": {"type": "string", "format": "date-time"}, "updated_at": {"type": "string", "format": "date-time"}, "latest": {"$ref": "#/components/schemas/ConfigurationVersion"}}},
+      "ConfigurationVersion": {"type": "object", "additionalProperties": true, "required": ["id", "config_version", "schema_version", "status", "values"], "properties": {"id": {"type": "string"}, "ordinal": {"type": "integer"}, "config_version": {"type": "string"}, "policy_version": {"type": "string"}, "schema_version": {"type": "integer"}, "status": {"type": "string"}, "values": {"type": "object", "additionalProperties": true}, "content_hash": {"type": "string"}, "reason": {"type": "string"}, "created_at": {"type": "string", "format": "date-time"}, "created_by": {"type": "string"}, "published_at": {"type": ["string", "null"], "format": "date-time"}, "published_by": {"type": ["string", "null"]}}},
+      "ConfigurationProfileDetail": {"type": "object", "required": ["profile", "versions"], "properties": {"profile": {"$ref": "#/components/schemas/ConfigurationProfile"}, "versions": {"type": "array", "items": {"$ref": "#/components/schemas/ConfigurationVersion"}}}},
+      "ConfigurationProfilePage": {"type": "object", "additionalProperties": true, "properties": {"profiles": {"type": "array", "items": {"$ref": "#/components/schemas/ConfigurationProfile"}}, "next_page_token": {"type": "string"}}}
+    }
+  }
+}

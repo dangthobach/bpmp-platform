@@ -7,33 +7,45 @@ import (
 	"net"
 	"os"
 	"time"
+
+	"github.com/dangthobach/bpmp-platform/go/platform/kafkaconfig"
 )
 
 type runtimeConfig struct {
-	ListenAddress   string            `json:"listen_address"`
-	PostgresDSN     string            `json:"postgres_dsn"`
-	ApplyMigrations bool              `json:"apply_migrations"`
-	MigrationPath   string            `json:"migration_path"`
-	EngineAddress   string            `json:"engine_address"`
-	TLS             tlsConfig         `json:"tls"`
-	Kafka           kafkaConfig       `json:"kafka"`
-	Identity        identityConfig    `json:"identity"`
-	Workload        workloadConfig    `json:"workload"`
-	GRPC            grpcConfig        `json:"grpc"`
-	Reliability     reliabilityConfig `json:"reliability"`
-	Health          healthConfig      `json:"health"`
-	Telemetry       telemetryConfig   `json:"telemetry"`
-	Escalation      escalationConfig  `json:"escalation"`
+	ListenAddress   string                     `json:"listen_address"`
+	PostgresDSN     string                     `json:"postgres_dsn"`
+	ApplyMigrations bool                       `json:"apply_migrations"`
+	MigrationPath   string                     `json:"migration_path"`
+	EngineAddress   string                     `json:"engine_address"`
+	TLS             tlsConfig                  `json:"tls"`
+	Kafka           kafkaConfig                `json:"kafka"`
+	Identity        identityConfig             `json:"identity"`
+	Workload        workloadConfig             `json:"workload"`
+	GRPC            grpcConfig                 `json:"grpc"`
+	Health          healthConfig               `json:"health"`
+	Telemetry       telemetryConfig            `json:"telemetry"`
+	Escalation      escalationConfig           `json:"escalation"`
+	RuntimeConfig   dynamicConfigurationConfig `json:"runtime_configuration"`
 }
 
 type tlsConfig struct {
-	ServerCertificate string `json:"server_certificate"`
-	ServerPrivateKey  string `json:"server_private_key"`
-	ClientCertificate string `json:"client_certificate"`
-	ClientPrivateKey  string `json:"client_private_key"`
-	ClientCA          string `json:"client_ca"`
-	EngineCA          string `json:"engine_ca"`
-	EngineServerName  string `json:"engine_server_name"`
+	ServerCertificate       string `json:"server_certificate"`
+	ServerPrivateKey        string `json:"server_private_key"`
+	ClientCertificate       string `json:"client_certificate"`
+	ClientPrivateKey        string `json:"client_private_key"`
+	ClientCA                string `json:"client_ca"`
+	EngineCA                string `json:"engine_ca"`
+	EngineServerName        string `json:"engine_server_name"`
+	ConfigurationServerName string `json:"configuration_server_name"`
+}
+
+type dynamicConfigurationConfig struct {
+	TenantID             string               `json:"tenant_id"`
+	ResolverAddress      string               `json:"resolver_address"`
+	PlatformReference    string               `json:"platform_reference"`
+	EnvironmentReference string               `json:"environment_reference"`
+	ResolveTimeoutMS     int64                `json:"resolve_timeout_ms"`
+	Kafka                kafkaconfig.Consumer `json:"kafka"`
 }
 
 type kafkaConfig struct {
@@ -41,7 +53,6 @@ type kafkaConfig struct {
 	CommittedEventTopic string   `json:"committed_event_topic"`
 	EscalationTopic     string   `json:"escalation_topic"`
 	ConsumerGroup       string   `json:"consumer_group"`
-	BatchSize           int      `json:"batch_size"`
 }
 
 type identityConfig struct {
@@ -66,18 +77,9 @@ type workloadConfig struct {
 }
 
 type grpcConfig struct {
-	MaxReceiveBytes int `json:"max_receive_bytes"`
-	MaxSendBytes    int `json:"max_send_bytes"`
-}
-
-type reliabilityConfig struct {
-	MaxAttempts      uint32   `json:"max_attempts"`
-	InitialBackoffMS int64    `json:"initial_backoff_ms"`
-	MaxBackoffMS     int64    `json:"max_backoff_ms"`
-	AttemptTimeoutMS int64    `json:"attempt_timeout_ms"`
-	FailureThreshold uint32   `json:"failure_threshold"`
-	OpenDurationMS   int64    `json:"open_duration_ms"`
-	RetryableCodes   []string `json:"retryable_codes"`
+	MaxReceiveBytes   int  `json:"max_receive_bytes"`
+	MaxSendBytes      int  `json:"max_send_bytes"`
+	ReflectionEnabled bool `json:"reflection_enabled"`
 }
 
 type healthConfig struct {
@@ -95,11 +97,7 @@ type telemetryConfig struct {
 }
 
 type escalationConfig struct {
-	WorkerID  string `json:"worker_id"`
-	BatchSize int    `json:"batch_size"`
-	LeaseMS   int64  `json:"lease_ms"`
-	RetryMS   int64  `json:"retry_ms"`
-	PollMS    int64  `json:"poll_ms"`
+	WorkerID string `json:"worker_id"`
 }
 
 func loadConfig(path string) (runtimeConfig, error) {
@@ -123,23 +121,30 @@ func (c runtimeConfig) validate() error {
 	if c.ListenAddress == "" || c.PostgresDSN == "" || c.EngineAddress == "" || len(c.Kafka.Brokers) == 0 || c.Kafka.CommittedEventTopic == "" || c.Kafka.EscalationTopic == "" || c.Kafka.ConsumerGroup == "" || c.Identity.JWKSPath == "" || len(c.Identity.InternalKeys) == 0 || c.Workload.ID == "" || c.Workload.SigningKeyID == "" || c.Workload.PrivateKeyPath == "" || c.Escalation.WorkerID == "" {
 		return errors.New("human-runtime configuration is incomplete")
 	}
+	if c.TLS.ConfigurationServerName == "" ||
+		c.RuntimeConfig.TenantID == "" ||
+		c.RuntimeConfig.ResolverAddress == "" ||
+		c.RuntimeConfig.PlatformReference == "" ||
+		c.RuntimeConfig.EnvironmentReference == "" ||
+		c.RuntimeConfig.ResolveTimeoutMS <= 0 ||
+		c.RuntimeConfig.Kafka.Validate() != nil {
+		return errors.New("human-runtime dynamic configuration is invalid")
+	}
+	if kafkaconfig.ValidateTopic(c.Kafka.CommittedEventTopic) != nil ||
+		kafkaconfig.ValidateTopic(c.Kafka.EscalationTopic) != nil ||
+		kafkaconfig.ValidateConsumerGroup(c.Kafka.ConsumerGroup) != nil {
+		return errors.New("human-runtime Kafka names are invalid")
+	}
 	if _, _, err := net.SplitHostPort(c.ListenAddress); err != nil {
 		return err
 	}
-	if c.GRPC.MaxReceiveBytes <= 0 || c.GRPC.MaxSendBytes <= 0 || c.Kafka.BatchSize <= 0 || c.Escalation.BatchSize <= 0 || c.Workload.ProofTTLMS <= 0 || c.Escalation.LeaseMS <= 0 || c.Escalation.RetryMS <= 0 || c.Escalation.PollMS <= 0 {
+	if c.GRPC.MaxReceiveBytes <= 0 || c.GRPC.MaxSendBytes <= 0 || c.Workload.ProofTTLMS <= 0 {
 		return errors.New("human-runtime bounds and durations must be positive")
 	}
 	if _, _, err := net.SplitHostPort(c.Health.ListenAddress); err != nil {
 		return err
 	}
-	if c.Reliability.MaxAttempts == 0 ||
-		c.Reliability.InitialBackoffMS <= 0 ||
-		c.Reliability.MaxBackoffMS < c.Reliability.InitialBackoffMS ||
-		c.Reliability.AttemptTimeoutMS <= 0 ||
-		c.Reliability.FailureThreshold == 0 ||
-		c.Reliability.OpenDurationMS <= 0 ||
-		len(c.Reliability.RetryableCodes) == 0 ||
-		c.Health.ReadinessTimeoutMS <= 0 ||
+	if c.Health.ReadinessTimeoutMS <= 0 ||
 		c.Telemetry.ServiceName == "" ||
 		c.Telemetry.ServiceVersion == "" ||
 		c.Telemetry.Endpoint == "" ||
@@ -151,9 +156,6 @@ func (c runtimeConfig) validate() error {
 	return nil
 }
 
-func (c escalationConfig) lease() time.Duration { return time.Duration(c.LeaseMS) * time.Millisecond }
-func (c escalationConfig) retry() time.Duration { return time.Duration(c.RetryMS) * time.Millisecond }
-func (c escalationConfig) poll() time.Duration  { return time.Duration(c.PollMS) * time.Millisecond }
 func (c healthConfig) readinessTimeout() time.Duration {
 	return time.Duration(c.ReadinessTimeoutMS) * time.Millisecond
 }

@@ -1,10 +1,11 @@
 use std::collections::BTreeMap;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, RwLockReadGuard};
 
 use bpmp_domain_core::{
-    ConfigError, ResolvedConfigSnapshot, TenantId, WorkflowDefinition, WorkflowType,
-    WorkflowVersion,
+    ConfigError, ConfigVersion, PolicyVersion, ResolvedConfigSnapshot, ScopeKind, TenantId,
+    WorkflowDefinition, WorkflowType, WorkflowVersion,
 };
+use bpmp_governance_domain::GovernancePolicy;
 use thiserror::Error;
 
 use crate::{
@@ -17,6 +18,67 @@ struct RuntimeScope {
     tenant_id: TenantId,
     workflow_type: WorkflowType,
     workflow_version: WorkflowVersion,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct RuntimeScopeDescriptor {
+    pub tenant_id: TenantId,
+    pub workflow_type: WorkflowType,
+    pub workflow_version: WorkflowVersion,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct RuntimeConfigurationUpdate {
+    pub tenant_id: TenantId,
+    pub workflow_type: WorkflowType,
+    pub workflow_version: WorkflowVersion,
+    pub configuration: ResolvedConfigSnapshot,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct RuntimeGovernancePolicyUpdate {
+    pub tenant_id: TenantId,
+    pub workflow_type: WorkflowType,
+    pub workflow_version: WorkflowVersion,
+    pub policy: GovernancePolicy,
+    pub config_version: ConfigVersion,
+    pub policy_version: PolicyVersion,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct ResolvedGovernancePolicy {
+    pub policy: GovernancePolicy,
+    pub config_version: ConfigVersion,
+    pub policy_version: PolicyVersion,
+}
+
+#[must_use]
+pub fn configuration_publication_matches_scope(
+    candidate: &RuntimeScopeDescriptor,
+    tenant_id: &str,
+    scope_kind: ScopeKind,
+    reference: &str,
+    platform_reference: &str,
+    environment_reference: &str,
+) -> bool {
+    if candidate.tenant_id.as_str() != tenant_id {
+        return false;
+    }
+    match scope_kind {
+        ScopeKind::Platform => reference == platform_reference,
+        ScopeKind::Environment => reference == environment_reference,
+        ScopeKind::Tenant => reference == candidate.tenant_id.as_str(),
+        ScopeKind::WorkflowType => candidate.workflow_type.as_str() == reference,
+        ScopeKind::WorkflowVersion => {
+            reference
+                .split_once(':')
+                .is_some_and(|(workflow_type, workflow_version)| {
+                    candidate.workflow_type.as_str() == workflow_type
+                        && candidate.workflow_version.as_str() == workflow_version
+                })
+        }
+        ScopeKind::ApprovedInstanceOverride => false,
+    }
 }
 
 impl RuntimeScope {
@@ -37,6 +99,7 @@ impl RuntimeScope {
 struct RegistryState {
     definitions: BTreeMap<RuntimeScope, WorkflowDefinition>,
     configurations: BTreeMap<RuntimeScope, ResolvedConfigSnapshot>,
+    governance_policies: BTreeMap<RuntimeScope, ResolvedGovernancePolicy>,
     references: BTreeMap<RuntimeScope, BTreeMap<RuntimeReferenceKind, u64>>,
 }
 
@@ -53,6 +116,51 @@ pub struct MigrationSafePoint {
     pub waiting_or_terminal: bool,
     pub local_task_inflight: bool,
     pub scope_transition_inflight: bool,
+}
+
+#[derive(Clone, Default)]
+pub struct RuntimeSafePointGate {
+    state: Arc<RwLock<()>>,
+}
+
+pub struct RuntimeWorkPermit<'a> {
+    _guard: RwLockReadGuard<'a, ()>,
+}
+
+impl RuntimeSafePointGate {
+    /// Holds a shared permit for one complete command or background transition.
+    ///
+    /// # Errors
+    ///
+    /// Fails closed when the gate lock is poisoned.
+    pub fn enter_work(&self) -> Result<RuntimeWorkPermit<'_>, RuntimeRegistryError> {
+        self.state
+            .read()
+            .map(|guard| RuntimeWorkPermit { _guard: guard })
+            .map_err(|_| RuntimeRegistryError::LockPoisoned)
+    }
+
+    /// Runs one synchronous update after every in-flight transition leaves.
+    ///
+    /// Network and database I/O must complete before invoking this method.
+    ///
+    /// # Errors
+    ///
+    /// Fails closed when the gate lock is poisoned.
+    pub fn with_safe_point<T>(
+        &self,
+        update: impl FnOnce(MigrationSafePoint) -> T,
+    ) -> Result<T, RuntimeRegistryError> {
+        let _guard = self
+            .state
+            .write()
+            .map_err(|_| RuntimeRegistryError::LockPoisoned)?;
+        Ok(update(MigrationSafePoint {
+            waiting_or_terminal: true,
+            local_task_inflight: false,
+            scope_transition_inflight: false,
+        }))
+    }
 }
 
 impl MigrationSafePoint {
@@ -117,6 +225,169 @@ impl RuntimeRegistry {
             return Err(RuntimeRegistryError::UnsafeMigrationPoint);
         }
         self.install(definition, configuration)
+    }
+
+    /// Atomically replaces validated configuration snapshots at one safe point.
+    ///
+    /// # Errors
+    ///
+    /// Rejects the entire batch when migration is unsafe, a definition is
+    /// missing, a scope is duplicated, or the registry lock is poisoned.
+    pub fn replace_configurations(
+        &self,
+        updates: Vec<RuntimeConfigurationUpdate>,
+        safe_point: MigrationSafePoint,
+    ) -> Result<usize, RuntimeRegistryError> {
+        if !safe_point.permits_migration() {
+            return Err(RuntimeRegistryError::UnsafeMigrationPoint);
+        }
+        let mut state = self
+            .state
+            .write()
+            .map_err(|_| RuntimeRegistryError::LockPoisoned)?;
+        let mut replacements = BTreeMap::new();
+        for update in updates {
+            let scope = RuntimeScope::new(
+                &update.tenant_id,
+                &update.workflow_type,
+                &update.workflow_version,
+            );
+            if !state.definitions.contains_key(&scope) {
+                return Err(RuntimeRegistryError::MissingDefinition);
+            }
+            if replacements.insert(scope, update.configuration).is_some() {
+                return Err(RuntimeRegistryError::DuplicateScope);
+            }
+        }
+        let changed = replacements
+            .iter()
+            .filter(|(scope, configuration)| {
+                state
+                    .configurations
+                    .get(*scope)
+                    .is_none_or(|current| current.content_hash != configuration.content_hash)
+            })
+            .count();
+        state.configurations.extend(replacements);
+        Ok(changed)
+    }
+
+    /// Installs or atomically replaces the governance policy for an existing
+    /// tenant/workflow/version scope.
+    ///
+    /// # Errors
+    ///
+    /// Rejects invalid policies, missing definitions, duplicate scopes, or a
+    /// poisoned registry lock.
+    pub fn replace_governance_policies(
+        &self,
+        updates: Vec<RuntimeGovernancePolicyUpdate>,
+        safe_point: MigrationSafePoint,
+    ) -> Result<usize, RuntimeRegistryError> {
+        if !safe_point.permits_migration() {
+            return Err(RuntimeRegistryError::UnsafeMigrationPoint);
+        }
+        let mut state = self
+            .state
+            .write()
+            .map_err(|_| RuntimeRegistryError::LockPoisoned)?;
+        let mut replacements = BTreeMap::new();
+        for update in updates {
+            update
+                .policy
+                .validate()
+                .map_err(|_| RuntimeRegistryError::InvalidGovernancePolicy)?;
+            let scope = RuntimeScope::new(
+                &update.tenant_id,
+                &update.workflow_type,
+                &update.workflow_version,
+            );
+            if !state.definitions.contains_key(&scope) {
+                return Err(RuntimeRegistryError::MissingDefinition);
+            }
+            if replacements
+                .insert(
+                    scope,
+                    ResolvedGovernancePolicy {
+                        policy: update.policy,
+                        config_version: update.config_version,
+                        policy_version: update.policy_version,
+                    },
+                )
+                .is_some()
+            {
+                return Err(RuntimeRegistryError::DuplicateScope);
+            }
+        }
+        let changed = replacements
+            .iter()
+            .filter(|(scope, policy)| state.governance_policies.get(*scope) != Some(*policy))
+            .count();
+        state.governance_policies.extend(replacements);
+        Ok(changed)
+    }
+
+    /// Installs the initial governance policy while building the composition root.
+    ///
+    /// # Errors
+    ///
+    /// Uses the same validation and scope checks as a hot replacement.
+    pub fn install_governance_policy(
+        &self,
+        update: RuntimeGovernancePolicyUpdate,
+    ) -> Result<(), RuntimeRegistryError> {
+        self.replace_governance_policies(
+            vec![update],
+            MigrationSafePoint {
+                waiting_or_terminal: true,
+                local_task_inflight: false,
+                scope_transition_inflight: false,
+            },
+        )
+        .map(|_| ())
+    }
+
+    /// Returns the immutable governance policy cached for one workflow scope.
+    ///
+    /// # Errors
+    ///
+    /// Fails closed when no published policy is cached.
+    pub fn governance_policy(
+        &self,
+        tenant_id: &TenantId,
+        workflow_type: &WorkflowType,
+        workflow_version: &WorkflowVersion,
+    ) -> Result<ResolvedGovernancePolicy, RuntimeRegistryError> {
+        let scope = RuntimeScope::new(tenant_id, workflow_type, workflow_version);
+        self.state
+            .read()
+            .map_err(|_| RuntimeRegistryError::LockPoisoned)?
+            .governance_policies
+            .get(&scope)
+            .cloned()
+            .ok_or(RuntimeRegistryError::MissingGovernancePolicy)
+    }
+
+    /// Returns a stable ordered copy of every installed runtime scope.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeRegistryError::LockPoisoned`] on lock poisoning.
+    pub fn installed_scopes(&self) -> Result<Vec<RuntimeScopeDescriptor>, RuntimeRegistryError> {
+        self.state
+            .read()
+            .map_err(|_| RuntimeRegistryError::LockPoisoned)
+            .map(|state| {
+                state
+                    .definitions
+                    .keys()
+                    .map(|scope| RuntimeScopeDescriptor {
+                        tenant_id: scope.tenant_id.clone(),
+                        workflow_type: scope.workflow_type.clone(),
+                        workflow_version: scope.workflow_version.clone(),
+                    })
+                    .collect()
+            })
     }
 
     /// Adds a durable-use reference to an installed WIR version.
@@ -214,6 +485,7 @@ impl RuntimeRegistry {
             return Err(RuntimeRegistryError::MissingDefinition);
         }
         state.configurations.remove(&scope);
+        state.governance_policies.remove(&scope);
         state.references.remove(&scope);
         Ok(())
     }
@@ -313,6 +585,12 @@ pub enum RuntimeRegistryError {
     UnbalancedReference,
     #[error("runtime artifact is still referenced")]
     ArtifactInUse,
+    #[error("runtime configuration update contains a duplicate scope")]
+    DuplicateScope,
+    #[error("governance policy is invalid")]
+    InvalidGovernancePolicy,
+    #[error("published governance policy is missing")]
+    MissingGovernancePolicy,
 }
 
 #[cfg(test)]
@@ -321,6 +599,47 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
+
+    #[test]
+    fn configuration_publication_is_tenant_and_deployment_scoped() {
+        let candidate = RuntimeScopeDescriptor {
+            tenant_id: TenantId::new("tenant-a").unwrap(),
+            workflow_type: WorkflowType::new("order").unwrap(),
+            workflow_version: WorkflowVersion::new("1").unwrap(),
+        };
+        assert!(configuration_publication_matches_scope(
+            &candidate,
+            "tenant-a",
+            ScopeKind::Environment,
+            "production",
+            "platform-a",
+            "production",
+        ));
+        assert!(!configuration_publication_matches_scope(
+            &candidate,
+            "tenant-b",
+            ScopeKind::Environment,
+            "production",
+            "platform-a",
+            "production",
+        ));
+        assert!(!configuration_publication_matches_scope(
+            &candidate,
+            "tenant-a",
+            ScopeKind::Environment,
+            "staging",
+            "platform-a",
+            "production",
+        ));
+        assert!(configuration_publication_matches_scope(
+            &candidate,
+            "tenant-a",
+            ScopeKind::WorkflowVersion,
+            "order:1",
+            "platform-a",
+            "production",
+        ));
+    }
 
     fn registry() -> (RuntimeRegistry, TenantId, WorkflowType, WorkflowVersion) {
         let registry = RuntimeRegistry::default();

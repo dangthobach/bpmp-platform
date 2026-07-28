@@ -51,7 +51,10 @@ func TestDelegateRoundTripProperty(t *testing.T) {
 			return false
 		}
 		persisted := delegated
-		return reflect.DeepEqual(delegated, persisted) && delegated.Assignment.AssigneeID == delegate && delegated.Version == 2
+		return reflect.DeepEqual(delegated, persisted) &&
+			delegated.Assignment.AssigneeID == delegate &&
+			delegated.DelegationDepth == 1 &&
+			delegated.Version == 2
 	}
 	if err := quick.Check(property, &quick.Config{MaxCount: 100}); err != nil {
 		t.Fatal(err)

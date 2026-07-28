@@ -1,7 +1,9 @@
 [CmdletBinding()]
 param(
     [switch]$KeepRunning,
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    [ValidateRange(10, 600)]
+    [int]$StartupTimeoutSeconds = 90
 )
 
 $ErrorActionPreference = "Stop"
@@ -12,12 +14,35 @@ $runtime = Join-Path $PSScriptRoot "runtime"
 
 if (-not (Test-Path $envFile)) {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot ".env.example") -Destination $envFile
+} else {
+    $currentSettings = Get-Content $envFile -Raw | ConvertFrom-StringData
+    $exampleSettings = Get-Content (Join-Path $PSScriptRoot ".env.example") -Raw | ConvertFrom-StringData
+    foreach ($entry in $exampleSettings.GetEnumerator()) {
+        if (-not $currentSettings.ContainsKey($entry.Key)) {
+            Add-Content -LiteralPath $envFile -Value "$($entry.Key)=$($entry.Value)"
+        }
+    }
 }
 
 function Invoke-Compose {
     docker compose --env-file $envFile -f $compose @args
     if ($LASTEXITCODE -ne 0) {
         throw "docker compose failed: $($args -join ' ')"
+    }
+}
+
+function Invoke-TimedPhase {
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][scriptblock]$Action
+    )
+    $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    Write-Host "==> $Name"
+    try {
+        & $Action
+    } finally {
+        $stopwatch.Stop()
+        Write-Host ("<== {0}: {1:n1}s" -f $Name, $stopwatch.Elapsed.TotalSeconds)
     }
 }
 
@@ -83,6 +108,31 @@ function Invoke-GetRequestEventually {
     throw "GET request did not succeed before its retry deadline"
 }
 
+function Wait-KafkaConsumerGroup {
+    param(
+        [Parameter(Mandatory)][string]$ConsumerGroup,
+        [int]$TimeoutSeconds = 60
+    )
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    do {
+        $description = Invoke-Compose exec -T redpanda rpk group describe $ConsumerGroup -c
+        $rows = @($description | Select-Object -Skip 1 | Where-Object { $_.Trim() })
+        $caughtUp = $rows.Count -gt 0
+        foreach ($row in $rows) {
+            $columns = @($row -split '\s+' | Where-Object { $_ })
+            if ($columns.Count -lt 6 -or $columns[5] -notin "0", "-") {
+                $caughtUp = $false
+                break
+            }
+        }
+        if ($caughtUp) {
+            return
+        }
+        Start-Sleep -Milliseconds 250
+    } while ((Get-Date) -lt $deadline)
+    throw "Kafka consumer group '$ConsumerGroup' did not commit through the topic end"
+}
+
 $resolvedRuntime = [System.IO.Path]::GetFullPath($runtime)
 $resolvedE2E = [System.IO.Path]::GetFullPath($PSScriptRoot)
 if (-not $resolvedRuntime.StartsWith($resolvedE2E, [StringComparison]::OrdinalIgnoreCase)) {
@@ -90,45 +140,67 @@ if (-not $resolvedRuntime.StartsWith($resolvedE2E, [StringComparison]::OrdinalIg
 }
 
 try {
-    Invoke-Compose down --volumes --remove-orphans
-    if (Test-Path $runtime) {
-        Remove-Item -LiteralPath $runtime -Recurse -Force
+    Invoke-TimedPhase -Name "Clean previous E2E state" -Action {
+        Invoke-Compose down --volumes --remove-orphans
+        if (Test-Path $runtime) {
+            Remove-Item -LiteralPath $runtime -Recurse -Force
+        }
+        New-Item -ItemType Directory -Path $runtime | Out-Null
     }
-    New-Item -ItemType Directory -Path $runtime | Out-Null
 
     if (-not $SkipBuild) {
-        docker build -f (Join-Path $PSScriptRoot "Dockerfile.rust") -t bpmp/e2e-rust:local $root
-        if ($LASTEXITCODE -ne 0) { throw "Rust E2E image build failed" }
-        docker build -f (Join-Path $PSScriptRoot "Dockerfile.human-runtime") -t bpmp/e2e-human-runtime:local $root
-        if ($LASTEXITCODE -ne 0) { throw "Human Runtime E2E image build failed" }
-        docker build -f (Join-Path $PSScriptRoot "Dockerfile.api-gateway") -t bpmp/e2e-api-gateway:local $root
-        if ($LASTEXITCODE -ne 0) { throw "API Gateway E2E image build failed" }
-        docker build -f (Join-Path $PSScriptRoot "Dockerfile.configuration-service") -t bpmp/e2e-configuration-service:local $root
-        if ($LASTEXITCODE -ne 0) { throw "Configuration Service E2E image build failed" }
+        Invoke-TimedPhase -Name "Build E2E images in parallel" -Action {
+            Invoke-Compose --profile setup build
+        }
     }
 
-    Invoke-Compose --profile setup run --rm fixture-generator
-    Invoke-Compose up -d
-
-    $settings = Get-Content $envFile | ConvertFrom-StringData
-    $gatewayPort = $settings.GATEWAY_PORT
-    $deadline = (Get-Date).AddMinutes(3)
-    do {
-        try {
-            $ready = Invoke-WebRequest -SkipCertificateCheck -Uri "https://localhost:$gatewayPort/readyz" -TimeoutSec 2
-            if ($ready.StatusCode -eq 200) { break }
-        } catch {
-            Start-Sleep -Seconds 2
+    Invoke-TimedPhase -Name "Generate E2E fixtures" -Action {
+        Invoke-Compose --profile setup run --rm fixture-generator
+    }
+    try {
+        Invoke-TimedPhase -Name "Start and health-check E2E services" -Action {
+            Invoke-Compose up -d --wait --wait-timeout $StartupTimeoutSeconds
         }
-    } while ((Get-Date) -lt $deadline)
-    if (-not $ready -or $ready.StatusCode -ne 200) {
+    } catch {
         Invoke-Compose ps
         Invoke-Compose logs --no-color --tail 200
-        throw "API Gateway did not become ready"
+        throw
     }
 
+    $settings = Get-Content $envFile -Raw | ConvertFrom-StringData
+    $gatewayPort = $settings.GATEWAY_PORT
+    $governancePort = $settings.GOVERNANCE_PORT
     $token = (Get-Content (Join-Path $runtime "actor.jwt") -Raw).Trim()
     $suffix = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    $openAPI = Invoke-RestMethod `
+        -SkipCertificateCheck `
+        -Method Get `
+        -Uri "https://localhost:$gatewayPort/openapi/v1.json"
+    if ($openAPI.openapi -ne "3.1.0" -or
+        @($openAPI.paths.PSObject.Properties).Count -ne 12) {
+        throw "API Gateway OpenAPI contract is unavailable or incomplete"
+    }
+    $apiReference = Invoke-WebRequest `
+        -SkipCertificateCheck `
+        -Method Get `
+        -Uri "https://localhost:$gatewayPort/docs"
+    if ($apiReference.StatusCode -ne 200 -or
+        $apiReference.Content -notmatch 'data-url="/openapi/v1.json"') {
+        throw "API Gateway interactive API reference is unavailable"
+    }
+    $reflectedServices = & buf curl `
+        --protocol grpc `
+        --list-services `
+        --cacert (Join-Path $runtime "secrets/ca.pem") `
+        --cert (Join-Path $runtime "secrets/tls.pem") `
+        --key (Join-Path $runtime "secrets/tls-key.pem") `
+        --servername governance-service `
+        "https://localhost:$governancePort"
+    if ($LASTEXITCODE -ne 0 -or
+        $reflectedServices -notcontains "bpmp.governance.v1.GovernanceApprovalService" -or
+        $reflectedServices -contains "bpmp.raft.v1.RaftPeerService") {
+        throw "Governance gRPC reflection is unavailable"
+    }
     $configurationHeaders = @{
         Authorization = "Bearer $token"
         "X-BPMP-Tenant-ID" = "tenant-e2e"
@@ -181,9 +253,10 @@ try {
         -Headers $configurationHeaders `
         -Body (@{
             name = "engine-default-$suffix"
+            owner = "ENGINE"
             scope = @{ type = "WORKFLOW_TYPE"; reference = "approval" }
             schema_version = 1
-            policy_version = "policy-$suffix"
+            policy_version = "policy-e2e-v1"
             reason = "broker E2E bootstrap"
             values = $configurationPolicy
         } | ConvertTo-Json -Depth 8 -Compress)
@@ -203,6 +276,127 @@ try {
         -Body (@{ expected_version = 1; reason = "activate broker E2E policy" } | ConvertTo-Json -Compress)
     if (-not $publishedConfiguration.current_published_version_id -or $publishedConfiguration.aggregate_version -ne 2) {
         throw "configuration lifecycle did not publish a version"
+    }
+    $gatewayConfigurationHeaders = $configurationHeaders.Clone()
+    $gatewayConfigurationHeaders["X-Command-ID"] = "gateway-configuration-draft-$suffix"
+    $gatewayConfigurationHeaders["Idempotency-Key"] = "gateway-configuration-draft-idem-$suffix"
+    $gatewayPolicy = @{
+        rate_limit_requests = 1000
+        rate_limit_window_ms = "60000"
+        upstream_timeout_ms = "3000"
+        circuit_breaker_failure_threshold = 5
+        circuit_breaker_open_ms = "1000"
+        bulkhead_max_concurrency = 128
+        max_request_body_bytes = "65536"
+        max_upstream_response_bytes = "1048576"
+        batch_chunk_size = 100
+        batch_concurrency = 4
+        upstream_retry = @{
+            max_attempts = 3
+            initial_backoff_ms = "25"
+            max_backoff_ms = "250"
+            multiplier_millis = 2000
+        }
+        encryption_key_scope = $configurationPolicy.event_payload_key_scope
+    }
+    $configurationProfiles = Invoke-GetRequestEventually `
+        -Path "/v1/configuration/profiles?page_size=100" `
+        -Headers $queryHeaders
+    $gatewaySeedProfile = @($configurationProfiles.profiles | Where-Object {
+        $_.owner -eq "API_GATEWAY"
+    })
+    $humanSeedProfile = @($configurationProfiles.profiles | Where-Object {
+        $_.owner -eq "HUMAN_RUNTIME"
+    })
+    if ($gatewaySeedProfile.Count -ne 1 -or $humanSeedProfile.Count -ne 1) {
+        throw "seeded runtime configuration profiles are not unique"
+    }
+    $gatewayDraft = Invoke-JsonRequestEventually `
+        -Path "/v1/configuration/profiles/$($gatewaySeedProfile[0].id)/versions" `
+        -Headers $gatewayConfigurationHeaders `
+        -Body (@{
+            expected_version = $gatewaySeedProfile[0].aggregate_version
+            schema_version = 1
+            policy_version = "policy-api-gateway-e2e-v1"
+            reason = "broker E2E runtime cache"
+            values = $gatewayPolicy
+        } | ConvertTo-Json -Depth 5 -Compress)
+    $gatewayProfileDetail = Invoke-GetRequestEventually `
+        -Path "/v1/configuration/profiles/$($gatewaySeedProfile[0].id)" `
+        -Headers $queryHeaders
+    $gatewayConfigurationHeaders["X-Command-ID"] = "gateway-configuration-publish-$suffix"
+    $gatewayConfigurationHeaders["Idempotency-Key"] = "gateway-configuration-publish-idem-$suffix"
+    $gatewayPublished = Invoke-JsonRequestEventually `
+        -Path "/v1/configuration/profiles/$($gatewaySeedProfile[0].id)/versions/$($gatewayProfileDetail.versions[0].id)/publish" `
+        -Headers $gatewayConfigurationHeaders `
+        -Body (@{ expected_version = $gatewayDraft.aggregate_version; reason = "activate Gateway runtime policy" } | ConvertTo-Json -Compress)
+
+    $humanConfigurationHeaders = $configurationHeaders.Clone()
+    $humanConfigurationHeaders["X-Command-ID"] = "human-configuration-draft-$suffix"
+    $humanConfigurationHeaders["Idempotency-Key"] = "human-configuration-draft-idem-$suffix"
+    $humanPolicy = @{
+        projection_batch_size = 64
+        escalation_batch_size = 32
+        escalation_lease_ms = "5000"
+        escalation_retry_ms = "1000"
+        escalation_poll_ms = "250"
+        engine_command_timeout_ms = "3000"
+        max_assignment_candidates = 100
+        max_delegation_depth = 8
+        query_default_page_size = 50
+        query_max_page_size = 200
+        engine_retry = @{
+            max_attempts = 5
+            initial_backoff_ms = "50"
+            max_backoff_ms = "1000"
+            multiplier_millis = 2000
+        }
+        engine_circuit_breaker_failure_threshold = 5
+        engine_circuit_breaker_open_ms = "1000"
+        engine_retryable_codes = @("UNAVAILABLE", "DEADLINE_EXCEEDED")
+    }
+    $humanDraft = Invoke-JsonRequestEventually `
+        -Path "/v1/configuration/profiles/$($humanSeedProfile[0].id)/versions" `
+        -Headers $humanConfigurationHeaders `
+        -Body (@{
+            expected_version = $humanSeedProfile[0].aggregate_version
+            schema_version = 1
+            policy_version = "policy-human-runtime-e2e-v1"
+            reason = "broker E2E runtime cache"
+            values = $humanPolicy
+        } | ConvertTo-Json -Depth 5 -Compress)
+    $humanProfileDetail = Invoke-GetRequestEventually `
+        -Path "/v1/configuration/profiles/$($humanSeedProfile[0].id)" `
+        -Headers $queryHeaders
+    $humanConfigurationHeaders["X-Command-ID"] = "human-configuration-publish-$suffix"
+    $humanConfigurationHeaders["Idempotency-Key"] = "human-configuration-publish-idem-$suffix"
+    $humanPublished = Invoke-JsonRequestEventually `
+        -Path "/v1/configuration/profiles/$($humanSeedProfile[0].id)/versions/$($humanProfileDetail.versions[0].id)/publish" `
+        -Headers $humanConfigurationHeaders `
+        -Body (@{ expected_version = $humanDraft.aggregate_version; reason = "activate Human Runtime policy" } | ConvertTo-Json -Compress)
+    if (
+        -not $gatewayPublished.current_published_version_id -or
+        -not $humanPublished.current_published_version_id
+    ) {
+        throw "runtime cache owner profiles were not published"
+    }
+
+    $engineConfigurations = 1..3 | ForEach-Object {
+        Get-Content (Join-Path $runtime "engine-$_.json") -Raw | ConvertFrom-Json
+    }
+    $gatewayConfiguration = Get-Content (Join-Path $runtime "api-gateway.json") -Raw | ConvertFrom-Json
+    $humanConfiguration = Get-Content (Join-Path $runtime "human-runtime.json") -Raw | ConvertFrom-Json
+    $projectionConfiguration = Get-Content (Join-Path $runtime "projection-service.json") -Raw | ConvertFrom-Json
+    $governanceConfiguration = Get-Content (Join-Path $runtime "governance-service.json") -Raw | ConvertFrom-Json
+    $consumerGroups = @($engineConfigurations | ForEach-Object {
+        $_.kafka.consumer_groups.configuration_reloader
+    })
+    $consumerGroups += $gatewayConfiguration.runtime_configuration.kafka.consumer_group
+    $consumerGroups += $humanConfiguration.runtime_configuration.kafka.consumer_group
+    $consumerGroups += $projectionConfiguration.runtime_configuration.kafka.consumer_group
+    $consumerGroups += $governanceConfiguration.kafka.consumer_group
+    $consumerGroups | ForEach-Object {
+        Wait-KafkaConsumerGroup -ConsumerGroup $_
     }
 
     $instance = "e2e-$suffix"
@@ -226,6 +420,50 @@ try {
         -Body (@{ instance_id = $instance; workflow_version = "1"; start_node_id = "start" } | ConvertTo-Json -Compress)
     if (-not $duplicate.duplicate -or $duplicate.committed_sequence -ne $start.committed_sequence) {
         throw "idempotent start did not return the original result"
+    }
+
+    $governanceRequestId = "governance-$suffix"
+    $governanceCreatedAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    $governancePayload = @{
+        request_id = $governanceRequestId
+        idempotency_key = "governance-create-idem-$suffix"
+        created_at_epoch_ms = "$governanceCreatedAt"
+        spec = @{
+            tenant_id = "tenant-e2e"
+            instance_id = $instance
+            workflow_type = "approval"
+            workflow_version = "1"
+            policy_id = "abort-and-reconcile-e2e"
+            legal_deadline_epoch_ms = "$($governanceCreatedAt + 3600000)"
+            key_scope = "tenant-e2e/subject-$suffix"
+            key_epoch = "1"
+            reason_code = "E2E_GOVERNANCE_SMOKE"
+        }
+    } | ConvertTo-Json -Depth 4 -Compress
+    $governanceResponseJson = & buf curl `
+        --schema (Join-Path $root "contracts/proto") `
+        --protocol grpc `
+        --cacert (Join-Path $runtime "secrets/ca.pem") `
+        --cert (Join-Path $runtime "secrets/tls.pem") `
+        --key (Join-Path $runtime "secrets/tls-key.pem") `
+        --servername governance-service `
+        -d $governancePayload `
+        "https://localhost:$governancePort/bpmp.governance.v1.GovernanceApprovalService/CreateApproval"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Governance CreateApproval gRPC request failed"
+    }
+    $governanceResponse = $governanceResponseJson | ConvertFrom-Json
+    if (
+        $governanceResponse.approval.requestId -ne $governanceRequestId -or
+        $governanceResponse.approval.status -ne "APPROVAL_REQUEST_STATUS_PENDING" -or
+        -not $governanceResponse.approval.requestDigest
+    ) {
+        throw "Governance CreateApproval returned an invalid durable approval"
+    }
+    $governanceRequestCount = [int](Invoke-Compose exec -T governance-postgres psql -U $settings.POSTGRES_USER -d governance -Atc "SELECT count(*) FROM governance_approval_requests WHERE tenant_id='tenant-e2e' AND request_id='$governanceRequestId'").Trim()
+    $governanceAuditCount = [int](Invoke-Compose exec -T governance-postgres psql -U $settings.POSTGRES_USER -d governance -Atc "SELECT count(*) FROM governance_service_audit WHERE tenant_id='tenant-e2e' AND request_id='$governanceRequestId' AND action='CREATED'").Trim()
+    if ($governanceRequestCount -ne 1 -or $governanceAuditCount -ne 1) {
+        throw "Governance approval or immutable creation audit was not committed"
     }
 
     $workItem = ""
@@ -269,8 +507,22 @@ try {
     if ($inboxCount -lt 2) {
         throw "Kafka consumer inbox does not contain both activation and completion"
     }
+    $projectionStatus = ""
+    $deadline = (Get-Date).AddMinutes(2)
+    do {
+        $projectionStatus = (Invoke-Compose exec -T projection-postgres psql -U $settings.POSTGRES_USER -d projection -Atc "SELECT status FROM workflow_instance_read_models WHERE tenant_id='tenant-e2e' AND instance_id='$instance'").Trim()
+        if ($projectionStatus -eq "COMPLETED") { break }
+        Start-Sleep -Milliseconds 500
+    } while ((Get-Date) -lt $deadline)
+    if ($projectionStatus -ne "COMPLETED") {
+        throw "workflow instance was not projected to the durable query read model"
+    }
+    $projectionInboxCount = [int](Invoke-Compose exec -T projection-postgres psql -U $settings.POSTGRES_USER -d projection -Atc "SELECT count(*) FROM projection_event_inbox WHERE tenant_id='tenant-e2e' AND instance_id='$instance'").Trim()
+    if ($projectionInboxCount -lt 3) {
+        throw "projection inbox does not contain the committed workflow lifecycle"
+    }
 
-    Write-Host "Broker-backed E2E passed with dynamic configuration and leader failover: config=$($configuration.id) instance=$instance work_item=$workItem inbox=$inboxCount"
+    Write-Host "Broker-backed E2E passed with Projection, Governance and leader failover: config=$($configuration.id) governance=$governanceRequestId instance=$instance work_item=$workItem human_inbox=$inboxCount projection_inbox=$projectionInboxCount"
 } finally {
     if (-not $KeepRunning) {
         Invoke-Compose down --volumes --remove-orphans

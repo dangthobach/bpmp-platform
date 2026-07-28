@@ -18,6 +18,15 @@ type projectionStore struct {
 	caseCompletion     application.CommittedCaseCompletion
 }
 
+var projectionTestPolicy = application.RuntimePolicyProviderFunc(func() (application.RuntimePolicy, error) {
+	return application.RuntimePolicy{
+		MaxAssignmentCandidates: 16,
+		MaxDelegationDepth:      3,
+		QueryDefaultPageSize:    50,
+		QueryMaxPageSize:        200,
+	}, nil
+})
+
 func (p *projectionStore) GetWorkItem(context.Context, string, string) (domain.WorkItem, error) {
 	return domain.WorkItem{}, nil
 }
@@ -64,7 +73,7 @@ func (noEngine) CompleteUserTask(context.Context, application.EngineCompleteComm
 
 func TestActivationUsesCommittedMetadata(t *testing.T) {
 	store := &projectionStore{}
-	service, _ := application.NewService(store, noEngine{})
+	service, _ := application.NewService(store, noEngine{}, projectionTestPolicy)
 	consumer, _ := New(service)
 	envelope := &enginev1.EventEnvelope{Metadata: &enginev1.EventMetadata{EventId: "event-1", TenantId: "tenant-a", InstanceId: "instance-1", WorkflowType: "approval", WorkflowVersion: "1", Sequence: 7, OccurredAtEpochMs: 123}, Event: &enginev1.EventEnvelope_UserTaskActivated{UserTaskActivated: &enginev1.UserTaskActivated{NodeId: "review", TaskType: "review", AssignmentPolicyRef: "reviewers"}}}
 	payload, _ := proto.Marshal(envelope)
@@ -78,7 +87,7 @@ func TestActivationUsesCommittedMetadata(t *testing.T) {
 
 func TestCaseCompletionUsesAuthoritativeCommittedEvent(t *testing.T) {
 	store := &projectionStore{}
-	service, _ := application.NewService(store, noEngine{})
+	service, _ := application.NewService(store, noEngine{}, projectionTestPolicy)
 	consumer, _ := New(service)
 	envelope := &enginev1.EventEnvelope{
 		Metadata: &enginev1.EventMetadata{EventId: "case-event-3", TenantId: "tenant-a", InstanceId: "case-1", Sequence: 3, OccurredAtEpochMs: 456},

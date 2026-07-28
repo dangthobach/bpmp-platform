@@ -52,6 +52,7 @@ func (h *Handler) Routes() http.Handler {
 
 type createRequest struct {
 	Name          string          `json:"name"`
+	Owner         domain.Owner    `json:"owner"`
 	Scope         domain.Scope    `json:"scope"`
 	SchemaVersion uint32          `json:"schema_version"`
 	PolicyVersion string          `json:"policy_version"`
@@ -123,7 +124,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	profile, err := h.service.Create(r.Context(), actor, application.CreateInput{
-		Name: body.Name, Scope: body.Scope, SchemaVersion: body.SchemaVersion,
+		Name: body.Name, Owner: body.Owner, Scope: body.Scope, SchemaVersion: body.SchemaVersion,
 		PolicyVersion: body.PolicyVersion, Reason: body.Reason, Values: body.Values,
 	})
 	if err != nil {
