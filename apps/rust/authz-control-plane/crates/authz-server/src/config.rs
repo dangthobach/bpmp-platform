@@ -23,6 +23,20 @@ pub struct ServerConfig {
     pub inactive_job_interval_secs: u64,
     pub inactive_job_threshold_days: i32,
     pub inactive_job_batch_size: i64,
+    pub kafka_brokers: Vec<String>,
+    pub kafka_client_id: String,
+    pub kafka_security_protocol: String,
+    pub kafka_ca_file: Option<String>,
+    pub kafka_certificate_file: Option<String>,
+    pub kafka_private_key_file: Option<String>,
+    pub tenant_lifecycle_topic: String,
+    pub tenant_readiness_topic: String,
+    pub tenant_readiness_consumer_group: String,
+    pub tenant_lifecycle_worker_id: String,
+    pub tenant_lifecycle_batch_size: i64,
+    pub tenant_lifecycle_lease_ms: i64,
+    pub tenant_lifecycle_poll_ms: u64,
+    pub kafka_max_message_bytes: usize,
 }
 
 impl ServerConfig {
@@ -30,7 +44,29 @@ impl ServerConfig {
     ///
     /// All required vars are validated at startup — fail-fast.
     pub fn from_env() -> Result<Self> {
-        Ok(Self {
+        let kafka_brokers = required("KAFKA_BROKERS")?
+            .split(',')
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        if kafka_brokers.is_empty() {
+            anyhow::bail!("KAFKA_BROKERS must contain at least one broker");
+        }
+        let kafka_security_protocol = required("KAFKA_SECURITY_PROTOCOL")?;
+        let (kafka_ca_file, kafka_certificate_file, kafka_private_key_file) =
+            if kafka_security_protocol == "SSL" {
+                (
+                    Some(required("KAFKA_CA_FILE")?),
+                    Some(required("KAFKA_CERTIFICATE_FILE")?),
+                    Some(required("KAFKA_PRIVATE_KEY_FILE")?),
+                )
+            } else if kafka_security_protocol == "PLAINTEXT" {
+                (None, None, None)
+            } else {
+                anyhow::bail!("KAFKA_SECURITY_PROTOCOL must be PLAINTEXT or SSL");
+            };
+        let config = Self {
             host: std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_owned()),
             port: std::env::var("PORT")
                 .unwrap_or_else(|_| "8080".to_owned())
@@ -72,7 +108,37 @@ impl ServerConfig {
                 .unwrap_or_else(|_| "1000".to_owned())
                 .parse()
                 .unwrap_or(1000),
-        })
+            kafka_brokers,
+            kafka_client_id: required("KAFKA_CLIENT_ID")?,
+            kafka_security_protocol,
+            kafka_ca_file,
+            kafka_certificate_file,
+            kafka_private_key_file,
+            tenant_lifecycle_topic: required("TENANT_LIFECYCLE_TOPIC")?,
+            tenant_readiness_topic: required("TENANT_READINESS_TOPIC")?,
+            tenant_readiness_consumer_group: required("TENANT_READINESS_CONSUMER_GROUP")?,
+            tenant_lifecycle_worker_id: required("TENANT_LIFECYCLE_WORKER_ID")?,
+            tenant_lifecycle_batch_size: required("TENANT_LIFECYCLE_BATCH_SIZE")?
+                .parse()
+                .context("TENANT_LIFECYCLE_BATCH_SIZE is invalid")?,
+            tenant_lifecycle_lease_ms: required("TENANT_LIFECYCLE_LEASE_MS")?
+                .parse()
+                .context("TENANT_LIFECYCLE_LEASE_MS is invalid")?,
+            tenant_lifecycle_poll_ms: required("TENANT_LIFECYCLE_POLL_MS")?
+                .parse()
+                .context("TENANT_LIFECYCLE_POLL_MS is invalid")?,
+            kafka_max_message_bytes: required("KAFKA_MAX_MESSAGE_BYTES")?
+                .parse()
+                .context("KAFKA_MAX_MESSAGE_BYTES is invalid")?,
+        };
+        if config.tenant_lifecycle_batch_size <= 0
+            || config.tenant_lifecycle_lease_ms <= 0
+            || config.tenant_lifecycle_poll_ms == 0
+            || config.kafka_max_message_bytes == 0
+        {
+            anyhow::bail!("tenant lifecycle Kafka bounds must be positive");
+        }
+        Ok(config)
     }
 
     pub fn socket_addr(&self) -> Result<SocketAddr> {
@@ -80,4 +146,12 @@ impl ServerConfig {
             .parse()
             .context("Invalid host/port combination")
     }
+}
+
+fn required(name: &str) -> Result<String> {
+    let value = std::env::var(name).with_context(|| format!("{name} is required"))?;
+    if value.trim().is_empty() {
+        anyhow::bail!("{name} must not be empty");
+    }
+    Ok(value)
 }

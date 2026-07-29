@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -111,7 +112,16 @@ func (r *Reloader) HandleRecord(ctx context.Context, record *kgo.Record) error {
 		return err
 	}
 	if event.GetOwner() == r.config.Owner {
-		if err := r.resolveAndInstall(ctx, event.GetTenantId(), event); err != nil {
+		key, err := cacheKeyForEvent(event.GetTenantId(), event)
+		if err != nil {
+			return err
+		}
+		if event.GetKind() == configurationv1.ConfigurationPublicationKind_CONFIGURATION_PUBLICATION_KIND_RETIRED {
+			err = r.cache.RetireScoped(key, event.GetOrdinal())
+		} else {
+			err = r.resolveAndInstall(ctx, event.GetTenantId(), event)
+		}
+		if err != nil {
 			return err
 		}
 	}
@@ -126,13 +136,19 @@ func (r *Reloader) resolveAndInstall(
 	tenantID string,
 	event *configurationv1.ConfigurationPublicationEvent,
 ) error {
+	key, err := cacheKeyForEvent(tenantID, event)
+	if err != nil {
+		return err
+	}
 	resolveCtx, cancel := context.WithTimeout(ctx, r.config.ResolveTimeout)
 	defer cancel()
 	response, err := r.resolver.ResolveConfiguration(resolveCtx, &configurationv1.ResolveConfigurationRequest{
 		TenantId:             tenantID,
+		WorkflowType:         key.WorkflowType,
+		WorkflowVersion:      key.WorkflowVersion,
 		PlatformReference:    r.config.PlatformReference,
 		EnvironmentReference: r.config.EnvironmentReference,
-		InstanceId:           instanceReference(event),
+		InstanceId:           key.InstanceID,
 		Owner:                r.config.Owner,
 	}, grpc.WaitForReady(true))
 	if err != nil {
@@ -153,23 +169,47 @@ func (r *Reloader) resolveAndInstall(
 			return errors.New("resolved configuration hash does not match publication")
 		}
 	}
-	if instanceID := instanceReference(event); instanceID != "" {
-		err = r.cache.InstallInstance(tenantID, instanceID, snapshot)
-	} else {
-		err = r.cache.Install(tenantID, snapshot)
-	}
+	err = r.cache.InstallScoped(key, snapshot)
 	if err != nil {
 		return fmt.Errorf("install runtime configuration: %w", err)
 	}
 	return nil
 }
 
-func instanceReference(event *configurationv1.ConfigurationPublicationEvent) string {
-	if event != nil &&
-		event.GetScope().GetType() == configurationv1.ConfigurationScopeType_CONFIGURATION_SCOPE_TYPE_APPROVED_INSTANCE_OVERRIDE {
-		return event.GetScope().GetReference()
+func cacheKeyForEvent(
+	tenantID string,
+	event *configurationv1.ConfigurationPublicationEvent,
+) (CacheKey, error) {
+	key := CacheKey{TenantID: tenantID}
+	if event == nil {
+		return key, nil
 	}
-	return ""
+	switch event.GetScope().GetType() {
+	case configurationv1.ConfigurationScopeType_CONFIGURATION_SCOPE_TYPE_WORKFLOW_TYPE:
+		key.WorkflowType = event.GetWorkflowType()
+		if key.WorkflowType == "" {
+			key.WorkflowType = event.GetScope().GetReference()
+		}
+	case configurationv1.ConfigurationScopeType_CONFIGURATION_SCOPE_TYPE_WORKFLOW_VERSION:
+		key.WorkflowType = event.GetWorkflowType()
+		key.WorkflowVersion = event.GetWorkflowVersion()
+		if key.WorkflowType == "" || key.WorkflowVersion == "" {
+			workflowType, workflowVersion, found := strings.Cut(event.GetScope().GetReference(), ":")
+			if !found {
+				return CacheKey{}, errors.New("workflow version publication scope is invalid")
+			}
+			key.WorkflowType, key.WorkflowVersion = workflowType, workflowVersion
+		}
+	case configurationv1.ConfigurationScopeType_CONFIGURATION_SCOPE_TYPE_APPROVED_INSTANCE_OVERRIDE:
+		key.InstanceID = event.GetInstanceId()
+		if key.InstanceID == "" {
+			key.InstanceID = event.GetScope().GetReference()
+		}
+	}
+	if !key.valid() {
+		return CacheKey{}, errors.New("configuration publication cache key is invalid")
+	}
+	return key, nil
 }
 
 func validateEvent(event *configurationv1.ConfigurationPublicationEvent) error {

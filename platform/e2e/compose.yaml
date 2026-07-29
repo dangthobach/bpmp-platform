@@ -223,6 +223,49 @@ services:
       retries: 30
       start_period: 2s
 
+  cockpit-gateway:
+    image: ${COCKPIT_GATEWAY_IMAGE:?set COCKPIT_GATEWAY_IMAGE}
+    build:
+      context: ../..
+      dockerfile: platform/e2e/Dockerfile.cockpit-gateway
+    command: ["--config", "/runtime/cockpit-gateway.json"]
+    volumes:
+      - ./runtime:/runtime:ro
+    ports:
+      - "${COCKPIT_GATEWAY_PORT:?set COCKPIT_GATEWAY_PORT}:7601"
+    depends_on:
+      topic-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:7602/readyz"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 2s
+
+  cockpit-web:
+    image: ${COCKPIT_WEB_IMAGE:?set COCKPIT_WEB_IMAGE}
+    build:
+      context: ../..
+      dockerfile: platform/e2e/Dockerfile.cockpit-web
+    volumes:
+      - ./runtime/cockpit-web-config.json:/usr/share/nginx/html/config.json:ro
+      - ./runtime/cockpit-web-nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./runtime:/runtime:ro
+    ports:
+      - "${COCKPIT_WEB_PORT:?set COCKPIT_WEB_PORT}:8080"
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+      cockpit-gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8080/readyz"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 2s
+
   key-lifecycle:
     image: nginx:1.29-alpine
     volumes:

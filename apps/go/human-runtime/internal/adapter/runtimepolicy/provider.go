@@ -10,19 +10,21 @@ import (
 )
 
 type Provider struct {
-	cache    *runtimeconfig.Cache
-	tenantID string
+	cache *runtimeconfig.Cache
 }
 
-func New(cache *runtimeconfig.Cache, tenantID string) (*Provider, error) {
-	if cache == nil || tenantID == "" {
+func New(cache *runtimeconfig.Cache) (*Provider, error) {
+	if cache == nil {
 		return nil, errors.New("human runtime policy provider is invalid")
 	}
-	return &Provider{cache: cache, tenantID: tenantID}, nil
+	return &Provider{cache: cache}, nil
 }
 
-func (p *Provider) Policy() (application.RuntimePolicy, error) {
-	snapshot, err := p.cache.Get(p.tenantID)
+func (p *Provider) Policy(tenantID string) (application.RuntimePolicy, error) {
+	if tenantID == "" {
+		return application.RuntimePolicy{}, errors.New("human runtime policy tenant is required")
+	}
+	snapshot, err := p.cache.Get(tenantID)
 	if err != nil {
 		return application.RuntimePolicy{}, err
 	}
@@ -77,4 +79,28 @@ func (p *Provider) Policy() (application.RuntimePolicy, error) {
 		EngineCircuitOpen:      time.Duration(value.GetEngineCircuitBreakerOpenMs()) * time.Millisecond,
 		EngineRetryableCodes:   append([]string(nil), value.GetEngineRetryableCodes()...),
 	}, nil
+}
+
+func (p *Provider) WorkerPolicy() (application.RuntimePolicy, error) {
+	tenantIDs := p.cache.TenantIDs()
+	if len(tenantIDs) == 0 {
+		return application.RuntimePolicy{}, errors.New("human runtime worker policy is empty")
+	}
+	var resolved application.RuntimePolicy
+	for index, tenantID := range tenantIDs {
+		policy, err := p.Policy(tenantID)
+		if err != nil {
+			return application.RuntimePolicy{}, err
+		}
+		if index == 0 {
+			resolved = policy
+			continue
+		}
+		resolved.ProjectionBatchSize = min(resolved.ProjectionBatchSize, policy.ProjectionBatchSize)
+		resolved.EscalationBatchSize = min(resolved.EscalationBatchSize, policy.EscalationBatchSize)
+		resolved.EscalationLease = min(resolved.EscalationLease, policy.EscalationLease)
+		resolved.EscalationRetry = min(resolved.EscalationRetry, policy.EscalationRetry)
+		resolved.EscalationPoll = min(resolved.EscalationPoll, policy.EscalationPoll)
+	}
+	return resolved, nil
 }

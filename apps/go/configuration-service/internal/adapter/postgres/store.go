@@ -52,7 +52,7 @@ func (s *Store) Create(ctx context.Context, actor domain.Actor, profile domain.P
 	if err = insertVersion(ctx, tx, version); err != nil {
 		return domain.Profile{}, mapError(err)
 	}
-	if err = insertAudit(ctx, tx, actor, profile.ID, version.ID, "CONFIGURATION_DRAFT_CREATED", profile.AggregateVersion, version.Reason, version.ContentHash[:], profile.CreatedAt); err != nil {
+	if err = insertAudit(ctx, tx, actor, profile.ID, version.ID, "CONFIGURATION_DRAFT_CREATED", profile.AggregateVersion, version.ConfigVersion, version.PolicyVersion, version.Reason, version.ContentHash[:], profile.CreatedAt); err != nil {
 		return domain.Profile{}, err
 	}
 	if err = completeIdempotency(ctx, tx, actor, profile.ID, version.ID); err != nil {
@@ -218,7 +218,7 @@ func (s *Store) AddDraft(ctx context.Context, actor domain.Actor, profileID stri
 	if err != nil || tag.RowsAffected() != 1 {
 		return domain.Profile{}, domain.ErrConflict
 	}
-	if err = insertAudit(ctx, tx, actor, profileID, version.ID, "CONFIGURATION_DRAFT_CREATED", next, version.Reason, version.ContentHash[:], version.CreatedAt); err != nil {
+	if err = insertAudit(ctx, tx, actor, profileID, version.ID, "CONFIGURATION_DRAFT_CREATED", next, version.ConfigVersion, version.PolicyVersion, version.Reason, version.ContentHash[:], version.CreatedAt); err != nil {
 		return domain.Profile{}, err
 	}
 	if err = completeIdempotency(ctx, tx, actor, profileID, version.ID); err != nil {
@@ -253,9 +253,10 @@ func (s *Store) Publish(ctx context.Context, actor domain.Actor, profileID, vers
 	}
 	var hash []byte
 	var configVersion string
-	err = tx.QueryRow(ctx, `SELECT content_hash,config_version FROM configuration_versions
+	var policyVersion string
+	err = tx.QueryRow(ctx, `SELECT content_hash,config_version,policy_version FROM configuration_versions
 		WHERE tenant_id=$1 AND profile_id=$2 AND id=$3 AND status='DRAFT' FOR UPDATE`,
-		actor.TenantID, profileID, versionID).Scan(&hash, &configVersion)
+		actor.TenantID, profileID, versionID).Scan(&hash, &configVersion, &policyVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Profile{}, domain.ErrConflict
 	}
@@ -279,10 +280,13 @@ func (s *Store) Publish(ctx context.Context, actor domain.Actor, profileID, vers
 		next, versionID, now, actor.ActorID, actor.TenantID, profileID); err != nil {
 		return domain.Profile{}, err
 	}
-	if err = insertAudit(ctx, tx, actor, profileID, versionID, "CONFIGURATION_PUBLISHED", next, reason, hash, now); err != nil {
+	if err = insertAudit(ctx, tx, actor, profileID, versionID, "CONFIGURATION_PUBLISHED", next, configVersion, policyVersion, reason, hash, now); err != nil {
 		return domain.Profile{}, err
 	}
 	if err = insertOutbox(ctx, tx, actor.TenantID, profileID, versionID, configVersion, hash, "configuration.published", now); err != nil {
+		return domain.Profile{}, err
+	}
+	if err = refreshTenantReadiness(ctx, tx, actor.TenantID, now); err != nil {
 		return domain.Profile{}, err
 	}
 	if err = completeIdempotency(ctx, tx, actor, profileID, versionID); err != nil {
@@ -295,12 +299,53 @@ func (s *Store) Publish(ctx context.Context, actor domain.Actor, profileID, vers
 }
 
 func (s *Store) Rollback(ctx context.Context, actor domain.Actor, profileID, targetID string, expected int64, version domain.Version, now time.Time) (domain.Profile, error) {
+	return s.restoreVersion(
+		ctx,
+		actor,
+		profileID,
+		targetID,
+		expected,
+		version,
+		now,
+		"configuration.rollback",
+		"CONFIGURATION_ROLLED_BACK",
+		"configuration.rolled_back",
+	)
+}
+
+func (s *Store) Restore(ctx context.Context, actor domain.Actor, profileID, targetID string, expected int64, version domain.Version, now time.Time) (domain.Profile, error) {
+	return s.restoreVersion(
+		ctx,
+		actor,
+		profileID,
+		targetID,
+		expected,
+		version,
+		now,
+		"configuration.restore",
+		"CONFIGURATION_RESTORED",
+		"configuration.restored",
+	)
+}
+
+func (s *Store) restoreVersion(
+	ctx context.Context,
+	actor domain.Actor,
+	profileID string,
+	targetID string,
+	expected int64,
+	version domain.Version,
+	now time.Time,
+	operation string,
+	auditAction string,
+	eventType string,
+) (domain.Profile, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return domain.Profile{}, err
 	}
 	defer tx.Rollback(ctx)
-	duplicateID, duplicate, err := claimIdempotency(ctx, tx, actor, "configuration.rollback")
+	duplicateID, duplicate, err := claimIdempotency(ctx, tx, actor, operation)
 	if err != nil {
 		return domain.Profile{}, err
 	}
@@ -348,13 +393,95 @@ func (s *Store) Rollback(ctx context.Context, actor domain.Actor, profileID, tar
 		next, version.ID, now, actor.ActorID, actor.TenantID, profileID); err != nil {
 		return domain.Profile{}, err
 	}
-	if err = insertAudit(ctx, tx, actor, profileID, version.ID, "CONFIGURATION_ROLLED_BACK", next, version.Reason, hash, now); err != nil {
+	if err = insertAudit(ctx, tx, actor, profileID, version.ID, auditAction, next, version.ConfigVersion, version.PolicyVersion, version.Reason, hash, now); err != nil {
 		return domain.Profile{}, err
 	}
-	if err = insertOutbox(ctx, tx, actor.TenantID, profileID, version.ID, version.ConfigVersion, hash, "configuration.rolled_back", now); err != nil {
+	if err = insertOutbox(ctx, tx, actor.TenantID, profileID, version.ID, version.ConfigVersion, hash, eventType, now); err != nil {
+		return domain.Profile{}, err
+	}
+	if err = refreshTenantReadiness(ctx, tx, actor.TenantID, now); err != nil {
 		return domain.Profile{}, err
 	}
 	if err = completeIdempotency(ctx, tx, actor, profileID, version.ID); err != nil {
+		return domain.Profile{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return domain.Profile{}, err
+	}
+	return s.profileAfterWrite(ctx, actor.TenantID, profileID)
+}
+
+func (s *Store) Retire(
+	ctx context.Context,
+	actor domain.Actor,
+	profileID string,
+	expected int64,
+	reason string,
+	now time.Time,
+) (domain.Profile, error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return domain.Profile{}, err
+	}
+	defer tx.Rollback(ctx)
+	duplicateID, duplicate, err := claimIdempotency(ctx, tx, actor, "configuration.retire")
+	if err != nil {
+		return domain.Profile{}, err
+	}
+	if duplicate {
+		_ = tx.Rollback(ctx)
+		return loadProfile(ctx, s.pool, actor.TenantID, duplicateID)
+	}
+	current, _, err := lockProfile(ctx, tx, actor.TenantID, profileID)
+	if err != nil {
+		return domain.Profile{}, err
+	}
+	if current != expected {
+		return domain.Profile{}, domain.ErrConflict
+	}
+	var versionID, configVersion, policyVersion string
+	var hash []byte
+	err = tx.QueryRow(ctx, `SELECT id::text,config_version,policy_version,content_hash
+		FROM configuration_versions
+		WHERE tenant_id=$1 AND profile_id=$2 AND status='PUBLISHED' FOR UPDATE`,
+		actor.TenantID, profileID).Scan(&versionID, &configVersion, &policyVersion, &hash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Profile{}, domain.ErrConflict
+	}
+	if err != nil {
+		return domain.Profile{}, err
+	}
+	tag, err := tx.Exec(ctx, `DELETE FROM configuration_active_scopes
+		WHERE tenant_id=$1 AND profile_id=$2 AND version_id=$3`,
+		actor.TenantID, profileID, versionID)
+	if err != nil {
+		return domain.Profile{}, err
+	}
+	if tag.RowsAffected() != 1 {
+		return domain.Profile{}, domain.ErrConflict
+	}
+	if _, err = tx.Exec(ctx, `UPDATE configuration_versions SET status='RETIRED'
+		WHERE tenant_id=$1 AND profile_id=$2 AND id=$3 AND status='PUBLISHED'`,
+		actor.TenantID, profileID, versionID); err != nil {
+		return domain.Profile{}, err
+	}
+	next := current + 1
+	if _, err = tx.Exec(ctx, `UPDATE configuration_profiles
+		SET aggregate_version=$1,current_published_version_id=NULL,updated_at=$2,updated_by=$3
+		WHERE tenant_id=$4 AND id=$5`,
+		next, now, actor.ActorID, actor.TenantID, profileID); err != nil {
+		return domain.Profile{}, err
+	}
+	if err = insertAudit(ctx, tx, actor, profileID, versionID, "CONFIGURATION_RETIRED", next, configVersion, policyVersion, reason, hash, now); err != nil {
+		return domain.Profile{}, err
+	}
+	if err = insertOutbox(ctx, tx, actor.TenantID, profileID, versionID, configVersion, hash, "configuration.retired", now); err != nil {
+		return domain.Profile{}, err
+	}
+	if err = refreshTenantReadiness(ctx, tx, actor.TenantID, now); err != nil {
+		return domain.Profile{}, err
+	}
+	if err = completeIdempotency(ctx, tx, actor, profileID, versionID); err != nil {
 		return domain.Profile{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -427,12 +554,13 @@ func insertVersion(ctx context.Context, tx pgx.Tx, version domain.Version) error
 	return err
 }
 
-func insertAudit(ctx context.Context, tx pgx.Tx, actor domain.Actor, profileID, versionID, action string, aggregateVersion int64, reason string, hash []byte, now time.Time) error {
+func insertAudit(ctx context.Context, tx pgx.Tx, actor domain.Actor, profileID, versionID, action string, aggregateVersion int64, configVersion, policyVersion, reason string, hash []byte, now time.Time) error {
 	_, err := tx.Exec(ctx, `INSERT INTO configuration_audit
-		(audit_id,tenant_id,profile_id,version_id,actor_id,action,aggregate_version,reason,content_hash,correlation_id,occurred_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+		(audit_id,tenant_id,profile_id,version_id,actor_id,action,aggregate_version,
+		 config_version,policy_version,reason,content_hash,correlation_id,occurred_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
 		uuid.NewString(), actor.TenantID, profileID, versionID, actor.ActorID, action,
-		aggregateVersion, reason, hash, actor.CorrelationID, now)
+		aggregateVersion, configVersion, policyVersion, reason, hash, actor.CorrelationID, now)
 	return err
 }
 

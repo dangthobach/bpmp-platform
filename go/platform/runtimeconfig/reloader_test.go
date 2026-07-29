@@ -87,11 +87,18 @@ func testReloaderConfig() Config {
 	}
 }
 
-type fakeConsumer struct{ commits int }
+type fakeConsumer struct {
+	commits        int
+	commitFailures int
+}
 
 func (*fakeConsumer) PollRecords(context.Context, int) kgo.Fetches { return kgo.Fetches{} }
 func (f *fakeConsumer) CommitRecords(context.Context, ...*kgo.Record) error {
 	f.commits++
+	if f.commitFailures > 0 {
+		f.commitFailures--
+		return errors.New("simulated offset commit crash")
+	}
 	return nil
 }
 
@@ -135,6 +142,60 @@ func TestHandleRecordResolvesBeforeCommitAndIgnoresOtherOwners(t *testing.T) {
 	}
 	if resolver.calls != 1 || consumer.commits != 2 {
 		t.Fatal("unrelated owner was not acknowledged without resolving")
+	}
+}
+
+func TestPublicationReplayAfterOffsetCommitFailureIsIdempotent(t *testing.T) {
+	cache := mustGatewayCache(t)
+	resolver := &fakeResolver{snapshot: gatewaySnapshot(2)}
+	consumer := &fakeConsumer{commitFailures: 1}
+	reloader, err := New(testReloaderConfig(), resolver, consumer, cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := proto.Marshal(publication(
+		configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_API_GATEWAY,
+	))
+	record := &kgo.Record{Value: payload}
+	if err = reloader.HandleRecord(context.Background(), record); err == nil {
+		t.Fatal("expected simulated offset commit failure")
+	}
+	if _, err = cache.Get("tenant-a"); err != nil {
+		t.Fatalf("snapshot must be installed before offset commit: %v", err)
+	}
+	if err = reloader.HandleRecord(context.Background(), record); err != nil {
+		t.Fatalf("replayed publication must be idempotent: %v", err)
+	}
+	if resolver.calls != 2 || consumer.commits != 2 {
+		t.Fatalf("unexpected replay calls=%d commits=%d", resolver.calls, consumer.commits)
+	}
+}
+
+func TestRetireReplayKeepsCacheFailClosed(t *testing.T) {
+	cache := mustGatewayCache(t)
+	if err := cache.Install("tenant-a", gatewaySnapshot(1)); err != nil {
+		t.Fatal(err)
+	}
+	consumer := &fakeConsumer{commitFailures: 1}
+	reloader, err := New(testReloaderConfig(), &fakeResolver{}, consumer, cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := publication(configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_API_GATEWAY)
+	event.Kind = configurationv1.ConfigurationPublicationKind_CONFIGURATION_PUBLICATION_KIND_RETIRED
+	payload, _ := proto.Marshal(event)
+	record := &kgo.Record{Value: payload}
+	if err = reloader.HandleRecord(context.Background(), record); err == nil {
+		t.Fatal("expected simulated offset commit failure")
+	}
+	if _, err = cache.Get("tenant-a"); !errors.Is(err, ErrMissingSnapshot) {
+		t.Fatalf("retired cache must fail closed before offset commit: %v", err)
+	}
+	if err = reloader.HandleRecord(context.Background(), record); err != nil {
+		t.Fatalf("retire replay must be idempotent: %v", err)
+	}
+	if _, err = cache.Get("tenant-a"); !errors.Is(err, ErrMissingSnapshot) {
+		t.Fatalf("retired cache was resurrected: %v", err)
 	}
 }
 

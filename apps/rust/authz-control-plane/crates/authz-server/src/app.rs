@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use axum::{middleware, routing::get, Router};
 use tower_http::trace::TraceLayer;
 
@@ -169,7 +169,38 @@ pub async fn run(config: ServerConfig) -> Result<()> {
 
     tracing::info!(addr = %addr, "AuthZ REST server listening");
 
-    axum::serve(listener, build_router(state)).await?;
-
-    Ok(())
+    #[cfg(target_os = "linux")]
+    {
+        let lifecycle_publisher = tokio::spawn(crate::tenant_lifecycle::run_publisher(
+            pool.clone(),
+            config.clone(),
+        ));
+        let readiness_consumer = tokio::spawn(crate::tenant_lifecycle::run_readiness_consumer(
+            pool, config,
+        ));
+        let server = axum::serve(listener, build_router(state));
+        tokio::pin!(server);
+        tokio::select! {
+            result = &mut server => result.context("serve AuthZ HTTP"),
+            result = lifecycle_publisher => match result {
+                Ok(Ok(())) => anyhow::bail!("tenant lifecycle publisher stopped unexpectedly"),
+                Ok(Err(error)) => Err(error).context("tenant lifecycle publisher failed"),
+                Err(error) => Err(anyhow::Error::from(error))
+                    .context("tenant lifecycle publisher panicked"),
+            },
+            result = readiness_consumer => match result {
+                Ok(Ok(())) => anyhow::bail!("tenant readiness consumer stopped unexpectedly"),
+                Ok(Err(error)) => Err(error).context("tenant readiness consumer failed"),
+                Err(error) => Err(anyhow::Error::from(error))
+                    .context("tenant readiness consumer panicked"),
+            },
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (pool, config);
+        axum::serve(listener, build_router(state))
+            .await
+            .context("serve AuthZ HTTP")
+    }
 }

@@ -142,6 +142,11 @@ pub async fn update_tenant(
     if let Some(config) = payload.config.as_ref() {
         validate_config(config)?;
     }
+    if payload.is_active.is_some() {
+        return Err(invalid_request(
+            "tenant status must be changed through the status endpoint",
+        ));
+    }
     let tenant = db_update_tenant(
         &state.pool,
         TenantId(id),
@@ -149,7 +154,6 @@ pub async fn update_tenant(
             code: payload.code.as_deref(),
             name: payload.name.as_deref().map(str::trim),
             config: payload.config.as_ref(),
-            is_active: payload.is_active,
             expected_version: payload.expected_version,
         },
         mutation_audit(&principal, &request_id),

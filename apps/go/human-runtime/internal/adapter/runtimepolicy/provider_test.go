@@ -41,11 +41,11 @@ func TestProviderMapsTenantSnapshot(t *testing.T) {
 	if err = cache.Install("tenant-a", snapshot); err != nil {
 		t.Fatal(err)
 	}
-	provider, err := New(cache, "tenant-a")
+	provider, err := New(cache)
 	if err != nil {
 		t.Fatal(err)
 	}
-	policy, err := provider.Policy()
+	policy, err := provider.Policy("tenant-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,5 +64,8 @@ func TestProviderMapsTenantSnapshot(t *testing.T) {
 		policy.EngineCircuitOpen != time.Second ||
 		len(policy.EngineRetryableCodes) != 2 {
 		t.Fatalf("unexpected mapped policy: %+v", policy)
+	}
+	if _, err = provider.Policy("tenant-b"); err == nil {
+		t.Fatal("provider must fail closed when tenant policy is missing")
 	}
 }

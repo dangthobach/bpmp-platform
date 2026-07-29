@@ -18,7 +18,7 @@ type projectionStore struct {
 	caseCompletion     application.CommittedCaseCompletion
 }
 
-var projectionTestPolicy = application.RuntimePolicyProviderFunc(func() (application.RuntimePolicy, error) {
+var projectionTestPolicy = application.RuntimePolicyProviderFunc(func(string) (application.RuntimePolicy, error) {
 	return application.RuntimePolicy{
 		MaxAssignmentCandidates: 16,
 		MaxDelegationDepth:      3,

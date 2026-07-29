@@ -26,10 +26,12 @@ import (
 	"github.com/dangthobach/bpmp-platform/apps/go/configuration-service/internal/adapter/httpapi"
 	"github.com/dangthobach/bpmp-platform/apps/go/configuration-service/internal/adapter/kafkapublisher"
 	postgresadapter "github.com/dangthobach/bpmp-platform/apps/go/configuration-service/internal/adapter/postgres"
+	"github.com/dangthobach/bpmp-platform/apps/go/configuration-service/internal/adapter/tenantconsumer"
 	"github.com/dangthobach/bpmp-platform/apps/go/configuration-service/internal/application"
 	configurationv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/configuration/v1"
 	platformgrpcserver "github.com/dangthobach/bpmp-platform/go/platform/grpcserver"
 	platformhealth "github.com/dangthobach/bpmp-platform/go/platform/health"
+	platformruntimeconfig "github.com/dangthobach/bpmp-platform/go/platform/runtimeconfig"
 	platformtelemetry "github.com/dangthobach/bpmp-platform/go/platform/telemetry"
 )
 
@@ -94,6 +96,24 @@ func run(path string) error {
 		return fmt.Errorf("configure Kafka publisher: %w", err)
 	}
 	defer kafkaPublisher.Close()
+	readinessKafka, err := kafkapublisher.New(config.TenantReadiness)
+	if err != nil {
+		return fmt.Errorf("configure tenant readiness publisher: %w", err)
+	}
+	defer readinessKafka.Close()
+	tenantKafka, err := platformruntimeconfig.NewKafkaClient(config.TenantLifecycle)
+	if err != nil {
+		return fmt.Errorf("configure tenant lifecycle consumer: %w", err)
+	}
+	defer tenantKafka.Close()
+	tenantLifecycle, err := tenantconsumer.New(
+		tenantKafka,
+		store,
+		config.TenantLifecycle.BatchSize,
+	)
+	if err != nil {
+		return err
+	}
 	publisher, err := application.NewPublisher(store, kafkaPublisher, application.PublisherConfig{
 		WorkerID: config.Outbox.WorkerID, BatchSize: config.Outbox.BatchSize,
 		LeaseDuration:     milliseconds(config.Outbox.LeaseDurationMS),
@@ -101,6 +121,21 @@ func run(path string) error {
 		MaxRetryDelay:     milliseconds(config.Outbox.MaxRetryDelayMS),
 		RetryMultiplier:   config.Outbox.RetryMultiplier,
 	})
+	if err != nil {
+		return err
+	}
+	readinessPublisher, err := application.NewTenantReadinessPublisher(
+		store,
+		readinessKafka,
+		application.PublisherConfig{
+			WorkerID:          config.Outbox.WorkerID + "-tenant-readiness",
+			BatchSize:         config.Outbox.BatchSize,
+			LeaseDuration:     milliseconds(config.Outbox.LeaseDurationMS),
+			InitialRetryDelay: milliseconds(config.Outbox.InitialRetryDelayMS),
+			MaxRetryDelay:     milliseconds(config.Outbox.MaxRetryDelayMS),
+			RetryMultiplier:   config.Outbox.RetryMultiplier,
+		},
+	)
 	if err != nil {
 		return err
 	}
@@ -165,6 +200,8 @@ func run(path string) error {
 		milliseconds(config.API.ReadinessTimeoutMS),
 		func(ctx context.Context) error { return pool.Ping(ctx) },
 		func(ctx context.Context) error { return kafkaPublisher.Ping(ctx) },
+		func(ctx context.Context) error { return tenantKafka.Ping(ctx) },
+		func(ctx context.Context) error { return readinessKafka.Ping(ctx) },
 	)
 	routes := http.NewServeMux()
 	routes.Handle("/livez", health)
@@ -179,7 +216,7 @@ func run(path string) error {
 		IdleTimeout:       milliseconds(config.API.IdleTimeoutMS),
 		TLSConfig:         tlsSettings,
 	}
-	errs := make(chan error, 3)
+	errs := make(chan error, 5)
 	go func() {
 		errs <- server.ListenAndServeTLS(config.TLS.Certificate, config.TLS.PrivateKey)
 	}()
@@ -188,6 +225,16 @@ func run(path string) error {
 	}()
 	go func() {
 		errs <- runPublisher(ctx, publisher, milliseconds(config.Outbox.PollIntervalMS))
+	}()
+	go func() {
+		errs <- tenantLifecycle.Run(ctx)
+	}()
+	go func() {
+		errs <- runTenantReadinessPublisher(
+			ctx,
+			readinessPublisher,
+			milliseconds(config.Outbox.PollIntervalMS),
+		)
 	}()
 	slog.Info(
 		"configuration-service started",
@@ -259,6 +306,29 @@ func runPublisher(ctx context.Context, publisher *application.Publisher, pollInt
 				slog.Error("publish configuration outbox", "error", err)
 			} else if published > 0 {
 				slog.Info("published configuration outbox batch", "count", published)
+			}
+			timer.Reset(pollInterval)
+		}
+	}
+}
+
+func runTenantReadinessPublisher(
+	ctx context.Context,
+	publisher *application.TenantReadinessPublisher,
+	pollInterval time.Duration,
+) error {
+	timer := time.NewTimer(0)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-timer.C:
+			published, err := publisher.RunOnce(ctx)
+			if err != nil {
+				slog.Error("publish tenant readiness outbox", "error", err)
+			} else if published > 0 {
+				slog.Info("published tenant readiness outbox batch", "count", published)
 			}
 			timer.Reset(pollInterval)
 		}

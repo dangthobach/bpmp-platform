@@ -13,9 +13,11 @@ const ALL_MIGRATIONS: &str = concat!(
     include_str!("../migrations/010_user_last_active.sql"),
     include_str!("../migrations/011_entity_metadata.sql"),
     include_str!("../migrations/012_tenant_registry.sql"),
+    include_str!("../migrations/013_tenant_lifecycle_outbox.sql"),
 );
 
 const TENANT_REGISTRY: &str = include_str!("../migrations/012_tenant_registry.sql");
+const TENANT_LIFECYCLE: &str = include_str!("../migrations/013_tenant_lifecycle_outbox.sql");
 
 #[test]
 fn sqlx_and_flyway_use_one_canonical_migration_directory() {
@@ -73,4 +75,13 @@ fn tenant_registry_has_immutable_audit_and_stable_code_uniqueness() {
     assert!(TENANT_REGISTRY.contains("actor_ref"));
     assert!(TENANT_REGISTRY.contains("request_id"));
     assert!(TENANT_REGISTRY.contains("ON tenant(lower(code))"));
+}
+
+#[test]
+fn tenant_activation_is_configuration_gated_and_lifecycle_is_transactional() {
+    assert!(TENANT_LIFECYCLE.contains("ALTER COLUMN is_active SET DEFAULT false"));
+    assert!(TENANT_LIFECYCLE.contains("CREATE TABLE tenant_configuration_readiness"));
+    assert!(TENANT_LIFECYCLE.contains("CREATE TABLE tenant_lifecycle_outbox"));
+    assert!(TENANT_LIFECYCLE.contains("event_sequence"));
+    assert!(TENANT_LIFECYCLE.contains("published_at"));
 }

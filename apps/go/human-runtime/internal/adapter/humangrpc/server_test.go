@@ -16,7 +16,7 @@ import (
 
 type testQuery struct{ item domain.WorkItem }
 
-var testPolicy = application.RuntimePolicyProviderFunc(func() (application.RuntimePolicy, error) {
+var testPolicy = application.RuntimePolicyProviderFunc(func(string) (application.RuntimePolicy, error) {
 	return application.RuntimePolicy{
 		MaxAssignmentCandidates: 16,
 		MaxDelegationDepth:      3,

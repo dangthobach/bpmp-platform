@@ -11,7 +11,9 @@
     "topics": {
       "engine_committed_events": "bpmp.engine.committed-events.v1.e2e",
       "configuration_publications": "bpmp.configuration.publications.v1.e2e",
-      "human_escalations": "bpmp.human.escalations.v1.e2e"
+      "human_escalations": "bpmp.human.escalations.v1.e2e",
+      "tenant_lifecycle": "bpmp.tenant.lifecycle.v1.e2e",
+      "tenant_configuration_readiness": "bpmp.tenant.configuration-readiness.v1.e2e"
     },
     "consumer_groups": {
       "engine_configuration_reloaders": [
@@ -21,10 +23,12 @@
       ],
       "human_committed_events": "bpmp.human.committed-events.v1.e2e",
       "projection_committed_events": "bpmp.projection.committed-events.v1.e2e",
+      "cockpit_committed_events": "bpmp.cockpit.committed-events.v1.e2e",
       "api_gateway_configuration_reloader": "bpmp.api-gateway.configuration-reloader.v1.e2e",
       "human_runtime_configuration_reloader": "bpmp.human-runtime.configuration-reloader.v1.e2e",
       "projection_configuration_reloader": "bpmp.projection.configuration-reloader.v1.e2e",
-      "governance_configuration_reloader": "bpmp.governance.configuration-reloader.v1.e2e"
+      "governance_configuration_reloader": "bpmp.governance.configuration-reloader.v1.e2e",
+      "configuration_tenant_lifecycle": "bpmp.configuration.tenant-lifecycle.v1.e2e"
     }
   },
   "postgres_dsn": "postgres://bpmp:bpmp-e2e@postgres:5432/human_runtime?sslmode=disable",
@@ -43,6 +47,9 @@
   "human_health_address": "0.0.0.0:7202",
   "projection_listen_address": "0.0.0.0:7401",
   "projection_health_address": "0.0.0.0:7402",
+  "cockpit_gateway_listen_address": "0.0.0.0:7601",
+  "cockpit_gateway_health_address": "0.0.0.0:7602",
+  "cockpit_web_public_origin": "http://localhost:14173",
   "governance_listen_address": "0.0.0.0:7501",
   "governance_health_address": "0.0.0.0:7502",
   "gateway_listen_address": "0.0.0.0:8443",
@@ -50,5 +57,5 @@
   "configuration_listen_address": "0.0.0.0:7301",
   "configuration_grpc_url": "https://configuration-service:7302",
   "configuration_grpc_listen_address": "0.0.0.0:7302",
-  "tls_dns_names": ["localhost", "engine1", "engine2", "engine3", "human-runtime", "api-gateway", "configuration-service", "projection-service", "governance-service"]
+  "tls_dns_names": ["localhost", "engine1", "engine2", "engine3", "human-runtime", "api-gateway", "configuration-service", "projection-service", "governance-service", "cockpit-gateway"]
 }

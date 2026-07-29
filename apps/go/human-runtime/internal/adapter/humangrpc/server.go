@@ -55,7 +55,7 @@ func (s *Server) ListWorkItems(ctx context.Context, r *humanv1.ListWorkItemsRequ
 		return nil, status.Error(codes.InvalidArgument, "invalid page token")
 	}
 	groups := make([]string, 0, len(identity.Groups))
-	policy, err := s.policy.Policy()
+	policy, err := s.policy.Policy(r.GetTenantId())
 	if err != nil {
 		return nil, status.Error(codes.Unavailable, "runtime policy unavailable")
 	}
@@ -141,7 +141,7 @@ func (s *Server) ListAuditRecords(ctx context.Context, r *humanv1.ListAuditRecor
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid audit page token")
 	}
-	policy, err := s.policy.Policy()
+	policy, err := s.policy.Policy(r.GetTenantId())
 	if err != nil {
 		return nil, status.Error(codes.Unavailable, "runtime policy unavailable")
 	}

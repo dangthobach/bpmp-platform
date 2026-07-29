@@ -14,11 +14,13 @@ import (
 type recordingClient struct {
 	envelope *enginev1.CommandEnvelope
 	metadata metadata.MD
+	policy   application.RuntimePolicy
 }
 
 func (r *recordingClient) HandleCommand(ctx context.Context, in *enginev1.CommandEnvelope, _ ...grpc.CallOption) (*enginev1.CommandReceipt, error) {
 	r.envelope = in
 	r.metadata, _ = metadata.FromOutgoingContext(ctx)
+	r.policy, _ = RuntimePolicyFromContext(ctx)
 	return &enginev1.CommandReceipt{CommandId: in.CommandId, CommittedSequence: 7}, nil
 }
 
@@ -42,6 +44,9 @@ func TestClientBuildsActorPreservingAuthorizedEngineCommand(t *testing.T) {
 		CommandID: "command-1", CorrelationID: "correlation-1", Decision: "approved",
 		WorkflowType: "approval", WorkflowVersion: "1", ActorID: "alice",
 		OriginalToken: []byte("actor.jwt"), OccurredAt: time.UnixMilli(123),
+		RuntimePolicy: application.RuntimePolicy{
+			EngineCommandTimeout: time.Second,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -58,5 +63,12 @@ func TestClientBuildsActorPreservingAuthorizedEngineCommand(t *testing.T) {
 	}
 	if values := recorder.metadata.Get("traceparent"); len(values) != 1 {
 		t.Fatalf("trace metadata was not forwarded: %v", values)
+	}
+	if recorder.policy.EngineCommandTimeout != time.Second {
+		t.Fatalf("runtime policy snapshot was not propagated: %+v", recorder.policy)
+	}
+	policy, err := RuntimePolicyFromContext(context.Background())
+	if err == nil || policy.EngineCommandTimeout != 0 {
+		t.Fatal("runtime policy context must fail closed when absent")
 	}
 }

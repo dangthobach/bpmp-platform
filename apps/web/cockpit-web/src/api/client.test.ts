@@ -7,6 +7,16 @@ import { BpmpApiClient } from "./client";
 const config: RuntimeConfig = {
   apiBaseUrl: "https://gateway.example.test/",
   organizationApiBaseUrl: "https://authz.example.test/",
+  realtimeBaseUrl: "https://cockpit.example.test/",
+  realtimePath: "/realtime/v1/events",
+  realtimeSignalNames: [
+    "workflow.changed",
+    "work-item.changed",
+    "case.changed",
+    "audit.changed",
+  ],
+  realtimeReconnectInitialMs: 500,
+  realtimeReconnectMaxMs: 10_000,
   defaultPageSize: 50,
   maxPageSize: 200,
   batchChunkSize: 25,

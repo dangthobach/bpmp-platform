@@ -126,6 +126,7 @@ message ApprovalRequestView {
   string committed_command_id = 14;
   uint64 committed_sequence = 15;
   string last_error = 16;
+  uint32 shred_attempts = 17;
 }
 
 message CreateApprovalResponse {

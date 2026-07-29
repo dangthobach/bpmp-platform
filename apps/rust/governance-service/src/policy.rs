@@ -116,6 +116,55 @@ impl PolicyCache {
     pub async fn scopes(&self) -> Vec<PolicyScope> {
         self.values.read().await.keys().cloned().collect()
     }
+
+    pub async fn retire_matching(
+        &self,
+        event: &configurationv1::ConfigurationPublicationEvent,
+    ) -> Result<usize> {
+        let scope = event
+            .scope
+            .as_ref()
+            .context("governance retirement has no scope")?;
+        let scope_type = configurationv1::ConfigurationScopeType::try_from(scope.r#type)?;
+        let mut values = self.values.write().await;
+        let before = values.len();
+        values.retain(|candidate, value| {
+            if candidate.tenant_id != event.tenant_id || value.ordinal > event.ordinal {
+                return true;
+            }
+            !publication_matches(
+                candidate,
+                scope_type,
+                &scope.reference,
+                &event.workflow_type,
+                &event.workflow_version,
+            )
+        });
+        Ok(before - values.len())
+    }
+}
+
+fn publication_matches(
+    scope: &PolicyScope,
+    scope_type: configurationv1::ConfigurationScopeType,
+    reference: &str,
+    workflow_type: &str,
+    workflow_version: &str,
+) -> bool {
+    match scope_type {
+        configurationv1::ConfigurationScopeType::Platform
+        | configurationv1::ConfigurationScopeType::Environment
+        | configurationv1::ConfigurationScopeType::Tenant => true,
+        configurationv1::ConfigurationScopeType::WorkflowType => scope.workflow_type == reference,
+        configurationv1::ConfigurationScopeType::WorkflowVersion => {
+            let expected = format!("{}:{}", scope.workflow_type, scope.workflow_version);
+            expected == reference
+                || (scope.workflow_type == workflow_type
+                    && scope.workflow_version == workflow_version)
+        }
+        configurationv1::ConfigurationScopeType::ApprovedInstanceOverride
+        | configurationv1::ConfigurationScopeType::Unspecified => false,
+    }
 }
 
 fn validate_policy(policy: &configurationv1::GovernancePolicy) -> Result<()> {
@@ -127,6 +176,7 @@ fn validate_policy(policy: &configurationv1::GovernancePolicy) -> Result<()> {
         || retry.initial_backoff_ms == 0
         || retry.max_backoff_ms < retry.initial_backoff_ms
         || retry.multiplier_millis < 1_000
+        || policy.key_cache_ttl_ms == 0
         || policy.revocation_barrier_timeout_ms == 0
         || policy.reconciliation_batch_size == 0
         || policy.max_pending_compensations == 0
@@ -134,6 +184,14 @@ fn validate_policy(policy: &configurationv1::GovernancePolicy) -> Result<()> {
         || policy.accepted_auth_assurance.is_empty()
         || policy.approval_keys.is_empty()
         || policy.required_approver_count == 0
+        || usize::try_from(policy.required_approver_count).map_or(true, |required| {
+            policy
+                .approval_keys
+                .iter()
+                .filter(|key| key.enabled)
+                .count()
+                < required
+        })
     {
         anyhow::bail!("resolved governance policy is incomplete or unbounded");
     }

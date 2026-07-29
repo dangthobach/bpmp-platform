@@ -15,6 +15,28 @@
     {"name": "Configuration", "description": "Versioned runtime-configuration lifecycle."}
   ],
   "paths": {
+    "/v1/runtime/browser-configuration": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantID"},
+        {"$ref": "#/components/parameters/CorrelationID"}
+      ],
+      "get": {
+        "summary": "Resolve browser-safe tenant configuration",
+        "operationId": "getBrowserConfiguration",
+        "tags": ["Configuration"],
+        "responses": {
+          "200": {
+            "description": "Browser-safe resolved configuration",
+            "headers": {"ETag": {"schema": {"type": "string"}}},
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BrowserConfiguration"}}}
+          },
+          "304": {"description": "Configuration version has not changed"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "502": {"$ref": "#/components/responses/UpstreamUnavailable"}
+        }
+      }
+    },
     "/v1/workflows/{workflowType}/instances": {
       "parameters": [
         {"$ref": "#/components/parameters/TenantID"},
@@ -204,6 +226,39 @@
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConfigurationTransitionRequest"}}}},
         "responses": {"200": {"description": "Rollback version published", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConfigurationProfile"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"}, "409": {"$ref": "#/components/responses/Conflict"}, "502": {"$ref": "#/components/responses/UpstreamUnavailable"}}
       }
+    },
+    "/v1/configuration/profiles/{profileID}/versions/{versionID}/restore": {
+      "parameters": [{"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"}, {"$ref": "#/components/parameters/CommandID"}, {"$ref": "#/components/parameters/IdempotencyKey"}, {"$ref": "#/components/parameters/ProfileID"}, {"$ref": "#/components/parameters/VersionID"}],
+      "post": {
+        "summary": "Restore an immutable configuration version as a new version",
+        "operationId": "restoreConfigurationVersion",
+        "tags": ["Configuration"],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConfigurationTransitionRequest"}}}},
+        "responses": {"200": {"description": "Restored version published", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConfigurationProfile"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"}, "409": {"$ref": "#/components/responses/Conflict"}, "502": {"$ref": "#/components/responses/UpstreamUnavailable"}}
+      }
+    },
+    "/v1/configuration/profiles/{profileID}/retire": {
+      "parameters": [{"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"}, {"$ref": "#/components/parameters/CommandID"}, {"$ref": "#/components/parameters/IdempotencyKey"}, {"$ref": "#/components/parameters/ProfileID"}],
+      "post": {
+        "summary": "Retire the effective configuration profile",
+        "operationId": "retireConfigurationProfile",
+        "tags": ["Configuration"],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConfigurationTransitionRequest"}}}},
+        "responses": {"200": {"description": "Profile retired", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConfigurationProfile"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"}, "409": {"$ref": "#/components/responses/Conflict"}, "502": {"$ref": "#/components/responses/UpstreamUnavailable"}}
+      }
+    },
+    "/v1/configuration/profiles/{profileID}/diff": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"}, {"$ref": "#/components/parameters/ProfileID"},
+        {"name": "from_version", "in": "query", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}},
+        {"name": "to_version", "in": "query", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}}
+      ],
+      "get": {
+        "summary": "Diff two immutable configuration versions",
+        "operationId": "diffConfigurationVersions",
+        "tags": ["Configuration"],
+        "responses": {"200": {"description": "Deterministic version diff", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConfigurationVersionDiff"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"}, "404": {"$ref": "#/components/responses/NotFound"}, "502": {"$ref": "#/components/responses/UpstreamUnavailable"}}
+      }
     }
   },
   "components": {
@@ -228,6 +283,43 @@
     },
     "schemas": {
       "Identifier": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9_.:-]+$"},
+      "BrowserConfiguration": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["config_version", "policy_version", "batch_chunk_size", "batch_concurrency"],
+        "properties": {
+          "config_version": {"type": "string", "minLength": 1},
+          "policy_version": {"type": "string", "minLength": 1},
+          "batch_chunk_size": {"type": "integer", "minimum": 1},
+          "batch_concurrency": {"type": "integer", "minimum": 1}
+        }
+      },
+      "ConfigurationVersionDiff": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["profile_id", "from_version", "to_version", "differences", "from_hash", "to_hash", "schema_change"],
+        "properties": {
+          "profile_id": {"$ref": "#/components/schemas/Identifier"},
+          "from_version": {"$ref": "#/components/schemas/Identifier"},
+          "to_version": {"$ref": "#/components/schemas/Identifier"},
+          "differences": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "before", "after"],
+              "properties": {
+                "path": {"type": "string"},
+                "before": {},
+                "after": {}
+              }
+            }
+          },
+          "from_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "to_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "schema_change": {"type": "boolean"}
+        }
+      },
       "Error": {"type": "object", "required": ["error"], "properties": {"error": {"type": "string"}, "correlation_id": {"type": "string"}}},
       "StartWorkflowRequest": {"type": "object", "additionalProperties": false, "required": ["instance_id", "workflow_version", "start_node_id"], "properties": {"instance_id": {"$ref": "#/components/schemas/Identifier"}, "workflow_version": {"$ref": "#/components/schemas/Identifier"}, "start_node_id": {"$ref": "#/components/schemas/Identifier"}}},
       "CommandReceipt": {"type": "object", "required": ["command_id", "committed_sequence", "duplicate"], "properties": {"command_id": {"type": "string"}, "committed_sequence": {"type": "integer", "minimum": 0}, "duplicate": {"type": "boolean"}}},
@@ -241,10 +333,10 @@
       "AuditRecord": {"type": "object", "required": ["audit_id", "actor_id", "action", "occurred_at_epoch_ms", "correlation_id"], "properties": {"audit_id": {"type": "string"}, "work_item_id": {"type": "string"}, "case_id": {"type": "string"}, "actor_id": {"type": "string"}, "action": {"type": "string"}, "occurred_at_epoch_ms": {"type": "integer", "minimum": 0}, "command_id": {"type": "string"}, "correlation_id": {"type": "string"}, "from_version": {"type": "integer"}, "to_version": {"type": "integer"}, "details_json": {"type": "string", "contentEncoding": "base64"}}},
       "ListAuditRecordsResponse": {"type": "object", "required": ["records"], "properties": {"records": {"type": "array", "items": {"$ref": "#/components/schemas/AuditRecord"}}, "next_page_token": {"type": "string"}}},
       "ConfigurationScope": {"type": "object", "additionalProperties": false, "required": ["type", "reference"], "properties": {"type": {"type": "string", "enum": ["PLATFORM", "ENVIRONMENT", "TENANT", "WORKFLOW_TYPE", "WORKFLOW_VERSION", "APPROVED_INSTANCE_OVERRIDE"]}, "reference": {"type": "string", "minLength": 1}}},
-      "CreateConfigurationProfileRequest": {"type": "object", "additionalProperties": false, "required": ["name", "owner", "scope", "schema_version", "policy_version", "reason", "values"], "properties": {"name": {"type": "string"}, "owner": {"type": "string", "enum": ["ENGINE", "API_GATEWAY", "HUMAN_RUNTIME", "PROJECTION", "GOVERNANCE"]}, "scope": {"$ref": "#/components/schemas/ConfigurationScope"}, "schema_version": {"type": "integer", "minimum": 1}, "policy_version": {"type": "string"}, "reason": {"type": "string"}, "values": {"type": "object", "additionalProperties": true}}},
+      "CreateConfigurationProfileRequest": {"type": "object", "additionalProperties": false, "required": ["name", "owner", "scope", "schema_version", "policy_version", "reason", "values"], "properties": {"name": {"type": "string"}, "owner": {"type": "string", "enum": ["ENGINE", "API_GATEWAY", "HUMAN_RUNTIME", "PROJECTION", "GOVERNANCE", "CONFIGURATION_SERVICE", "COCKPIT_GATEWAY", "AUTHZ_CONTROL_PLANE"]}, "scope": {"$ref": "#/components/schemas/ConfigurationScope"}, "schema_version": {"type": "integer", "minimum": 1}, "policy_version": {"type": "string"}, "reason": {"type": "string"}, "values": {"type": "object", "additionalProperties": true}}},
       "AddConfigurationDraftRequest": {"type": "object", "additionalProperties": false, "required": ["expected_version", "schema_version", "policy_version", "reason", "values"], "properties": {"expected_version": {"type": "integer", "minimum": 0}, "schema_version": {"type": "integer", "minimum": 1}, "policy_version": {"type": "string"}, "reason": {"type": "string"}, "values": {"type": "object", "additionalProperties": true}}},
       "ConfigurationTransitionRequest": {"type": "object", "additionalProperties": false, "required": ["expected_version", "reason"], "properties": {"expected_version": {"type": "integer", "minimum": 0}, "policy_version": {"type": "string"}, "reason": {"type": "string"}}},
-      "ConfigurationProfile": {"type": "object", "additionalProperties": false, "required": ["id", "tenant_id", "owner", "name", "scope", "aggregate_version", "is_deleted", "created_at", "updated_at"], "properties": {"id": {"type": "string"}, "tenant_id": {"type": "string"}, "owner": {"type": "string", "enum": ["ENGINE", "API_GATEWAY", "HUMAN_RUNTIME", "PROJECTION", "GOVERNANCE"]}, "name": {"type": "string"}, "scope": {"$ref": "#/components/schemas/ConfigurationScope"}, "aggregate_version": {"type": "integer"}, "current_published_version_id": {"type": "string"}, "is_deleted": {"type": "boolean"}, "created_at": {"type": "string", "format": "date-time"}, "updated_at": {"type": "string", "format": "date-time"}, "latest": {"$ref": "#/components/schemas/ConfigurationVersion"}}},
+      "ConfigurationProfile": {"type": "object", "additionalProperties": false, "required": ["id", "tenant_id", "owner", "name", "scope", "aggregate_version", "is_deleted", "created_at", "updated_at"], "properties": {"id": {"type": "string"}, "tenant_id": {"type": "string"}, "owner": {"type": "string", "enum": ["ENGINE", "API_GATEWAY", "HUMAN_RUNTIME", "PROJECTION", "GOVERNANCE", "CONFIGURATION_SERVICE", "COCKPIT_GATEWAY", "AUTHZ_CONTROL_PLANE"]}, "name": {"type": "string"}, "scope": {"$ref": "#/components/schemas/ConfigurationScope"}, "aggregate_version": {"type": "integer"}, "current_published_version_id": {"type": "string"}, "is_deleted": {"type": "boolean"}, "created_at": {"type": "string", "format": "date-time"}, "updated_at": {"type": "string", "format": "date-time"}, "latest": {"$ref": "#/components/schemas/ConfigurationVersion"}}},
       "ConfigurationVersion": {"type": "object", "additionalProperties": true, "required": ["id", "config_version", "schema_version", "status", "values"], "properties": {"id": {"type": "string"}, "ordinal": {"type": "integer"}, "config_version": {"type": "string"}, "policy_version": {"type": "string"}, "schema_version": {"type": "integer"}, "status": {"type": "string"}, "values": {"type": "object", "additionalProperties": true}, "content_hash": {"type": "string"}, "reason": {"type": "string"}, "created_at": {"type": "string", "format": "date-time"}, "created_by": {"type": "string"}, "published_at": {"type": ["string", "null"], "format": "date-time"}, "published_by": {"type": ["string", "null"]}}},
       "ConfigurationProfileDetail": {"type": "object", "required": ["profile", "versions"], "properties": {"profile": {"$ref": "#/components/schemas/ConfigurationProfile"}, "versions": {"type": "array", "items": {"$ref": "#/components/schemas/ConfigurationVersion"}}}},
       "ConfigurationProfilePage": {"type": "object", "additionalProperties": true, "properties": {"profiles": {"type": "array", "items": {"$ref": "#/components/schemas/ConfigurationProfile"}}, "next_page_token": {"type": "string"}}}

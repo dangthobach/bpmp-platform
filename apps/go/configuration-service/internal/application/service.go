@@ -4,8 +4,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -23,6 +26,8 @@ type Repository interface {
 	AddDraft(context.Context, domain.Actor, string, int64, domain.Version) (domain.Profile, error)
 	Publish(context.Context, domain.Actor, string, string, int64, string, time.Time) (domain.Profile, error)
 	Rollback(context.Context, domain.Actor, string, string, int64, domain.Version, time.Time) (domain.Profile, error)
+	Restore(context.Context, domain.Actor, string, string, int64, domain.Version, time.Time) (domain.Profile, error)
+	Retire(context.Context, domain.Actor, string, int64, string, time.Time) (domain.Profile, error)
 	Resolve(context.Context, domain.ResolutionLookup) (domain.ResolvedConfiguration, error)
 }
 
@@ -81,6 +86,22 @@ type DraftInput struct {
 type Page struct {
 	Profiles      []domain.Profile `json:"profiles"`
 	NextPageToken string           `json:"next_page_token"`
+}
+
+type VersionDifference struct {
+	Path   string `json:"path"`
+	Before any    `json:"before"`
+	After  any    `json:"after"`
+}
+
+type VersionDiff struct {
+	ProfileID    string              `json:"profile_id"`
+	FromVersion  string              `json:"from_version"`
+	ToVersion    string              `json:"to_version"`
+	Differences  []VersionDifference `json:"differences"`
+	FromHash     string              `json:"from_hash"`
+	ToHash       string              `json:"to_hash"`
+	SchemaChange bool                `json:"schema_change"`
 }
 
 func New(repository Repository, config Config) (*Service, error) {
@@ -210,6 +231,41 @@ func (s *Service) Publish(ctx context.Context, actor domain.Actor, profileID, ve
 }
 
 func (s *Service) Rollback(ctx context.Context, actor domain.Actor, profileID, targetVersionID string, expectedVersion int64, policyVersion, reason string) (domain.Profile, error) {
+	return s.restoreVersion(
+		ctx,
+		actor,
+		profileID,
+		targetVersionID,
+		expectedVersion,
+		policyVersion,
+		reason,
+		false,
+	)
+}
+
+func (s *Service) Restore(ctx context.Context, actor domain.Actor, profileID, targetVersionID string, expectedVersion int64, policyVersion, reason string) (domain.Profile, error) {
+	return s.restoreVersion(
+		ctx,
+		actor,
+		profileID,
+		targetVersionID,
+		expectedVersion,
+		policyVersion,
+		reason,
+		true,
+	)
+}
+
+func (s *Service) restoreVersion(
+	ctx context.Context,
+	actor domain.Actor,
+	profileID string,
+	targetVersionID string,
+	expectedVersion int64,
+	policyVersion string,
+	reason string,
+	restore bool,
+) (domain.Profile, error) {
 	if err := s.authorize(actor, s.config.ManageCapability); err != nil {
 		return domain.Profile{}, err
 	}
@@ -233,8 +289,35 @@ func (s *Service) Rollback(ctx context.Context, actor domain.Actor, profileID, t
 	actor.RequestDigest = digest(struct {
 		ProfileID, TargetVersionID, PolicyVersion, Reason string
 		ExpectedVersion                                   int64
-	}{profileID, targetVersionID, version.PolicyVersion, version.Reason, expectedVersion})
+		Restore                                           bool
+	}{profileID, targetVersionID, version.PolicyVersion, version.Reason, expectedVersion, restore})
+	if restore {
+		return s.repository.Restore(ctx, actor, profileID, targetVersionID, expectedVersion, version, now)
+	}
 	return s.repository.Rollback(ctx, actor, profileID, targetVersionID, expectedVersion, version, now)
+}
+
+func (s *Service) Retire(ctx context.Context, actor domain.Actor, profileID string, expectedVersion int64, reason string) (domain.Profile, error) {
+	if err := s.authorize(actor, s.config.ManageCapability); err != nil {
+		return domain.Profile{}, err
+	}
+	reason = strings.TrimSpace(reason)
+	if profileID == "" || expectedVersion <= 0 || reason == "" {
+		return domain.Profile{}, domain.ErrInvalid
+	}
+	actor.RequestDigest = digest(struct {
+		ProfileID string
+		Expected  int64
+		Reason    string
+	}{profileID, expectedVersion, reason})
+	return s.repository.Retire(
+		ctx,
+		actor,
+		profileID,
+		expectedVersion,
+		reason,
+		s.now().UTC(),
+	)
 }
 
 func (s *Service) Get(ctx context.Context, actor domain.Actor, profileID string) (domain.Profile, []domain.Version, error) {
@@ -245,6 +328,53 @@ func (s *Service) Get(ctx context.Context, actor domain.Actor, profileID string)
 		return domain.Profile{}, nil, domain.ErrInvalid
 	}
 	return s.repository.Get(ctx, actor.TenantID, profileID)
+}
+
+func (s *Service) Diff(
+	ctx context.Context,
+	actor domain.Actor,
+	profileID string,
+	fromVersionID string,
+	toVersionID string,
+) (VersionDiff, error) {
+	if err := s.authorize(actor, s.config.ReadCapability); err != nil {
+		return VersionDiff{}, err
+	}
+	if profileID == "" || fromVersionID == "" || toVersionID == "" ||
+		fromVersionID == toVersionID {
+		return VersionDiff{}, domain.ErrInvalid
+	}
+	_, versions, err := s.repository.Get(ctx, actor.TenantID, profileID)
+	if err != nil {
+		return VersionDiff{}, err
+	}
+	var from, to *domain.Version
+	for index := range versions {
+		switch versions[index].ID {
+		case fromVersionID:
+			from = &versions[index]
+		case toVersionID:
+			to = &versions[index]
+		}
+	}
+	if from == nil || to == nil {
+		return VersionDiff{}, domain.ErrNotFound
+	}
+	var before, after any
+	if json.Unmarshal(from.ValuesJSON, &before) != nil || json.Unmarshal(to.ValuesJSON, &after) != nil {
+		return VersionDiff{}, domain.ErrInvalid
+	}
+	differences := make([]VersionDifference, 0)
+	collectDifferences("", before, after, &differences)
+	return VersionDiff{
+		ProfileID:    profileID,
+		FromVersion:  fromVersionID,
+		ToVersion:    toVersionID,
+		Differences:  differences,
+		FromHash:     fmt.Sprintf("%x", from.ContentHash),
+		ToHash:       fmt.Sprintf("%x", to.ContentHash),
+		SchemaChange: from.SchemaVersion != to.SchemaVersion,
+	}, nil
 }
 
 func (s *Service) List(ctx context.Context, actor domain.Actor, pageSize int, token string) (Page, error) {
@@ -311,4 +441,38 @@ func decodeCursor(token string) (string, string, error) {
 		return "", "", domain.ErrInvalid
 	}
 	return parts[1][:length], parts[1][length:], nil
+}
+
+func collectDifferences(path string, before, after any, differences *[]VersionDifference) {
+	beforeObject, beforeIsObject := before.(map[string]any)
+	afterObject, afterIsObject := after.(map[string]any)
+	if beforeIsObject && afterIsObject {
+		keys := make([]string, 0, len(beforeObject)+len(afterObject))
+		seen := make(map[string]struct{}, len(beforeObject)+len(afterObject))
+		for key := range beforeObject {
+			seen[key] = struct{}{}
+			keys = append(keys, key)
+		}
+		for key := range afterObject {
+			if _, exists := seen[key]; !exists {
+				keys = append(keys, key)
+			}
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			childPath := path + "/" + strings.ReplaceAll(strings.ReplaceAll(key, "~", "~0"), "/", "~1")
+			collectDifferences(childPath, beforeObject[key], afterObject[key], differences)
+		}
+		return
+	}
+	if !reflect.DeepEqual(before, after) {
+		if path == "" {
+			path = "/"
+		}
+		*differences = append(*differences, VersionDifference{
+			Path:   path,
+			Before: before,
+			After:  after,
+		})
+	}
 }

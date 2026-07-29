@@ -142,13 +142,28 @@ where
     /// Fails on malformed ordering, oversized adapter output, exhausted
     /// publish retries, acknowledgement mismatch, or checkpoint failure.
     pub fn run_once(&self, initial_checkpoint: u64) -> Result<PublishBatchOutcome, OutboxError> {
+        self.run_once_with_config(initial_checkpoint, self.config)
+    }
+
+    /// Publishes one batch using a policy snapshot captured by the caller at a
+    /// worker safe point.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed ordering, storage, publishing, acknowledgement, retry,
+    /// or checkpoint error.
+    pub fn run_once_with_config(
+        &self,
+        initial_checkpoint: u64,
+        config: OutboxPublisherConfig,
+    ) -> Result<PublishBatchOutcome, OutboxError> {
         let records = self
             .store
-            .read_after(initial_checkpoint, self.config.batch_size)?;
-        validate_batch(&records, initial_checkpoint, self.config.batch_size)?;
+            .read_after(initial_checkpoint, config.batch_size)?;
+        validate_batch(&records, initial_checkpoint, config.batch_size)?;
         let mut checkpoint = initial_checkpoint;
         for record in &records {
-            self.publish_with_retry(record)?;
+            self.publish_with_retry(record, config)?;
             self.store.checkpoint(checkpoint, record.cursor)?;
             checkpoint = record.cursor;
         }
@@ -158,16 +173,20 @@ where
         })
     }
 
-    fn publish_with_retry(&self, record: &OutboxRecord) -> Result<(), OutboxError> {
-        let mut delay_ms = self.config.initial_retry_delay_ms;
-        for attempt in 1..=self.config.max_publish_attempts {
+    fn publish_with_retry(
+        &self,
+        record: &OutboxRecord,
+        config: OutboxPublisherConfig,
+    ) -> Result<(), OutboxError> {
+        let mut delay_ms = config.initial_retry_delay_ms;
+        for attempt in 1..=config.max_publish_attempts {
             match self.publisher.publish(record) {
                 Ok(ack) if ack.event_id == record.event_id => return Ok(()),
                 Ok(_) => return Err(OutboxError::AcknowledgementMismatch),
-                Err(error) if attempt == self.config.max_publish_attempts => return Err(error),
+                Err(error) if attempt == config.max_publish_attempts => return Err(error),
                 Err(_) => {
                     self.delay.wait(delay_ms);
-                    delay_ms = next_delay(delay_ms, self.config);
+                    delay_ms = next_delay(delay_ms, config);
                 }
             }
         }

@@ -5,6 +5,7 @@ go 1.25.12
 require (
 	github.com/MeKo-Christian/xls v0.0.0-20250622054630-1dddf609f0f0
 	github.com/dangthobach/bpmp-platform/go/contracts v0.0.0
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/twmb/franz-go v1.21.0
 	github.com/xuri/excelize/v2 v2.11.0
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.69.0

@@ -1,0 +1,240 @@
+name: ${COMPOSE_PROJECT_NAME:-bpmp-local}
+
+x-postgres-health: &postgres-health
+  interval: 2s
+  timeout: 3s
+  retries: 30
+  start_period: 2s
+
+x-migration-base: &migration-base
+  image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE}
+  restart: "no"
+  profiles: ["ddl"]
+  volumes:
+    - ../../db/scripts:/opt/bpmp-db:ro
+
+services:
+  human-postgres:
+    image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${HUMAN_DB_NAME:?set HUMAN_DB_NAME}
+      POSTGRES_USER: ${HUMAN_DB_USER:?set HUMAN_DB_USER}
+      POSTGRES_PASSWORD: ${HUMAN_DB_PASSWORD:?set HUMAN_DB_PASSWORD}
+    ports:
+      - "${HUMAN_DB_PORT:?set HUMAN_DB_PORT}:5432"
+    volumes:
+      - human-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      <<: *postgres-health
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+
+  configuration-postgres:
+    image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${CONFIGURATION_DB_NAME:?set CONFIGURATION_DB_NAME}
+      POSTGRES_USER: ${CONFIGURATION_DB_USER:?set CONFIGURATION_DB_USER}
+      POSTGRES_PASSWORD: ${CONFIGURATION_DB_PASSWORD:?set CONFIGURATION_DB_PASSWORD}
+    ports:
+      - "${CONFIGURATION_DB_PORT:?set CONFIGURATION_DB_PORT}:5432"
+    volumes:
+      - configuration-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      <<: *postgres-health
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+
+  projection-postgres:
+    image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${PROJECTION_DB_NAME:?set PROJECTION_DB_NAME}
+      POSTGRES_USER: ${PROJECTION_DB_USER:?set PROJECTION_DB_USER}
+      POSTGRES_PASSWORD: ${PROJECTION_DB_PASSWORD:?set PROJECTION_DB_PASSWORD}
+    ports:
+      - "${PROJECTION_DB_PORT:?set PROJECTION_DB_PORT}:5432"
+    volumes:
+      - projection-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      <<: *postgres-health
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+
+  governance-postgres:
+    image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${GOVERNANCE_DB_NAME:?set GOVERNANCE_DB_NAME}
+      POSTGRES_USER: ${GOVERNANCE_DB_USER:?set GOVERNANCE_DB_USER}
+      POSTGRES_PASSWORD: ${GOVERNANCE_DB_PASSWORD:?set GOVERNANCE_DB_PASSWORD}
+    ports:
+      - "${GOVERNANCE_DB_PORT:?set GOVERNANCE_DB_PORT}:5432"
+    volumes:
+      - governance-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      <<: *postgres-health
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+
+  human-migrate:
+    <<: *migration-base
+    environment:
+      PGHOST: human-postgres
+      PGPORT: "5432"
+      PGDATABASE: ${HUMAN_DB_NAME:?set HUMAN_DB_NAME}
+      PGUSER: ${HUMAN_DB_USER:?set HUMAN_DB_USER}
+      PGPASSWORD: ${HUMAN_DB_PASSWORD:?set HUMAN_DB_PASSWORD}
+      MIGRATION_WAIT_TIMEOUT_SECONDS: ${MIGRATION_WAIT_TIMEOUT_SECONDS:-60}
+    volumes:
+      - ../../db/scripts:/opt/bpmp-db:ro
+      - ../../db/human-runtime/migrations:/migrations:ro
+    depends_on:
+      human-postgres:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - >-
+        /opt/bpmp-db/migrate.sh /migrations human-runtime &&
+        /opt/bpmp-db/verify-schema.sh human-runtime
+
+  configuration-migrate:
+    <<: *migration-base
+    environment:
+      PGHOST: configuration-postgres
+      PGPORT: "5432"
+      PGDATABASE: ${CONFIGURATION_DB_NAME:?set CONFIGURATION_DB_NAME}
+      PGUSER: ${CONFIGURATION_DB_USER:?set CONFIGURATION_DB_USER}
+      PGPASSWORD: ${CONFIGURATION_DB_PASSWORD:?set CONFIGURATION_DB_PASSWORD}
+      MIGRATION_WAIT_TIMEOUT_SECONDS: ${MIGRATION_WAIT_TIMEOUT_SECONDS:-60}
+    volumes:
+      - ../../db/scripts:/opt/bpmp-db:ro
+      - ../../db/configuration-service/migrations:/migrations:ro
+    depends_on:
+      configuration-postgres:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - >-
+        /opt/bpmp-db/migrate.sh /migrations configuration-service &&
+        /opt/bpmp-db/verify-schema.sh configuration-service
+
+  projection-migrate:
+    <<: *migration-base
+    environment:
+      PGHOST: projection-postgres
+      PGPORT: "5432"
+      PGDATABASE: ${PROJECTION_DB_NAME:?set PROJECTION_DB_NAME}
+      PGUSER: ${PROJECTION_DB_USER:?set PROJECTION_DB_USER}
+      PGPASSWORD: ${PROJECTION_DB_PASSWORD:?set PROJECTION_DB_PASSWORD}
+      MIGRATION_WAIT_TIMEOUT_SECONDS: ${MIGRATION_WAIT_TIMEOUT_SECONDS:-60}
+    volumes:
+      - ../../db/scripts:/opt/bpmp-db:ro
+      - ../../db/projection-service/migrations:/migrations:ro
+    depends_on:
+      projection-postgres:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - >-
+        /opt/bpmp-db/migrate.sh /migrations projection-service &&
+        /opt/bpmp-db/verify-schema.sh projection-service
+
+  governance-migrate:
+    <<: *migration-base
+    environment:
+      PGHOST: governance-postgres
+      PGPORT: "5432"
+      PGDATABASE: ${GOVERNANCE_DB_NAME:?set GOVERNANCE_DB_NAME}
+      PGUSER: ${GOVERNANCE_DB_USER:?set GOVERNANCE_DB_USER}
+      PGPASSWORD: ${GOVERNANCE_DB_PASSWORD:?set GOVERNANCE_DB_PASSWORD}
+      MIGRATION_WAIT_TIMEOUT_SECONDS: ${MIGRATION_WAIT_TIMEOUT_SECONDS:-60}
+    volumes:
+      - ../../db/scripts:/opt/bpmp-db:ro
+      - ../../db/governance-service/migrations:/migrations:ro
+    depends_on:
+      governance-postgres:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - >-
+        /opt/bpmp-db/migrate.sh /migrations governance-service &&
+        /opt/bpmp-db/verify-schema.sh governance-service
+
+  redpanda:
+    image: ${REDPANDA_IMAGE:?set REDPANDA_IMAGE}
+    restart: unless-stopped
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp=${REDPANDA_SMP:-1}
+      - --memory=${REDPANDA_MEMORY:-1G}
+      - --reserve-memory=0M
+      - --node-id=0
+      - --check=false
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:${KAFKA_PORT:?set KAFKA_PORT}
+    ports:
+      - "${KAFKA_PORT}:19092"
+      - "${REDPANDA_ADMIN_PORT:?set REDPANDA_ADMIN_PORT}:9644"
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "health", "-X", "brokers=redpanda:9092"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+
+  kafka-topic-init:
+    image: ${REDPANDA_IMAGE:?set REDPANDA_IMAGE}
+    restart: "no"
+    profiles: ["setup"]
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+      ENGINE_COMMITTED_EVENTS_TOPIC: ${ENGINE_COMMITTED_EVENTS_TOPIC:?set ENGINE_COMMITTED_EVENTS_TOPIC}
+      CONFIGURATION_PUBLICATIONS_TOPIC: ${CONFIGURATION_PUBLICATIONS_TOPIC:?set CONFIGURATION_PUBLICATIONS_TOPIC}
+      HUMAN_ESCALATIONS_TOPIC: ${HUMAN_ESCALATIONS_TOPIC:?set HUMAN_ESCALATIONS_TOPIC}
+      KAFKA_TOPIC_PARTITIONS: ${KAFKA_TOPIC_PARTITIONS:-6}
+      KAFKA_TOPIC_REPLICATION_FACTOR: ${KAFKA_TOPIC_REPLICATION_FACTOR:-1}
+      KAFKA_RETENTION_MS: ${KAFKA_RETENTION_MS:-604800000}
+    volumes:
+      - ./kafka-topics.sh:/opt/bpmp/kafka-topics.sh:ro
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "/opt/bpmp/kafka-topics.sh"]
+
+  redis:
+    image: ${REDIS_IMAGE:?set REDIS_IMAGE}
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:?set REDIS_PORT}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  otel-collector:
+    image: ${OTEL_IMAGE:?set OTEL_IMAGE}
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol/config.yaml"]
+    ports:
+      - "${OTEL_GRPC_PORT:?set OTEL_GRPC_PORT}:4317"
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    healthcheck:
+      test: ["CMD", "/otelcol", "--version"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  human-postgres-data:
+  configuration-postgres-data:
+  projection-postgres-data:
+  governance-postgres-data:
+  redpanda-data:
+  redis-data:

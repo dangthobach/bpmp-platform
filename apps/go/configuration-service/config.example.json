@@ -30,6 +30,38 @@
     "required_acks": "ALL",
     "enable_idempotence": true
   },
+  "tenant_lifecycle": {
+    "brokers": ["127.0.0.1:9093"],
+    "client_id": "bpmp-configuration-tenant-lifecycle",
+    "security_protocol": "TLS",
+    "ca_file": "runtime/kafka-ca.pem",
+    "certificate_file": "runtime/kafka-client.pem",
+    "private_key_file": "runtime/kafka-client-key.pem",
+    "dial_timeout_ms": 3000,
+    "request_timeout_ms": 5000,
+    "topic": "bpmp.tenant.lifecycle.v1.development",
+    "consumer_group": "bpmp.configuration.tenant-lifecycle.v1.development",
+    "batch_size": 100,
+    "max_message_bytes": 1048576,
+    "poll_timeout_ms": 500,
+    "session_timeout_ms": 10000
+  },
+  "tenant_readiness": {
+    "brokers": ["127.0.0.1:9093"],
+    "client_id": "bpmp-configuration-tenant-readiness",
+    "security_protocol": "TLS",
+    "ca_file": "runtime/kafka-ca.pem",
+    "certificate_file": "runtime/kafka-client.pem",
+    "private_key_file": "runtime/kafka-client-key.pem",
+    "dial_timeout_ms": 3000,
+    "request_timeout_ms": 5000,
+    "topic": "bpmp.tenant.configuration-readiness.v1.development",
+    "message_timeout_ms": 10000,
+    "max_inflight": 1,
+    "max_message_bytes": 1048576,
+    "required_acks": "ALL",
+    "enable_idempotence": true
+  },
   "outbox": {
     "worker_id": "configuration-publisher-1",
     "batch_size": 100,

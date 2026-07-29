@@ -6,36 +6,22 @@ The canonical gate is:
 .\tools\check-property-catalog.ps1 -RequireComplete
 ```
 
-Each canonical property test must exercise a production primitive, execute at
-least 100 generated cases, and have exactly one
-`Feature: rust-bpm-platform, Property N:` marker.
-
-## Current coverage
-
-As of 2026-07-27, 34 of 53 properties have a canonical PBT.
+Each canonical property has exactly one
+`Feature: rust-bpm-platform, Property N:` marker. As of 2026-07-29 the
+catalog checker reports **53/53**.
 
 | Owner | Covered |
 | --- | --- |
-| Compiler/domain core | P1, P2, P4, P11, P53 |
-| Human Runtime | P3, P5, P6 |
-| Engine runtime/event store | P8, P9, P12-P18, P27-P30, P37, P38, P45 |
+| Compiler/domain core | P1, P2, P4, P11, P21, P22, P53 |
+| Human Runtime | P3, P5, P6, P35 |
+| Engine runtime/event store | P7-P10, P12-P18, P27-P30, P37-P41, P44-P46, P48, P49 |
+| Cockpit Gateway | P19, P20 |
 | Raft/HA | P23 |
-| API/platform reliability | P25, P31, P33, P34, P36, P47 |
+| API/platform reliability | P24-P26, P31-P34, P36, P47 |
+| Projection Service | P42, P43 |
 | Governance/crypto | P50-P52 |
 
-## Remaining implementation gates
-
-| Properties | Required production work |
-| --- | --- |
-| P7, P10 | Durable compensation executor/resume ledger and WIR-scoped service-task retry policy |
-| P19-P22 | Cockpit subscription registry and Progressive BPMN BA/Engineer views |
-| P24, P26, P32 | Configured fallback, bulkhead isolation and alert evaluator/sink |
-| P35, P42, P43 | Property generators against PostgreSQL keyset pagination and deterministic projection rebuild/query |
-| P39-P41 | Versioned event/snapshot upcasters, safe-point migration and reference-counted WIR retirement |
-| P44 | Authoritative local dead-letter replay command and idempotent node-only resume |
-| P46 | Cross-adapter tenant-isolation suite covering engine, dispatch, Human Runtime query and Gateway |
-| P48, P49 | PII read masking/tombstones and terminal-or-fenced key-destruction orchestration |
-
-The catalog checker intentionally remains failing under `-RequireComplete`
-until these production capabilities and their canonical PBTs exist. Model-only
-tests must not be used to mark a missing capability complete.
+Catalog completeness is a source-level invariant gate, not a production
+capacity or disaster-recovery certificate. Release profiles must still run the
+relevant PostgreSQL/Kafka integration, race, model, chaos, restore, KMS and
+load tests described in the production deployment process.

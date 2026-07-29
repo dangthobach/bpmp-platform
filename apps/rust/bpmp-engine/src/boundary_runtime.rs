@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use bpmp_domain_core::{
@@ -505,7 +505,41 @@ pub struct BoundaryRuntime<E, S, D, C> {
     store: S,
     dispatcher: D,
     clock: C,
-    policy: BoundaryRuntimePolicy,
+    policy: BoundaryPolicyHandle,
+}
+
+#[derive(Clone)]
+pub struct BoundaryPolicyHandle {
+    value: Arc<RwLock<BoundaryRuntimePolicy>>,
+}
+
+impl BoundaryPolicyHandle {
+    #[must_use]
+    pub fn new(policy: BoundaryRuntimePolicy) -> Self {
+        Self {
+            value: Arc::new(RwLock::new(policy)),
+        }
+    }
+
+    /// Replaces the policy captured by the next worker batch.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if another thread poisoned the policy lock.
+    pub fn replace(&self, policy: BoundaryRuntimePolicy) -> Result<(), BoundaryRuntimeError> {
+        *self
+            .value
+            .write()
+            .map_err(|_| BoundaryRuntimeError::PolicyUnavailable)? = policy;
+        Ok(())
+    }
+
+    fn snapshot(&self) -> Result<BoundaryRuntimePolicy, BoundaryRuntimeError> {
+        self.value
+            .read()
+            .map(|policy| policy.clone())
+            .map_err(|_| BoundaryRuntimeError::PolicyUnavailable)
+    }
 }
 
 #[allow(clippy::missing_errors_doc)]
@@ -522,6 +556,22 @@ where
         dispatcher: D,
         clock: C,
         policy: BoundaryRuntimePolicy,
+    ) -> Self {
+        Self::new_with_handle(
+            event_source,
+            store,
+            dispatcher,
+            clock,
+            BoundaryPolicyHandle::new(policy),
+        )
+    }
+
+    pub fn new_with_handle(
+        event_source: E,
+        store: S,
+        dispatcher: D,
+        clock: C,
+        policy: BoundaryPolicyHandle,
     ) -> Self {
         Self {
             event_source,
@@ -546,13 +596,14 @@ where
 
     /// Projects at most one configured committed-event batch.
     pub fn project_once(&self) -> Result<ProjectionOutcome, BoundaryRuntimeError> {
+        let policy = self.policy.snapshot()?;
         let checkpoint = self.store.projection_checkpoint()?;
-        let limit = self.policy.projection_batch_size as usize;
+        let limit = policy.projection_batch_size as usize;
         let records = self.event_source.read_after(checkpoint, limit)?;
         validate_projection_records(&records, checkpoint, limit)?;
         let mut mutations = Vec::new();
         for record in &records {
-            if let Some(mutation) = projection_mutation(record, &self.policy)? {
+            if let Some(mutation) = projection_mutation(record, &policy)? {
                 mutations.push(mutation);
             }
         }
@@ -572,23 +623,24 @@ where
         &self,
         signal: &BoundarySignal,
     ) -> Result<SignalEnqueueOutcome, BoundaryRuntimeError> {
-        signal.validate(&self.policy)?;
+        signal.validate(&self.policy.snapshot()?)?;
         self.store.enqueue_signal(signal)
     }
 
     /// Claims and dispatches one bounded timer batch.
     pub fn dispatch_due_timers_once(&self) -> Result<DispatchOutcome, BoundaryRuntimeError> {
+        let policy = self.policy.snapshot()?;
         let now = self.clock.now_epoch_ms()?;
         let lease_until = now
-            .checked_add(self.policy.lease_duration_ms)
+            .checked_add(policy.lease_duration_ms)
             .ok_or(BoundaryRuntimeError::ClockOverflow)?;
         let claims = self.store.claim_due_timers(
             now,
             lease_until,
-            &self.policy.worker_id,
-            self.policy.dispatch_batch_size as usize,
+            &policy.worker_id,
+            policy.dispatch_batch_size as usize,
         )?;
-        if claims.len() > self.policy.dispatch_batch_size as usize {
+        if claims.len() > policy.dispatch_batch_size as usize {
             return Err(BoundaryRuntimeError::AdapterBatchLimitExceeded);
         }
         let mut outcome = DispatchOutcome::default();
@@ -600,7 +652,7 @@ where
                     self.store.complete_timer(&claim, completion)?;
                     outcome.dispatched += 1;
                 }
-                Err(_) => self.record_timer_failure(&claim, now, &mut outcome)?,
+                Err(_) => self.record_timer_failure(&claim, now, &policy, &mut outcome)?,
             }
         }
         Ok(outcome)
@@ -608,18 +660,19 @@ where
 
     /// Claims, correlates, and dispatches one bounded message/error signal batch.
     pub fn dispatch_correlations_once(&self) -> Result<DispatchOutcome, BoundaryRuntimeError> {
+        let policy = self.policy.snapshot()?;
         let now = self.clock.now_epoch_ms()?;
         let lease_until = now
-            .checked_add(self.policy.lease_duration_ms)
+            .checked_add(policy.lease_duration_ms)
             .ok_or(BoundaryRuntimeError::ClockOverflow)?;
         let claims = self.store.claim_correlations(
             now,
             lease_until,
-            &self.policy.worker_id,
-            self.policy.dispatch_batch_size as usize,
-            self.policy.max_subscriptions_per_instance as usize,
+            &policy.worker_id,
+            policy.dispatch_batch_size as usize,
+            policy.max_subscriptions_per_instance as usize,
         )?;
-        if claims.len() > self.policy.dispatch_batch_size as usize {
+        if claims.len() > policy.dispatch_batch_size as usize {
             return Err(BoundaryRuntimeError::AdapterBatchLimitExceeded);
         }
         let mut outcome = DispatchOutcome::default();
@@ -634,7 +687,7 @@ where
                 self.store.complete_correlation(&claim)?;
                 outcome.dispatched += 1;
             } else {
-                self.record_correlation_failure(&claim, now, &mut outcome)?;
+                self.record_correlation_failure(&claim, now, &policy, &mut outcome)?;
             }
         }
         Ok(outcome)
@@ -644,11 +697,12 @@ where
         &self,
         claim: &ClaimedTimer,
         now: u64,
+        policy: &BoundaryRuntimePolicy,
         outcome: &mut DispatchOutcome,
     ) -> Result<(), BoundaryRuntimeError> {
-        let dead_letter = claim.attempts >= self.policy.max_dispatch_attempts;
+        let dead_letter = claim.attempts >= policy.max_dispatch_attempts;
         let retry_at = now
-            .checked_add(self.policy.retry_delay_ms)
+            .checked_add(policy.retry_delay_ms)
             .ok_or(BoundaryRuntimeError::ClockOverflow)?;
         self.store.fail_timer(claim, retry_at, dead_letter)?;
         if dead_letter {
@@ -663,11 +717,12 @@ where
         &self,
         claim: &ClaimedCorrelation,
         now: u64,
+        policy: &BoundaryRuntimePolicy,
         outcome: &mut DispatchOutcome,
     ) -> Result<(), BoundaryRuntimeError> {
-        let dead_letter = claim.attempts >= self.policy.max_dispatch_attempts;
+        let dead_letter = claim.attempts >= policy.max_dispatch_attempts;
         let retry_at = now
-            .checked_add(self.policy.retry_delay_ms)
+            .checked_add(policy.retry_delay_ms)
             .ok_or(BoundaryRuntimeError::ClockOverflow)?;
         self.store.fail_correlation(claim, retry_at, dead_letter)?;
         if dead_letter {
@@ -1036,6 +1091,8 @@ fn timer_completion(claim: &ClaimedTimer) -> Result<TimerDispatchCompletion, Bou
 
 #[derive(Debug, Error, Clone, Eq, PartialEq)]
 pub enum BoundaryRuntimeError {
+    #[error("boundary runtime policy lock is unavailable")]
+    PolicyUnavailable,
     #[error("boundary event source failed: {0}")]
     Outbox(OutboxError),
     #[error("committed boundary event is corrupt: {0}")]

@@ -151,9 +151,22 @@ func run(configPath string) error {
 		return err
 	}
 	defer eventKafka.Close()
-	consumer, err := kafkaconsumer.New(eventKafka, handler, func() (int, error) {
-		return policies.MinimumConsumeBatchSize(value.RuntimeConfig.InitialTenantIDs)
-	})
+	consumer, err := kafkaconsumer.New(
+		eventKafka,
+		handler,
+		func() (kafkaconsumer.RuntimePolicy, error) {
+			policy, policyErr := policies.MinimumWorkerPolicy(
+				value.RuntimeConfig.InitialTenantIDs,
+			)
+			return kafkaconsumer.RuntimePolicy{
+				ConsumeBatchSize:         policy.ConsumeBatchSize,
+				RebuildBatchSize:         policy.RebuildBatchSize,
+				RealtimePublishBatchSize: policy.RealtimePublishBatchSize,
+				CheckpointFlush:          policy.CheckpointFlush,
+				MaxLag:                   policy.MaxProjectionLag,
+			}, policyErr
+		},
+	)
 	if err != nil {
 		return err
 	}

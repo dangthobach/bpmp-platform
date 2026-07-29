@@ -2,11 +2,14 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 import {
   ArrowLeft,
   ArrowRight,
+  ArchiveRestore,
   FilePlus2,
+  GitCompare,
   Plus,
   RefreshCw,
   RotateCcw,
   SlidersHorizontal,
+  Trash2,
   Upload,
 } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
@@ -33,7 +36,16 @@ import type {
   ConfigurationVersion,
 } from "./types";
 
-type DialogType = "create" | "draft" | "publish" | "batchPublish" | "rollback" | null;
+type DialogType =
+  | "create"
+  | "draft"
+  | "publish"
+  | "batchPublish"
+  | "rollback"
+  | "restore"
+  | "retire"
+  | "diff"
+  | null;
 const scopeTypes: readonly ConfigurationScopeType[] = [
   "PLATFORM",
   "ENVIRONMENT",
@@ -48,6 +60,9 @@ const configurationOwners: readonly ConfigurationOwner[] = [
   "HUMAN_RUNTIME",
   "PROJECTION",
   "GOVERNANCE",
+  "CONFIGURATION_SERVICE",
+  "COCKPIT_GATEWAY",
+  "AUTHZ_CONTROL_PLANE",
 ];
 
 export function ConfigurationPage() {
@@ -68,6 +83,8 @@ export function ConfigurationPage() {
   const [reason, setReason] = useState("");
   const [policyForm, setPolicyForm] = useState<PolicyForm>(emptyPolicyForm);
   const [rollbackVersionId, setRollbackVersionId] = useState("");
+  const [diffFromVersionId, setDiffFromVersionId] = useState("");
+  const [diffToVersionId, setDiffToVersionId] = useState("");
   const [formError, setFormError] = useState("");
   const [notice, setNotice] = useState("");
   const [idempotencyKey, setIdempotencyKey] = useState("");
@@ -177,6 +194,55 @@ export function ConfigurationPage() {
     },
   });
 
+  const restoreMutation = useMutation({
+    mutationFn: (key: string) => {
+      if (!detail.data || !rollbackVersionId) throw new Error("Restore version is required");
+      return api.restoreConfiguration(
+        detail.data.profile.id,
+        rollbackVersionId,
+        detail.data.profile.aggregate_version,
+        policyVersion.trim(),
+        reason.trim(),
+        key,
+      );
+    },
+    async onSuccess() {
+      setNotice("Configuration restored as a new immutable version");
+      closeDialog();
+      await refresh();
+    },
+  });
+
+  const retireMutation = useMutation({
+    mutationFn: (key: string) => {
+      if (!detail.data) throw new Error("Configuration is not loaded");
+      return api.retireConfiguration(
+        detail.data.profile.id,
+        detail.data.profile.aggregate_version,
+        reason.trim(),
+        key,
+      );
+    },
+    async onSuccess() {
+      setNotice("Configuration retired");
+      closeDialog();
+      await refresh();
+    },
+  });
+
+  const diffMutation = useMutation({
+    mutationFn: () => {
+      if (!detail.data || !diffFromVersionId || !diffToVersionId) {
+        throw new Error("Select two versions");
+      }
+      return api.diffConfiguration(
+        detail.data.profile.id,
+        diffFromVersionId,
+        diffToVersionId,
+      );
+    },
+  });
+
   const batchPublishMutation = useMutation({
     mutationFn: async (batchKey: string) => {
       const selected = (profiles.data?.profiles ?? [])
@@ -214,9 +280,12 @@ export function ConfigurationPage() {
   });
 
   const activeMutation = createMutation.isPending || draftMutation.isPending ||
-    publishMutation.isPending || rollbackMutation.isPending || batchPublishMutation.isPending;
+    publishMutation.isPending || rollbackMutation.isPending ||
+    restoreMutation.isPending || retireMutation.isPending ||
+    batchPublishMutation.isPending || diffMutation.isPending;
   const mutationError = createMutation.error ?? draftMutation.error ??
-    publishMutation.error ?? rollbackMutation.error ?? batchPublishMutation.error;
+    publishMutation.error ?? rollbackMutation.error ?? restoreMutation.error ??
+    retireMutation.error ?? batchPublishMutation.error ?? diffMutation.error;
 
   function openCreate() {
     resetForm();
@@ -243,6 +312,9 @@ export function ConfigurationPage() {
     draftMutation.reset();
     publishMutation.reset();
     rollbackMutation.reset();
+    restoreMutation.reset();
+    retireMutation.reset();
+    diffMutation.reset();
     batchPublishMutation.reset();
     setDialog(null);
     setFormError("");
@@ -256,6 +328,8 @@ export function ConfigurationPage() {
     setReason("");
     setPolicyForm(emptyPolicyForm("ENGINE"));
     setRollbackVersionId("");
+    setDiffFromVersionId("");
+    setDiffToVersionId("");
     setFormError("");
     setIdempotencyKey("");
   }
@@ -301,6 +375,14 @@ export function ConfigurationPage() {
       }
       rollbackMutation.mutate(key);
     }
+    if (dialog === "restore") {
+      if (!rollbackVersionId || !policyVersion.trim()) {
+        setFormError("Version and policy version are required");
+        return;
+      }
+      restoreMutation.mutate(key);
+    }
+    if (dialog === "retire") retireMutation.mutate(key);
   }
 
   return (
@@ -379,6 +461,35 @@ export function ConfigurationPage() {
             }}>
               Rollback
             </Button>
+            <Button icon={ArchiveRestore} disabled={rollbackCandidates.length === 0} onClick={() => {
+              setReason("");
+              setPolicyVersion("");
+              setRollbackVersionId("");
+              setDialog("restore");
+            }}>
+              Restore
+            </Button>
+            <IconButton
+              icon={GitCompare}
+              label="Compare versions"
+              disabled={(detail.data?.versions.length ?? 0) < 2}
+              onClick={() => {
+                const versions = detail.data?.versions ?? [];
+                setDiffFromVersionId(versions[1]?.id ?? "");
+                setDiffToVersionId(versions[0]?.id ?? "");
+                diffMutation.reset();
+                setDialog("diff");
+              }}
+            />
+            <IconButton
+              icon={Trash2}
+              label="Retire effective configuration"
+              disabled={!detail.data?.profile.current_published_version_id}
+              onClick={() => {
+                setReason("");
+                setDialog("retire");
+              }}
+            />
           </div>
           {detail.isPending && selectedProfileId ? <LoadingRows /> : null}
           {detail.isError ? (
@@ -440,7 +551,9 @@ export function ConfigurationPage() {
                     label={field.label}
                     value={policyForm[field.key] ?? ""}
                     onChange={(value) => setPolicyForm((current) => ({ ...current, [field.key]: value }))}
-                    type={field.key.includes("key_scope") || field.key.includes("worker_id") ? "text" : "number"}
+                    type={field.integer === false ||
+                      field.key.includes("key_scope") ||
+                      field.key.includes("worker_id") ? "text" : "number"}
                   />
                 ))}
               </div>
@@ -451,13 +564,18 @@ export function ConfigurationPage() {
       </Dialog>
 
       <Dialog
-        open={dialog === "publish" || dialog === "batchPublish" || dialog === "rollback"}
+        open={dialog === "publish" || dialog === "batchPublish" ||
+          dialog === "rollback" || dialog === "restore" || dialog === "retire"}
         title={
           dialog === "batchPublish"
             ? `Publish ${batchSelectedIds.size} configurations`
             : dialog === "publish"
               ? "Publish configuration"
-              : "Rollback configuration"
+              : dialog === "rollback"
+                ? "Rollback configuration"
+                : dialog === "restore"
+                  ? "Restore configuration"
+                  : "Retire configuration"
         }
         onClose={closeDialog}
         footer={
@@ -473,13 +591,17 @@ export function ConfigurationPage() {
                 ? "Processing"
                 : dialog === "rollback"
                   ? "Rollback"
-                  : "Publish"}
+                  : dialog === "restore"
+                    ? "Restore"
+                    : dialog === "retire"
+                      ? "Retire"
+                      : "Publish"}
             </Button>
           </>
         }
       >
         <form id="configuration-transition-form" onSubmit={submitTransition}>
-          {dialog === "rollback" ? (
+          {dialog === "rollback" || dialog === "restore" ? (
             <div className="field-grid">
               <SelectField
                 label="Known version"
@@ -495,6 +617,66 @@ export function ConfigurationPage() {
             <textarea id="configuration-reason" rows={4} value={reason} onChange={(event) => setReason(event.target.value)} required />
           </div>
           <MutationError local={formError} remote={mutationError} />
+        </form>
+      </Dialog>
+
+      <Dialog
+        open={dialog === "diff"}
+        title="Compare configuration versions"
+        onClose={closeDialog}
+        size="wide"
+        footer={<Button onClick={closeDialog}>Close</Button>}
+      >
+        <form
+          className="configuration-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            diffMutation.mutate();
+          }}
+        >
+          <div className="field-grid">
+            <SelectField
+              label="From version"
+              value={diffFromVersionId}
+              options={(detail.data?.versions ?? []).map(({ id, ordinal }) => ({
+                value: id, label: `Version ${ordinal}`,
+              }))}
+              onChange={setDiffFromVersionId}
+            />
+            <SelectField
+              label="To version"
+              value={diffToVersionId}
+              options={(detail.data?.versions ?? []).map(({ id, ordinal }) => ({
+                value: id, label: `Version ${ordinal}`,
+              }))}
+              onChange={setDiffToVersionId}
+            />
+          </div>
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={!diffFromVersionId || !diffToVersionId ||
+              diffFromVersionId === diffToVersionId || diffMutation.isPending}
+          >
+            Compare
+          </Button>
+          {diffMutation.data ? (
+            <div className="table-scroll">
+              <table>
+                <thead><tr><th>Path</th><th>Before</th><th>After</th></tr></thead>
+                <tbody>
+                  {diffMutation.data.differences.map((difference) => (
+                    <tr key={difference.path}>
+                      <td><code>{difference.path}</code></td>
+                      <td><code>{JSON.stringify(difference.before)}</code></td>
+                      <td><code>{JSON.stringify(difference.after)}</code></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+          <MutationError local={formError} remote={diffMutation.error} />
         </form>
       </Dialog>
     </>

@@ -16,11 +16,11 @@ use bpmp_domain_core::{
     BooleanExpression, BoundaryEventDefinition, BoundaryRuntimePolicy, BoundaryTrigger,
     CaseDefinition, CaseId, CaseLifecycle, CaseMilestoneDefinition, CaseModelId,
     CaseSentryDefinition, CaseStageDefinition, Command, CommandId, ComparisonOperator, ConfigId,
-    ConfigVersion, ConfigurationScope, CorrelationId, DomainEvent, EnginePolicy, GuardExpression,
-    IdempotencyKey, InstanceId, KeyScope, LocalWasmPolicy, Node, NodeId, PlanItemId, PolicyVersion,
-    ResolvedConfigSnapshot, RetryPolicy, ScopeKind, SentryId, TaskType, TenantId,
-    WorkflowDefinition, WorkflowExecutionContracts, WorkflowType, WorkflowValue, WorkflowVersion,
-    rehydrate,
+    ConfigVersion, ConfigurationScope, CorrelationId, DomainEvent, EnginePolicy,
+    EngineWorkerPolicy, GuardExpression, IdempotencyKey, InstanceId, KeyScope, LocalWasmPolicy,
+    Node, NodeId, PlanItemId, PolicyVersion, ResolvedConfigSnapshot, RetryPolicy, ScopeKind,
+    SentryId, TaskType, TenantId, WorkflowDefinition, WorkflowExecutionContracts, WorkflowType,
+    WorkflowValue, WorkflowVersion, rehydrate,
 };
 use bpmp_engine::memory::{InMemoryConfigurationProvider, InMemoryWorkflowStore};
 use bpmp_engine::{
@@ -478,6 +478,23 @@ fn configuration(snapshot_interval_events: u32) -> ResolvedConfigSnapshot {
             local_wasm: local_wasm_policy(),
             event_payload_key_scope: KeyScope::new("tenant-a/operational").unwrap(),
             authorization_audit_key_scope: KeyScope::new("tenant-a/compliance-audit").unwrap(),
+            workers: EngineWorkerPolicy {
+                poll_interval_ms: 100,
+                outbox_batch_size: 128,
+                outbox_retry: RetryPolicy {
+                    max_attempts: 3,
+                    initial_backoff_ms: 10,
+                    max_backoff_ms: 100,
+                    multiplier_millis: 2_000,
+                },
+                local_task_batch_size: 64,
+                local_task_retry: RetryPolicy {
+                    max_attempts: 3,
+                    initial_backoff_ms: 10,
+                    max_backoff_ms: 100,
+                    multiplier_millis: 2_000,
+                },
+            },
         },
     )
     .unwrap()

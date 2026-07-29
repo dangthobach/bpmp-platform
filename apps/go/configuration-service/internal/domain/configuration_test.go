@@ -41,6 +41,9 @@ func TestEveryBoundedContextPolicyIsTypedAndValidated(t *testing.T) {
 		{OwnerHumanRuntime, `{"projectionBatchSize":100,"escalationBatchSize":50,"escalationLeaseMs":"30000","escalationRetryMs":"1000","escalationPollMs":"500","engineCommandTimeoutMs":"3000","maxAssignmentCandidates":1000,"maxDelegationDepth":8,"queryDefaultPageSize":50,"queryMaxPageSize":200,"engineRetry":{"maxAttempts":5,"initialBackoffMs":"50","maxBackoffMs":"1000","multiplierMillis":2000},"engineCircuitBreakerFailureThreshold":5,"engineCircuitBreakerOpenMs":"1000","engineRetryableCodes":["UNAVAILABLE","DEADLINE_EXCEEDED"]}`},
 		{OwnerProjection, `{"consumeBatchSize":500,"rebuildBatchSize":1000,"queryDefaultPageSize":50,"queryMaxPageSize":200,"realtimePublishBatchSize":100,"checkpointFlushMs":"1000","maxProjectionLagMs":"30000"}`},
 		{OwnerGovernance, `{"approvalTtlMs":"300000","freshAuthenticationMaxAgeMs":"60000","kmsRequestTimeoutMs":"3000","kmsRetry":{"maxAttempts":3,"initialBackoffMs":"100","maxBackoffMs":"1000","multiplierMillis":2000},"keyCacheTtlMs":"60000","revocationBarrierTimeoutMs":"30000","reconciliationBatchSize":100,"maxPendingCompensations":1000,"abortCapability":"governance.abort_and_reconcile","acceptedAuthAssurance":["mfa"],"approvalKeys":[{"keyId":"requester-key","ed25519PublicKey":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=","enabled":true},{"keyId":"approver-key","ed25519PublicKey":"AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=","enabled":true}],"requiredApproverCount":1}`},
+		{OwnerConfigurationService, `{"outboxBatchSize":100,"outboxLeaseMs":"30000","outboxPollMs":"500","outboxRetry":{"maxAttempts":3,"initialBackoffMs":"100","maxBackoffMs":"1000","multiplierMillis":2000},"queryDefaultPageSize":50,"queryMaxPageSize":200,"maxRequestBodyBytes":"1048576"}`},
+		{OwnerCockpitGateway, `{"maxNamesPerConnection":10,"maxSignalNamesBytes":1024,"maxConnections":1000,"maxSubscriptions":100,"outboundBufferSize":256,"replaySizePerStream":100,"maxReplayStreams":100,"heartbeatIntervalMs":"15000","consumeBatchSize":100,"allowedSignalNames":["workflow.updated"],"allowedOrigins":["https://cockpit.example.com"]}`},
+		{OwnerAuthzControlPlane, `{"requestTimeoutMs":"3000","connectTimeoutMs":"1000","httpPoolMaxIdlePerHost":32,"graphMaxDepth":10,"graphMemoCapacity":"10000","graphMemoTtlMs":"60000","inactiveUserDays":60,"inactiveUserBatchSize":1000,"inactiveUserPollMs":"86400000","inactiveUserRetry":{"maxAttempts":3,"initialBackoffMs":"100","maxBackoffMs":"1000","multiplierMillis":2000}}`},
 	}
 	for _, test := range cases {
 		if _, _, _, err := ParsePolicy(test.owner, []byte(test.value)); err != nil {
@@ -82,6 +85,7 @@ func validPolicyJSON() []byte {
 		"eventPayloadKeyScope":"tenant/operational","authorizationAuditKeyScope":"tenant/audit",
 		"maxMultiInstanceCardinality":1000,
 		"defaultMultiInstanceParallelism":8,
-		"boundaryRuntime":{"projectionBatchSize":100,"dispatchBatchSize":50,"maxDispatchAttempts":5,"retryDelayMs":"1000","leaseDurationMs":"30000","maxTimerHorizonMs":"31536000000","maxExpressionBytes":65536,"workerId":"boundary-worker","maxSignalIdBytes":256,"maxReferenceBytes":512,"maxSubscriptionsPerInstance":100}
+		"boundaryRuntime":{"projectionBatchSize":100,"dispatchBatchSize":50,"maxDispatchAttempts":5,"retryDelayMs":"1000","leaseDurationMs":"30000","maxTimerHorizonMs":"31536000000","maxExpressionBytes":65536,"workerId":"boundary-worker","maxSignalIdBytes":256,"maxReferenceBytes":512,"maxSubscriptionsPerInstance":100},
+		"workers":{"pollIntervalMs":"100","outboxBatchSize":100,"outboxRetry":{"maxAttempts":3,"initialBackoffMs":"20","maxBackoffMs":"200","multiplierMillis":2000},"localTaskBatchSize":50,"localTaskRetry":{"maxAttempts":3,"initialBackoffMs":"20","maxBackoffMs":"200","multiplierMillis":2000}}
 	}`)
 }

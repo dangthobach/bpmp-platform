@@ -84,6 +84,7 @@ pub struct EnginePolicy {
     pub local_wasm: LocalWasmPolicy,
     pub event_payload_key_scope: KeyScope,
     pub authorization_audit_key_scope: KeyScope,
+    pub workers: EngineWorkerPolicy,
 }
 
 impl EnginePolicy {
@@ -112,7 +113,33 @@ impl EnginePolicy {
             return Err(ConfigError::NonPositiveValue("command_timeout_ms"));
         }
         self.optimistic_conflict_retry.validate()?;
-        self.local_wasm.validate()
+        self.local_wasm.validate()?;
+        self.workers.validate()
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct EngineWorkerPolicy {
+    pub poll_interval_ms: u64,
+    pub outbox_batch_size: u32,
+    pub outbox_retry: RetryPolicy,
+    pub local_task_batch_size: u32,
+    pub local_task_retry: RetryPolicy,
+}
+
+impl EngineWorkerPolicy {
+    fn validate(&self) -> Result<(), ConfigError> {
+        if self.poll_interval_ms == 0 {
+            return Err(ConfigError::NonPositiveValue("worker_poll_interval_ms"));
+        }
+        if self.outbox_batch_size == 0 {
+            return Err(ConfigError::NonPositiveValue("outbox_batch_size"));
+        }
+        if self.local_task_batch_size == 0 {
+            return Err(ConfigError::NonPositiveValue("local_task_batch_size"));
+        }
+        self.outbox_retry.validate()?;
+        self.local_task_retry.validate()
     }
 }
 

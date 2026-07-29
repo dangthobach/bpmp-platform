@@ -3,8 +3,8 @@ package gateway
 import (
 	"bytes"
 	"context"
-	"crypto"
 	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,6 +22,7 @@ import (
 
 	enginev1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/engine/v1"
 	humanv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/human/v1"
+	"github.com/dangthobach/bpmp-platform/go/platform/jwtauth"
 )
 
 type doerFunc func(*http.Request) (*http.Response, error)
@@ -44,6 +45,9 @@ func (staticPolicyProvider) Policy(string) (RuntimePolicy, error) {
 			MaxBackoff: 10 * time.Millisecond, MultiplierMillis: 2000,
 		},
 		EncryptionKeyScope: "tenant-a/workflows",
+		ConfigVersion:      "config-v7",
+		PolicyVersion:      "policy-v3",
+		ContentETag:        "abcdef",
 	}, nil
 }
 
@@ -89,7 +93,7 @@ func TestGatewayPreservesActorProofAndIdempotencyKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	engine := &recordingEngine{}
-	handler, err := NewHandler(engine, &recordingHuman{}, &verifier{keys: map[string]crypto.PublicKey{"actor-key": public}, issuers: map[string]struct{}{"issuer": {}}, audiences: map[string]struct{}{"gateway": {}}, methods: []string{"EdDSA"}, maxTokenBytes: 4096}, &workloadSigner{id: "api-gateway", keyID: "workload-key", key: private, ttl: time.Minute}, newModelRateLimiter(10, time.Minute), staticPolicyProvider{})
+	handler, err := NewHandler(engine, &recordingHuman{}, testVerifier(t, public), &workloadSigner{id: "api-gateway", keyID: "workload-key", key: private, ttl: time.Minute}, newModelRateLimiter(10, time.Minute), staticPolicyProvider{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,6 +124,63 @@ func TestGatewayPreservesActorProofAndIdempotencyKey(t *testing.T) {
 	}
 }
 
+func TestBrowserConfigurationReturnsSafeFieldsAndHonorsETag(t *testing.T) {
+	public, private, _ := ed25519.GenerateKey(nil)
+	now := time.Unix(1_000, 0).UTC()
+	claims := jwt.MapClaims{
+		"iss": "issuer", "sub": "actor-1", "aud": []string{"gateway"},
+		"exp": now.Add(time.Hour).Unix(), "iat": now.Add(-time.Minute).Unix(),
+		"tenant_id": "tenant-a",
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
+	token.Header["kid"] = "actor-key"
+	raw, err := token.SignedString(private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler, err := NewHandler(
+		&recordingEngine{},
+		&recordingHuman{},
+		testVerifier(t, public),
+		&workloadSigner{
+			id: "api-gateway", keyID: "workload-key", key: private, ttl: time.Minute,
+		},
+		newModelRateLimiter(10, time.Minute),
+		staticPolicyProvider{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler.now = func() time.Time { return now }
+	request := httptest.NewRequest(http.MethodGet, "/v1/runtime/browser-configuration", nil)
+	request.Header.Set("Authorization", "Bearer "+raw)
+	request.Header.Set("X-BPMP-Tenant-ID", "tenant-a")
+	request.Header.Set("X-Correlation-ID", "correlation-1")
+	response := httptest.NewRecorder()
+	handler.Routes().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Header().Get("ETag") != `"abcdef"` {
+		t.Fatalf("unexpected browser configuration response: %d %s", response.Code, response.Body)
+	}
+	var body map[string]any
+	if err = json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body) != 4 || body["config_version"] != "config-v7" ||
+		body["policy_version"] != "policy-v3" {
+		t.Fatalf("browser response leaked or omitted fields: %#v", body)
+	}
+	request = httptest.NewRequest(http.MethodGet, "/v1/runtime/browser-configuration", nil)
+	request.Header.Set("Authorization", "Bearer "+raw)
+	request.Header.Set("X-BPMP-Tenant-ID", "tenant-a")
+	request.Header.Set("X-Correlation-ID", "correlation-2")
+	request.Header.Set("If-None-Match", `"abcdef"`)
+	response = httptest.NewRecorder()
+	handler.Routes().ServeHTTP(response, request)
+	if response.Code != http.StatusNotModified || response.Body.Len() != 0 {
+		t.Fatalf("ETag request was not short-circuited: %d %s", response.Code, response.Body)
+	}
+}
+
 func TestListWorkItemsForwardsTenantActorAndCursor(t *testing.T) {
 	public, private, _ := ed25519.GenerateKey(nil)
 	now := time.Unix(1_000, 0).UTC()
@@ -131,7 +192,7 @@ func TestListWorkItemsForwardsTenantActorAndCursor(t *testing.T) {
 		t.Fatal(err)
 	}
 	human := &recordingHuman{}
-	handler, err := NewHandler(&recordingEngine{}, human, &verifier{keys: map[string]crypto.PublicKey{"actor-key": public}, issuers: map[string]struct{}{"issuer": {}}, audiences: map[string]struct{}{"gateway": {}}, methods: []string{"EdDSA"}, maxTokenBytes: 4096}, &workloadSigner{id: "api-gateway", keyID: "workload-key", key: private, ttl: time.Minute}, newModelRateLimiter(10, time.Minute), staticPolicyProvider{})
+	handler, err := NewHandler(&recordingEngine{}, human, testVerifier(t, public), &workloadSigner{id: "api-gateway", keyID: "workload-key", key: private, ttl: time.Minute}, newModelRateLimiter(10, time.Minute), staticPolicyProvider{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,13 +246,7 @@ func TestConfigurationFacadePreservesAuthenticatedCommandScope(t *testing.T) {
 	handler, err := NewHandler(
 		&recordingEngine{},
 		&recordingHuman{},
-		&verifier{
-			keys:          map[string]crypto.PublicKey{"actor-key": public},
-			issuers:       map[string]struct{}{"issuer": {}},
-			audiences:     map[string]struct{}{"gateway": {}},
-			methods:       []string{"EdDSA"},
-			maxTokenBytes: 4096,
-		},
+		testVerifier(t, public),
 		&workloadSigner{id: "api-gateway", keyID: "workload-key", key: private, ttl: time.Minute},
 		newModelRateLimiter(10, time.Minute),
 		staticPolicyProvider{},
@@ -245,6 +300,25 @@ func TestConfigurationFacadePreservesAuthenticatedCommandScope(t *testing.T) {
 	if response.Header().Get("Cache-Control") != "no-store" {
 		t.Fatal("configuration response must not be cached")
 	}
+}
+
+func testVerifier(t *testing.T, public ed25519.PublicKey) *verifier {
+	t.Helper()
+	raw, err := json.Marshal(map[string]any{"keys": []map[string]string{{
+		"kty": "OKP", "kid": "actor-key", "crv": "Ed25519",
+		"x": base64.RawURLEncoding.EncodeToString(public),
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, err := jwtauth.NewFromJWKS(jwtauth.Config{
+		Issuers: []string{"issuer"}, Audiences: []string{"gateway"},
+		Algorithms: []string{"EdDSA"}, MaxTokenBytes: 4096, MaxJWKSKeys: 1,
+	}, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &verifier{value: value}
 }
 
 func TestProperty33ErrorResponsesAreRedactedAndCorrelated(t *testing.T) {

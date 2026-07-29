@@ -43,13 +43,13 @@ type RetryPolicy struct {
 }
 
 type RuntimePolicyProvider interface {
-	Policy() (RuntimePolicy, error)
+	Policy(tenantID string) (RuntimePolicy, error)
 }
 
-type RuntimePolicyProviderFunc func() (RuntimePolicy, error)
+type RuntimePolicyProviderFunc func(string) (RuntimePolicy, error)
 
-func (function RuntimePolicyProviderFunc) Policy() (RuntimePolicy, error) {
-	return function()
+func (function RuntimePolicyProviderFunc) Policy(tenantID string) (RuntimePolicy, error) {
+	return function(tenantID)
 }
 
 type ActorCredential struct {
@@ -105,6 +105,7 @@ type EngineCompleteCommand struct {
 	SignedActorContext []byte
 	ActorID            string
 	OccurredAt         time.Time
+	RuntimePolicy      RuntimePolicy
 }
 
 type CommittedCompletion struct {
@@ -192,7 +193,7 @@ func (s *Service) Complete(ctx context.Context, request CompleteRequest) error {
 	if err := request.Actor.Validate(); err != nil {
 		return err
 	}
-	policy, err := s.policy.Policy()
+	policy, err := s.policy.Policy(request.TenantID)
 	if err != nil {
 		return fmt.Errorf("load human runtime policy: %w", err)
 	}
@@ -233,8 +234,9 @@ func (s *Service) Complete(ctx context.Context, request CompleteRequest) error {
 		TenantID: request.TenantID, InstanceID: item.InstanceID, NodeID: item.NodeID,
 		CommandID: request.CommandID, IdempotencyKey: request.IdempotencyKey, CorrelationID: request.CorrelationID,
 		Decision: request.Decision, ActorID: request.Actor.ActorID,
-		OccurredAt:   request.OccurredAt,
-		WorkflowType: item.WorkflowType, WorkflowVersion: item.WorkflowVersion,
+		OccurredAt:    request.OccurredAt,
+		RuntimePolicy: policy,
+		WorkflowType:  item.WorkflowType, WorkflowVersion: item.WorkflowVersion,
 		OriginalToken:      append([]byte(nil), request.Actor.OriginalSignedToken...),
 		SignedActorContext: append([]byte(nil), request.Actor.SignedActorContext...),
 	}
@@ -254,7 +256,7 @@ func (s *Service) Delegate(ctx context.Context, request DelegateRequest) error {
 	if request.IdempotencyKey == "" {
 		request.IdempotencyKey = request.CommandID
 	}
-	policy, err := s.policy.Policy()
+	policy, err := s.policy.Policy(request.TenantID)
 	if err != nil {
 		return fmt.Errorf("load human runtime policy: %w", err)
 	}

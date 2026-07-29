@@ -40,6 +40,9 @@ tower-layer = "0.3.3"
 tonic = { workspace = true }
 prost = { workspace = true }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+rdkafka = { workspace = true }
+
 [build-dependencies]
 tonic-build = { workspace = true }
 protoc-bin-vendored = "3"

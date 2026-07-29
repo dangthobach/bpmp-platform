@@ -34,6 +34,9 @@ type Handler struct {
 }
 
 type RuntimePolicy struct {
+	ConfigVersion                  string
+	PolicyVersion                  string
+	ContentETag                    string
 	RateLimitRequests              uint32
 	RateLimitWindow                time.Duration
 	UpstreamTimeout                time.Duration
@@ -153,6 +156,7 @@ type publicOperationDefinition struct {
 }
 
 var publicOperationDefinitions = []publicOperationDefinition{
+	{PublicOperation{http.MethodGet, "/v1/runtime/browser-configuration", "getBrowserConfiguration"}, (*Handler).browserConfiguration, false},
 	{PublicOperation{http.MethodPost, "/v1/workflows/{workflowType}/instances", "startWorkflow"}, (*Handler).startWorkflow, false},
 	{PublicOperation{http.MethodGet, "/v1/work-items", "listWorkItems"}, (*Handler).listWorkItems, false},
 	{PublicOperation{http.MethodGet, "/v1/work-items/{workItemID}", "getWorkItem"}, (*Handler).getWorkItem, false},
@@ -166,6 +170,38 @@ var publicOperationDefinitions = []publicOperationDefinition{
 	{PublicOperation{http.MethodPost, "/v1/configuration/profiles/{profileID}/versions", "addConfigurationDraft"}, (*Handler).configuration, true},
 	{PublicOperation{http.MethodPost, "/v1/configuration/profiles/{profileID}/versions/{versionID}/publish", "publishConfigurationVersion"}, (*Handler).configuration, true},
 	{PublicOperation{http.MethodPost, "/v1/configuration/profiles/{profileID}/versions/{versionID}/rollback", "rollbackConfigurationVersion"}, (*Handler).configuration, true},
+	{PublicOperation{http.MethodPost, "/v1/configuration/profiles/{profileID}/versions/{versionID}/restore", "restoreConfigurationVersion"}, (*Handler).configuration, true},
+	{PublicOperation{http.MethodPost, "/v1/configuration/profiles/{profileID}/retire", "retireConfigurationProfile"}, (*Handler).configuration, true},
+	{PublicOperation{http.MethodGet, "/v1/configuration/profiles/{profileID}/diff", "diffConfigurationVersions"}, (*Handler).configuration, true},
+}
+
+type browserConfigurationResponse struct {
+	ConfigVersion    string `json:"config_version"`
+	PolicyVersion    string `json:"policy_version"`
+	BatchChunkSize   uint32 `json:"batch_chunk_size"`
+	BatchConcurrency uint32 `json:"batch_concurrency"`
+}
+
+func (h *Handler) browserConfiguration(w http.ResponseWriter, r *http.Request) {
+	setCorrelationHeader(w, r)
+	scope, err := h.authenticateQuery(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	etag := `"` + scope.runtimePolicy.ContentETag + `"`
+	w.Header().Set("Cache-Control", "private, no-cache")
+	w.Header().Set("ETag", etag)
+	if r.Header.Get("If-None-Match") == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	writeJSON(w, http.StatusOK, browserConfigurationResponse{
+		ConfigVersion:    scope.runtimePolicy.ConfigVersion,
+		PolicyVersion:    scope.runtimePolicy.PolicyVersion,
+		BatchChunkSize:   scope.runtimePolicy.BatchChunkSize,
+		BatchConcurrency: scope.runtimePolicy.BatchConcurrency,
+	})
 }
 
 func PublicOperations() []PublicOperation {

@@ -27,11 +27,14 @@ const (
 	StatusPublished VersionStatus = "PUBLISHED"
 	StatusRetired   VersionStatus = "RETIRED"
 
-	OwnerEngine       Owner = "ENGINE"
-	OwnerAPIGateway   Owner = "API_GATEWAY"
-	OwnerHumanRuntime Owner = "HUMAN_RUNTIME"
-	OwnerProjection   Owner = "PROJECTION"
-	OwnerGovernance   Owner = "GOVERNANCE"
+	OwnerEngine               Owner = "ENGINE"
+	OwnerAPIGateway           Owner = "API_GATEWAY"
+	OwnerHumanRuntime         Owner = "HUMAN_RUNTIME"
+	OwnerProjection           Owner = "PROJECTION"
+	OwnerGovernance           Owner = "GOVERNANCE"
+	OwnerConfigurationService Owner = "CONFIGURATION_SERVICE"
+	OwnerCockpitGateway       Owner = "COCKPIT_GATEWAY"
+	OwnerAuthzControlPlane    Owner = "AUTHZ_CONTROL_PLANE"
 )
 
 var (
@@ -124,8 +127,15 @@ func ValidateScope(scope Scope) error {
 		return ErrInvalid
 	}
 	switch scope.Type {
+	case ScopeWorkflowVersion:
+		workflowType, workflowVersion, found := strings.Cut(scope.Reference, ":")
+		if !found || strings.TrimSpace(workflowType) == "" ||
+			strings.TrimSpace(workflowVersion) == "" {
+			return ErrInvalid
+		}
+		return nil
 	case ScopePlatform, ScopeEnvironment, ScopeTenant, ScopeWorkflowType,
-		ScopeWorkflowVersion, ScopeApprovedInstanceOverride:
+		ScopeApprovedInstanceOverride:
 		return nil
 	default:
 		return ErrInvalid
@@ -133,16 +143,20 @@ func ValidateScope(scope Scope) error {
 }
 
 type ParsedPolicy struct {
-	Engine       *configurationv1.EnginePolicy
-	APIGateway   *configurationv1.ApiGatewayPolicy
-	HumanRuntime *configurationv1.HumanRuntimePolicy
-	Projection   *configurationv1.ProjectionPolicy
-	Governance   *configurationv1.GovernancePolicy
+	Engine               *configurationv1.EnginePolicy
+	APIGateway           *configurationv1.ApiGatewayPolicy
+	HumanRuntime         *configurationv1.HumanRuntimePolicy
+	Projection           *configurationv1.ProjectionPolicy
+	Governance           *configurationv1.GovernancePolicy
+	ConfigurationService *configurationv1.ConfigurationServicePolicy
+	CockpitGateway       *configurationv1.CockpitGatewayPolicy
+	AuthzControlPlane    *configurationv1.AuthzControlPlanePolicy
 }
 
 func ValidateOwner(owner Owner) error {
 	switch owner {
-	case OwnerEngine, OwnerAPIGateway, OwnerHumanRuntime, OwnerProjection, OwnerGovernance:
+	case OwnerEngine, OwnerAPIGateway, OwnerHumanRuntime, OwnerProjection, OwnerGovernance,
+		OwnerConfigurationService, OwnerCockpitGateway, OwnerAuthzControlPlane:
 		return nil
 	default:
 		return ErrInvalid
@@ -168,6 +182,15 @@ func ParsePolicy(owner Owner, raw []byte) (ParsedPolicy, []byte, [32]byte, error
 	case OwnerGovernance:
 		parsed.Governance = &configurationv1.GovernancePolicy{}
 		policy = parsed.Governance
+	case OwnerConfigurationService:
+		parsed.ConfigurationService = &configurationv1.ConfigurationServicePolicy{}
+		policy = parsed.ConfigurationService
+	case OwnerCockpitGateway:
+		parsed.CockpitGateway = &configurationv1.CockpitGatewayPolicy{}
+		policy = parsed.CockpitGateway
+	case OwnerAuthzControlPlane:
+		parsed.AuthzControlPlane = &configurationv1.AuthzControlPlanePolicy{}
+		policy = parsed.AuthzControlPlane
 	default:
 		return ParsedPolicy{}, nil, [32]byte{}, ErrInvalid
 	}
@@ -200,6 +223,12 @@ func ValidateParsedPolicy(policy ParsedPolicy) error {
 		return validateProjectionPolicy(policy.Projection)
 	case policy.Governance != nil:
 		return validateGovernancePolicy(policy.Governance)
+	case policy.ConfigurationService != nil:
+		return validateConfigurationServicePolicy(policy.ConfigurationService)
+	case policy.CockpitGateway != nil:
+		return validateCockpitGatewayPolicy(policy.CockpitGateway)
+	case policy.AuthzControlPlane != nil:
+		return validateAuthzControlPlanePolicy(policy.AuthzControlPlane)
 	default:
 		return ErrInvalid
 	}
@@ -209,6 +238,9 @@ func ValidateEnginePolicy(policy *configurationv1.EnginePolicy) error {
 	retry := policy.GetOptimisticConflictRetry()
 	wasm := policy.GetLocalWasm()
 	boundary := policy.GetBoundaryRuntime()
+	workers := policy.GetWorkers()
+	outboxRetry := workers.GetOutboxRetry()
+	localTaskRetry := workers.GetLocalTaskRetry()
 	if policy.GetSnapshotIntervalEvents() == 0 ||
 		policy.GetMaxEventsPerDecision() == 0 ||
 		policy.GetCommandTimeoutMs() == 0 ||
@@ -236,7 +268,12 @@ func ValidateEnginePolicy(policy *configurationv1.EnginePolicy) error {
 		strings.TrimSpace(boundary.GetWorkerId()) == "" ||
 		boundary.GetMaxSignalIdBytes() == 0 ||
 		boundary.GetMaxReferenceBytes() == 0 ||
-		boundary.GetMaxSubscriptionsPerInstance() == 0 {
+		boundary.GetMaxSubscriptionsPerInstance() == 0 ||
+		workers.GetPollIntervalMs() == 0 ||
+		workers.GetOutboxBatchSize() == 0 ||
+		workers.GetLocalTaskBatchSize() == 0 ||
+		invalidRetry(outboxRetry) ||
+		invalidRetry(localTaskRetry) {
 		return ErrInvalid
 	}
 	return nil
@@ -349,4 +386,77 @@ func validateGovernancePolicy(policy *configurationv1.GovernancePolicy) error {
 		}
 	}
 	return nil
+}
+
+func validateConfigurationServicePolicy(policy *configurationv1.ConfigurationServicePolicy) error {
+	if policy.GetOutboxBatchSize() == 0 ||
+		policy.GetOutboxLeaseMs() == 0 ||
+		policy.GetOutboxPollMs() == 0 ||
+		invalidRetry(policy.GetOutboxRetry()) ||
+		policy.GetQueryDefaultPageSize() == 0 ||
+		policy.GetQueryMaxPageSize() < policy.GetQueryDefaultPageSize() ||
+		policy.GetMaxRequestBodyBytes() == 0 {
+		return ErrInvalid
+	}
+	return nil
+}
+
+func validateCockpitGatewayPolicy(policy *configurationv1.CockpitGatewayPolicy) error {
+	if policy.GetMaxNamesPerConnection() == 0 ||
+		policy.GetMaxSignalNamesBytes() == 0 ||
+		policy.GetMaxConnections() == 0 ||
+		policy.GetMaxSubscriptions() == 0 ||
+		policy.GetOutboundBufferSize() == 0 ||
+		policy.GetReplaySizePerStream() == 0 ||
+		policy.GetMaxReplayStreams() < policy.GetMaxSubscriptions() ||
+		policy.GetHeartbeatIntervalMs() == 0 ||
+		policy.GetConsumeBatchSize() == 0 ||
+		invalidUniqueStrings(policy.GetAllowedSignalNames()) ||
+		invalidUniqueStrings(policy.GetAllowedOrigins()) {
+		return ErrInvalid
+	}
+	return nil
+}
+
+func validateAuthzControlPlanePolicy(policy *configurationv1.AuthzControlPlanePolicy) error {
+	if policy.GetRequestTimeoutMs() == 0 ||
+		policy.GetConnectTimeoutMs() == 0 ||
+		policy.GetConnectTimeoutMs() > policy.GetRequestTimeoutMs() ||
+		policy.GetHttpPoolMaxIdlePerHost() == 0 ||
+		policy.GetGraphMaxDepth() == 0 ||
+		policy.GetGraphMemoCapacity() == 0 ||
+		policy.GetGraphMemoTtlMs() == 0 ||
+		policy.GetInactiveUserDays() == 0 ||
+		policy.GetInactiveUserBatchSize() == 0 ||
+		policy.GetInactiveUserPollMs() == 0 ||
+		invalidRetry(policy.GetInactiveUserRetry()) {
+		return ErrInvalid
+	}
+	return nil
+}
+
+func invalidRetry(retry *configurationv1.RetryPolicy) bool {
+	return retry == nil ||
+		retry.GetMaxAttempts() == 0 ||
+		retry.GetInitialBackoffMs() == 0 ||
+		retry.GetMaxBackoffMs() < retry.GetInitialBackoffMs() ||
+		retry.GetMultiplierMillis() < 1000
+}
+
+func invalidUniqueStrings(values []string) bool {
+	if len(values) == 0 {
+		return true
+	}
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return true
+		}
+		if _, duplicate := seen[value]; duplicate {
+			return true
+		}
+		seen[value] = struct{}{}
+	}
+	return false
 }

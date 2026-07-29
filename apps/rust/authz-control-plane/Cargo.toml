@@ -92,6 +92,7 @@ clap = { version = "4", features = ["derive"] }
 tonic = "0.11"
 prost = "0.12"
 tonic-build = "0.11"
+rdkafka = { version = "0.39", features = ["cmake-build"] }
 
 # Rate limiting
 governor = "0.6"
