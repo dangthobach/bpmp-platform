@@ -4,8 +4,9 @@ use authz_core::{
     AuthzError,
 };
 use authz_db::repositories::tenant_write::{
-    delete_tenant, insert_tenant, update_tenant, update_tenant_status, CreateTenant,
-    TenantMutationAudit, TenantStatus, UpdateTenant,
+    apply_tenant_configuration_readiness, delete_tenant, insert_tenant, update_tenant,
+    update_tenant_status, CreateTenant, TenantConfigurationReadiness, TenantMutationAudit,
+    TenantStatus, UpdateTenant,
 };
 use sqlx::PgPool;
 
@@ -107,7 +108,7 @@ async fn tenant_crud_is_dynamic_versioned_and_audited(pool: PgPool) {
     .unwrap();
     assert_eq!(created.code, "dynamic-tenant");
     assert_eq!(created.config, config);
-    assert!(created.is_active);
+    assert!(!created.is_active);
     assert_eq!(created.metadata.version, 0);
 
     let listed = authz_db::list_tenants_for_admin(&pool, None, 10)
@@ -123,7 +124,6 @@ async fn tenant_crud_is_dynamic_versioned_and_audited(pool: PgPool) {
             code: None,
             name: Some("Dynamic Tenant Updated"),
             config: None,
-            is_active: Some(false),
             expected_version: 0,
         },
         audit("update-request"),
@@ -133,17 +133,63 @@ async fn tenant_crud_is_dynamic_versioned_and_audited(pool: PgPool) {
     assert_eq!(updated.name, "Dynamic Tenant Updated");
     assert!(!updated.is_active);
     assert_eq!(updated.metadata.version, 1);
-    assert!(matches!(
-        authz_db::find_tenant_by_id(&pool, tenant_id)
-            .await
-            .unwrap_err(),
-        AuthzError::TenantInactive { .. }
-    ));
 
-    let deleted_version = delete_tenant(&pool, tenant_id, 1, audit("delete-request"))
+    let not_ready = update_tenant_status(
+        &pool,
+        tenant_id,
+        TenantStatus::Active,
+        1,
+        audit("activate-before-readiness"),
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(not_ready, AuthzError::InvalidRequest { .. }));
+
+    let stale_applied = apply_tenant_configuration_readiness(
+        &pool,
+        TenantConfigurationReadiness {
+            tenant_id,
+            tenant_version: 0,
+            ready: true,
+            profile_set_hash: &[3; 32],
+            event_id: uuid::Uuid::new_v4(),
+            event_sequence: 1,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(!stale_applied);
+
+    let applied = apply_tenant_configuration_readiness(
+        &pool,
+        TenantConfigurationReadiness {
+            tenant_id,
+            tenant_version: 1,
+            ready: true,
+            profile_set_hash: &[7; 32],
+            event_id: uuid::Uuid::new_v4(),
+            event_sequence: 2,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(applied);
+    let active_version = update_tenant_status(
+        &pool,
+        tenant_id,
+        TenantStatus::Active,
+        1,
+        audit("activate-request"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(active_version, 2);
+    assert!(authz_db::find_tenant_by_id(&pool, tenant_id).await.is_ok());
+
+    let deleted_version = delete_tenant(&pool, tenant_id, 2, audit("delete-request"))
         .await
         .unwrap();
-    assert_eq!(deleted_version, 2);
+    assert_eq!(deleted_version, 3);
     assert!(matches!(
         authz_db::get_tenant_for_admin(&pool, tenant_id)
             .await
@@ -163,7 +209,25 @@ async fn tenant_crud_is_dynamic_versioned_and_audited(pool: PgPool) {
         vec![
             ("CREATE".into(), 0),
             ("UPDATE".into(), 1),
-            ("DELETE".into(), 2),
+            ("STATUS".into(), 2),
+            ("DELETE".into(), 3),
+        ]
+    );
+    let lifecycle: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT lifecycle_kind, tenant_version FROM tenant_lifecycle_outbox \
+         WHERE tenant_id = $1 ORDER BY event_sequence",
+    )
+    .bind(tenant_id.into_uuid())
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        lifecycle,
+        vec![
+            ("CREATED".into(), 0),
+            ("UPDATED".into(), 1),
+            ("ACTIVATED".into(), 2),
+            ("DELETED".into(), 3),
         ]
     );
 }

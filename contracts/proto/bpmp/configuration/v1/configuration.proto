@@ -20,12 +20,17 @@ enum ConfigurationOwner {
   CONFIGURATION_OWNER_HUMAN_RUNTIME = 3;
   CONFIGURATION_OWNER_PROJECTION = 4;
   CONFIGURATION_OWNER_GOVERNANCE = 5;
+  CONFIGURATION_OWNER_CONFIGURATION_SERVICE = 6;
+  CONFIGURATION_OWNER_COCKPIT_GATEWAY = 7;
+  CONFIGURATION_OWNER_AUTHZ_CONTROL_PLANE = 8;
 }
 
 enum ConfigurationPublicationKind {
   CONFIGURATION_PUBLICATION_KIND_UNSPECIFIED = 0;
   CONFIGURATION_PUBLICATION_KIND_PUBLISHED = 1;
   CONFIGURATION_PUBLICATION_KIND_ROLLED_BACK = 2;
+  CONFIGURATION_PUBLICATION_KIND_RETIRED = 3;
+  CONFIGURATION_PUBLICATION_KIND_RESTORED = 4;
 }
 
 message ConfigurationScope {
@@ -51,6 +56,15 @@ message EnginePolicy {
   uint32 default_multi_instance_parallelism = 8;
   BoundaryRuntimePolicy boundary_runtime = 9;
   string event_payload_key_scope = 10;
+  EngineWorkerPolicy workers = 11;
+}
+
+message EngineWorkerPolicy {
+  uint64 poll_interval_ms = 1;
+  uint32 outbox_batch_size = 2;
+  RetryPolicy outbox_retry = 3;
+  uint32 local_task_batch_size = 4;
+  RetryPolicy local_task_retry = 5;
 }
 
 message BoundaryRuntimePolicy {
@@ -143,6 +157,43 @@ message GovernanceApprovalKey {
   bool enabled = 3;
 }
 
+message ConfigurationServicePolicy {
+  uint32 outbox_batch_size = 1;
+  uint64 outbox_lease_ms = 2;
+  uint64 outbox_poll_ms = 3;
+  RetryPolicy outbox_retry = 4;
+  uint32 query_default_page_size = 5;
+  uint32 query_max_page_size = 6;
+  uint64 max_request_body_bytes = 7;
+}
+
+message CockpitGatewayPolicy {
+  uint32 max_names_per_connection = 1;
+  uint32 max_signal_names_bytes = 2;
+  uint32 max_connections = 3;
+  uint32 max_subscriptions = 4;
+  uint32 outbound_buffer_size = 5;
+  uint32 replay_size_per_stream = 6;
+  uint32 max_replay_streams = 7;
+  uint64 heartbeat_interval_ms = 8;
+  uint32 consume_batch_size = 9;
+  repeated string allowed_signal_names = 10;
+  repeated string allowed_origins = 11;
+}
+
+message AuthzControlPlanePolicy {
+  uint64 request_timeout_ms = 1;
+  uint64 connect_timeout_ms = 2;
+  uint32 http_pool_max_idle_per_host = 3;
+  uint32 graph_max_depth = 4;
+  uint64 graph_memo_capacity = 5;
+  uint64 graph_memo_ttl_ms = 6;
+  uint32 inactive_user_days = 7;
+  uint32 inactive_user_batch_size = 8;
+  uint64 inactive_user_poll_ms = 9;
+  RetryPolicy inactive_user_retry = 10;
+}
+
 message ResolvedConfigurationSnapshot {
   string config_id = 1;
   string config_version = 2;
@@ -157,6 +208,9 @@ message ResolvedConfigurationSnapshot {
   ProjectionPolicy projection = 11;
   GovernancePolicy governance = 12;
   uint64 ordinal = 13;
+  ConfigurationServicePolicy configuration_service = 14;
+  CockpitGatewayPolicy cockpit_gateway = 15;
+  AuthzControlPlanePolicy authz_control_plane = 16;
 }
 
 message ResolveConfigurationRequest {
@@ -188,6 +242,9 @@ message ConfigurationPublicationEvent {
   bytes content_hash = 12;
   ConfigurationPublicationKind kind = 13;
   uint64 occurred_at_epoch_ms = 14;
+  string workflow_type = 15;
+  string workflow_version = 16;
+  string instance_id = 17;
 }
 
 service ConfigurationResolverService {

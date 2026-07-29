@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use bpmp_domain_core::{DomainEvent, NodeId, TenantId, WorkflowType, WorkflowVersion};
 use thiserror::Error;
@@ -99,7 +99,46 @@ impl LocalTaskRetryPolicy {
 pub struct RetryingLocalTaskExecutor<E, D> {
     inner: E,
     delay: D,
-    policy: LocalTaskRetryPolicy,
+    policy: LocalTaskRetryPolicyHandle,
+}
+
+#[derive(Clone)]
+pub struct LocalTaskRetryPolicyHandle {
+    value: Arc<RwLock<LocalTaskRetryPolicy>>,
+}
+
+impl LocalTaskRetryPolicyHandle {
+    /// Creates a shared validated policy handle.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the retry policy is invalid.
+    pub fn new(policy: LocalTaskRetryPolicy) -> Result<Self, LocalTaskRuntimeError> {
+        Ok(Self {
+            value: Arc::new(RwLock::new(policy.validate()?)),
+        })
+    }
+
+    /// Replaces the policy used by the next local-task batch.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the policy is invalid or the lock is poisoned.
+    pub fn replace(&self, policy: LocalTaskRetryPolicy) -> Result<(), LocalTaskRuntimeError> {
+        let policy = policy.validate()?;
+        *self
+            .value
+            .write()
+            .map_err(|_| LocalTaskRuntimeError::PolicyUnavailable)? = policy;
+        Ok(())
+    }
+
+    fn snapshot(&self) -> Result<LocalTaskRetryPolicy, LocalTaskRuntimeError> {
+        self.value
+            .read()
+            .map(|policy| *policy)
+            .map_err(|_| LocalTaskRuntimeError::PolicyUnavailable)
+    }
 }
 
 impl<E, D> RetryingLocalTaskExecutor<E, D> {
@@ -113,10 +152,24 @@ impl<E, D> RetryingLocalTaskExecutor<E, D> {
         delay: D,
         policy: LocalTaskRetryPolicy,
     ) -> Result<Self, LocalTaskRuntimeError> {
+        Self::new_with_handle(inner, delay, LocalTaskRetryPolicyHandle::new(policy)?)
+    }
+
+    /// Creates a retrying executor from an existing policy handle.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the policy snapshot cannot be read.
+    pub fn new_with_handle(
+        inner: E,
+        delay: D,
+        policy: LocalTaskRetryPolicyHandle,
+    ) -> Result<Self, LocalTaskRuntimeError> {
+        policy.snapshot()?;
         Ok(Self {
             inner,
             delay,
-            policy: policy.validate()?,
+            policy,
         })
     }
 }
@@ -130,17 +183,18 @@ where
         &self,
         activation: &LocalTaskActivation,
     ) -> Result<LocalTaskExecutionOutcome, LocalTaskRuntimeError> {
-        let mut backoff_ms = self.policy.initial_backoff_ms;
-        for attempt in 1..=self.policy.max_attempts {
+        let policy = self.policy.snapshot()?;
+        let mut backoff_ms = policy.initial_backoff_ms;
+        for attempt in 1..=policy.max_attempts {
             match self.inner.execute(activation) {
                 Ok(outcome) => return Ok(outcome),
-                Err(error) if attempt == self.policy.max_attempts => return Err(error),
+                Err(error) if attempt == policy.max_attempts => return Err(error),
                 Err(_) => {
                     self.delay.wait(backoff_ms);
                     backoff_ms = backoff_ms
-                        .saturating_mul(u64::from(self.policy.multiplier_millis))
+                        .saturating_mul(u64::from(policy.multiplier_millis))
                         .saturating_div(1_000)
-                        .min(self.policy.max_backoff_ms);
+                        .min(policy.max_backoff_ms);
                 }
             }
         }
@@ -213,9 +267,25 @@ where
     ///
     /// Returns a typed storage, decoding, execution, dispatch, or checkpoint error.
     pub fn run_once(&self) -> Result<LocalTaskRunOutcome, LocalTaskRuntimeError> {
+        self.run_once_with_batch_size(self.batch_size)
+    }
+
+    /// Executes one batch with a size captured at the worker safe point.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed configuration, storage, execution, dispatch, or
+    /// checkpoint error.
+    pub fn run_once_with_batch_size(
+        &self,
+        batch_size: usize,
+    ) -> Result<LocalTaskRunOutcome, LocalTaskRuntimeError> {
+        if batch_size == 0 {
+            return Err(LocalTaskRuntimeError::InvalidConfiguration);
+        }
         let mut checkpoint = self.state.local_task_checkpoint()?;
-        let records = self.outbox.read_after(checkpoint, self.batch_size)?;
-        if records.len() > self.batch_size {
+        let records = self.outbox.read_after(checkpoint, batch_size)?;
+        if records.len() > batch_size {
             return Err(LocalTaskRuntimeError::AdapterBatchLimitExceeded);
         }
         let mut executed = 0;
@@ -299,6 +369,8 @@ fn activation(cursor: u64, envelope: &crate::EventEnvelope) -> Option<LocalTaskA
 pub enum LocalTaskRuntimeError {
     #[error("local task runtime configuration is invalid")]
     InvalidConfiguration,
+    #[error("local task runtime policy lock is unavailable")]
+    PolicyUnavailable,
     #[error("local task adapter exceeded its configured batch limit")]
     AdapterBatchLimitExceeded,
     #[error("local task outbox records are out of order")]

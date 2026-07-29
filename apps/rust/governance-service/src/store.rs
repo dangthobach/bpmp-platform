@@ -448,6 +448,8 @@ impl GovernanceStore {
             committed_command_id: row.try_get("committed_command_id")?,
             committed_sequence: u64_value(row.try_get("committed_sequence")?)?,
             last_error: row.try_get("last_error")?,
+            shred_attempts: u32::try_from(row.try_get::<i32, _>("shred_attempts")?)
+                .context("stored shred attempts are invalid")?,
         })
     }
 }

@@ -1,6 +1,7 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
+use bpmp_contracts::configuration::v1 as configurationv1;
 use reqwest::Client;
 use serde::Serialize;
 use tracing::{error, info};
@@ -25,6 +26,7 @@ struct BarrierRequest<'a> {
     key_epoch: u64,
     committed_command_id: &'a str,
     timeout_ms: u64,
+    key_cache_ttl_ms: u64,
 }
 
 #[derive(Serialize)]
@@ -33,6 +35,7 @@ struct ShredRequest<'a> {
     key_scope: &'a str,
     key_epoch: u64,
     committed_command_id: &'a str,
+    reconciliation_batch_size: u32,
 }
 
 impl KeyLifecycleWorker {
@@ -99,12 +102,13 @@ impl KeyLifecycleWorker {
                         .kms_retry
                         .as_ref()
                         .context("KMS retry policy is missing")?;
+                    let retry_delay_ms = retry_delay(retry, job.shred_attempts);
                     self.store
                         .retry_key_shred(
                             &spec.tenant_id,
                             &job.request_id,
                             &self.worker.worker_id,
-                            retry.initial_backoff_ms,
+                            retry_delay_ms,
                             &error.to_string(),
                             now_epoch_ms()?,
                         )
@@ -121,36 +125,85 @@ impl KeyLifecycleWorker {
         command_id: &str,
         policy: &ResolvedPolicy,
     ) -> Result<()> {
-        let timeout = Duration::from_millis(policy.policy.kms_request_timeout_ms);
-        self.client
-            .post(&self.endpoints.revocation_barrier_endpoint)
-            .timeout(timeout)
-            .json(&BarrierRequest {
-                tenant_id: &spec.tenant_id,
-                key_scope: &spec.key_scope,
-                key_epoch: spec.key_epoch,
-                committed_command_id: command_id,
-                timeout_ms: policy.policy.revocation_barrier_timeout_ms,
-            })
-            .send()
-            .await?
-            .error_for_status()
-            .context("revocation barrier was not acknowledged")?;
-        self.client
-            .post(&self.endpoints.kms_endpoint)
-            .timeout(timeout)
-            .json(&ShredRequest {
-                tenant_id: &spec.tenant_id,
-                key_scope: &spec.key_scope,
-                key_epoch: spec.key_epoch,
-                committed_command_id: command_id,
-            })
-            .send()
-            .await?
-            .error_for_status()
-            .context("KMS key shred was not acknowledged")?;
+        let retry = policy
+            .policy
+            .kms_retry
+            .as_ref()
+            .context("KMS retry policy is missing")?;
+        let mut delay_ms = retry.initial_backoff_ms;
+        for attempt in 1..=retry.max_attempts {
+            let result = self
+                .client
+                .post(&self.endpoints.revocation_barrier_endpoint)
+                .timeout(Duration::from_millis(
+                    policy.policy.revocation_barrier_timeout_ms,
+                ))
+                .json(&BarrierRequest {
+                    tenant_id: &spec.tenant_id,
+                    key_scope: &spec.key_scope,
+                    key_epoch: spec.key_epoch,
+                    committed_command_id: command_id,
+                    timeout_ms: policy.policy.revocation_barrier_timeout_ms,
+                    key_cache_ttl_ms: policy.policy.key_cache_ttl_ms,
+                })
+                .send()
+                .await
+                .and_then(reqwest::Response::error_for_status);
+            match result {
+                Ok(_) => break,
+                Err(error) if attempt == retry.max_attempts => {
+                    return Err(error).context("revocation barrier was not acknowledged");
+                }
+                Err(_) => {
+                    tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                    delay_ms = next_delay(delay_ms, retry);
+                }
+            }
+        }
+        delay_ms = retry.initial_backoff_ms;
+        for attempt in 1..=retry.max_attempts {
+            let result = self
+                .client
+                .post(&self.endpoints.kms_endpoint)
+                .timeout(Duration::from_millis(policy.policy.kms_request_timeout_ms))
+                .json(&ShredRequest {
+                    tenant_id: &spec.tenant_id,
+                    key_scope: &spec.key_scope,
+                    key_epoch: spec.key_epoch,
+                    committed_command_id: command_id,
+                    reconciliation_batch_size: policy.policy.reconciliation_batch_size,
+                })
+                .send()
+                .await
+                .and_then(reqwest::Response::error_for_status);
+            match result {
+                Ok(_) => break,
+                Err(error) if attempt == retry.max_attempts => {
+                    return Err(error).context("KMS key shred was not acknowledged");
+                }
+                Err(_) => {
+                    tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                    delay_ms = next_delay(delay_ms, retry);
+                }
+            }
+        }
         Ok(())
     }
+}
+
+fn retry_delay(retry: &configurationv1::RetryPolicy, attempts: u32) -> u64 {
+    let mut delay = retry.initial_backoff_ms;
+    for _ in 1..attempts {
+        delay = next_delay(delay, retry);
+    }
+    delay
+}
+
+fn next_delay(current: u64, retry: &configurationv1::RetryPolicy) -> u64 {
+    current
+        .saturating_mul(u64::from(retry.multiplier_millis))
+        .saturating_div(1_000)
+        .min(retry.max_backoff_ms)
 }
 
 fn now_epoch_ms() -> Result<u64> {

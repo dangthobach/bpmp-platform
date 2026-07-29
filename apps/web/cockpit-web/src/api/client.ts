@@ -14,6 +14,7 @@ import {
   configurationDetailSchema,
   configurationPageSchema,
   configurationProfileSchema,
+  configurationVersionDiffSchema,
   type CreateConfigurationInput,
   type DraftConfigurationInput,
 } from "../features/configuration/types";
@@ -33,6 +34,18 @@ export interface RequestIdentity {
   accessToken: string;
 }
 
+const browserConfigurationSchema = z.object({
+  config_version: z.string().min(1),
+  policy_version: z.string().min(1),
+  batch_chunk_size: z.number().int().positive(),
+  batch_concurrency: z.number().int().positive(),
+}).refine(
+  (value) => value.batch_concurrency <= value.batch_chunk_size,
+  "batch concurrency must not exceed chunk size",
+);
+
+export type BrowserConfiguration = z.infer<typeof browserConfigurationSchema>;
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -49,6 +62,15 @@ export class BpmpApiClient {
     private readonly config: RuntimeConfig,
     private readonly getIdentity: () => RequestIdentity,
   ) {}
+
+  async getBrowserConfiguration(): Promise<BrowserConfiguration> {
+    const raw = await this.request<unknown>("/v1/runtime/browser-configuration");
+    const parsed = browserConfigurationSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw new ApiError("Invalid browser configuration", 502, "");
+    }
+    return parsed.data;
+  }
 
   listWorkItems(pageToken = "", pageSize = this.config.defaultPageSize): Promise<WorkItemPage> {
     const query = new URLSearchParams({ page_size: String(pageSize) });
@@ -249,6 +271,57 @@ export class BpmpApiClient {
         },
         idempotencyKey,
       },
+    );
+  }
+
+  restoreConfiguration(
+    profileId: string,
+    versionId: string,
+    expectedVersion: number,
+    policyVersion: string,
+    reason: string,
+    idempotencyKey: string = crypto.randomUUID(),
+  ) {
+    return this.configurationRequest(
+      `/v1/configuration/profiles/${encodeURIComponent(profileId)}/versions/${encodeURIComponent(versionId)}/restore`,
+      configurationProfileSchema,
+      {
+        method: "POST",
+        body: {
+          expected_version: expectedVersion,
+          policy_version: policyVersion,
+          reason,
+        },
+        idempotencyKey,
+      },
+    );
+  }
+
+  retireConfiguration(
+    profileId: string,
+    expectedVersion: number,
+    reason: string,
+    idempotencyKey: string = crypto.randomUUID(),
+  ) {
+    return this.configurationRequest(
+      `/v1/configuration/profiles/${encodeURIComponent(profileId)}/retire`,
+      configurationProfileSchema,
+      {
+        method: "POST",
+        body: { expected_version: expectedVersion, reason },
+        idempotencyKey,
+      },
+    );
+  }
+
+  diffConfiguration(profileId: string, fromVersion: string, toVersion: string) {
+    const query = new URLSearchParams({
+      from_version: fromVersion,
+      to_version: toVersion,
+    });
+    return this.configurationRequest(
+      `/v1/configuration/profiles/${encodeURIComponent(profileId)}/diff?${query.toString()}`,
+      configurationVersionDiffSchema,
     );
   }
 

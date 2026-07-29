@@ -152,14 +152,11 @@ func run(configPath string) error {
 		return err
 	}
 	slog.Info("Human Runtime configuration ready", "elapsed", time.Since(bootstrapStarted))
-	policyProvider, err := runtimepolicy.New(
-		configurationCache,
-		config.RuntimeConfig.TenantID,
-	)
+	policyProvider, err := runtimepolicy.New(configurationCache)
 	if err != nil {
 		return err
 	}
-	engineInterceptor, err := dynamicReliabilityInterceptor(policyProvider)
+	engineInterceptor, err := dynamicReliabilityInterceptor()
 	if err != nil {
 		return err
 	}
@@ -186,13 +183,9 @@ func run(configPath string) error {
 	if err != nil {
 		return err
 	}
-	engineClient, err := enginegrpc.NewWithTimeout(
+	engineClient, err := enginegrpc.New(
 		enginev1.NewEngineCommandServiceClient(engineConn),
 		security,
-		func() (time.Duration, error) {
-			policy, policyErr := policyProvider.Policy()
-			return policy.EngineCommandTimeout, policyErr
-		},
 	)
 	if err != nil {
 		return err
@@ -251,7 +244,7 @@ func run(configPath string) error {
 		kafkaClient,
 		projection,
 		func() (int, error) {
-			policy, policyErr := policyProvider.Policy()
+			policy, policyErr := policyProvider.WorkerPolicy()
 			return policy.ProjectionBatchSize, policyErr
 		},
 	)
@@ -267,7 +260,7 @@ func run(configPath string) error {
 		escalationPublisher,
 		config.Escalation.WorkerID,
 		func() (int, time.Duration, time.Duration, error) {
-			policy, policyErr := policyProvider.Policy()
+			policy, policyErr := policyProvider.WorkerPolicy()
 			return policy.EscalationBatchSize, policy.EscalationLease,
 				policy.EscalationRetry, policyErr
 		},
@@ -316,11 +309,9 @@ func run(configPath string) error {
 	}
 }
 
-func dynamicReliabilityInterceptor(
-	provider application.RuntimePolicyProvider,
-) (grpc.UnaryClientInterceptor, error) {
-	return platformgrpc.DynamicUnaryClientInterceptor(func() (platformgrpc.Config, error) {
-		policy, err := provider.Policy()
+func dynamicReliabilityInterceptor() (grpc.UnaryClientInterceptor, error) {
+	return platformgrpc.DynamicUnaryClientInterceptorForContext(func(ctx context.Context) (platformgrpc.Config, error) {
+		policy, err := enginegrpc.RuntimePolicyFromContext(ctx)
 		if err != nil {
 			return platformgrpc.Config{}, err
 		}
@@ -347,7 +338,7 @@ func runEscalations(
 	policies *runtimepolicy.Provider,
 ) error {
 	for {
-		policy, err := policies.Policy()
+		policy, err := policies.WorkerPolicy()
 		if err != nil {
 			return err
 		}

@@ -13,6 +13,9 @@ service-token administration endpoints directly.
 | --- | --- |
 | `apiBaseUrl` | Public API Gateway origin |
 | `organizationApiBaseUrl` | Public `authz-app` organization API origin |
+| `realtimeBaseUrl`, `realtimePath` | Cockpit Gateway SSE endpoint |
+| `realtimeSignalNames` | Versioned notification names subscribed by this UI |
+| `realtimeReconnectInitialMs`, `realtimeReconnectMaxMs` | Bounded reconnect backoff |
 | `defaultPageSize`, `maxPageSize` | Keyset page bounds |
 | `batchChunkSize` | Maximum items retained in one client-side batch chunk |
 | `batchConcurrency` | Maximum concurrent commands within a chunk |
@@ -46,3 +49,7 @@ npm audit --audit-level=high
 Batch actions reuse the existing idempotent single-item API. They process
 stable work-item IDs in configured chunks and bounded concurrency, retain
 per-item failures, and reconcile the keyset query after completion.
+
+Realtime uses streaming `fetch` so the browser can preserve the Bearer token
+and tenant header. Notifications only invalidate React Query state. Cursor
+expiry, gateway restart or replica changes trigger a full query resync.

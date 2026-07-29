@@ -3772,8 +3772,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        BoundaryRuntimePolicy, ConfigId, ConfigVersion, ConfigurationScope, EnginePolicy, KeyScope,
-        LocalWasmPolicy, PolicyVersion, RetryPolicy, ScopeKind,
+        BoundaryRuntimePolicy, ConfigId, ConfigVersion, ConfigurationScope, EnginePolicy,
+        EngineWorkerPolicy, KeyScope, LocalWasmPolicy, PolicyVersion, RetryPolicy, ScopeKind,
     };
 
     fn id<T>(
@@ -5370,6 +5370,23 @@ mod tests {
                 },
                 event_payload_key_scope: id(KeyScope::new, "tenant-a/operational"),
                 authorization_audit_key_scope: id(KeyScope::new, "tenant-a/compliance-audit"),
+                workers: EngineWorkerPolicy {
+                    poll_interval_ms: 100,
+                    outbox_batch_size: 128,
+                    outbox_retry: RetryPolicy {
+                        max_attempts: 3,
+                        initial_backoff_ms: 10,
+                        max_backoff_ms: 100,
+                        multiplier_millis: 2_000,
+                    },
+                    local_task_batch_size: 64,
+                    local_task_retry: RetryPolicy {
+                        max_attempts: 3,
+                        initial_backoff_ms: 10,
+                        max_backoff_ms: 100,
+                        multiplier_millis: 2_000,
+                    },
+                },
             },
         )
         .expect("test configuration must be valid")

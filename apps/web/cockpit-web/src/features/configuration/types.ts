@@ -16,6 +16,9 @@ export const configurationOwnerSchema = z.enum([
   "HUMAN_RUNTIME",
   "PROJECTION",
   "GOVERNANCE",
+  "CONFIGURATION_SERVICE",
+  "COCKPIT_GATEWAY",
+  "AUTHZ_CONTROL_PLANE",
 ]);
 export type ConfigurationOwner = z.infer<typeof configurationOwnerSchema>;
 
@@ -70,6 +73,21 @@ export const configurationDetailSchema = z.object({
   versions: z.array(configurationVersionSchema),
 });
 
+export const configurationVersionDiffSchema = z.object({
+  profile_id: z.string().uuid(),
+  from_version: z.string().uuid(),
+  to_version: z.string().uuid(),
+  differences: z.array(z.object({
+    path: z.string(),
+    before: z.unknown(),
+    after: z.unknown(),
+  })),
+  from_hash: z.string().regex(/^[0-9a-f]{64}$/),
+  to_hash: z.string().regex(/^[0-9a-f]{64}$/),
+  schema_change: z.boolean(),
+});
+export type ConfigurationVersionDiff = z.infer<typeof configurationVersionDiffSchema>;
+
 export interface EngineConfigurationPolicy {
   snapshot_interval_events: number;
   max_events_per_decision: number;
@@ -86,6 +104,13 @@ export interface EngineConfigurationPolicy {
   max_multi_instance_cardinality: number;
   default_multi_instance_parallelism: number;
   boundary_runtime: Record<string, number | string>;
+  workers: {
+    poll_interval_ms: string;
+    outbox_batch_size: number;
+    outbox_retry: Record<string, number | string>;
+    local_task_batch_size: number;
+    local_task_retry: Record<string, number | string>;
+  };
 }
 
 export type ConfigurationPolicy = Record<string, unknown> | EngineConfigurationPolicy;

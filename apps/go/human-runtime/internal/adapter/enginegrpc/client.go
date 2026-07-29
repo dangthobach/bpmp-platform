@@ -24,23 +24,6 @@ type SecurityProvider interface {
 type Client struct {
 	client   enginev1.EngineCommandServiceClient
 	security SecurityProvider
-	timeout  func() (time.Duration, error)
-}
-
-func NewWithTimeout(
-	client enginev1.EngineCommandServiceClient,
-	security SecurityProvider,
-	timeout func() (time.Duration, error),
-) (*Client, error) {
-	value, err := New(client, security)
-	if err != nil {
-		return nil, err
-	}
-	if timeout == nil {
-		return nil, errors.New("engine command timeout policy is required")
-	}
-	value.timeout = timeout
-	return value, nil
 }
 
 func New(client enginev1.EngineCommandServiceClient, security SecurityProvider) (*Client, error) {
@@ -54,18 +37,11 @@ func (c *Client) CompleteUserTask(ctx context.Context, command application.Engin
 	if command.OccurredAt.IsZero() {
 		return errors.New("command occurrence time is required")
 	}
-	if c.timeout != nil {
-		timeout, err := c.timeout()
-		if err != nil {
-			return err
-		}
-		if timeout <= 0 {
-			return errors.New("engine command timeout policy is invalid")
-		}
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, timeout)
-		defer cancel()
+	if command.RuntimePolicy.EngineCommandTimeout <= 0 {
+		return errors.New("engine command timeout policy is invalid")
 	}
+	ctx, cancel := context.WithTimeout(ctx, command.RuntimePolicy.EngineCommandTimeout)
+	defer cancel()
 	snapshot, err := c.security.ForTenant(
 		ctx,
 		command.TenantID,
@@ -107,6 +83,7 @@ func (c *Client) CompleteUserTask(ctx context.Context, command application.Engin
 		TraceParent:   traceParent,
 		TraceState:    traceState,
 	})
+	outgoing = withRuntimePolicy(outgoing, command.RuntimePolicy)
 	receipt, err := c.client.HandleCommand(outgoing, envelope)
 	if err != nil {
 		return err
@@ -115,6 +92,23 @@ func (c *Client) CompleteUserTask(ctx context.Context, command application.Engin
 		return errors.New("engine receipt command id does not match request")
 	}
 	return nil
+}
+
+type runtimePolicyContextKey struct{}
+
+func withRuntimePolicy(
+	ctx context.Context,
+	policy application.RuntimePolicy,
+) context.Context {
+	return context.WithValue(ctx, runtimePolicyContextKey{}, policy)
+}
+
+func RuntimePolicyFromContext(ctx context.Context) (application.RuntimePolicy, error) {
+	policy, ok := ctx.Value(runtimePolicyContextKey{}).(application.RuntimePolicy)
+	if !ok || policy.EngineCommandTimeout <= 0 {
+		return application.RuntimePolicy{}, errors.New("engine runtime policy snapshot is missing")
+	}
+	return policy, nil
 }
 
 func actorProof(command application.EngineCompleteCommand) (*authv1.ActorProof, error) {

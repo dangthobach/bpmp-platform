@@ -1,6 +1,7 @@
 package runtimepolicy
 
 import (
+	"encoding/hex"
 	"errors"
 	"math"
 	"time"
@@ -68,6 +69,9 @@ func mapPolicy(
 		return gateway.RuntimePolicy{}, errors.New("API Gateway runtime policy is invalid")
 	}
 	return gateway.RuntimePolicy{
+		ConfigVersion:                  snapshot.GetConfigVersion(),
+		PolicyVersion:                  snapshot.GetPolicyVersion(),
+		ContentETag:                    hex.EncodeToString(snapshot.GetContentHash()),
 		RateLimitRequests:              policy.GetRateLimitRequests(),
 		RateLimitWindow:                time.Duration(policy.GetRateLimitWindowMs()) * time.Millisecond,
 		UpstreamTimeout:                time.Duration(policy.GetUpstreamTimeoutMs()) * time.Millisecond,

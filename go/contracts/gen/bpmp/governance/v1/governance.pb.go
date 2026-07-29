@@ -941,6 +941,7 @@ type ApprovalRequestView struct {
 	CommittedCommandId  string                 `protobuf:"bytes,14,opt,name=committed_command_id,json=committedCommandId,proto3" json:"committed_command_id,omitempty"`
 	CommittedSequence   uint64                 `protobuf:"varint,15,opt,name=committed_sequence,json=committedSequence,proto3" json:"committed_sequence,omitempty"`
 	LastError           string                 `protobuf:"bytes,16,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`
+	ShredAttempts       uint32                 `protobuf:"varint,17,opt,name=shred_attempts,json=shredAttempts,proto3" json:"shred_attempts,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -1085,6 +1086,13 @@ func (x *ApprovalRequestView) GetLastError() string {
 		return x.LastError
 	}
 	return ""
+}
+
+func (x *ApprovalRequestView) GetShredAttempts() uint32 {
+	if x != nil {
+		return x.ShredAttempts
+	}
+	return 0
 }
 
 type CreateApprovalResponse struct {
@@ -1343,7 +1351,7 @@ const file_bpmp_governance_v1_governance_proto_rawDesc = "" +
 	"\x12GetApprovalRequest\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x1d\n" +
 	"\n" +
-	"request_id\x18\x02 \x01(\tR\trequestId\"\xaa\x06\n" +
+	"request_id\x18\x02 \x01(\tR\trequestId\"\xd1\x06\n" +
 	"\x13ApprovalRequestView\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12=\n" +
@@ -1363,7 +1371,8 @@ const file_bpmp_governance_v1_governance_proto_rawDesc = "" +
 	"\x14committed_command_id\x18\x0e \x01(\tR\x12committedCommandId\x12-\n" +
 	"\x12committed_sequence\x18\x0f \x01(\x04R\x11committedSequence\x12\x1d\n" +
 	"\n" +
-	"last_error\x18\x10 \x01(\tR\tlastError\"]\n" +
+	"last_error\x18\x10 \x01(\tR\tlastError\x12%\n" +
+	"\x0eshred_attempts\x18\x11 \x01(\rR\rshredAttempts\"]\n" +
 	"\x16CreateApprovalResponse\x12C\n" +
 	"\bapproval\x18\x01 \x01(\v2'.bpmp.governance.v1.ApprovalRequestViewR\bapproval\"]\n" +
 	"\x16RecordApprovalResponse\x12C\n" +

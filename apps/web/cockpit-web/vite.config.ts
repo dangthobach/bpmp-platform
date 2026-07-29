@@ -17,6 +17,11 @@ export default defineConfig({
         target: "http://localhost:8080",
         changeOrigin: true,
       },
+      "/realtime": {
+        target: "https://localhost:7601",
+        changeOrigin: true,
+        secure: false,
+      },
     },
   },
   build: {

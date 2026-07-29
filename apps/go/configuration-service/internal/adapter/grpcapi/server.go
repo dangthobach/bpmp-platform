@@ -57,14 +57,17 @@ func (s *Server) ResolveConfiguration(
 				Type:      scopeType(resolved.Profile.Scope.Type),
 				Reference: resolved.Profile.Scope.Reference,
 			}},
-			ContentHash:  resolved.Version.ContentHash[:],
-			Owner:        ownerToProto(resolved.Profile.Owner),
-			Engine:       policy.Engine,
-			ApiGateway:   policy.APIGateway,
-			HumanRuntime: policy.HumanRuntime,
-			Projection:   policy.Projection,
-			Governance:   policy.Governance,
-			Ordinal:      uint64(resolved.Version.Ordinal),
+			ContentHash:          resolved.Version.ContentHash[:],
+			Owner:                ownerToProto(resolved.Profile.Owner),
+			Engine:               policy.Engine,
+			ApiGateway:           policy.APIGateway,
+			HumanRuntime:         policy.HumanRuntime,
+			Projection:           policy.Projection,
+			Governance:           policy.Governance,
+			Ordinal:              uint64(resolved.Version.Ordinal),
+			ConfigurationService: policy.ConfigurationService,
+			CockpitGateway:       policy.CockpitGateway,
+			AuthzControlPlane:    policy.AuthzControlPlane,
 		},
 	}, nil
 }
@@ -81,6 +84,12 @@ func ownerFromProto(value configurationv1.ConfigurationOwner) domain.Owner {
 		return domain.OwnerProjection
 	case configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_GOVERNANCE:
 		return domain.OwnerGovernance
+	case configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_CONFIGURATION_SERVICE:
+		return domain.OwnerConfigurationService
+	case configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_COCKPIT_GATEWAY:
+		return domain.OwnerCockpitGateway
+	case configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_AUTHZ_CONTROL_PLANE:
+		return domain.OwnerAuthzControlPlane
 	default:
 		return ""
 	}
@@ -98,6 +107,12 @@ func ownerToProto(value domain.Owner) configurationv1.ConfigurationOwner {
 		return configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_PROJECTION
 	case domain.OwnerGovernance:
 		return configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_GOVERNANCE
+	case domain.OwnerConfigurationService:
+		return configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_CONFIGURATION_SERVICE
+	case domain.OwnerCockpitGateway:
+		return configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_COCKPIT_GATEWAY
+	case domain.OwnerAuthzControlPlane:
+		return configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_AUTHZ_CONTROL_PLANE
 	default:
 		return configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_UNSPECIFIED
 	}

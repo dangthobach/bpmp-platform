@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, RwLock, RwLockReadGuard};
 
 use bpmp_domain_core::{
@@ -272,6 +272,45 @@ impl RuntimeRegistry {
         Ok(changed)
     }
 
+    /// Removes effective engine configuration at a safe point while retaining
+    /// the verified WIR artifact for a later immutable restore.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the migration point is unsafe or the registry
+    /// lock is poisoned.
+    pub fn retire_configurations(
+        &self,
+        scopes: Vec<RuntimeScopeDescriptor>,
+        safe_point: MigrationSafePoint,
+    ) -> Result<usize, RuntimeRegistryError> {
+        if !safe_point.permits_migration() {
+            return Err(RuntimeRegistryError::UnsafeMigrationPoint);
+        }
+        let mut state = self
+            .state
+            .write()
+            .map_err(|_| RuntimeRegistryError::LockPoisoned)?;
+        let mut removals = BTreeSet::new();
+        for scope in scopes {
+            let key = RuntimeScope::new(
+                &scope.tenant_id,
+                &scope.workflow_type,
+                &scope.workflow_version,
+            );
+            if !state.definitions.contains_key(&key) {
+                return Err(RuntimeRegistryError::MissingDefinition);
+            }
+            if !removals.insert(key) {
+                return Err(RuntimeRegistryError::DuplicateScope);
+            }
+        }
+        Ok(removals
+            .into_iter()
+            .filter(|scope| state.configurations.remove(scope).is_some())
+            .count())
+    }
+
     /// Installs or atomically replaces the governance policy for an existing
     /// tenant/workflow/version scope.
     ///
@@ -325,6 +364,44 @@ impl RuntimeRegistry {
             .count();
         state.governance_policies.extend(replacements);
         Ok(changed)
+    }
+
+    /// Retires effective governance policy without deleting its WIR scope.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the migration point is unsafe or the registry
+    /// lock is poisoned.
+    pub fn retire_governance_policies(
+        &self,
+        scopes: Vec<RuntimeScopeDescriptor>,
+        safe_point: MigrationSafePoint,
+    ) -> Result<usize, RuntimeRegistryError> {
+        if !safe_point.permits_migration() {
+            return Err(RuntimeRegistryError::UnsafeMigrationPoint);
+        }
+        let mut state = self
+            .state
+            .write()
+            .map_err(|_| RuntimeRegistryError::LockPoisoned)?;
+        let mut removals = BTreeSet::new();
+        for scope in scopes {
+            let key = RuntimeScope::new(
+                &scope.tenant_id,
+                &scope.workflow_type,
+                &scope.workflow_version,
+            );
+            if !state.definitions.contains_key(&key) {
+                return Err(RuntimeRegistryError::MissingDefinition);
+            }
+            if !removals.insert(key) {
+                return Err(RuntimeRegistryError::DuplicateScope);
+            }
+        }
+        Ok(removals
+            .into_iter()
+            .filter(|scope| state.governance_policies.remove(scope).is_some())
+            .count())
     }
 
     /// Installs the initial governance policy while building the composition root.

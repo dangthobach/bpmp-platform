@@ -11,12 +11,15 @@
 
 pub mod app;
 pub mod config;
+pub mod contracts;
 pub mod error;
 pub mod grpc;
 pub mod handlers;
 pub mod job;
 pub mod middleware;
 pub mod state;
+#[cfg(target_os = "linux")]
+pub mod tenant_lifecycle;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

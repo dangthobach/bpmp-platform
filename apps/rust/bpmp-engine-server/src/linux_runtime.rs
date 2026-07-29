@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -21,23 +21,24 @@ use bpmp_contracts::Ed25519Verifier;
 use bpmp_contracts::configuration::v1 as configurationv1;
 use bpmp_domain_core::{
     BoundaryRuntimePolicy, Command, CommandId, ConfigId, ConfigVersion, ConfigurationScope,
-    CorrelationId, EnginePolicy, IdempotencyKey, InstanceId, KeyScope, LocalWasmPolicy,
-    PolicyVersion, ResolvedConfigSnapshot, RetryPolicy, ScopeKind, TenantId, WorkflowType,
-    WorkflowVersion,
+    CorrelationId, EnginePolicy, EngineWorkerPolicy, IdempotencyKey, InstanceId, KeyScope,
+    LocalWasmPolicy, PolicyVersion, ResolvedConfigSnapshot, RetryPolicy, ScopeKind, TenantId,
+    WorkflowType, WorkflowVersion,
 };
 use bpmp_engine::{
     ActorProofKind, AuthoritativeCommandHandler, AuthorizedCommand, BoundaryDispatchCredentials,
-    BoundaryDispatchCredentialsPort, BoundaryDispatchRequest, BoundaryRuntime,
-    BoundaryRuntimeError, ConfigurationLookup, ConfigurationProviderPort,
+    BoundaryDispatchCredentialsPort, BoundaryDispatchRequest, BoundaryPolicyHandle,
+    BoundaryRuntime, BoundaryRuntimeError, ConfigurationLookup, ConfigurationProviderPort,
     EmbeddedAuthorizationProvider, Engine, EngineBoundaryCommandDispatcher,
     GrpcEngineCommandService, GrpcEngineGovernanceService, GrpcTransportConfig,
     LocalTaskActivation, LocalTaskCompletionDispatcherPort, LocalTaskExecutionOutcome,
-    LocalTaskExecutorPort, LocalTaskKind, LocalTaskRetryPolicy, LocalTaskRuntime,
-    LocalTaskRuntimeError, OutboxBoundaryEventSource, OutboxError, OutboxPublisher,
-    OutboxPublisherConfig, OutboxRecord, OutboxStorePort, PublishAcknowledgement, RetryDelayPort,
-    RetryingLocalTaskExecutor, RuntimeConfigurationUpdate, RuntimeGovernancePolicyUpdate,
-    RuntimeRegistry, RuntimeSafePointGate, SafePointCommandHandler, SystemClock, WirLoader,
-    WorkflowDefinitionProviderPort, configuration_publication_matches_scope,
+    LocalTaskExecutorPort, LocalTaskKind, LocalTaskRetryPolicy, LocalTaskRetryPolicyHandle,
+    LocalTaskRuntime, LocalTaskRuntimeError, OutboxBoundaryEventSource, OutboxError,
+    OutboxPublisher, OutboxPublisherConfig, OutboxRecord, OutboxStorePort, PublishAcknowledgement,
+    RetryDelayPort, RetryingLocalTaskExecutor, RuntimeConfigurationUpdate,
+    RuntimeGovernancePolicyUpdate, RuntimeRegistry, RuntimeSafePointGate, SafePointCommandHandler,
+    SystemClock, WirLoader, WorkflowDefinitionProviderPort,
+    configuration_publication_matches_scope,
 };
 use bpmp_governance_domain::GovernancePolicy;
 use bpmp_payload_crypto::{AesGcmPayloadCrypto, CryptoError, DataKeyResolverPort, ResolvedDataKey};
@@ -74,6 +75,11 @@ pub async fn run(path: PathBuf) -> Result<()> {
     init_tracing();
     let config = RuntimeConfig::load(&path)?;
     let registry = Arc::new(load_runtime_registry(&config).await?);
+    let (initial_boundary_policy, initial_worker_policy) = common_runtime_worker_policy(&registry)?;
+    let worker_policy = EngineWorkerPolicyHandle::new(initial_worker_policy)?;
+    let boundary_policy = BoundaryPolicyHandle::new(initial_boundary_policy);
+    let local_task_retry_policy =
+        LocalTaskRetryPolicyHandle::new(local_task_retry_policy(&worker_policy.snapshot()?))?;
     let safe_point_gate = RuntimeSafePointGate::default();
     let authorization = Arc::new(load_authorization(&config)?);
     let crypto = AesGcmPayloadCrypto::new(FileDataKeyResolver::load(&config.payload_keys)?);
@@ -189,54 +195,53 @@ pub async fn run(path: PathBuf) -> Result<()> {
         registry.clone(),
         dispatch_credentials,
     );
-    let boundary = Arc::new(BoundaryRuntime::new(
+    let boundary = Arc::new(BoundaryRuntime::new_with_handle(
         OutboxBoundaryEventSource::new(store.clone()),
         store.clone(),
         dispatcher,
         SystemClock,
-        boundary_policy(&config.workers.boundary),
+        boundary_policy.clone(),
     ));
     let local_task_credentials = DispatchCredentialProvider::load(&config, registry.clone())?;
     let local_task_engine = Engine::new(registry.clone(), raft_store, authorization.clone());
     let local_tasks = Arc::new(LocalTaskRuntime::new(
         store.clone(),
         store.clone(),
-        RetryingLocalTaskExecutor::new(
+        RetryingLocalTaskExecutor::new_with_handle(
             ConfiguredWasmExecutor::load(registry.clone(), &config.wasm_modules)?,
             ThreadDelay,
-            LocalTaskRetryPolicy {
-                max_attempts: config.workers.local_task_max_attempts,
-                initial_backoff_ms: config.workers.local_task_initial_retry_ms,
-                max_backoff_ms: config.workers.local_task_max_retry_ms,
-                multiplier_millis: config.workers.local_task_retry_multiplier_millis,
-            },
+            local_task_retry_policy.clone(),
         )?,
         LocalTaskCompletionDispatcher {
             engine: local_task_engine,
             definitions: registry.clone(),
             credentials: local_task_credentials,
         },
-        config.workers.local_task_batch_size,
+        usize::try_from(worker_policy.snapshot()?.local_task_batch_size)
+            .context("local task batch size exceeds usize")?,
     )?);
+    let initial_outbox_config = outbox_publisher_config(&worker_policy.snapshot()?)?;
     let outbox = Arc::new(OutboxPublisher::new(
         store.clone(),
         KafkaPublisher::new(&config.kafka)?,
         ThreadDelay,
-        OutboxPublisherConfig::new(
-            config.workers.outbox_batch_size,
-            config.workers.outbox_max_attempts,
-            config.workers.outbox_initial_retry_ms,
-            config.workers.outbox_max_retry_ms,
-            config.workers.outbox_retry_multiplier_millis,
-        )?,
+        initial_outbox_config,
     ));
 
-    let interval = config.poll_interval();
     let local_node_id = config.raft.node_id;
     let outbox_store = store;
     let outbox_raft = raft.clone();
+    let outbox_worker_policy = worker_policy.clone();
     let outbox_worker = tokio::spawn(async move {
         loop {
+            let policy = match outbox_worker_policy.snapshot() {
+                Ok(value) => value,
+                Err(error) => {
+                    error!(%error, "read outbox worker policy");
+                    break;
+                }
+            };
+            let interval = Duration::from_millis(policy.poll_interval_ms);
             if !is_current_leader(&outbox_raft, local_node_id) {
                 tokio::time::sleep(interval).await;
                 continue;
@@ -249,8 +254,19 @@ pub async fn run(path: PathBuf) -> Result<()> {
                     continue;
                 }
             };
+            let batch_config = match outbox_publisher_config(&policy) {
+                Ok(value) => value,
+                Err(error) => {
+                    error!(%error, "validate outbox worker policy");
+                    break;
+                }
+            };
             let publisher = outbox.clone();
-            match tokio::task::spawn_blocking(move || publisher.run_once(checkpoint)).await {
+            match tokio::task::spawn_blocking(move || {
+                publisher.run_once_with_config(checkpoint, batch_config)
+            })
+            .await
+            {
                 Ok(Ok(outcome)) if outcome.published > 0 => {
                     info!(
                         published = outcome.published,
@@ -268,8 +284,16 @@ pub async fn run(path: PathBuf) -> Result<()> {
 
     let boundary_raft = raft.clone();
     let boundary_safe_point_gate = safe_point_gate.clone();
+    let boundary_worker_policy = worker_policy.clone();
     let boundary_worker = tokio::spawn(async move {
         loop {
+            let interval = match boundary_worker_policy.snapshot() {
+                Ok(policy) => Duration::from_millis(policy.poll_interval_ms),
+                Err(error) => {
+                    error!(%error, "read boundary worker policy");
+                    break;
+                }
+            };
             if !is_current_leader(&boundary_raft, local_node_id) {
                 tokio::time::sleep(interval).await;
                 continue;
@@ -296,8 +320,24 @@ pub async fn run(path: PathBuf) -> Result<()> {
 
     let local_task_raft = raft.clone();
     let local_task_safe_point_gate = safe_point_gate.clone();
+    let local_task_worker_policy = worker_policy.clone();
     let local_task_worker = tokio::spawn(async move {
         loop {
+            let policy = match local_task_worker_policy.snapshot() {
+                Ok(value) => value,
+                Err(error) => {
+                    error!(%error, "read local task worker policy");
+                    break;
+                }
+            };
+            let interval = Duration::from_millis(policy.poll_interval_ms);
+            let batch_size = match usize::try_from(policy.local_task_batch_size) {
+                Ok(value) => value,
+                Err(error) => {
+                    error!(%error, "local task batch size exceeds usize");
+                    break;
+                }
+            };
             if !is_current_leader(&local_task_raft, local_node_id) {
                 tokio::time::sleep(interval).await;
                 continue;
@@ -306,7 +346,9 @@ pub async fn run(path: PathBuf) -> Result<()> {
             let gate = local_task_safe_point_gate.clone();
             match tokio::task::spawn_blocking(move || {
                 let _permit = gate.enter_work()?;
-                runtime.run_once().map_err(anyhow::Error::from)
+                runtime
+                    .run_once_with_batch_size(batch_size)
+                    .map_err(anyhow::Error::from)
             })
             .await
             {
@@ -329,8 +371,13 @@ pub async fn run(path: PathBuf) -> Result<()> {
         let client = connect_configuration_resolver(&config, &resolver).await?;
         let registry = registry.clone();
         let gate = safe_point_gate.clone();
+        let handles = RuntimeWorkerPolicyHandles {
+            workers: worker_policy,
+            boundary: boundary_policy,
+            local_task_retry: local_task_retry_policy,
+        };
         Some(tokio::spawn(async move {
-            run_configuration_reloader(consumer, client, resolver, registry, gate).await
+            run_configuration_reloader(consumer, client, resolver, registry, gate, handles).await
         }))
     } else {
         None
@@ -386,6 +433,168 @@ pub async fn run(path: PathBuf) -> Result<()> {
 
 fn is_current_leader(raft: &Raft<TypeConfig>, local_node_id: u64) -> bool {
     raft.metrics().borrow().current_leader == Some(local_node_id)
+}
+
+#[derive(Clone)]
+struct EngineWorkerPolicyHandle {
+    value: Arc<RwLock<EngineWorkerPolicy>>,
+}
+
+impl EngineWorkerPolicyHandle {
+    fn new(policy: EngineWorkerPolicy) -> Result<Self> {
+        validate_worker_policy(&policy)?;
+        Ok(Self {
+            value: Arc::new(RwLock::new(policy)),
+        })
+    }
+
+    fn replace(&self, policy: EngineWorkerPolicy) -> Result<()> {
+        validate_worker_policy(&policy)?;
+        *self
+            .value
+            .write()
+            .map_err(|_| anyhow::anyhow!("engine worker policy lock is poisoned"))? = policy;
+        Ok(())
+    }
+
+    fn snapshot(&self) -> Result<EngineWorkerPolicy> {
+        self.value
+            .read()
+            .map(|policy| policy.clone())
+            .map_err(|_| anyhow::anyhow!("engine worker policy lock is poisoned"))
+    }
+}
+
+#[derive(Clone)]
+struct RuntimeWorkerPolicyHandles {
+    workers: EngineWorkerPolicyHandle,
+    boundary: BoundaryPolicyHandle,
+    local_task_retry: LocalTaskRetryPolicyHandle,
+}
+
+impl RuntimeWorkerPolicyHandles {
+    fn replace(&self, boundary: BoundaryRuntimePolicy, workers: EngineWorkerPolicy) -> Result<()> {
+        let retry = local_task_retry_policy(&workers);
+        validate_worker_policy(&workers)?;
+        retry.validate().map_err(anyhow::Error::from)?;
+        self.boundary
+            .replace(boundary)
+            .map_err(anyhow::Error::from)?;
+        self.local_task_retry
+            .replace(retry)
+            .map_err(anyhow::Error::from)?;
+        self.workers.replace(workers)
+    }
+}
+
+fn common_runtime_worker_policy(
+    registry: &RuntimeRegistry,
+) -> Result<(BoundaryRuntimePolicy, EngineWorkerPolicy)> {
+    let mut selected: Option<(BoundaryRuntimePolicy, EngineWorkerPolicy)> = None;
+    for scope in registry.installed_scopes()? {
+        let configuration = ConfigurationProviderPort::resolve(
+            registry,
+            &ConfigurationLookup {
+                tenant_id: scope.tenant_id,
+                workflow_type: scope.workflow_type,
+                workflow_version: scope.workflow_version,
+            },
+        )?;
+        let candidate = (
+            configuration.engine.boundary_runtime,
+            configuration.engine.workers,
+        );
+        if selected
+            .as_ref()
+            .is_some_and(|current| current != &candidate)
+        {
+            anyhow::bail!(
+                "engine worker and boundary policies must be identical across installed workflow scopes"
+            );
+        }
+        selected = Some(candidate);
+    }
+    selected.context("engine has no installed workflow configuration")
+}
+
+fn common_runtime_worker_policy_after_updates(
+    registry: &RuntimeRegistry,
+    updates: &[RuntimeConfigurationUpdate],
+) -> Result<Option<(BoundaryRuntimePolicy, EngineWorkerPolicy)>> {
+    let mut effective = BTreeMap::new();
+    for scope in registry.installed_scopes()? {
+        let lookup = ConfigurationLookup {
+            tenant_id: scope.tenant_id.clone(),
+            workflow_type: scope.workflow_type.clone(),
+            workflow_version: scope.workflow_version.clone(),
+        };
+        if let Ok(configuration) = ConfigurationProviderPort::resolve(registry, &lookup) {
+            effective.insert(
+                (scope.tenant_id, scope.workflow_type, scope.workflow_version),
+                (
+                    configuration.engine.boundary_runtime,
+                    configuration.engine.workers,
+                ),
+            );
+        }
+    }
+    for update in updates {
+        effective.insert(
+            (
+                update.tenant_id.clone(),
+                update.workflow_type.clone(),
+                update.workflow_version.clone(),
+            ),
+            (
+                update.configuration.engine.boundary_runtime.clone(),
+                update.configuration.engine.workers.clone(),
+            ),
+        );
+    }
+    let mut selected: Option<(BoundaryRuntimePolicy, EngineWorkerPolicy)> = None;
+    for candidate in effective.into_values() {
+        if selected
+            .as_ref()
+            .is_some_and(|current| current != &candidate)
+        {
+            anyhow::bail!(
+                "hot engine worker and boundary policies differ across resolved workflow scopes"
+            );
+        }
+        selected = Some(candidate);
+    }
+    Ok(selected)
+}
+
+fn validate_worker_policy(policy: &EngineWorkerPolicy) -> Result<()> {
+    outbox_publisher_config(policy)?;
+    local_task_retry_policy(policy)
+        .validate()
+        .map_err(anyhow::Error::from)?;
+    if policy.poll_interval_ms == 0 || policy.local_task_batch_size == 0 {
+        anyhow::bail!("engine worker policy contains a zero bound");
+    }
+    Ok(())
+}
+
+fn outbox_publisher_config(policy: &EngineWorkerPolicy) -> Result<OutboxPublisherConfig> {
+    OutboxPublisherConfig::new(
+        usize::try_from(policy.outbox_batch_size).context("outbox batch size exceeds usize")?,
+        policy.outbox_retry.max_attempts,
+        policy.outbox_retry.initial_backoff_ms,
+        policy.outbox_retry.max_backoff_ms,
+        policy.outbox_retry.multiplier_millis,
+    )
+    .map_err(Into::into)
+}
+
+const fn local_task_retry_policy(policy: &EngineWorkerPolicy) -> LocalTaskRetryPolicy {
+    LocalTaskRetryPolicy {
+        max_attempts: policy.local_task_retry.max_attempts,
+        initial_backoff_ms: policy.local_task_retry.initial_backoff_ms,
+        max_backoff_ms: policy.local_task_retry.max_backoff_ms,
+        multiplier_millis: policy.local_task_retry.multiplier_millis,
+    }
 }
 
 struct ConfiguredWasmExecutor {
@@ -660,6 +869,7 @@ async fn run_configuration_reloader(
     resolver: ConfigurationResolverConfig,
     registry: Arc<RuntimeRegistry>,
     gate: RuntimeSafePointGate,
+    worker_handles: RuntimeWorkerPolicyHandles,
 ) -> Result<()> {
     loop {
         let message = consumer.recv().await?;
@@ -668,8 +878,15 @@ async fn run_configuration_reloader(
             .context("configuration publication has no payload")?;
         let event = configurationv1::ConfigurationPublicationEvent::decode(payload)
             .context("decode configuration publication")?;
-        let changed =
-            reconcile_configuration_event(&event, &mut client, &resolver, &registry, &gate).await?;
+        let changed = reconcile_configuration_event(
+            &event,
+            &mut client,
+            &resolver,
+            &registry,
+            &gate,
+            &worker_handles,
+        )
+        .await?;
         consumer.commit_message(&message, CommitMode::Sync)?;
         info!(
             event_id = event.event_id,
@@ -686,6 +903,7 @@ async fn reconcile_configuration_event(
     resolver: &ConfigurationResolverConfig,
     registry: &RuntimeRegistry,
     gate: &RuntimeSafePointGate,
+    worker_handles: &RuntimeWorkerPolicyHandles,
 ) -> Result<usize> {
     validate_configuration_event(event)?;
     let owner = configurationv1::ConfigurationOwner::try_from(event.owner)?;
@@ -728,6 +946,19 @@ async fn reconcile_configuration_event(
             )
         })
         .collect::<Vec<_>>();
+    if configurationv1::ConfigurationPublicationKind::try_from(event.kind)?
+        == configurationv1::ConfigurationPublicationKind::Retired
+    {
+        return gate.with_safe_point(|safe_point| match owner {
+            configurationv1::ConfigurationOwner::Engine => registry
+                .retire_configurations(candidates, safe_point)
+                .map_err(Into::into),
+            configurationv1::ConfigurationOwner::Governance => registry
+                .retire_governance_policies(candidates, safe_point)
+                .map_err(Into::into),
+            _ => unreachable!("owner was filtered above"),
+        })?;
+    }
     let mut engine_updates = Vec::with_capacity(candidates.len());
     let mut governance_updates = Vec::with_capacity(candidates.len());
     for candidate in candidates {
@@ -774,16 +1005,23 @@ async fn reconcile_configuration_event(
             _ => unreachable!("owner was filtered above"),
         }
     }
-    gate.with_safe_point(|safe_point| match owner {
-        configurationv1::ConfigurationOwner::Engine => {
-            registry.replace_configurations(engine_updates, safe_point)
+    let runtime_worker_policy =
+        common_runtime_worker_policy_after_updates(registry, &engine_updates)?;
+    gate.with_safe_point(|safe_point| -> Result<usize> {
+        match owner {
+            configurationv1::ConfigurationOwner::Engine => {
+                let changed = registry.replace_configurations(engine_updates, safe_point)?;
+                if let Some((boundary, workers)) = runtime_worker_policy {
+                    worker_handles.replace(boundary, workers)?;
+                }
+                Ok(changed)
+            }
+            configurationv1::ConfigurationOwner::Governance => registry
+                .replace_governance_policies(governance_updates, safe_point)
+                .map_err(Into::into),
+            _ => unreachable!("owner was filtered above"),
         }
-        configurationv1::ConfigurationOwner::Governance => {
-            registry.replace_governance_policies(governance_updates, safe_point)
-        }
-        _ => unreachable!("owner was filtered above"),
     })?
-    .map_err(Into::into)
 }
 
 fn validate_configuration_event(
@@ -943,6 +1181,15 @@ fn configuration_snapshot_from_proto(
     let boundary = engine
         .boundary_runtime
         .context("configuration resolver returned no boundary policy")?;
+    let workers = engine
+        .workers
+        .context("configuration resolver returned no engine worker policy")?;
+    let outbox_retry = workers
+        .outbox_retry
+        .context("configuration resolver returned no outbox retry policy")?;
+    let local_task_retry = workers
+        .local_task_retry
+        .context("configuration resolver returned no local task retry policy")?;
     ResolvedConfigSnapshot::new(
         ConfigId::new(snapshot.config_id)?,
         ConfigVersion::new(snapshot.config_version)?,
@@ -988,6 +1235,23 @@ fn configuration_snapshot_from_proto(
                 max_signal_id_bytes: boundary.max_signal_id_bytes,
                 max_reference_bytes: boundary.max_reference_bytes,
                 max_subscriptions_per_instance: boundary.max_subscriptions_per_instance,
+            },
+            workers: EngineWorkerPolicy {
+                poll_interval_ms: workers.poll_interval_ms,
+                outbox_batch_size: workers.outbox_batch_size,
+                outbox_retry: RetryPolicy {
+                    max_attempts: outbox_retry.max_attempts,
+                    initial_backoff_ms: outbox_retry.initial_backoff_ms,
+                    max_backoff_ms: outbox_retry.max_backoff_ms,
+                    multiplier_millis: outbox_retry.multiplier_millis,
+                },
+                local_task_batch_size: workers.local_task_batch_size,
+                local_task_retry: RetryPolicy {
+                    max_attempts: local_task_retry.max_attempts,
+                    initial_backoff_ms: local_task_retry.initial_backoff_ms,
+                    max_backoff_ms: local_task_retry.max_backoff_ms,
+                    multiplier_millis: local_task_retry.multiplier_millis,
+                },
             },
         },
     )
@@ -1462,6 +1726,7 @@ struct EnginePolicyDto {
     event_payload_key_scope: String,
     authorization_audit_key_scope: String,
     boundary_runtime: BoundaryWorkerConfig,
+    workers: EngineWorkerPolicyDto,
 }
 
 impl EnginePolicyDto {
@@ -1477,7 +1742,30 @@ impl EnginePolicyDto {
             local_wasm: self.local_wasm.into_domain(),
             event_payload_key_scope: KeyScope::new(self.event_payload_key_scope)?,
             authorization_audit_key_scope: KeyScope::new(self.authorization_audit_key_scope)?,
+            workers: self.workers.into_domain(),
         })
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EngineWorkerPolicyDto {
+    poll_interval_ms: u64,
+    outbox_batch_size: u32,
+    outbox_retry: RetryPolicyDto,
+    local_task_batch_size: u32,
+    local_task_retry: RetryPolicyDto,
+}
+
+impl EngineWorkerPolicyDto {
+    const fn into_domain(self) -> EngineWorkerPolicy {
+        EngineWorkerPolicy {
+            poll_interval_ms: self.poll_interval_ms,
+            outbox_batch_size: self.outbox_batch_size,
+            outbox_retry: self.outbox_retry.into_domain(),
+            local_task_batch_size: self.local_task_batch_size,
+            local_task_retry: self.local_task_retry.into_domain(),
+        }
     }
 }
 

@@ -8,11 +8,14 @@ import {
   Play,
   Workflow,
   SlidersHorizontal,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 import { useState, type PropsWithChildren } from "react";
 import { useAuth } from "../auth/AuthContext";
 import { IconButton } from "../components/IconButton";
 import { AppLink, usePathname } from "../routing/router";
+import { useRealtimeStatus } from "../realtime/RealtimeContext";
 
 const navigation = [
   { to: "/", label: "Work queue", icon: ClipboardList },
@@ -26,6 +29,7 @@ const navigation = [
 export function AppShell({ children }: PropsWithChildren) {
   const [compact, setCompact] = useState(false);
   const { identity, disconnect } = useAuth();
+  const realtimeStatus = useRealtimeStatus();
   const pathname = usePathname();
   return (
     <div className={`app-shell ${compact ? "app-shell--compact" : ""}`}>
@@ -58,6 +62,16 @@ export function AppShell({ children }: PropsWithChildren) {
       </aside>
       <main className="main">
         <header className="topbar">
+          <span
+            className={`realtime-status realtime-status--${realtimeStatus}`}
+            title={`Realtime: ${realtimeStatus}`}
+            aria-label={`Realtime ${realtimeStatus}`}
+            role="status"
+          >
+            {realtimeStatus === "connected"
+              ? <Wifi size={16} aria-hidden="true" />
+              : <WifiOff size={16} aria-hidden="true" />}
+          </span>
           <div className="tenant-chip">
             <span>{identity?.tenantId}</span>
           </div>

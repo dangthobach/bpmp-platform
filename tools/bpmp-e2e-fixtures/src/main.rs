@@ -30,6 +30,12 @@ use sha2::{Digest as _, Sha256};
 const MIGRATION: &str = include_str!("../../../db/human-runtime/migrations/001_human_runtime.sql");
 const CONFIGURATION_MIGRATION: &str =
     include_str!("../../../db/configuration-service/migrations/001_configuration.sql");
+const CONFIGURATION_HOT_RELOAD_MIGRATION: &str =
+    include_str!("../../../db/configuration-service/migrations/002_kafka_hot_reload.sql");
+const CONFIGURATION_TENANT_READINESS_MIGRATION: &str =
+    include_str!("../../../db/configuration-service/migrations/003_owner_and_tenant_readiness.sql");
+const CONFIGURATION_AUDIT_VERSIONS_MIGRATION: &str =
+    include_str!("../../../db/configuration-service/migrations/004_audit_effective_versions.sql");
 const PROJECTION_MIGRATION: &str =
     include_str!("../../../db/projection-service/migrations/001_projection.sql");
 const GOVERNANCE_MIGRATION: &str =
@@ -69,6 +75,9 @@ struct Manifest {
     human_health_address: String,
     projection_listen_address: String,
     projection_health_address: String,
+    cockpit_gateway_listen_address: String,
+    cockpit_gateway_health_address: String,
+    cockpit_web_public_origin: String,
     governance_listen_address: String,
     governance_health_address: String,
     gateway_listen_address: String,
@@ -94,6 +103,8 @@ struct KafkaTopics {
     engine_committed_events: String,
     configuration_publications: String,
     human_escalations: String,
+    tenant_lifecycle: String,
+    tenant_configuration_readiness: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -102,10 +113,12 @@ struct KafkaConsumerGroups {
     engine_configuration_reloaders: Vec<String>,
     human_committed_events: String,
     projection_committed_events: String,
+    cockpit_committed_events: String,
     api_gateway_configuration_reloader: String,
     human_runtime_configuration_reloader: String,
     projection_configuration_reloader: String,
     governance_configuration_reloader: String,
+    configuration_tenant_lifecycle: String,
 }
 
 #[derive(Serialize)]
@@ -258,6 +271,18 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
     write_json(
         &output.join("projection-service.json"),
         &projection_config(manifest, mount),
+    )?;
+    write_json(
+        &output.join("cockpit-gateway.json"),
+        &cockpit_gateway_config(manifest, mount),
+    )?;
+    write_json(
+        &output.join("cockpit-web-config.json"),
+        &cockpit_web_config(manifest),
+    )?;
+    write(
+        &output.join("cockpit-web-nginx.conf"),
+        cockpit_web_nginx_config().as_bytes(),
     )?;
     write_json(
         &output.join("governance-service.json"),
@@ -419,7 +444,24 @@ fn workflow_configuration(manifest: &Manifest) -> Value {
                 "local_wasm": {"max_module_bytes": 1_048_576, "max_input_bytes": 65_536, "max_output_bytes": 65_536, "max_memory_bytes": 16_777_216, "max_wasm_stack_bytes": 1_048_576, "max_table_elements": 1024, "max_instances": 4, "max_tables": 4, "max_memories": 2, "fuel": 1_000_000},
                 "event_payload_key_scope": format!("{}/operational", manifest.tenant_id),
                 "authorization_audit_key_scope": format!("{}/audit", manifest.tenant_id),
-                "boundary_runtime": boundary_config("engine-boundary")
+                "boundary_runtime": boundary_config("engine-boundary"),
+                "workers": {
+                    "poll_interval_ms": 100,
+                    "outbox_batch_size": 64,
+                    "outbox_retry": {
+                        "max_attempts": 10,
+                        "initial_backoff_ms": 50,
+                        "max_backoff_ms": 1000,
+                        "multiplier_millis": 2000
+                    },
+                    "local_task_batch_size": 32,
+                    "local_task_retry": {
+                        "max_attempts": 3,
+                        "initial_backoff_ms": 25,
+                        "max_backoff_ms": 250,
+                        "multiplier_millis": 2000
+                    }
+                }
             }
         }
     })
@@ -635,6 +677,144 @@ fn projection_config(manifest: &Manifest, mount: &str) -> Value {
     })
 }
 
+fn cockpit_gateway_config(manifest: &Manifest, mount: &str) -> Value {
+    let path = |name: &str| format!("{mount}/{name}");
+    json!({
+        "listen_address": manifest.cockpit_gateway_listen_address,
+        "health_address": manifest.cockpit_gateway_health_address,
+        "tls": {
+            "certificate": path("secrets/tls.pem"),
+            "private_key": path("secrets/tls-key.pem")
+        },
+        "identity": {
+            "jwks_path": path("jwks.json"),
+            "issuers": [manifest.actor_issuer],
+            "audiences": [manifest.actor_audience],
+            "algorithms": ["EdDSA"],
+            "max_token_bytes": 16384,
+            "max_jwks_keys": 16,
+            "clock_skew_seconds": 30
+        },
+        "http": {
+            "read_header_timeout_ms": 5000,
+            "idle_timeout_ms": 60000,
+            "shutdown_timeout_ms": 10000,
+            "max_header_bytes": 32768,
+            "allowed_origins": [
+                manifest.cockpit_web_public_origin,
+                "https://localhost:4173"
+            ]
+        },
+        "realtime": {
+            "path": "/realtime/v1/events",
+            "allowed_signal_names": [
+                "workflow.changed",
+                "work-item.changed",
+                "case.changed",
+                "audit.changed"
+            ],
+            "max_names_per_connection": 4,
+            "max_signal_names_bytes": 256,
+            "max_connections": 5000,
+            "max_subscriptions": 20000,
+            "outbound_buffer_size": 64,
+            "replay_size_per_stream": 256,
+            "max_replay_streams": 20000,
+            "heartbeat_interval_ms": 15000
+        },
+        "health": {"readiness_timeout_ms": 1000},
+        "telemetry": {
+            "service_name": "cockpit-gateway-e2e",
+            "service_version": "e2e",
+            "endpoint": manifest.otel_endpoint,
+            "insecure": true,
+            "sample_ratio": 0.0,
+            "export_timeout_ms": 1000
+        },
+        "kafka": {
+            "brokers": manifest.kafka.brokers,
+            "client_id": "bpmp-cockpit-committed-events",
+            "security_protocol": manifest.kafka.security_protocol,
+            "dial_timeout_ms": 3000,
+            "request_timeout_ms": 3000,
+            "topic": manifest.kafka.topics.engine_committed_events,
+            "consumer_group": manifest.kafka.consumer_groups.cockpit_committed_events,
+            "batch_size": 64,
+            "max_message_bytes": 1_048_576,
+            "poll_timeout_ms": 500,
+            "session_timeout_ms": 10000
+        }
+    })
+}
+
+fn cockpit_web_config(manifest: &Manifest) -> Value {
+    json!({
+        "apiBaseUrl": manifest.cockpit_web_public_origin,
+        "organizationApiBaseUrl": manifest.cockpit_web_public_origin,
+        "realtimeBaseUrl": manifest.cockpit_web_public_origin,
+        "realtimePath": "/realtime/v1/events",
+        "realtimeSignalNames": [
+            "workflow.changed",
+            "work-item.changed",
+            "case.changed",
+            "audit.changed"
+        ],
+        "realtimeReconnectInitialMs": 500,
+        "realtimeReconnectMaxMs": 10000,
+        "defaultPageSize": 50,
+        "maxPageSize": 200,
+        "batchChunkSize": 25,
+        "batchConcurrency": 4,
+        "requestTimeoutMs": 15000,
+        "staleTimeMs": 5000
+    })
+}
+
+fn cockpit_web_nginx_config() -> String {
+    r#"events {}
+http {
+  resolver 127.0.0.11 valid=10s ipv6=off;
+  server {
+    listen 8080;
+    root /usr/share/nginx/html;
+
+    location = /livez { default_type application/json; return 200 '{"status":"live"}'; }
+    location = /readyz { default_type application/json; return 200 '{"status":"ready"}'; }
+
+    location /v1/ {
+      set $api_gateway https://api-gateway:8443;
+      proxy_pass $api_gateway;
+      proxy_ssl_server_name on;
+      proxy_ssl_name api-gateway;
+      proxy_ssl_trusted_certificate /runtime/secrets/ca.pem;
+      proxy_ssl_verify on;
+      proxy_set_header Host api-gateway;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    location /realtime/ {
+      set $cockpit_gateway https://cockpit-gateway:7601;
+      proxy_pass $cockpit_gateway;
+      proxy_ssl_server_name on;
+      proxy_ssl_name cockpit-gateway;
+      proxy_ssl_trusted_certificate /runtime/secrets/ca.pem;
+      proxy_ssl_verify on;
+      proxy_buffering off;
+      proxy_cache off;
+      proxy_read_timeout 1h;
+      proxy_set_header Host cockpit-gateway;
+    }
+
+    location / {
+      try_files $uri $uri/ /index.html;
+    }
+  }
+}
+"#
+    .to_owned()
+}
+
 fn governance_config(manifest: &Manifest, mount: &str) -> Value {
     let path = |name: &str| format!("{mount}/{name}");
     json!({
@@ -721,6 +901,32 @@ fn configuration_config(manifest: &Manifest, mount: &str) -> Value {
             "required_acks": "ALL",
             "enable_idempotence": true
         },
+        "tenant_lifecycle": {
+            "brokers": manifest.kafka.brokers,
+            "client_id": "bpmp-configuration-tenant-lifecycle",
+            "security_protocol": manifest.kafka.security_protocol,
+            "dial_timeout_ms": 2000,
+            "request_timeout_ms": 5000,
+            "topic": manifest.kafka.topics.tenant_lifecycle,
+            "consumer_group": manifest.kafka.consumer_groups.configuration_tenant_lifecycle,
+            "batch_size": 64,
+            "max_message_bytes": 1_048_576,
+            "poll_timeout_ms": 100,
+            "session_timeout_ms": 10000
+        },
+        "tenant_readiness": {
+            "brokers": manifest.kafka.brokers,
+            "client_id": "bpmp-configuration-tenant-readiness",
+            "security_protocol": manifest.kafka.security_protocol,
+            "dial_timeout_ms": 2000,
+            "request_timeout_ms": 5000,
+            "topic": manifest.kafka.topics.tenant_configuration_readiness,
+            "message_timeout_ms": 5000,
+            "max_inflight": 1,
+            "max_message_bytes": 1_048_576,
+            "required_acks": "ALL",
+            "enable_idempotence": true
+        },
         "outbox": {
             "worker_id": "configuration-publisher-e2e",
             "batch_size": 64,
@@ -770,7 +976,11 @@ fn seeded_configuration_migration(manifest: &Manifest) -> Result<String> {
         .context("E2E configuration snapshot has no engine policy")?;
     let tenant = sql_literal(&manifest.tenant_id);
     let policies = seeded_configuration_policies(engine, manifest);
-    let mut migration = format!("{CONFIGURATION_MIGRATION}\n");
+    let mut migration = format!(
+        "{CONFIGURATION_MIGRATION}\n{CONFIGURATION_HOT_RELOAD_MIGRATION}\n\
+         {CONFIGURATION_TENANT_READINESS_MIGRATION}\n\
+         {CONFIGURATION_AUDIT_VERSIONS_MIGRATION}\n"
+    );
     for (owner, profile_id, version_id, policy) in policies {
         let raw = serde_json::to_vec(&policy)?;
         let values = sql_literal(std::str::from_utf8(&raw)?);
@@ -798,14 +1008,15 @@ fn seeded_configuration_migration(manifest: &Manifest) -> Result<String> {
     Ok(migration)
 }
 
+#[allow(clippy::too_many_lines)]
 fn seeded_configuration_policies(
     engine: &Value,
     manifest: &Manifest,
-) -> [(&'static str, &'static str, &'static str, Value); 5] {
+) -> Vec<(&'static str, &'static str, &'static str, Value)> {
     let tenant_id = &manifest.tenant_id;
     let requester_key = SigningKey::from_bytes(&derive_key(manifest, "governance-requester"));
     let approver_key = SigningKey::from_bytes(&derive_key(manifest, "governance-approver"));
-    [
+    vec![
         (
             "ENGINE",
             "00000000-0000-0000-0000-00000000c001",
@@ -913,6 +1124,65 @@ fn seeded_configuration_policies(
                 "required_approver_count": 1
             }),
         ),
+        (
+            "CONFIGURATION_SERVICE",
+            "00000000-0000-0000-0000-00000000c051",
+            "00000000-0000-0000-0000-00000000c052",
+            json!({
+                "outbox_batch_size": 64,
+                "outbox_lease_ms": "10000",
+                "outbox_poll_ms": "100",
+                "outbox_retry": {
+                    "max_attempts": 5,
+                    "initial_backoff_ms": "100",
+                    "max_backoff_ms": "5000",
+                    "multiplier_millis": 2000
+                },
+                "query_default_page_size": 50,
+                "query_max_page_size": 200,
+                "max_request_body_bytes": "1048576"
+            }),
+        ),
+        (
+            "COCKPIT_GATEWAY",
+            "00000000-0000-0000-0000-00000000c061",
+            "00000000-0000-0000-0000-00000000c062",
+            json!({
+                "max_names_per_connection": 32,
+                "max_signal_names_bytes": 4096,
+                "max_connections": 1000,
+                "max_subscriptions": 1000,
+                "outbound_buffer_size": 256,
+                "replay_size_per_stream": 100,
+                "max_replay_streams": 1000,
+                "heartbeat_interval_ms": "15000",
+                "consume_batch_size": 128,
+                "allowed_signal_names": ["workflow.updated", "work-item.updated"],
+                "allowed_origins": [manifest.cockpit_web_public_origin]
+            }),
+        ),
+        (
+            "AUTHZ_CONTROL_PLANE",
+            "00000000-0000-0000-0000-00000000c071",
+            "00000000-0000-0000-0000-00000000c072",
+            json!({
+                "request_timeout_ms": "3000",
+                "connect_timeout_ms": "1000",
+                "http_pool_max_idle_per_host": 32,
+                "graph_max_depth": 10,
+                "graph_memo_capacity": "10000",
+                "graph_memo_ttl_ms": "60000",
+                "inactive_user_days": 60,
+                "inactive_user_batch_size": 1000,
+                "inactive_user_poll_ms": "86400000",
+                "inactive_user_retry": {
+                    "max_attempts": 3,
+                    "initial_backoff_ms": "100",
+                    "max_backoff_ms": "1000",
+                    "multiplier_millis": 2000
+                }
+            }),
+        ),
     ]
 }
 
@@ -963,11 +1233,30 @@ fn validate_manifest(manifest: &Manifest) -> Result<()> {
         || manifest
             .kafka
             .consumer_groups
+            .cockpit_committed_events
+            .is_empty()
+        || manifest
+            .kafka
+            .consumer_groups
             .governance_configuration_reloader
+            .is_empty()
+        || manifest
+            .kafka
+            .consumer_groups
+            .configuration_tenant_lifecycle
+            .is_empty()
+        || manifest.kafka.topics.tenant_lifecycle.is_empty()
+        || manifest
+            .kafka
+            .topics
+            .tenant_configuration_readiness
             .is_empty()
         || manifest.governance_postgres_dsn.trim().is_empty()
         || manifest.governance_listen_address.trim().is_empty()
         || manifest.governance_health_address.trim().is_empty()
+        || manifest.cockpit_gateway_listen_address.trim().is_empty()
+        || manifest.cockpit_gateway_health_address.trim().is_empty()
+        || manifest.cockpit_web_public_origin.trim().is_empty()
     {
         anyhow::bail!(
             "E2E manifest must define exactly three engines and non-empty brokers/TLS SANs"
@@ -982,6 +1271,8 @@ fn kafka_topics_script(manifest: &Manifest) -> String {
         &manifest.kafka.topics.engine_committed_events,
         &manifest.kafka.topics.configuration_publications,
         &manifest.kafka.topics.human_escalations,
+        &manifest.kafka.topics.tenant_lifecycle,
+        &manifest.kafka.topics.tenant_configuration_readiness,
     ]
     .into_iter()
     .map(|topic| {

@@ -101,9 +101,13 @@ type Store interface {
 }
 
 type RuntimePolicy struct {
-	ConsumeBatchSize     int
-	QueryDefaultPageSize uint32
-	QueryMaxPageSize     uint32
+	ConsumeBatchSize         int
+	RebuildBatchSize         int
+	QueryDefaultPageSize     uint32
+	QueryMaxPageSize         uint32
+	RealtimePublishBatchSize int
+	CheckpointFlush          time.Duration
+	MaxProjectionLag         time.Duration
 }
 
 type RuntimePolicyProvider interface {

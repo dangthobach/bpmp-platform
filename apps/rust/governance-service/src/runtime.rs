@@ -124,13 +124,19 @@ async fn run_configuration_reloader(
         if configurationv1::ConfigurationOwner::try_from(event.owner)?
             == configurationv1::ConfigurationOwner::Governance
         {
-            for scope in policies
-                .scopes()
-                .await
-                .into_iter()
-                .filter(|scope| scope.tenant_id == event.tenant_id)
+            if configurationv1::ConfigurationPublicationKind::try_from(event.kind)?
+                == configurationv1::ConfigurationPublicationKind::Retired
             {
-                policies.refresh(&scope).await?;
+                policies.retire_matching(&event).await?;
+            } else {
+                for scope in policies
+                    .scopes()
+                    .await
+                    .into_iter()
+                    .filter(|scope| scope.tenant_id == event.tenant_id)
+                {
+                    policies.refresh(&scope).await?;
+                }
             }
         }
         consumer.commit_message(&message, CommitMode::Sync)?;

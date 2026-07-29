@@ -57,6 +57,27 @@ func TestInstanceOverrideDoesNotReplaceTenantSnapshot(t *testing.T) {
 	}
 }
 
+func TestRetireTombstoneRejectsOlderPublication(t *testing.T) {
+	cache, err := NewCache(configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_API_GATEWAY)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := CacheKey{TenantID: "tenant-a"}
+	if err = cache.InstallScoped(key, gatewaySnapshot(2)); err != nil {
+		t.Fatal(err)
+	}
+	if err = cache.RetireScoped(key, 3); err != nil {
+		t.Fatal(err)
+	}
+	if err = cache.InstallScoped(key, gatewaySnapshot(2)); !errors.Is(err, ErrStaleSnapshot) {
+		t.Fatalf("retired policy was resurrected: %v", err)
+	}
+	restored := gatewaySnapshot(4)
+	if err = cache.InstallScoped(key, restored); err != nil {
+		t.Fatalf("newer restore was rejected: %v", err)
+	}
+}
+
 func gatewaySnapshot(ordinal uint64) *configurationv1.ResolvedConfigurationSnapshot {
 	return &configurationv1.ResolvedConfigurationSnapshot{
 		ConfigId: "config-a", ConfigVersion: "config-v1", PolicyVersion: "policy-v1",

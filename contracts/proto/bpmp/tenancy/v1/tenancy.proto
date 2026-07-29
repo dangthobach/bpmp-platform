@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package bpmp.tenancy.v1;
+
+import "bpmp/configuration/v1/configuration.proto";
+
+enum TenantLifecycleKind {
+  TENANT_LIFECYCLE_KIND_UNSPECIFIED = 0;
+  TENANT_LIFECYCLE_KIND_CREATED = 1;
+  TENANT_LIFECYCLE_KIND_UPDATED = 2;
+  TENANT_LIFECYCLE_KIND_ACTIVATION_REQUESTED = 3;
+  TENANT_LIFECYCLE_KIND_ACTIVATED = 4;
+  TENANT_LIFECYCLE_KIND_SUSPENDED = 5;
+  TENANT_LIFECYCLE_KIND_DELETED = 6;
+}
+
+message TenantLifecycleEvent {
+  uint32 schema_version = 1;
+  string event_id = 2;
+  uint64 event_sequence = 3;
+  string tenant_id = 4;
+  string tenant_code = 5;
+  uint64 tenant_version = 6;
+  TenantLifecycleKind kind = 7;
+  string actor_ref = 8;
+  string correlation_id = 9;
+  uint64 occurred_at_epoch_ms = 10;
+}
+
+message TenantConfigurationReadinessEvent {
+  uint32 schema_version = 1;
+  string event_id = 2;
+  uint64 event_sequence = 3;
+  string tenant_id = 4;
+  uint64 tenant_version = 5;
+  bool ready = 6;
+  repeated bpmp.configuration.v1.ConfigurationOwner missing_owners = 7;
+  bytes profile_set_hash = 8;
+  uint64 occurred_at_epoch_ms = 9;
+}

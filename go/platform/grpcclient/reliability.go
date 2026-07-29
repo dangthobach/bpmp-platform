@@ -98,7 +98,7 @@ func UnaryClientInterceptor(config Config) (grpc.UnaryClientInterceptor, error) 
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	return dynamicUnaryClientInterceptor(func() (Config, error) { return config, nil }), nil
+	return dynamicUnaryClientInterceptor(func(context.Context) (Config, error) { return config, nil }), nil
 }
 
 func DynamicUnaryClientInterceptor(
@@ -107,11 +107,22 @@ func DynamicUnaryClientInterceptor(
 	if provider == nil {
 		return nil, errors.New("gRPC reliability configuration provider is required")
 	}
+	return dynamicUnaryClientInterceptor(func(context.Context) (Config, error) {
+		return provider()
+	}), nil
+}
+
+func DynamicUnaryClientInterceptorForContext(
+	provider func(context.Context) (Config, error),
+) (grpc.UnaryClientInterceptor, error) {
+	if provider == nil {
+		return nil, errors.New("context-aware gRPC reliability configuration provider is required")
+	}
 	return dynamicUnaryClientInterceptor(provider), nil
 }
 
 func dynamicUnaryClientInterceptor(
-	provider func() (Config, error),
+	provider func(context.Context) (Config, error),
 ) grpc.UnaryClientInterceptor {
 	breaker := circuitBreaker{}
 	return func(
@@ -122,7 +133,7 @@ func dynamicUnaryClientInterceptor(
 		invoker grpc.UnaryInvoker,
 		opts ...grpc.CallOption,
 	) error {
-		config, err := provider()
+		config, err := provider(ctx)
 		if err != nil {
 			return err
 		}

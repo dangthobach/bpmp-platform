@@ -19,6 +19,8 @@ type runtimeConfig struct {
 	TLS             tlsConfig            `json:"tls"`
 	GRPC            grpcConfig           `json:"grpc"`
 	Kafka           kafkaconfig.Producer `json:"kafka"`
+	TenantLifecycle kafkaconfig.Consumer `json:"tenant_lifecycle"`
+	TenantReadiness kafkaconfig.Producer `json:"tenant_readiness"`
 	Outbox          outboxConfig         `json:"outbox"`
 	Identity        identityConfig       `json:"identity"`
 	API             apiConfig            `json:"api"`
@@ -109,6 +111,12 @@ func (c runtimeConfig) validate() error {
 		return errors.New("configuration-service configuration is incomplete")
 	}
 	if err := c.Kafka.Validate(); err != nil {
+		return err
+	}
+	if err := c.TenantLifecycle.Validate(); err != nil {
+		return err
+	}
+	if err := c.TenantReadiness.Validate(); err != nil {
 		return err
 	}
 	if _, _, err := net.SplitHostPort(c.ListenAddress); err != nil {

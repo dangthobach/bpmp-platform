@@ -172,6 +172,8 @@ pub struct ApprovalRequestView {
     pub committed_sequence: u64,
     #[prost(string, tag="16")]
     pub last_error: ::prost::alloc::string::String,
+    #[prost(uint32, tag="17")]
+    pub shred_attempts: u32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CreateApprovalResponse {

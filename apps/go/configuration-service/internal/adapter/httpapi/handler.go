@@ -42,6 +42,9 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("POST /v1/configuration/profiles/{profileID}/versions", h.addDraft)
 	mux.HandleFunc("POST /v1/configuration/profiles/{profileID}/versions/{versionID}/publish", h.publish)
 	mux.HandleFunc("POST /v1/configuration/profiles/{profileID}/versions/{versionID}/rollback", h.rollback)
+	mux.HandleFunc("POST /v1/configuration/profiles/{profileID}/versions/{versionID}/restore", h.restore)
+	mux.HandleFunc("POST /v1/configuration/profiles/{profileID}/retire", h.retire)
+	mux.HandleFunc("GET /v1/configuration/profiles/{profileID}/diff", h.diff)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if correlationID := r.Header.Get("X-Correlation-ID"); correlationID != "" && len(correlationID) <= 128 {
 			w.Header().Set("X-Correlation-ID", correlationID)
@@ -198,6 +201,73 @@ func (h *Handler) rollback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, profile)
+}
+
+func (h *Handler) restore(w http.ResponseWriter, r *http.Request) {
+	actor, err := h.actor(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var body transitionRequest
+	if err = decodeBody(w, r, &body, h.config.MaxBodyBytes); err != nil {
+		writeError(w, domain.ErrInvalid)
+		return
+	}
+	profile, err := h.service.Restore(
+		r.Context(), actor, r.PathValue("profileID"), r.PathValue("versionID"),
+		body.ExpectedVersion, body.PolicyVersion, body.Reason,
+	)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, profile)
+}
+
+func (h *Handler) retire(w http.ResponseWriter, r *http.Request) {
+	actor, err := h.actor(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var body transitionRequest
+	if err = decodeBody(w, r, &body, h.config.MaxBodyBytes); err != nil {
+		writeError(w, domain.ErrInvalid)
+		return
+	}
+	profile, err := h.service.Retire(
+		r.Context(),
+		actor,
+		r.PathValue("profileID"),
+		body.ExpectedVersion,
+		body.Reason,
+	)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, profile)
+}
+
+func (h *Handler) diff(w http.ResponseWriter, r *http.Request) {
+	actor, err := h.actor(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	result, err := h.service.Diff(
+		r.Context(),
+		actor,
+		r.PathValue("profileID"),
+		r.URL.Query().Get("from_version"),
+		r.URL.Query().Get("to_version"),
+	)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (h *Handler) actor(r *http.Request) (domain.Actor, error) {

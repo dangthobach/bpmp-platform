@@ -176,6 +176,23 @@ button:disabled {
   background: rgba(255, 255, 255, 0.96);
 }
 
+.realtime-status {
+  align-items: center;
+  color: var(--muted);
+  display: inline-flex;
+  height: 32px;
+  justify-content: center;
+  width: 32px;
+}
+
+.realtime-status--connected {
+  color: var(--green-600);
+}
+
+.realtime-status--unauthorized {
+  color: var(--danger);
+}
+
 .tenant-chip {
   margin-left: auto;
   max-width: 220px;

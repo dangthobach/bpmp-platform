@@ -7,12 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/dangthobach/bpmp-platform/apps/go/configuration-service/internal/domain"
 	configurationv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/configuration/v1"
+	tenancyv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/tenancy/v1"
 	"github.com/dangthobach/bpmp-platform/go/platform/kafkaconfig"
 )
 
@@ -87,6 +89,52 @@ func (p *Publisher) Publish(ctx context.Context, publication domain.Publication)
 	return nil
 }
 
+func (p *Publisher) PublishTenantReadiness(
+	ctx context.Context,
+	publication domain.TenantReadinessPublication,
+) error {
+	missing := make([]configurationv1.ConfigurationOwner, 0, len(publication.MissingOwners))
+	for _, owner := range publication.MissingOwners {
+		value := ownerToProto(owner)
+		if value == configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_UNSPECIFIED {
+			return errors.New("tenant readiness publication owner is invalid")
+		}
+		missing = append(missing, value)
+	}
+	event := &tenancyv1.TenantConfigurationReadinessEvent{
+		SchemaVersion:     1,
+		EventId:           publication.EventID,
+		EventSequence:     publication.EventSequence,
+		TenantId:          publication.TenantID,
+		TenantVersion:     publication.TenantVersion,
+		Ready:             publication.Ready,
+		MissingOwners:     missing,
+		ProfileSetHash:    publication.ProfileSetHash[:],
+		OccurredAtEpochMs: uint64(publication.OccurredAt.UnixMilli()),
+	}
+	payload, err := proto.MarshalOptions{Deterministic: true}.Marshal(event)
+	if err != nil {
+		return err
+	}
+	if len(payload) > p.maxMessageBytes {
+		return errors.New("tenant readiness publication exceeds Kafka message bound")
+	}
+	result := p.client.ProduceSync(ctx, &kgo.Record{
+		Topic: p.topic,
+		Key:   []byte(publication.TenantID),
+		Value: payload,
+		Headers: []kgo.RecordHeader{
+			{Key: "bpmp-event-id", Value: []byte(publication.EventID)},
+			{Key: "bpmp-tenant-id", Value: []byte(publication.TenantID)},
+			{Key: "bpmp-schema-version", Value: []byte("1")},
+		},
+	})
+	if err = result.FirstErr(); err != nil {
+		return fmt.Errorf("publish tenant readiness event: %w", err)
+	}
+	return nil
+}
+
 func publicationEvent(publication domain.Publication) (*configurationv1.ConfigurationPublicationEvent, error) {
 	owner := ownerToProto(publication.Owner)
 	scope := scopeToProto(publication.Scope.Type)
@@ -96,12 +144,20 @@ func publicationEvent(publication domain.Publication) (*configurationv1.Configur
 		kind = configurationv1.ConfigurationPublicationKind_CONFIGURATION_PUBLICATION_KIND_PUBLISHED
 	case "configuration.rolled_back":
 		kind = configurationv1.ConfigurationPublicationKind_CONFIGURATION_PUBLICATION_KIND_ROLLED_BACK
+	case "configuration.retired":
+		kind = configurationv1.ConfigurationPublicationKind_CONFIGURATION_PUBLICATION_KIND_RETIRED
+	case "configuration.restored":
+		kind = configurationv1.ConfigurationPublicationKind_CONFIGURATION_PUBLICATION_KIND_RESTORED
 	default:
 		return nil, errors.New("configuration publication kind is invalid")
 	}
 	if owner == configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_UNSPECIFIED ||
 		scope == configurationv1.ConfigurationScopeType_CONFIGURATION_SCOPE_TYPE_UNSPECIFIED {
 		return nil, errors.New("configuration publication scope is invalid")
+	}
+	workflowType, workflowVersion, instanceID, err := scopeDimensions(publication.Scope)
+	if err != nil {
+		return nil, err
 	}
 	return &configurationv1.ConfigurationPublicationEvent{
 		SchemaVersion:     1,
@@ -118,6 +174,9 @@ func publicationEvent(publication domain.Publication) (*configurationv1.Configur
 		ContentHash:       publication.ContentHash[:],
 		Kind:              kind,
 		OccurredAtEpochMs: uint64(publication.OccurredAt.UnixMilli()),
+		WorkflowType:      workflowType,
+		WorkflowVersion:   workflowVersion,
+		InstanceId:        instanceID,
 	}, nil
 }
 
@@ -133,8 +192,31 @@ func ownerToProto(owner domain.Owner) configurationv1.ConfigurationOwner {
 		return configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_PROJECTION
 	case domain.OwnerGovernance:
 		return configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_GOVERNANCE
+	case domain.OwnerConfigurationService:
+		return configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_CONFIGURATION_SERVICE
+	case domain.OwnerCockpitGateway:
+		return configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_COCKPIT_GATEWAY
+	case domain.OwnerAuthzControlPlane:
+		return configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_AUTHZ_CONTROL_PLANE
 	default:
 		return configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_UNSPECIFIED
+	}
+}
+
+func scopeDimensions(scope domain.Scope) (string, string, string, error) {
+	switch scope.Type {
+	case domain.ScopeWorkflowType:
+		return scope.Reference, "", "", nil
+	case domain.ScopeWorkflowVersion:
+		workflowType, workflowVersion, found := strings.Cut(scope.Reference, ":")
+		if !found || workflowType == "" || workflowVersion == "" {
+			return "", "", "", errors.New("workflow version scope must use workflowType:workflowVersion")
+		}
+		return workflowType, workflowVersion, "", nil
+	case domain.ScopeApprovedInstanceOverride:
+		return "", "", scope.Reference, nil
+	default:
+		return "", "", "", nil
 	}
 }
 

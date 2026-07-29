@@ -1,10 +1,18 @@
 {
   "apiBaseUrl": "http://127.0.0.1:4173",
   "organizationApiBaseUrl": "http://127.0.0.1:4173",
+  "realtimeBaseUrl": "http://127.0.0.1:4173",
+  "realtimePath": "/realtime/v1/events",
+  "realtimeSignalNames": [
+    "workflow.changed",
+    "work-item.changed",
+    "case.changed",
+    "audit.changed"
+  ],
+  "realtimeReconnectInitialMs": 500,
+  "realtimeReconnectMaxMs": 10000,
   "defaultPageSize": 50,
   "maxPageSize": 200,
-  "batchChunkSize": 25,
-  "batchConcurrency": 4,
   "requestTimeoutMs": 15000,
   "staleTimeMs": 5000
 }

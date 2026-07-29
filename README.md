@@ -64,3 +64,20 @@ gate with `./tools/check-wasmtime.ps1`, or include it in the full workspace gate
 with `./tools/check.ps1 -IncludeWasmtime`. Run native Linux RocksDB integration
 tests with `./tools/check-rocksdb-linux.ps1`; its Docker image and named Cargo
 volumes avoid repeating the full cold build each run.
+
+## Run locally
+
+Start persistent PostgreSQL, Kafka, Redis and OpenTelemetry infrastructure,
+then apply checksum-tracked DDL:
+
+```powershell
+.\platform\local\manage.ps1 up
+```
+
+See [`platform/local/README.md`](platform/local/README.md) for configurable
+ports, migration commands, logs, backup and guarded reset. Run the complete
+three-node Engine, service and Cockpit topology with:
+
+```powershell
+.\platform\e2e\run.ps1
+```

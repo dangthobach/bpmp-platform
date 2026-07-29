@@ -30,7 +30,7 @@ pub use application::{
 pub use authorization::EmbeddedAuthorizationProvider;
 pub use boundary_runtime::{
     BoundaryCommandDispatcherPort, BoundaryDispatchCredentials, BoundaryDispatchCredentialsPort,
-    BoundaryDispatchRequest, BoundaryDispatchSource, BoundaryEventSourcePort,
+    BoundaryDispatchRequest, BoundaryDispatchSource, BoundaryEventSourcePort, BoundaryPolicyHandle,
     BoundaryProjectionMutation, BoundaryProjectionRecord, BoundaryRuntime, BoundaryRuntimeError,
     BoundaryRuntimeStorePort, BoundarySignal, BoundarySignalKind, BoundarySubscriptionKey,
     ClaimedCorrelation, ClaimedTimer, ClockPort, DispatchOutcome, EngineBoundaryCommandDispatcher,
@@ -60,8 +60,9 @@ pub use governance_transport::{
 };
 pub use local_task_runtime::{
     LocalTaskActivation, LocalTaskCompletionDispatcherPort, LocalTaskExecutionOutcome,
-    LocalTaskExecutorPort, LocalTaskKind, LocalTaskRetryPolicy, LocalTaskRunOutcome,
-    LocalTaskRuntime, LocalTaskRuntimeError, LocalTaskRuntimeStorePort, RetryingLocalTaskExecutor,
+    LocalTaskExecutorPort, LocalTaskKind, LocalTaskRetryPolicy, LocalTaskRetryPolicyHandle,
+    LocalTaskRunOutcome, LocalTaskRuntime, LocalTaskRuntimeError, LocalTaskRuntimeStorePort,
+    RetryingLocalTaskExecutor,
 };
 pub use outbox::{
     IntegrationEventPublisherPort, OutboxError, OutboxPublisher, OutboxPublisherConfig,

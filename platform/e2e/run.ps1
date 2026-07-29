@@ -11,6 +11,7 @@ $root = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
 $compose = Join-Path $PSScriptRoot "compose.yaml"
 $envFile = Join-Path $PSScriptRoot ".env"
 $runtime = Join-Path $PSScriptRoot "runtime"
+$realtimeProcess = $null
 
 if (-not (Test-Path $envFile)) {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot ".env.example") -Destination $envFile
@@ -170,8 +171,23 @@ try {
     $settings = Get-Content $envFile -Raw | ConvertFrom-StringData
     $gatewayPort = $settings.GATEWAY_PORT
     $governancePort = $settings.GOVERNANCE_PORT
+    $cockpitGatewayPort = $settings.COCKPIT_GATEWAY_PORT
+    $cockpitWebPort = $settings.COCKPIT_WEB_PORT
     $token = (Get-Content (Join-Path $runtime "actor.jwt") -Raw).Trim()
     $suffix = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    $cockpitPage = Invoke-WebRequest `
+        -Method Get `
+        -Uri "http://localhost:$cockpitWebPort/"
+    $cockpitRuntime = Invoke-RestMethod `
+        -Method Get `
+        -Uri "http://localhost:$cockpitWebPort/config.json"
+    if (
+        $cockpitPage.StatusCode -ne 200 -or
+        $cockpitPage.Content -notmatch '<div id="root"></div>' -or
+        $cockpitRuntime.realtimePath -ne "/realtime/v1/events"
+    ) {
+        throw "Cockpit Web artifact or runtime configuration is unavailable"
+    }
     $openAPI = Invoke-RestMethod `
         -SkipCertificateCheck `
         -Method Get `
@@ -387,6 +403,7 @@ try {
     $gatewayConfiguration = Get-Content (Join-Path $runtime "api-gateway.json") -Raw | ConvertFrom-Json
     $humanConfiguration = Get-Content (Join-Path $runtime "human-runtime.json") -Raw | ConvertFrom-Json
     $projectionConfiguration = Get-Content (Join-Path $runtime "projection-service.json") -Raw | ConvertFrom-Json
+    $cockpitConfiguration = Get-Content (Join-Path $runtime "cockpit-gateway.json") -Raw | ConvertFrom-Json
     $governanceConfiguration = Get-Content (Join-Path $runtime "governance-service.json") -Raw | ConvertFrom-Json
     $consumerGroups = @($engineConfigurations | ForEach-Object {
         $_.kafka.consumer_groups.configuration_reloader
@@ -394,12 +411,33 @@ try {
     $consumerGroups += $gatewayConfiguration.runtime_configuration.kafka.consumer_group
     $consumerGroups += $humanConfiguration.runtime_configuration.kafka.consumer_group
     $consumerGroups += $projectionConfiguration.runtime_configuration.kafka.consumer_group
+    $consumerGroups += $cockpitConfiguration.kafka.consumer_group
     $consumerGroups += $governanceConfiguration.kafka.consumer_group
     $consumerGroups | ForEach-Object {
         Wait-KafkaConsumerGroup -ConsumerGroup $_
     }
 
     $instance = "e2e-$suffix"
+    $realtimeOutput = Join-Path $runtime "cockpit-realtime.txt"
+    $realtimeCurlConfig = Join-Path $runtime "cockpit-realtime.curl"
+    @"
+insecure
+silent
+show-error
+no-buffer
+max-time = 90
+header = "Authorization: Bearer $token"
+header = "X-BPMP-Tenant-ID: tenant-e2e"
+header = "X-Correlation-ID: realtime-$suffix"
+url = "https://localhost:$cockpitGatewayPort/realtime/v1/events?names=workflow.changed,work-item.changed"
+"@ | Set-Content -LiteralPath $realtimeCurlConfig -Encoding utf8NoBOM
+    $realtimeProcess = Start-Process `
+        -FilePath "curl.exe" `
+        -ArgumentList @("--config", $realtimeCurlConfig) `
+        -RedirectStandardOutput $realtimeOutput `
+        -RedirectStandardError (Join-Path $runtime "cockpit-realtime-error.txt") `
+        -WindowStyle Hidden `
+        -PassThru
     $startHeaders = @{
         Authorization = "Bearer $token"
         "X-BPMP-Tenant-ID" = "tenant-e2e"
@@ -476,6 +514,32 @@ try {
     if (-not $workItem) {
         throw "Kafka event was not projected to an active PostgreSQL work item"
     }
+    $realtimeDeadline = (Get-Date).AddSeconds(30)
+    do {
+        $realtimeContent = if (Test-Path $realtimeOutput) {
+            Get-Content $realtimeOutput -Raw
+        } else {
+            ""
+        }
+        if (
+            $realtimeContent -match "event: workflow.changed" -and
+            $realtimeContent -match "event: work-item.changed" -and
+            $realtimeContent -match [regex]::Escape($instance)
+        ) {
+            break
+        }
+        Start-Sleep -Milliseconds 250
+    } while ((Get-Date) -lt $realtimeDeadline)
+    if (
+        $realtimeContent -notmatch "event: workflow.changed" -or
+        $realtimeContent -notmatch "event: work-item.changed" -or
+        $realtimeContent -notmatch [regex]::Escape($instance)
+    ) {
+        throw "Cockpit Gateway did not fan out the committed workflow event"
+    }
+    if (-not $realtimeProcess.HasExited) {
+        Stop-Process -Id $realtimeProcess.Id
+    }
 
     # Force a real Raft leader-loss path. Engine 2 remains the configured API
     # endpoint and must forward to, or become, the new majority leader.
@@ -524,6 +588,9 @@ try {
 
     Write-Host "Broker-backed E2E passed with Projection, Governance and leader failover: config=$($configuration.id) governance=$governanceRequestId instance=$instance work_item=$workItem human_inbox=$inboxCount projection_inbox=$projectionInboxCount"
 } finally {
+    if ($null -ne $realtimeProcess -and -not $realtimeProcess.HasExited) {
+        Stop-Process -Id $realtimeProcess.Id
+    }
     if (-not $KeepRunning) {
         Invoke-Compose down --volumes --remove-orphans
     }

@@ -77,6 +77,32 @@ must produce no source diff after `buf generate`.
 
 ## Local process topology
 
+For day-to-day service development, start persistent PostgreSQL, Kafka, Redis,
+OTLP and dedicated DDL jobs with:
+
+```powershell
+.\platform\local\manage.ps1 up
+```
+
+The local infrastructure runbook, configurable ports and reset safeguards are
+documented in
+[`platform/local/README.md`](../platform/local/README.md). Migration ownership,
+filename rules, immutable checksums and entity/audit conventions are documented
+in [`db/README.md`](../db/README.md). This topology intentionally excludes
+application containers so developers can run one bounded context without
+building the Rust Engine image.
+
+Authz Control Plane has a separate optional compose topology. Its PostgreSQL
+host port defaults to `15436` and is configurable through
+`AUTHZ_POSTGRES_PORT`; this avoids colliding with a workstation PostgreSQL on
+`5432`:
+
+```powershell
+Set-Location apps/rust/authz-control-plane
+docker compose up -d postgres
+$env:DATABASE_URL = "postgres://authz:authz_secret@localhost:15436/authz_db"
+```
+
 Docker must be running. The harness generates short-lived certificates, keys,
 JWT, signed WIR, authorization bundle, SQL seed data and centralized Kafka
 configuration under the ignored `platform/e2e/runtime/` directory:
@@ -116,6 +142,8 @@ The successful probe proves all of the following:
 - Human Runtime consumes committed events and creates one PostgreSQL work item.
 - Projection Service transactionally records the event inbox, read model and
   checkpoint before acknowledging Kafka.
+- Cockpit Gateway authenticates a tenant SSE stream and fans out committed
+  workflow/work-item hints through a bounded replay cursor.
 - Governance Service creates a durable approval over mTLS, binds it to the
   Engine-prepared stream and compensation-ledger digests, and appends an
   immutable PostgreSQL audit record.
@@ -149,6 +177,12 @@ Sharing one group across replicas distributes partitions and leaves caches on
 non-assigned replicas stale. Each process first resolves all configured tenants
 at startup, so a new group does not depend on replaying historical publications.
 
+Committed Engine events are also a broadcast input for Cockpit Gateway. Every
+gateway replica therefore needs its own stable committed-event consumer group.
+Sharing a group distributes partitions between replicas and leaves connected
+browsers on other replicas without notifications. A reconnect to a replica
+that no longer retains the cursor produces `resync-required`.
+
 ## Deployment order
 
 1. Publish immutable image digests, Protobuf descriptors, signed WIR and policy
@@ -158,13 +192,20 @@ at startup, so a new group does not depend on replaying historical publications.
    migrations as ordered one-shot jobs using the owning service credential.
    Existing Human Runtime databases must apply
    `002_delegation_depth.sql` before deploying a binary that enforces dynamic
-   delegation depth.
+   delegation depth. Configuration Service must apply
+   `003_owner_and_tenant_readiness.sql` and
+   `004_audit_effective_versions.sql` before accepting publications from the
+   eight-owner contract.
 3. Provision Kafka topics, ACLs and retention from the centralized topology.
    Verify idempotent producer and manual-commit consumer permissions.
 4. Start Configuration Service and wait for both HTTP and mTLS gRPC readiness.
-5. Publish complete tenant policies for every deployed owner. `policy_version`
-   identifies the compatible authorization policy; use immutable
-   `config_version` and ordinal for runtime configuration revisions.
+5. Create the tenant in Authz Control Plane. Its transactional lifecycle outbox
+   drives Configuration Service readiness. Publish complete tenant policies for
+   every owner marked required in `configuration_activation_requirements`.
+   Activate the tenant only after the readiness event for the same tenant
+   version reports no missing owner. `policy_version` identifies the compatible
+   authorization policy; use immutable `config_version` and ordinal for runtime
+   configuration revisions.
 6. Start three or five Engine members with separate volumes, TLS identities and
    configuration-reloader groups. Bootstrap membership once and wait for quorum.
 7. Start Projection Service. Readiness requires its PostgreSQL schema,
@@ -175,7 +216,13 @@ at startup, so a new group does not depend on replaying historical publications.
    Engine governance API; it never writes Engine RocksDB or Raft state directly.
 9. Start Human Runtime, then API Gateway. Readiness requires PostgreSQL/Redis,
    upstream gRPC, Kafka and all initial tenant cache entries.
-10. Enable ingress only after the acceptance transaction and every
+10. Start Cockpit Gateway with a per-replica Kafka consumer group. Verify JWT
+    audience/issuer configuration, CORS origins and bounded SSE settings before
+    exposing its realtime route.
+11. Deploy Cockpit Web with immutable assets and an environment-specific
+    `config.json`. Route `/v1` and `/realtime` through the same-origin edge;
+    disable proxy buffering and long response timeouts for SSE.
+12. Enable ingress only after the acceptance transaction and every
     configuration-reloader group reaches zero lag.
 
 ## Rollout and rollback
@@ -184,11 +231,16 @@ Publish a new immutable configuration version and wait for every process group
 to reach zero lag before increasing traffic. Never mutate a published version.
 An invalid event, unavailable resolver, hash mismatch or stale ordinal is
 fail-closed: the consumer does not commit the record and the process exits.
+Workers install a new policy only at the start of a command or batch, or after
+a durable checkpoint. A publication must never change policy during a database
+transaction, RocksDB WriteBatch or Kafka acknowledgement sequence.
 
-Rollback configuration through the Configuration Service rollback lifecycle,
-which creates another published version. Roll back stateless images only across
-compatible Protobuf and database schemas. Preserve Kafka offsets, PostgreSQL
-audit/outbox rows and Engine Raft/RocksDB volumes during recovery.
+Rollback or restore configuration through the Configuration Service lifecycle;
+both create a new immutable published version. Retire installs a tombstone so a
+replayed older publication cannot resurrect the policy. Roll back stateless
+images only across compatible Protobuf and database schemas. Preserve Kafka
+offsets, PostgreSQL audit/outbox rows and Engine Raft/RocksDB volumes during
+recovery.
 
 The complete production-HA promotion gates remain in
 `docs/production-deployment-process.md`.

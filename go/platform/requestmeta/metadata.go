@@ -45,6 +45,14 @@ func TraceFromIncomingContext(ctx context.Context) (string, string) {
 	return first(incoming.Get(TraceParent)), first(incoming.Get(TraceState))
 }
 
+func TenantFromOutgoingContext(ctx context.Context) string {
+	outgoing, ok := metadata.FromOutgoingContext(ctx)
+	if !ok {
+		return ""
+	}
+	return first(outgoing.Get(TenantID))
+}
+
 func first(values []string) string {
 	if len(values) == 0 {
 		return ""

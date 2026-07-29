@@ -49,7 +49,7 @@ type recordingEngine struct {
 	err     error
 }
 
-var testPolicyProvider = RuntimePolicyProviderFunc(func() (RuntimePolicy, error) {
+var testPolicyProvider = RuntimePolicyProviderFunc(func(string) (RuntimePolicy, error) {
 	return RuntimePolicy{
 		MaxAssignmentCandidates: 16,
 		MaxDelegationDepth:      3,
@@ -128,7 +128,7 @@ func TestCompleteForwardsOriginalActorTokenUnchanged(t *testing.T) {
 }
 
 func TestDynamicPolicyBoundsAssignmentClaimsAndDelegationDepth(t *testing.T) {
-	policy := RuntimePolicyProviderFunc(func() (RuntimePolicy, error) {
+	policy := RuntimePolicyProviderFunc(func(string) (RuntimePolicy, error) {
 		return RuntimePolicy{
 			MaxAssignmentCandidates: 1,
 			MaxDelegationDepth:      1,

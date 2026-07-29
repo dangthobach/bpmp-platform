@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: authz_secret
       POSTGRES_DB: authz_db
     ports:
-      - "5432:5432"
+      - "${AUTHZ_POSTGRES_PORT:-15436}:5432"
     volumes:
       - authz_pgdata:/var/lib/postgresql/data
     healthcheck:

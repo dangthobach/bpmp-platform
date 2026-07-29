@@ -40,6 +40,21 @@ pub struct EnginePolicy {
     pub boundary_runtime: ::core::option::Option<BoundaryRuntimePolicy>,
     #[prost(string, tag="10")]
     pub event_payload_key_scope: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="11")]
+    pub workers: ::core::option::Option<EngineWorkerPolicy>,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct EngineWorkerPolicy {
+    #[prost(uint64, tag="1")]
+    pub poll_interval_ms: u64,
+    #[prost(uint32, tag="2")]
+    pub outbox_batch_size: u32,
+    #[prost(message, optional, tag="3")]
+    pub outbox_retry: ::core::option::Option<RetryPolicy>,
+    #[prost(uint32, tag="4")]
+    pub local_task_batch_size: u32,
+    #[prost(message, optional, tag="5")]
+    pub local_task_retry: ::core::option::Option<RetryPolicy>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct BoundaryRuntimePolicy {
@@ -200,6 +215,71 @@ pub struct GovernanceApprovalKey {
     #[prost(bool, tag="3")]
     pub enabled: bool,
 }
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ConfigurationServicePolicy {
+    #[prost(uint32, tag="1")]
+    pub outbox_batch_size: u32,
+    #[prost(uint64, tag="2")]
+    pub outbox_lease_ms: u64,
+    #[prost(uint64, tag="3")]
+    pub outbox_poll_ms: u64,
+    #[prost(message, optional, tag="4")]
+    pub outbox_retry: ::core::option::Option<RetryPolicy>,
+    #[prost(uint32, tag="5")]
+    pub query_default_page_size: u32,
+    #[prost(uint32, tag="6")]
+    pub query_max_page_size: u32,
+    #[prost(uint64, tag="7")]
+    pub max_request_body_bytes: u64,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct CockpitGatewayPolicy {
+    #[prost(uint32, tag="1")]
+    pub max_names_per_connection: u32,
+    #[prost(uint32, tag="2")]
+    pub max_signal_names_bytes: u32,
+    #[prost(uint32, tag="3")]
+    pub max_connections: u32,
+    #[prost(uint32, tag="4")]
+    pub max_subscriptions: u32,
+    #[prost(uint32, tag="5")]
+    pub outbound_buffer_size: u32,
+    #[prost(uint32, tag="6")]
+    pub replay_size_per_stream: u32,
+    #[prost(uint32, tag="7")]
+    pub max_replay_streams: u32,
+    #[prost(uint64, tag="8")]
+    pub heartbeat_interval_ms: u64,
+    #[prost(uint32, tag="9")]
+    pub consume_batch_size: u32,
+    #[prost(string, repeated, tag="10")]
+    pub allowed_signal_names: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, repeated, tag="11")]
+    pub allowed_origins: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct AuthzControlPlanePolicy {
+    #[prost(uint64, tag="1")]
+    pub request_timeout_ms: u64,
+    #[prost(uint64, tag="2")]
+    pub connect_timeout_ms: u64,
+    #[prost(uint32, tag="3")]
+    pub http_pool_max_idle_per_host: u32,
+    #[prost(uint32, tag="4")]
+    pub graph_max_depth: u32,
+    #[prost(uint64, tag="5")]
+    pub graph_memo_capacity: u64,
+    #[prost(uint64, tag="6")]
+    pub graph_memo_ttl_ms: u64,
+    #[prost(uint32, tag="7")]
+    pub inactive_user_days: u32,
+    #[prost(uint32, tag="8")]
+    pub inactive_user_batch_size: u32,
+    #[prost(uint64, tag="9")]
+    pub inactive_user_poll_ms: u64,
+    #[prost(message, optional, tag="10")]
+    pub inactive_user_retry: ::core::option::Option<RetryPolicy>,
+}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ResolvedConfigurationSnapshot {
     #[prost(string, tag="1")]
@@ -228,6 +308,12 @@ pub struct ResolvedConfigurationSnapshot {
     pub governance: ::core::option::Option<GovernancePolicy>,
     #[prost(uint64, tag="13")]
     pub ordinal: u64,
+    #[prost(message, optional, tag="14")]
+    pub configuration_service: ::core::option::Option<ConfigurationServicePolicy>,
+    #[prost(message, optional, tag="15")]
+    pub cockpit_gateway: ::core::option::Option<CockpitGatewayPolicy>,
+    #[prost(message, optional, tag="16")]
+    pub authz_control_plane: ::core::option::Option<AuthzControlPlanePolicy>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ResolveConfigurationRequest {
@@ -281,6 +367,12 @@ pub struct ConfigurationPublicationEvent {
     pub kind: i32,
     #[prost(uint64, tag="14")]
     pub occurred_at_epoch_ms: u64,
+    #[prost(string, tag="15")]
+    pub workflow_type: ::prost::alloc::string::String,
+    #[prost(string, tag="16")]
+    pub workflow_version: ::prost::alloc::string::String,
+    #[prost(string, tag="17")]
+    pub instance_id: ::prost::alloc::string::String,
 }
 /// Immutable protocol values. Runtime policy belongs in EnginePolicy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
@@ -333,6 +425,9 @@ pub enum ConfigurationOwner {
     HumanRuntime = 3,
     Projection = 4,
     Governance = 5,
+    ConfigurationService = 6,
+    CockpitGateway = 7,
+    AuthzControlPlane = 8,
 }
 impl ConfigurationOwner {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -347,6 +442,9 @@ impl ConfigurationOwner {
             Self::HumanRuntime => "CONFIGURATION_OWNER_HUMAN_RUNTIME",
             Self::Projection => "CONFIGURATION_OWNER_PROJECTION",
             Self::Governance => "CONFIGURATION_OWNER_GOVERNANCE",
+            Self::ConfigurationService => "CONFIGURATION_OWNER_CONFIGURATION_SERVICE",
+            Self::CockpitGateway => "CONFIGURATION_OWNER_COCKPIT_GATEWAY",
+            Self::AuthzControlPlane => "CONFIGURATION_OWNER_AUTHZ_CONTROL_PLANE",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -358,6 +456,9 @@ impl ConfigurationOwner {
             "CONFIGURATION_OWNER_HUMAN_RUNTIME" => Some(Self::HumanRuntime),
             "CONFIGURATION_OWNER_PROJECTION" => Some(Self::Projection),
             "CONFIGURATION_OWNER_GOVERNANCE" => Some(Self::Governance),
+            "CONFIGURATION_OWNER_CONFIGURATION_SERVICE" => Some(Self::ConfigurationService),
+            "CONFIGURATION_OWNER_COCKPIT_GATEWAY" => Some(Self::CockpitGateway),
+            "CONFIGURATION_OWNER_AUTHZ_CONTROL_PLANE" => Some(Self::AuthzControlPlane),
             _ => None,
         }
     }
@@ -368,6 +469,8 @@ pub enum ConfigurationPublicationKind {
     Unspecified = 0,
     Published = 1,
     RolledBack = 2,
+    Retired = 3,
+    Restored = 4,
 }
 impl ConfigurationPublicationKind {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -379,6 +482,8 @@ impl ConfigurationPublicationKind {
             Self::Unspecified => "CONFIGURATION_PUBLICATION_KIND_UNSPECIFIED",
             Self::Published => "CONFIGURATION_PUBLICATION_KIND_PUBLISHED",
             Self::RolledBack => "CONFIGURATION_PUBLICATION_KIND_ROLLED_BACK",
+            Self::Retired => "CONFIGURATION_PUBLICATION_KIND_RETIRED",
+            Self::Restored => "CONFIGURATION_PUBLICATION_KIND_RESTORED",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -387,6 +492,8 @@ impl ConfigurationPublicationKind {
             "CONFIGURATION_PUBLICATION_KIND_UNSPECIFIED" => Some(Self::Unspecified),
             "CONFIGURATION_PUBLICATION_KIND_PUBLISHED" => Some(Self::Published),
             "CONFIGURATION_PUBLICATION_KIND_ROLLED_BACK" => Some(Self::RolledBack),
+            "CONFIGURATION_PUBLICATION_KIND_RETIRED" => Some(Self::Retired),
+            "CONFIGURATION_PUBLICATION_KIND_RESTORED" => Some(Self::Restored),
             _ => None,
         }
     }
