@@ -1,0 +1,64 @@
+name: Rust Linux Authoritative Store
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/rust-linux-authoritative.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "apps/rust/bpmp-engine/**"
+      - "apps/rust/bpmp-engine-server/**"
+      - "contracts/proto/**"
+      - "crates/bpmp-adapter-rocksdb/**"
+      - "crates/bpmp-authz-contracts/**"
+      - "crates/bpmp-contracts/**"
+      - "crates/bpmp-domain-core/**"
+      - "crates/bpmp-payload-crypto/**"
+      - "crates/bpmp-raft-state-machine/**"
+      - "rust-toolchain.toml"
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/rust-linux-authoritative.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "apps/rust/bpmp-engine/**"
+      - "apps/rust/bpmp-engine-server/**"
+      - "contracts/proto/**"
+      - "crates/bpmp-adapter-rocksdb/**"
+      - "crates/bpmp-authz-contracts/**"
+      - "crates/bpmp-contracts/**"
+      - "crates/bpmp-domain-core/**"
+      - "crates/bpmp-payload-crypto/**"
+      - "crates/bpmp-raft-state-machine/**"
+      - "rust-toolchain.toml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-linux-authoritative-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  authoritative-store:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CARGO_BUILD_JOBS: "4"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install native build dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang cmake libclang-dev
+      - name: Cache Rust build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: rust-linux-authoritative-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+      - name: Check authoritative engine server
+        run: cargo check -p bpmp-engine-server -p bpmp-adapter-rocksdb
+      - name: Test authoritative RocksDB and remote worker runtime
+        run: cargo test -p bpmp-adapter-rocksdb -p bpmp-engine-server

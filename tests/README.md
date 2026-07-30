@@ -14,15 +14,14 @@ test with at least 100 generated cases and this tag:
 // Feature: rust-bpm-platform, Property N: property text
 ```
 
-Current tagged coverage includes P1 (compiler round trip), P11 (deterministic
-replay), P16 (credit backpressure), P23 (quorum acknowledgement), P36 (rate
-limiting), and P53 (versioned configuration). The remaining P1-P53 catalog is
-an explicit roadmap gap; ordinary example tests do not count as property
-coverage.
+The canonical P1-P53 catalog is complete. Each property has exactly one tagged
+property-based test in its owning bounded context; ordinary example tests do
+not count as canonical property coverage. The current ownership and evidence
+map is maintained in `docs/property-catalog-status.md`.
 
 Run `tools/check-property-catalog.ps1` to report coverage and reject duplicate
-canonical tags. Release automation must use `-RequireComplete`; it intentionally
-fails until every property has one real property-based test.
+canonical tags. Release automation must use `-RequireComplete` so missing,
+duplicate, or malformed catalog entries fail the release gate.
 
 Requirement 1 has a dedicated AC1-AC12 acceptance suite and compliance matrix:
 

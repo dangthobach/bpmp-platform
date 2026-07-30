@@ -110,11 +110,18 @@ fn to_wire(envelope: &EventEnvelope) -> wire::EventEnvelope {
             node_id: node_id.to_string(),
             task_type: task_type.to_string(),
         }),
-        DomainEvent::ServiceTaskCompleted { node_id, .. } => {
-            wire::event_envelope::Event::ServiceTaskCompleted(wire::ServiceTaskCompleted {
-                node_id: node_id.to_string(),
-            })
-        }
+        DomainEvent::ServiceTaskCompleted {
+            node_id, outputs, ..
+        } => wire::event_envelope::Event::ServiceTaskCompleted(wire::ServiceTaskCompleted {
+            node_id: node_id.to_string(),
+            outputs: outputs
+                .iter()
+                .map(|(name, value)| wire::WorkflowVariable {
+                    name: name.clone(),
+                    value: Some(workflow_value_to_wire(value)),
+                })
+                .collect(),
+        }),
         DomainEvent::UserTaskActivated {
             node_id,
             task_type,
@@ -390,6 +397,11 @@ fn from_wire(envelope: wire::EventEnvelope) -> Result<EventEnvelope, EventCodecE
         wire::event_envelope::Event::ServiceTaskCompleted(completed) => {
             DomainEvent::ServiceTaskCompleted {
                 node_id: identifier(NodeId::new, completed.node_id, "node_id")?,
+                outputs: completed
+                    .outputs
+                    .into_iter()
+                    .map(workflow_variable_from_wire)
+                    .collect::<Result<_, _>>()?,
                 occurred_at_epoch_ms,
             }
         }
@@ -955,6 +967,8 @@ pub enum EventCodecError {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use proptest::prelude::*;
 
     use super::*;
@@ -1071,6 +1085,7 @@ mod tests {
                 },
                 event: DomainEvent::ServiceTaskCompleted {
                     node_id: NodeId::new(format!("node-{suffix}")).unwrap(),
+                    outputs: BTreeMap::default(),
                     occurred_at_epoch_ms: sequence,
                 },
             };

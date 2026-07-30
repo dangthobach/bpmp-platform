@@ -341,6 +341,7 @@ pub enum BoundaryDispatchSource {
     Timer,
     Message,
     Error,
+    ExternalWorker,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]

@@ -9,25 +9,29 @@ use bpmp_contracts::storage::v1::{
     BoundarySignalRecord, BoundarySubscriptionRecord, BoundaryTimerScheduleRecord,
     CompensationLedgerRecord, EncryptedAuthorizationAuditRecord, EncryptedEventRecord,
     EncryptedGovernanceRecord, EncryptedSnapshotRecord, GovernanceApprovalAuditRef,
-    GovernanceDecisionAuditRecord, OutboxEntry, ReconciliationWorkItemRecord, StoredCommandResult,
+    GovernanceDecisionAuditRecord, OutboxEntry, ReconciliationWorkItemRecord, RemoteTaskRecord,
+    RemoteTaskRecordStatus, StoredCommandResult,
 };
 use bpmp_domain_core::{
-    ActorId, BoundaryTimerKind, BoundaryTrigger, CommandId, ConfigVersion, IdempotencyKey,
-    InstanceId, KeyScope, NodeId, PolicyVersion, TenantId, WorkflowType, WorkflowVersion,
+    ActorId, BoundaryTimerKind, BoundaryTrigger, CommandId, ConfigVersion, CorrelationId,
+    IdempotencyKey, InstanceId, KeyScope, NodeId, PolicyVersion, TenantId, WorkflowType,
+    WorkflowVersion,
 };
 use bpmp_engine::{
     BoundaryProjectionMutation, BoundaryRuntimeError, BoundaryRuntimeStorePort, BoundarySignal,
     BoundarySignalKind, BoundarySubscriptionKey, ClaimedCorrelation, ClaimedTimer, CommitOutcome,
     CommitRequest, CommittedResult, EventCodec, EventEnvelope, GovernanceTransitionPlan,
     LoadedInstance, LocalTaskRuntimeError, LocalTaskRuntimeStorePort, OutboxError, OutboxRecord,
-    OutboxStorePort, ProjectedBoundarySubscription, SignalEnqueueOutcome, SnapshotCodec,
-    SnapshotEnvelope, StoreError, TimerDispatchCompletion, TimerSchedule, WorkflowStorePort,
+    OutboxStorePort, ProjectedBoundarySubscription, RemoteTask, RemoteTaskClaim,
+    RemoteTaskClaimRequest, RemoteTaskError, SignalEnqueueOutcome, SnapshotCodec, SnapshotEnvelope,
+    StoreError, TimerDispatchCompletion, TimerSchedule, WorkflowStorePort,
 };
 use bpmp_governance_domain::{CompensationLedgerEntry, CompensationStatus, GovernanceAuditRef};
-use bpmp_payload_crypto::{EncryptedPayload, EncryptionContext, PayloadCryptoPort};
+use bpmp_payload_crypto::{CryptoError, EncryptedPayload, EncryptionContext, PayloadCryptoPort};
 use bpmp_raft_state_machine::{
     ApplyOutcome, ApplyResponse, AtomicStateStorage, AtomicStorageError, ExpectedValue, Mutation,
-    PreparedAtomicBatch, StateMachineLimits, StateMachineMetadata, StorageKey, value_digest,
+    Precondition, PreparedAtomicBatch, StateMachineLimits, StateMachineMetadata, StorageKey,
+    value_digest,
 };
 use prost::Message;
 use rocksdb::{
@@ -50,6 +54,9 @@ const BOUNDARY_SIGNALS_CF: &str = "boundary_signals";
 const BOUNDARY_SIGNAL_INDEX_CF: &str = "boundary_signal_index";
 const BOUNDARY_META_CF: &str = "boundary_meta";
 const LOCAL_TASK_META_CF: &str = "local_task_meta";
+const REMOTE_TASKS_CF: &str = "remote_tasks";
+const REMOTE_TASK_READY_INDEX_CF: &str = "remote_task_ready_index";
+const REMOTE_TASK_LEASE_INDEX_CF: &str = "remote_task_lease_index";
 const COMPENSATION_LEDGER_CF: &str = "compensation_ledger";
 const RECONCILIATION_WORK_ITEMS_CF: &str = "reconciliation_work_items";
 const GOVERNANCE_AUDIT_CF: &str = "governance_audit";
@@ -80,6 +87,9 @@ const fn authoritative_column_families() -> &'static [&'static str] {
         BOUNDARY_SIGNAL_INDEX_CF,
         BOUNDARY_META_CF,
         LOCAL_TASK_META_CF,
+        REMOTE_TASKS_CF,
+        REMOTE_TASK_READY_INDEX_CF,
+        REMOTE_TASK_LEASE_INDEX_CF,
         COMPENSATION_LEDGER_CF,
         RECONCILIATION_WORK_ITEMS_CF,
         GOVERNANCE_AUDIT_CF,
@@ -174,6 +184,9 @@ impl<C: PayloadCryptoPort> RocksDbWorkflowStore<C> {
             BOUNDARY_SIGNAL_INDEX_CF,
             BOUNDARY_META_CF,
             LOCAL_TASK_META_CF,
+            REMOTE_TASKS_CF,
+            REMOTE_TASK_READY_INDEX_CF,
+            REMOTE_TASK_LEASE_INDEX_CF,
             COMPENSATION_LEDGER_CF,
             RECONCILIATION_WORK_ITEMS_CF,
             GOVERNANCE_AUDIT_CF,
@@ -776,6 +789,308 @@ impl<C: PayloadCryptoPort> RocksDbWorkflowStore<C> {
     }
 }
 
+impl<C> RocksDbWorkflowStore<C> {
+    /// Prepares an idempotent ready-task insertion for Raft replication.
+    pub fn prepare_remote_task_enqueue(
+        &self,
+        task: &RemoteTask,
+    ) -> Result<Option<PreparedAtomicBatch>, RemoteTaskError> {
+        validate_remote_task(task)?;
+        let storage_key = remote_task_storage_key(&task.tenant_id, &task.task_id);
+        if let Some(bytes) = self
+            .db
+            .get_cf(remote_tasks_cf(&self.db)?, &storage_key)
+            .map_err(remote_store_error)?
+        {
+            let existing = decode_remote_task_record(&bytes)?;
+            return if remote_task_from_record(&existing)? == *task {
+                Ok(None)
+            } else {
+                Err(RemoteTaskError::Conflict)
+            };
+        }
+        let record = remote_task_record(task);
+        let ready_index = remote_task_due_index_key(record.available_at_epoch_ms, &storage_key);
+        let command_id = format!("remote-enqueue:{}:{}", task.tenant_id, task.task_id);
+        Ok(Some(PreparedAtomicBatch::new(
+            command_id,
+            remote_operation_scope(b"enqueue", &storage_key, 0),
+            vec![
+                missing_precondition(REMOTE_TASKS_CF, storage_key.clone()),
+                missing_precondition(REMOTE_TASK_READY_INDEX_CF, ready_index.clone()),
+            ],
+            vec![
+                put_mutation(REMOTE_TASKS_CF, storage_key, record.encode_to_vec()),
+                put_mutation(REMOTE_TASK_READY_INDEX_CF, ready_index, Vec::new()),
+            ],
+            Vec::new(),
+        )))
+    }
+
+    /// Reads a bounded ordered ready-task page.
+    pub fn ready_remote_tasks(
+        &self,
+        now_epoch_ms: u64,
+        limit: usize,
+    ) -> Result<Vec<RemoteTask>, RemoteTaskError> {
+        if limit == 0 {
+            return Err(RemoteTaskError::InvalidRequest);
+        }
+        let mut tasks = Vec::with_capacity(limit);
+        for item in self
+            .db
+            .iterator_cf(remote_task_ready_index_cf(&self.db)?, IteratorMode::Start)
+        {
+            if tasks.len() == limit {
+                break;
+            }
+            let (index_key, _) = item.map_err(remote_store_error)?;
+            let (available_at, storage_key) = split_remote_due_index_key(index_key.as_ref())?;
+            if available_at > now_epoch_ms {
+                break;
+            }
+            let bytes = self
+                .db
+                .get_cf(remote_tasks_cf(&self.db)?, storage_key)
+                .map_err(remote_store_error)?
+                .ok_or_else(|| {
+                    RemoteTaskError::Store("remote ready index references a missing task".into())
+                })?;
+            let record = decode_remote_task_record(&bytes)?;
+            if remote_status(&record)? != RemoteTaskRecordStatus::Ready
+                || record.available_at_epoch_ms != available_at
+            {
+                return Err(RemoteTaskError::Store(
+                    "remote ready index and task record disagree".into(),
+                ));
+            }
+            tasks.push(remote_task_from_record(&record)?);
+        }
+        Ok(tasks)
+    }
+
+    /// Prepares one compare-and-set lease acquisition.
+    pub fn prepare_remote_task_claim(
+        &self,
+        request: &RemoteTaskClaimRequest,
+    ) -> Result<Option<PreparedAtomicBatch>, RemoteTaskError> {
+        validate_remote_claim_request(request)?;
+        let storage_key = remote_task_storage_key(&request.tenant_id, &request.task_id);
+        let Some(bytes) = self
+            .db
+            .get_cf(remote_tasks_cf(&self.db)?, &storage_key)
+            .map_err(remote_store_error)?
+        else {
+            return Ok(None);
+        };
+        let mut record = decode_remote_task_record(&bytes)?;
+        if remote_status(&record)? != RemoteTaskRecordStatus::Ready
+            || record.available_at_epoch_ms > request.now_epoch_ms
+        {
+            return Ok(None);
+        }
+        let ready_index = remote_task_due_index_key(record.available_at_epoch_ms, &storage_key);
+        let ready_bytes = self
+            .db
+            .get_cf(remote_task_ready_index_cf(&self.db)?, &ready_index)
+            .map_err(remote_store_error)?
+            .ok_or_else(|| RemoteTaskError::Store("remote ready task has no ready index".into()))?;
+        record.attempts = record
+            .attempts
+            .checked_add(1)
+            .ok_or(RemoteTaskError::InvalidRequest)?;
+        record.lease_version = record
+            .lease_version
+            .checked_add(1)
+            .ok_or(RemoteTaskError::InvalidRequest)?;
+        record.status = RemoteTaskRecordStatus::Leased.into();
+        record.assignment_id.clone_from(&request.assignment_id);
+        record.worker_id.clone_from(&request.worker_id);
+        record.session_id.clone_from(&request.session_id);
+        record.lease_until_epoch_ms = request.lease_until_epoch_ms;
+        record
+            .assignment_token_digest
+            .clone_from(&request.assignment_token_digest);
+        let lease_index = remote_task_due_index_key(record.lease_until_epoch_ms, &storage_key);
+        Ok(Some(PreparedAtomicBatch::new(
+            request.assignment_id.clone(),
+            remote_operation_scope(b"claim", &storage_key, record.lease_version),
+            vec![
+                digest_precondition(REMOTE_TASKS_CF, storage_key.clone(), &bytes),
+                digest_precondition(
+                    REMOTE_TASK_READY_INDEX_CF,
+                    ready_index.clone(),
+                    &ready_bytes,
+                ),
+                missing_precondition(REMOTE_TASK_LEASE_INDEX_CF, lease_index.clone()),
+            ],
+            vec![
+                put_mutation(REMOTE_TASKS_CF, storage_key, record.encode_to_vec()),
+                delete_mutation(REMOTE_TASK_READY_INDEX_CF, ready_index),
+                put_mutation(REMOTE_TASK_LEASE_INDEX_CF, lease_index, Vec::new()),
+            ],
+            Vec::new(),
+        )))
+    }
+
+    pub fn load_remote_task_claim(
+        &self,
+        tenant_id: &TenantId,
+        task_id: &str,
+    ) -> Result<Option<RemoteTaskClaim>, RemoteTaskError> {
+        let key = remote_task_storage_key(tenant_id, task_id);
+        self.db
+            .get_cf(remote_tasks_cf(&self.db)?, key)
+            .map_err(remote_store_error)?
+            .map(|bytes| {
+                let record = decode_remote_task_record(&bytes)?;
+                if remote_status(&record)? == RemoteTaskRecordStatus::Leased {
+                    remote_claim_from_record(&record).map(Some)
+                } else {
+                    Ok(None)
+                }
+            })
+            .transpose()
+            .map(Option::flatten)
+    }
+
+    pub fn prepare_remote_task_complete(
+        &self,
+        claim: &RemoteTaskClaim,
+    ) -> Result<PreparedAtomicBatch, RemoteTaskError> {
+        self.prepare_remote_task_terminal_mutation(claim, None, false)
+    }
+
+    pub fn prepare_remote_task_failure(
+        &self,
+        claim: &RemoteTaskClaim,
+        retry_at_epoch_ms: u64,
+        dead_letter: bool,
+    ) -> Result<PreparedAtomicBatch, RemoteTaskError> {
+        if !dead_letter && retry_at_epoch_ms <= claim.task.activated_at_epoch_ms {
+            return Err(RemoteTaskError::InvalidRequest);
+        }
+        self.prepare_remote_task_terminal_mutation(
+            claim,
+            (!dead_letter).then_some(retry_at_epoch_ms),
+            dead_letter,
+        )
+    }
+
+    fn prepare_remote_task_terminal_mutation(
+        &self,
+        claim: &RemoteTaskClaim,
+        retry_at_epoch_ms: Option<u64>,
+        dead_letter: bool,
+    ) -> Result<PreparedAtomicBatch, RemoteTaskError> {
+        let storage_key = remote_task_storage_key(&claim.task.tenant_id, &claim.task.task_id);
+        let bytes = self
+            .db
+            .get_cf(remote_tasks_cf(&self.db)?, &storage_key)
+            .map_err(remote_store_error)?
+            .ok_or(RemoteTaskError::NotFound)?;
+        let mut record = decode_remote_task_record(&bytes)?;
+        validate_remote_lease(&record, claim)?;
+        let lease_index = remote_task_due_index_key(record.lease_until_epoch_ms, &storage_key);
+        let lease_bytes = self
+            .db
+            .get_cf(remote_task_lease_index_cf(&self.db)?, &lease_index)
+            .map_err(remote_store_error)?
+            .ok_or_else(|| RemoteTaskError::Store("remote lease index is missing".into()))?;
+        let (operation, status) = if let Some(retry_at) = retry_at_epoch_ms {
+            record.available_at_epoch_ms = retry_at;
+            (b"retry".as_slice(), RemoteTaskRecordStatus::Ready)
+        } else if dead_letter {
+            (
+                b"dead-letter".as_slice(),
+                RemoteTaskRecordStatus::DeadLettered,
+            )
+        } else {
+            (b"complete".as_slice(), RemoteTaskRecordStatus::Completed)
+        };
+        record.status = status.into();
+        record.lease_until_epoch_ms = 0;
+        let mut preconditions = vec![
+            digest_precondition(REMOTE_TASKS_CF, storage_key.clone(), &bytes),
+            digest_precondition(
+                REMOTE_TASK_LEASE_INDEX_CF,
+                lease_index.clone(),
+                &lease_bytes,
+            ),
+        ];
+        let mut mutations = vec![
+            put_mutation(REMOTE_TASKS_CF, storage_key.clone(), record.encode_to_vec()),
+            delete_mutation(REMOTE_TASK_LEASE_INDEX_CF, lease_index),
+        ];
+        if status == RemoteTaskRecordStatus::Ready {
+            let ready_index = remote_task_due_index_key(record.available_at_epoch_ms, &storage_key);
+            preconditions.push(missing_precondition(
+                REMOTE_TASK_READY_INDEX_CF,
+                ready_index.clone(),
+            ));
+            mutations.push(put_mutation(
+                REMOTE_TASK_READY_INDEX_CF,
+                ready_index,
+                Vec::new(),
+            ));
+        }
+        Ok(PreparedAtomicBatch::new(
+            format!(
+                "remote-{}:{}:{}",
+                String::from_utf8_lossy(operation),
+                claim.assignment_id,
+                claim.lease_version
+            ),
+            remote_operation_scope(operation, &storage_key, claim.lease_version),
+            preconditions,
+            mutations,
+            Vec::new(),
+        ))
+    }
+
+    /// Reads expired leases in deterministic expiry order.
+    pub fn expired_remote_task_claims(
+        &self,
+        now_epoch_ms: u64,
+        limit: usize,
+    ) -> Result<Vec<RemoteTaskClaim>, RemoteTaskError> {
+        if limit == 0 {
+            return Err(RemoteTaskError::InvalidRequest);
+        }
+        let mut claims = Vec::with_capacity(limit);
+        for item in self
+            .db
+            .iterator_cf(remote_task_lease_index_cf(&self.db)?, IteratorMode::Start)
+        {
+            if claims.len() == limit {
+                break;
+            }
+            let (index_key, _) = item.map_err(remote_store_error)?;
+            let (lease_until, storage_key) = split_remote_due_index_key(index_key.as_ref())?;
+            if lease_until > now_epoch_ms {
+                break;
+            }
+            let bytes = self
+                .db
+                .get_cf(remote_tasks_cf(&self.db)?, storage_key)
+                .map_err(remote_store_error)?
+                .ok_or_else(|| {
+                    RemoteTaskError::Store("remote lease index references a missing task".into())
+                })?;
+            let record = decode_remote_task_record(&bytes)?;
+            if remote_status(&record)? != RemoteTaskRecordStatus::Leased
+                || record.lease_until_epoch_ms != lease_until
+            {
+                return Err(RemoteTaskError::Store(
+                    "remote lease index and task record disagree".into(),
+                ));
+            }
+            claims.push(remote_claim_from_record(&record)?);
+        }
+        Ok(claims)
+    }
+}
+
 impl<C: PayloadCryptoPort> WorkflowStorePort for RocksDbWorkflowStore<C> {
     fn lookup_idempotency(
         &self,
@@ -827,7 +1142,7 @@ impl<C: PayloadCryptoPort> WorkflowStorePort for RocksDbWorkflowStore<C> {
             let plaintext = self
                 .crypto
                 .decrypt(key.as_ref(), &encrypted)
-                .map_err(|_| StoreError::CryptoUnavailable)?;
+                .map_err(|error| map_runtime_payload_read_error(error, &encrypted))?;
             let event = EventCodec::decode(&plaintext)
                 .map_err(|error| StoreError::CorruptData(error.to_string()))?;
             if event.metadata.tenant_id != *tenant_id || event.metadata.instance_id != *instance_id
@@ -2495,7 +2810,7 @@ fn load_snapshot<C: PayloadCryptoPort>(
     };
     let plaintext = crypto
         .decrypt(&key, &encrypted)
-        .map_err(|_| StoreError::CryptoUnavailable)?;
+        .map_err(|error| map_runtime_payload_read_error(error, &encrypted))?;
     let snapshot = SnapshotCodec::decode(&plaintext)
         .map_err(|error| StoreError::CorruptData(error.to_string()))?;
     if snapshot.tenant_id != *tenant_id
@@ -2507,6 +2822,21 @@ fn load_snapshot<C: PayloadCryptoPort>(
         ));
     }
     Ok(Some(snapshot))
+}
+
+fn map_runtime_payload_read_error(error: CryptoError, payload: &EncryptedPayload) -> StoreError {
+    match error {
+        CryptoError::KeyRevoked => StoreError::DataUnavailableForCompliance {
+            key_scope: payload.key_scope.as_str().to_owned(),
+            key_version: payload.key_version.clone(),
+            key_epoch: payload.key_epoch,
+        },
+        CryptoError::KeyUnavailable
+        | CryptoError::StaleKeyEpoch
+        | CryptoError::EncryptionFailed
+        | CryptoError::DecryptionFailed
+        | CryptoError::InvalidMetadata => StoreError::CryptoUnavailable,
+    }
 }
 
 fn raft_storage_key(column_family: &str, key: Vec<u8>) -> StorageKey {
@@ -2790,6 +3120,268 @@ fn event_storage_key(tenant: &TenantId, instance: &InstanceId, sequence: u64) ->
     key
 }
 
+fn remote_task_record(task: &RemoteTask) -> RemoteTaskRecord {
+    RemoteTaskRecord {
+        storage_schema_version: STORAGE_SCHEMA_VERSION,
+        task_id: task.task_id.clone(),
+        tenant_id: task.tenant_id.to_string(),
+        instance_id: task.instance_id.to_string(),
+        workflow_type: task.workflow_type.to_string(),
+        workflow_version: task.workflow_version.to_string(),
+        node_id: task.node_id.to_string(),
+        task_type: task.task_type.clone(),
+        activation_event_id: task.activation_event_id.clone(),
+        activation_sequence: task.activation_sequence,
+        activated_at_epoch_ms: task.activated_at_epoch_ms,
+        correlation_id: task.correlation_id.to_string(),
+        config_version: task.config_version.to_string(),
+        policy_version: task.policy_version.to_string(),
+        status: RemoteTaskRecordStatus::Ready.into(),
+        attempts: 0,
+        available_at_epoch_ms: task.activated_at_epoch_ms,
+        assignment_id: String::new(),
+        worker_id: String::new(),
+        session_id: String::new(),
+        lease_version: 0,
+        lease_until_epoch_ms: 0,
+        assignment_token_digest: Vec::new(),
+    }
+}
+
+fn decode_remote_task_record(bytes: &[u8]) -> Result<RemoteTaskRecord, RemoteTaskError> {
+    let record = RemoteTaskRecord::decode(bytes)
+        .map_err(|error| RemoteTaskError::Store(error.to_string()))?;
+    if record.storage_schema_version != STORAGE_SCHEMA_VERSION {
+        return Err(RemoteTaskError::Store(
+            "unsupported remote task storage schema version".into(),
+        ));
+    }
+    remote_status(&record)?;
+    Ok(record)
+}
+
+fn remote_status(record: &RemoteTaskRecord) -> Result<RemoteTaskRecordStatus, RemoteTaskError> {
+    RemoteTaskRecordStatus::try_from(record.status)
+        .map_err(|_| RemoteTaskError::Store("remote task status is invalid".into()))
+        .and_then(|status| {
+            if status == RemoteTaskRecordStatus::Unspecified {
+                Err(RemoteTaskError::Store(
+                    "remote task status is unspecified".into(),
+                ))
+            } else {
+                Ok(status)
+            }
+        })
+}
+
+fn remote_task_from_record(record: &RemoteTaskRecord) -> Result<RemoteTask, RemoteTaskError> {
+    Ok(RemoteTask {
+        task_id: non_empty_remote(&record.task_id)?.to_owned(),
+        tenant_id: TenantId::new(record.tenant_id.clone())
+            .map_err(|_| RemoteTaskError::InvalidActivation)?,
+        instance_id: InstanceId::new(record.instance_id.clone())
+            .map_err(|_| RemoteTaskError::InvalidActivation)?,
+        workflow_type: WorkflowType::new(record.workflow_type.clone())
+            .map_err(|_| RemoteTaskError::InvalidActivation)?,
+        workflow_version: WorkflowVersion::new(record.workflow_version.clone())
+            .map_err(|_| RemoteTaskError::InvalidActivation)?,
+        node_id: NodeId::new(record.node_id.clone())
+            .map_err(|_| RemoteTaskError::InvalidActivation)?,
+        task_type: non_empty_remote(&record.task_type)?.to_owned(),
+        activation_event_id: non_empty_remote(&record.activation_event_id)?.to_owned(),
+        activation_sequence: record.activation_sequence,
+        activated_at_epoch_ms: record.activated_at_epoch_ms,
+        correlation_id: CorrelationId::new(record.correlation_id.clone())
+            .map_err(|_| RemoteTaskError::InvalidActivation)?,
+        config_version: ConfigVersion::new(record.config_version.clone())
+            .map_err(|_| RemoteTaskError::InvalidActivation)?,
+        policy_version: PolicyVersion::new(record.policy_version.clone())
+            .map_err(|_| RemoteTaskError::InvalidActivation)?,
+    })
+}
+
+fn remote_claim_from_record(record: &RemoteTaskRecord) -> Result<RemoteTaskClaim, RemoteTaskError> {
+    if remote_status(record)? != RemoteTaskRecordStatus::Leased
+        || record.assignment_id.trim().is_empty()
+        || record.worker_id.trim().is_empty()
+        || record.session_id.trim().is_empty()
+        || record.attempts == 0
+        || record.lease_version == 0
+        || record.lease_until_epoch_ms == 0
+        || record.assignment_token_digest.len() != 32
+    {
+        return Err(RemoteTaskError::Store(
+            "remote leased task metadata is invalid".into(),
+        ));
+    }
+    Ok(RemoteTaskClaim {
+        task: remote_task_from_record(record)?,
+        assignment_id: record.assignment_id.clone(),
+        worker_id: record.worker_id.clone(),
+        session_id: record.session_id.clone(),
+        attempt: record.attempts,
+        lease_version: record.lease_version,
+        lease_until_epoch_ms: record.lease_until_epoch_ms,
+        assignment_token_digest: record.assignment_token_digest.clone(),
+    })
+}
+
+fn validate_remote_task(task: &RemoteTask) -> Result<(), RemoteTaskError> {
+    if task.task_id.trim().is_empty()
+        || task.task_type.trim().is_empty()
+        || task.activation_event_id != task.task_id
+        || task.activation_sequence == 0
+        || task.activated_at_epoch_ms == 0
+    {
+        return Err(RemoteTaskError::InvalidActivation);
+    }
+    Ok(())
+}
+
+fn validate_remote_claim_request(request: &RemoteTaskClaimRequest) -> Result<(), RemoteTaskError> {
+    if request.task_id.trim().is_empty()
+        || request.assignment_id.trim().is_empty()
+        || request.worker_id.trim().is_empty()
+        || request.session_id.trim().is_empty()
+        || request.now_epoch_ms == 0
+        || request.lease_until_epoch_ms <= request.now_epoch_ms
+        || request.assignment_token_digest.len() != 32
+    {
+        return Err(RemoteTaskError::InvalidRequest);
+    }
+    Ok(())
+}
+
+fn validate_remote_lease(
+    record: &RemoteTaskRecord,
+    claim: &RemoteTaskClaim,
+) -> Result<(), RemoteTaskError> {
+    if remote_status(record)? != RemoteTaskRecordStatus::Leased
+        || record.tenant_id != claim.task.tenant_id.as_str()
+        || record.task_id != claim.task.task_id
+        || record.assignment_id != claim.assignment_id
+        || record.worker_id != claim.worker_id
+        || record.session_id != claim.session_id
+        || record.attempts != claim.attempt
+        || record.lease_version != claim.lease_version
+        || record.lease_until_epoch_ms != claim.lease_until_epoch_ms
+        || record.assignment_token_digest != claim.assignment_token_digest
+    {
+        return Err(RemoteTaskError::StaleLease);
+    }
+    Ok(())
+}
+
+fn non_empty_remote(value: &str) -> Result<&str, RemoteTaskError> {
+    if value.trim().is_empty() {
+        Err(RemoteTaskError::InvalidActivation)
+    } else {
+        Ok(value)
+    }
+}
+
+fn remote_task_storage_key(tenant_id: &TenantId, task_id: &str) -> Vec<u8> {
+    let mut key = Vec::new();
+    push_component(&mut key, tenant_id.as_str());
+    push_component(&mut key, task_id);
+    key
+}
+
+fn remote_task_due_index_key(due_at_epoch_ms: u64, storage_key: &[u8]) -> Vec<u8> {
+    let mut key = Vec::with_capacity(8 + storage_key.len());
+    key.extend_from_slice(&due_at_epoch_ms.to_be_bytes());
+    key.extend_from_slice(storage_key);
+    key
+}
+
+fn split_remote_due_index_key(key: &[u8]) -> Result<(u64, &[u8]), RemoteTaskError> {
+    let (due, storage_key) = key
+        .split_at_checked(8)
+        .ok_or_else(|| RemoteTaskError::Store("remote task index key is malformed".into()))?;
+    let due = <[u8; 8]>::try_from(due)
+        .map(u64::from_be_bytes)
+        .map_err(|_| RemoteTaskError::Store("remote task due time is malformed".into()))?;
+    if storage_key.is_empty() {
+        return Err(RemoteTaskError::Store(
+            "remote task index has an empty storage key".into(),
+        ));
+    }
+    Ok((due, storage_key))
+}
+
+fn remote_operation_scope(operation: &[u8], storage_key: &[u8], generation: u64) -> Vec<u8> {
+    let mut scope = Vec::with_capacity(operation.len() + storage_key.len() + 10);
+    scope.extend_from_slice(b"remote-task\0");
+    scope.extend_from_slice(operation);
+    scope.push(0);
+    scope.extend_from_slice(storage_key);
+    scope.extend_from_slice(&generation.to_be_bytes());
+    scope
+}
+
+fn missing_precondition(column_family: &str, key: Vec<u8>) -> Precondition {
+    Precondition {
+        storage_key: StorageKey {
+            column_family: column_family.into(),
+            key,
+        },
+        expected: ExpectedValue::Missing,
+    }
+}
+
+fn digest_precondition(column_family: &str, key: Vec<u8>, value: &[u8]) -> Precondition {
+    Precondition {
+        storage_key: StorageKey {
+            column_family: column_family.into(),
+            key,
+        },
+        expected: ExpectedValue::Digest(value_digest(value)),
+    }
+}
+
+fn put_mutation(column_family: &str, key: Vec<u8>, value: Vec<u8>) -> Mutation {
+    Mutation::Put {
+        storage_key: StorageKey {
+            column_family: column_family.into(),
+            key,
+        },
+        value,
+    }
+}
+
+fn delete_mutation(column_family: &str, key: Vec<u8>) -> Mutation {
+    Mutation::Delete {
+        storage_key: StorageKey {
+            column_family: column_family.into(),
+            key,
+        },
+    }
+}
+
+fn remote_tasks_cf(db: &DB) -> Result<&rocksdb::ColumnFamily, RemoteTaskError> {
+    remote_named_cf(db, REMOTE_TASKS_CF)
+}
+
+fn remote_task_ready_index_cf(db: &DB) -> Result<&rocksdb::ColumnFamily, RemoteTaskError> {
+    remote_named_cf(db, REMOTE_TASK_READY_INDEX_CF)
+}
+
+fn remote_task_lease_index_cf(db: &DB) -> Result<&rocksdb::ColumnFamily, RemoteTaskError> {
+    remote_named_cf(db, REMOTE_TASK_LEASE_INDEX_CF)
+}
+
+fn remote_named_cf<'a>(
+    db: &'a DB,
+    name: &str,
+) -> Result<&'a rocksdb::ColumnFamily, RemoteTaskError> {
+    db.cf_handle(name)
+        .ok_or_else(|| RemoteTaskError::Store(format!("missing RocksDB column family {name}")))
+}
+
+fn remote_store_error(error: rocksdb::Error) -> RemoteTaskError {
+    RemoteTaskError::Store(error.to_string())
+}
+
 fn sequence_from_event_key(prefix: &[u8], key: &[u8]) -> Result<u64, StoreError> {
     let sequence = key
         .strip_prefix(prefix)
@@ -2960,6 +3552,27 @@ mod tests {
                 return Err(CryptoError::KeyUnavailable);
             }
             Ok(payload.ciphertext.iter().map(|byte| byte ^ 0xA5).collect())
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    struct RevokedCrypto;
+
+    impl PayloadCryptoPort for RevokedCrypto {
+        fn encrypt(
+            &self,
+            _context: EncryptionContext<'_>,
+            _plaintext: &[u8],
+        ) -> Result<EncryptedPayload, CryptoError> {
+            Err(CryptoError::KeyRevoked)
+        }
+
+        fn decrypt(
+            &self,
+            _associated_data: &[u8],
+            _payload: &EncryptedPayload,
+        ) -> Result<Vec<u8>, CryptoError> {
+            Err(CryptoError::KeyRevoked)
         }
     }
 
@@ -3494,6 +4107,112 @@ mod tests {
                 "column family {name} must remain empty"
             );
         }
+    }
+
+    #[test]
+    fn revoked_runtime_key_is_reported_as_compliance_unavailability() {
+        let directory = tempfile::tempdir().unwrap();
+        {
+            let store =
+                RocksDbWorkflowStore::open(config(directory.path()), TestCrypto { fail: false })
+                    .unwrap();
+            assert!(matches!(
+                store.commit(request()),
+                Ok(CommitOutcome::Committed(_))
+            ));
+        }
+
+        let store = RocksDbWorkflowStore::open(config(directory.path()), RevokedCrypto).unwrap();
+        assert_eq!(
+            store.load(
+                &TenantId::new("tenant-a").unwrap(),
+                &InstanceId::new("instance-1").unwrap()
+            ),
+            Err(StoreError::DataUnavailableForCompliance {
+                key_scope: "tenant-a/operational".into(),
+                key_version: "test-key-v1".into(),
+                key_epoch: 1,
+            })
+        );
+    }
+
+    #[test]
+    fn remote_task_assignment_and_lease_survive_database_restart() {
+        let directory = tempfile::tempdir().unwrap();
+        let tenant_id = TenantId::new("tenant-a").unwrap();
+        let task = RemoteTask {
+            task_id: "activation-event-7".into(),
+            tenant_id: tenant_id.clone(),
+            instance_id: InstanceId::new("instance-7").unwrap(),
+            workflow_type: WorkflowType::new("invoice").unwrap(),
+            workflow_version: WorkflowVersion::new("3").unwrap(),
+            node_id: NodeId::new("send-invoice").unwrap(),
+            task_type: "invoice.send".into(),
+            activation_event_id: "activation-event-7".into(),
+            activation_sequence: 7,
+            activated_at_epoch_ms: 1_000,
+            correlation_id: CorrelationId::new("correlation-7").unwrap(),
+            config_version: ConfigVersion::new("config-7").unwrap(),
+            policy_version: PolicyVersion::new("policy-7").unwrap(),
+        };
+        let request = RemoteTaskClaimRequest {
+            tenant_id: tenant_id.clone(),
+            task_id: task.task_id.clone(),
+            assignment_id: "assignment-7".into(),
+            worker_id: "worker-7".into(),
+            session_id: "session-7".into(),
+            now_epoch_ms: 1_100,
+            lease_until_epoch_ms: 2_100,
+            assignment_token_digest: vec![7; 32],
+        };
+        {
+            let store =
+                RocksDbWorkflowStore::open(config(directory.path()), TestCrypto { fail: false })
+                    .unwrap();
+            let state = store.authoritative_state_storage(1024 * 1024).unwrap();
+            let enqueue = store.prepare_remote_task_enqueue(&task).unwrap().unwrap();
+            assert_eq!(
+                state
+                    .apply(&enqueue, &raft_limits(), &raft_metadata())
+                    .unwrap()
+                    .outcome,
+                ApplyOutcome::Applied
+            );
+            assert_eq!(
+                store.ready_remote_tasks(1_100, 10).unwrap(),
+                vec![task.clone()]
+            );
+
+            let claim = store.prepare_remote_task_claim(&request).unwrap().unwrap();
+            assert_eq!(
+                state
+                    .apply(&claim, &raft_limits(), &raft_metadata())
+                    .unwrap()
+                    .outcome,
+                ApplyOutcome::Applied
+            );
+            assert!(store.ready_remote_tasks(1_100, 10).unwrap().is_empty());
+        }
+
+        let reopened =
+            RocksDbWorkflowStore::open(config(directory.path()), TestCrypto { fail: false })
+                .unwrap();
+        let claim = reopened
+            .load_remote_task_claim(&tenant_id, &task.task_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(claim.assignment_id, request.assignment_id);
+        assert_eq!(claim.assignment_token_digest, vec![7; 32]);
+        assert!(
+            reopened
+                .expired_remote_task_claims(2_099, 10)
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            reopened.expired_remote_task_claims(2_100, 10).unwrap(),
+            vec![claim]
+        );
     }
 
     #[test]

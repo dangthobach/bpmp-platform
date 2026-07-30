@@ -55,6 +55,37 @@ pub struct EngineWorkerPolicy {
     pub local_task_batch_size: u32,
     #[prost(message, optional, tag="5")]
     pub local_task_retry: ::core::option::Option<RetryPolicy>,
+    #[prost(message, optional, tag="6")]
+    pub remote: ::core::option::Option<RemoteWorkerPolicy>,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct RemoteWorkerPolicy {
+    #[prost(uint32, tag="1")]
+    pub dispatch_batch_size: u32,
+    #[prost(uint32, tag="2")]
+    pub max_workers: u32,
+    #[prost(uint32, tag="3")]
+    pub max_credit_per_worker: u32,
+    #[prost(uint32, tag="4")]
+    pub max_capabilities_per_worker: u32,
+    #[prost(uint64, tag="5")]
+    pub lease_duration_ms: u64,
+    #[prost(uint64, tag="6")]
+    pub heartbeat_timeout_ms: u64,
+    #[prost(uint32, tag="7")]
+    pub max_identifier_bytes: u32,
+    #[prost(uint32, tag="8")]
+    pub max_protocol_version_bytes: u32,
+    #[prost(uint32, tag="9")]
+    pub stream_channel_capacity: u32,
+    #[prost(uint32, tag="10")]
+    pub max_input_bytes: u32,
+    #[prost(uint32, tag="11")]
+    pub max_output_bytes: u32,
+    #[prost(uint32, tag="12")]
+    pub max_attempts: u32,
+    #[prost(uint64, tag="13")]
+    pub retry_delay_ms: u64,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct BoundaryRuntimePolicy {

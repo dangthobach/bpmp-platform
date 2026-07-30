@@ -67,15 +67,19 @@ func TestPolicyChangesOnlyAfterCheckpoint(t *testing.T) {
 	policyCalls := 0
 	consumer, err := New(client, handler, func() (RuntimePolicy, error) {
 		policyCalls++
-		batchSize := 2
-		if policyCalls > 1 {
-			batchSize = 1
+		policy := RuntimePolicy{
+			ConsumeBatchSize:         4,
+			RebuildBatchSize:         3,
+			RealtimePublishBatchSize: 2,
+			CheckpointFlush:          time.Second,
+			MaxLag:                   time.Hour,
 		}
-		return RuntimePolicy{
-			BatchSize:       batchSize,
-			CheckpointFlush: time.Second,
-			MaxLag:          time.Hour,
-		}, nil
+		if policyCalls > 1 {
+			policy.ConsumeBatchSize = 5
+			policy.RebuildBatchSize = 1
+			policy.RealtimePublishBatchSize = 4
+		}
+		return policy, nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -104,7 +108,7 @@ func record(offset int64) *kgo.Record {
 		Topic:     "bpmp.engine.events.v1",
 		Partition: 0,
 		Offset:    offset,
-		Timestamp: time.Now(),
+		Timestamp: time.Now().Add(-2 * time.Hour),
 	}
 }
 

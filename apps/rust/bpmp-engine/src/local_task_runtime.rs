@@ -1,9 +1,12 @@
 use std::sync::{Arc, RwLock};
 
-use bpmp_domain_core::{DomainEvent, NodeId, TenantId, WorkflowType, WorkflowVersion};
+use bpmp_domain_core::{
+    ConfigVersion, CorrelationId, DomainEvent, NodeId, PolicyVersion, TenantId, WorkflowType,
+    WorkflowVersion,
+};
 use thiserror::Error;
 
-use crate::{EventCodec, OutboxError, OutboxStorePort, RetryDelayPort};
+use crate::{EventCodec, OutboxError, OutboxStorePort, RemoteTaskIngressPort, RetryDelayPort};
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum LocalTaskKind {
@@ -21,6 +24,7 @@ pub enum LocalTaskExecutionOutcome {
 pub struct LocalTaskActivation {
     pub cursor: u64,
     pub event_id: String,
+    pub event_sequence: u64,
     pub tenant_id: TenantId,
     pub instance_id: String,
     pub workflow_type: WorkflowType,
@@ -31,6 +35,9 @@ pub struct LocalTaskActivation {
     pub implementation_ref: String,
     pub implementation_version: String,
     pub occurred_at_epoch_ms: u64,
+    pub correlation_id: CorrelationId,
+    pub config_version: ConfigVersion,
+    pub policy_version: PolicyVersion,
 }
 
 #[allow(clippy::missing_errors_doc)]
@@ -218,19 +225,21 @@ pub struct LocalTaskRunOutcome {
     pub checkpoint: u64,
 }
 
-pub struct LocalTaskRuntime<S, R, E, D> {
+pub struct LocalTaskRuntime<S, R, E, F, D> {
     outbox: S,
     state: R,
     executor: E,
+    remote_fallback: F,
     dispatcher: D,
     batch_size: usize,
 }
 
-impl<S, R, E, D> LocalTaskRuntime<S, R, E, D>
+impl<S, R, E, F, D> LocalTaskRuntime<S, R, E, F, D>
 where
     S: OutboxStorePort,
     R: LocalTaskRuntimeStorePort,
     E: LocalTaskExecutorPort,
+    F: RemoteTaskIngressPort,
     D: LocalTaskCompletionDispatcherPort,
 {
     /// Creates a bounded local-task worker.
@@ -242,6 +251,7 @@ where
         outbox: S,
         state: R,
         executor: E,
+        remote_fallback: F,
         dispatcher: D,
         batch_size: usize,
     ) -> Result<Self, LocalTaskRuntimeError> {
@@ -252,6 +262,7 @@ where
             outbox,
             state,
             executor,
+            remote_fallback,
             dispatcher,
             batch_size,
         })
@@ -301,11 +312,18 @@ where
             {
                 return Err(LocalTaskRuntimeError::EventScopeMismatch);
             }
-            if let Some(activation) = activation(record.cursor, &envelope)
-                && self.executor.execute(&activation)? == LocalTaskExecutionOutcome::Completed
-            {
-                self.dispatcher.dispatch_completion(&activation)?;
-                executed += 1;
+            if let Some(activation) = activation(record.cursor, &envelope) {
+                match self.executor.execute(&activation)? {
+                    LocalTaskExecutionOutcome::Completed => {
+                        self.dispatcher.dispatch_completion(&activation)?;
+                        executed += 1;
+                    }
+                    LocalTaskExecutionOutcome::NotHandled => {
+                        self.remote_fallback
+                            .enqueue_remote_task(&activation)
+                            .map_err(|error| LocalTaskRuntimeError::Dispatch(error.to_string()))?;
+                    }
+                }
             }
             self.state
                 .checkpoint_local_task(checkpoint, record.cursor)?;
@@ -327,6 +345,7 @@ fn activation(cursor: u64, envelope: &crate::EventEnvelope) -> Option<LocalTaskA
                   implementation_version: String| LocalTaskActivation {
         cursor,
         event_id: envelope.metadata.event_id.clone(),
+        event_sequence: envelope.metadata.sequence,
         tenant_id: envelope.metadata.tenant_id.clone(),
         instance_id: envelope.metadata.instance_id.as_str().to_owned(),
         workflow_type: envelope.metadata.workflow_type.clone(),
@@ -337,6 +356,9 @@ fn activation(cursor: u64, envelope: &crate::EventEnvelope) -> Option<LocalTaskA
         implementation_ref,
         implementation_version,
         occurred_at_epoch_ms: envelope.metadata.occurred_at_epoch_ms,
+        correlation_id: envelope.metadata.correlation_id.clone(),
+        config_version: envelope.metadata.config_version.clone(),
+        policy_version: envelope.metadata.policy_version.clone(),
     };
     match &envelope.event {
         DomainEvent::ServiceTaskActivated {
@@ -393,7 +415,7 @@ pub enum LocalTaskRuntimeError {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
 
     use bpmp_domain_core::{
         ActorId, CommandId, ConfigVersion, CorrelationId, DomainEvent, InstanceId, KeyScope,
@@ -476,6 +498,19 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct RemoteIngress(Mutex<Vec<String>>);
+
+    impl RemoteTaskIngressPort for RemoteIngress {
+        fn enqueue_remote_task(
+            &self,
+            activation: &LocalTaskActivation,
+        ) -> Result<crate::RemoteTaskEnqueueOutcome, crate::RemoteTaskError> {
+            self.0.lock().unwrap().push(activation.event_id.clone());
+            Ok(crate::RemoteTaskEnqueueOutcome::Enqueued)
+        }
+    }
+
     struct FailingExecutor(Mutex<u32>);
     impl LocalTaskExecutorPort for &FailingExecutor {
         fn execute(
@@ -499,6 +534,7 @@ mod tests {
         LocalTaskActivation {
             cursor: 1,
             event_id: "event-1".into(),
+            event_sequence: 1,
             tenant_id: TenantId::new("tenant-a").unwrap(),
             instance_id: "instance-a".into(),
             workflow_type: WorkflowType::new("order").unwrap(),
@@ -509,6 +545,9 @@ mod tests {
             implementation_ref: "wasm://payment".into(),
             implementation_version: "sha256:abc".into(),
             occurred_at_epoch_ms: 1,
+            correlation_id: CorrelationId::new("correlation-a").unwrap(),
+            config_version: ConfigVersion::new("config-a").unwrap(),
+            policy_version: PolicyVersion::new("policy-a").unwrap(),
         }
     }
 
@@ -575,6 +614,7 @@ mod tests {
             }]),
             State::default(),
             Executor::default(),
+            Arc::new(RemoteIngress::default()),
             Dispatcher::default(),
             8,
         )
@@ -609,6 +649,7 @@ mod tests {
                 occurred_at_epoch_ms: 100,
             },
         };
+        let ingress = Arc::new(RemoteIngress::default());
         let runtime = LocalTaskRuntime::new(
             Outbox(vec![OutboxRecord {
                 cursor: 1,
@@ -619,6 +660,7 @@ mod tests {
             }]),
             State::default(),
             NotHandledExecutor,
+            ingress.clone(),
             Dispatcher::default(),
             8,
         )
@@ -627,5 +669,9 @@ mod tests {
         let outcome = runtime.run_once().unwrap();
         assert_eq!(outcome.executed, 0);
         assert_eq!(outcome.checkpoint, 1);
+        assert_eq!(
+            ingress.0.lock().unwrap().as_slice(),
+            ["event-remote".to_owned()]
+        );
     }
 }

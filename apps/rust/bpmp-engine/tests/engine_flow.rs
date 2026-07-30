@@ -18,19 +18,19 @@ use bpmp_domain_core::{
     CaseSentryDefinition, CaseStageDefinition, Command, CommandId, ComparisonOperator, ConfigId,
     ConfigVersion, ConfigurationScope, CorrelationId, DomainEvent, EnginePolicy,
     EngineWorkerPolicy, GuardExpression, IdempotencyKey, InstanceId, KeyScope, LocalWasmPolicy,
-    Node, NodeId, PlanItemId, PolicyVersion, ResolvedConfigSnapshot, RetryPolicy, ScopeKind,
-    SentryId, TaskType, TenantId, WorkflowDefinition, WorkflowExecutionContracts, WorkflowType,
-    WorkflowValue, WorkflowVersion, rehydrate,
+    Node, NodeId, PlanItemId, PolicyVersion, RemoteWorkerPolicy, ResolvedConfigSnapshot,
+    RetryPolicy, ScopeKind, SentryId, TaskType, TenantId, WorkflowDefinition,
+    WorkflowExecutionContracts, WorkflowType, WorkflowValue, WorkflowVersion, rehydrate,
 };
 use bpmp_engine::memory::{InMemoryConfigurationProvider, InMemoryWorkflowStore};
 use bpmp_engine::{
     ActorProofKind, AuthoritativeCommandHandler, AuthorizationError, AuthorizationProviderPort,
     AuthorizationRequest, AuthorizedCommand, AuthorizedPrincipal, BoundaryCommandDispatcherPort,
     BoundaryDispatchCredentials, BoundaryDispatchCredentialsPort, BoundaryDispatchRequest,
-    BoundaryDispatchSource, BoundaryRuntimeError, CommandDefinitionProviderPort,
-    ConfigurationLookup, EmbeddedAuthorizationProvider, Engine, EngineBoundaryCommandDispatcher,
-    EngineCommandHandlerPort, EngineError, HandleOutcome, OutboxStorePort,
-    WorkflowDefinitionProviderPort, WorkflowStorePort,
+    BoundaryDispatchSource, BoundaryRuntimeError, CommandDefinitionProviderPort, CommitOutcome,
+    CommitRequest, CommittedResult, ConfigurationLookup, EmbeddedAuthorizationProvider, Engine,
+    EngineBoundaryCommandDispatcher, EngineCommandHandlerPort, EngineError, HandleOutcome,
+    LoadedInstance, OutboxStorePort, StoreError, WorkflowDefinitionProviderPort, WorkflowStorePort,
 };
 use proptest::prelude::*;
 
@@ -494,6 +494,21 @@ fn configuration(snapshot_interval_events: u32) -> ResolvedConfigSnapshot {
                     max_backoff_ms: 100,
                     multiplier_millis: 2_000,
                 },
+                remote: RemoteWorkerPolicy {
+                    dispatch_batch_size: 32,
+                    max_workers: 1_000,
+                    max_credit_per_worker: 64,
+                    max_capabilities_per_worker: 32,
+                    lease_duration_ms: 30_000,
+                    heartbeat_timeout_ms: 10_000,
+                    max_identifier_bytes: 256,
+                    max_protocol_version_bytes: 32,
+                    stream_channel_capacity: 128,
+                    max_input_bytes: 65_536,
+                    max_output_bytes: 65_536,
+                    max_attempts: 5,
+                    retry_delay_ms: 1_000,
+                },
             },
         },
     )
@@ -572,6 +587,60 @@ fn start_request() -> AuthorizedCommand {
             occurred_at_epoch_ms: 42,
         },
     }
+}
+
+struct ComplianceUnavailableStore;
+
+impl WorkflowStorePort for ComplianceUnavailableStore {
+    fn lookup_idempotency(
+        &self,
+        _tenant_id: &TenantId,
+        _actor_id: &bpmp_domain_core::ActorId,
+        _idempotency_key: &IdempotencyKey,
+        _command_id: &CommandId,
+    ) -> Result<Option<CommittedResult>, StoreError> {
+        Ok(None)
+    }
+
+    fn load(
+        &self,
+        _tenant_id: &TenantId,
+        _instance_id: &InstanceId,
+    ) -> Result<LoadedInstance, StoreError> {
+        Err(StoreError::DataUnavailableForCompliance {
+            key_scope: "tenant-a/operational".into(),
+            key_version: "revoked-key-v1".into(),
+            key_epoch: 7,
+        })
+    }
+
+    fn commit(&self, _request: CommitRequest) -> Result<CommitOutcome, StoreError> {
+        panic!("compliance-unavailable data must never reach commit")
+    }
+}
+
+#[test]
+fn revoked_payload_stops_before_rehydrate_decide_and_commit() {
+    let definition = definition();
+    let mut provider = InMemoryConfigurationProvider::default();
+    provider.insert(
+        ConfigurationLookup {
+            tenant_id: TenantId::new("tenant-a").unwrap(),
+            workflow_type: definition.workflow_type.clone(),
+            workflow_version: definition.workflow_version.clone(),
+        },
+        configuration(100),
+    );
+    let engine = Engine::new(provider, ComplianceUnavailableStore, authorization());
+
+    assert!(matches!(
+        engine.handle(&definition, start_request()),
+        Err(EngineError::DataUnavailableForCompliance {
+            key_scope,
+            key_version,
+            key_epoch: 7,
+        }) if key_scope == "tenant-a/operational" && key_version == "revoked-key-v1"
+    ));
 }
 
 #[test]
@@ -907,6 +976,7 @@ proptest! {
         completion.idempotency_key = IdempotencyKey::new("complete-2").unwrap();
         completion.command = Command::CompleteServiceTask {
             node_id: NodeId::new("charge-card").unwrap(),
+            outputs: BTreeMap::new(),
             occurred_at_epoch_ms: 50,
         };
 

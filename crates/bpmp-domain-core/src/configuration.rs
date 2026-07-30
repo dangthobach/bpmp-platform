@@ -125,6 +125,7 @@ pub struct EngineWorkerPolicy {
     pub outbox_retry: RetryPolicy,
     pub local_task_batch_size: u32,
     pub local_task_retry: RetryPolicy,
+    pub remote: RemoteWorkerPolicy,
 }
 
 impl EngineWorkerPolicy {
@@ -139,7 +140,74 @@ impl EngineWorkerPolicy {
             return Err(ConfigError::NonPositiveValue("local_task_batch_size"));
         }
         self.outbox_retry.validate()?;
-        self.local_task_retry.validate()
+        self.local_task_retry.validate()?;
+        self.remote.validate()
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct RemoteWorkerPolicy {
+    pub dispatch_batch_size: u32,
+    pub max_workers: u32,
+    pub max_credit_per_worker: u32,
+    pub max_capabilities_per_worker: u32,
+    pub lease_duration_ms: u64,
+    pub heartbeat_timeout_ms: u64,
+    pub max_identifier_bytes: u32,
+    pub max_protocol_version_bytes: u32,
+    pub stream_channel_capacity: u32,
+    pub max_input_bytes: u32,
+    pub max_output_bytes: u32,
+    pub max_attempts: u32,
+    pub retry_delay_ms: u64,
+}
+
+impl RemoteWorkerPolicy {
+    /// Validates all bounded remote dispatch, lease, retry, and payload limits.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed configuration error when any bound is zero or when the
+    /// heartbeat timeout is not strictly shorter than the durable lease.
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        for (field, value) in [
+            ("remote_dispatch_batch_size", self.dispatch_batch_size),
+            ("remote_max_workers", self.max_workers),
+            ("remote_max_credit_per_worker", self.max_credit_per_worker),
+            (
+                "remote_max_capabilities_per_worker",
+                self.max_capabilities_per_worker,
+            ),
+            ("remote_max_identifier_bytes", self.max_identifier_bytes),
+            (
+                "remote_max_protocol_version_bytes",
+                self.max_protocol_version_bytes,
+            ),
+            (
+                "remote_stream_channel_capacity",
+                self.stream_channel_capacity,
+            ),
+            ("remote_max_input_bytes", self.max_input_bytes),
+            ("remote_max_output_bytes", self.max_output_bytes),
+            ("remote_max_attempts", self.max_attempts),
+        ] {
+            if value == 0 {
+                return Err(ConfigError::NonPositiveValue(field));
+            }
+        }
+        for (field, value) in [
+            ("remote_lease_duration_ms", self.lease_duration_ms),
+            ("remote_heartbeat_timeout_ms", self.heartbeat_timeout_ms),
+            ("remote_retry_delay_ms", self.retry_delay_ms),
+        ] {
+            if value == 0 {
+                return Err(ConfigError::NonPositiveValue(field));
+            }
+        }
+        if self.heartbeat_timeout_ms >= self.lease_duration_ms {
+            return Err(ConfigError::InvalidRemoteWorkerLease);
+        }
+        Ok(())
     }
 }
 
@@ -313,4 +381,6 @@ pub enum ConfigError {
     MultiInstanceParallelismExceedsCardinality,
     #[error("boundary runtime worker id must not be empty")]
     EmptyBoundaryWorkerId,
+    #[error("remote worker heartbeat timeout must be less than the assignment lease")]
+    InvalidRemoteWorkerLease,
 }

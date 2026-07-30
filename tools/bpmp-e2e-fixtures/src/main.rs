@@ -1,4 +1,5 @@
 #![forbid(unsafe_code)]
+#![recursion_limit = "256"]
 
 use std::fmt::Write as _;
 use std::fs;
@@ -152,6 +153,7 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
     fs::create_dir_all(&secrets)?;
 
     let tls = generate_tls(&manifest.tls_dns_names)?;
+    let tls_certificate_sha256_hex = tls.certificate_sha256_hex.clone();
     write(&secrets.join("ca.pem"), tls.ca)?;
     write(&secrets.join("tls.pem"), tls.certificate)?;
     write(&secrets.join("tls-key.pem"), tls.private_key)?;
@@ -253,6 +255,7 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
                     &internal_actor,
                     &internal_workload,
                 ],
+                &tls_certificate_sha256_hex,
             ),
         )?;
     }
@@ -313,6 +316,7 @@ struct TlsMaterial {
     ca: Vec<u8>,
     certificate: Vec<u8>,
     private_key: Vec<u8>,
+    certificate_sha256_hex: String,
 }
 
 fn generate_tls(dns_names: &[String]) -> Result<TlsMaterial> {
@@ -330,10 +334,18 @@ fn generate_tls(dns_names: &[String]) -> Result<TlsMaterial> {
     leaf_params.distinguished_name = leaf_name;
     let leaf_key = KeyPair::generate()?;
     let leaf = leaf_params.signed_by(&leaf_key, &ca)?;
+    let certificate_sha256_hex = Sha256::digest(leaf.der().as_ref()).iter().fold(
+        String::with_capacity(64),
+        |mut output, byte| {
+            let _ = write!(output, "{byte:02x}");
+            output
+        },
+    );
     Ok(TlsMaterial {
         ca: ca.pem().into_bytes(),
         certificate: leaf.pem().into_bytes(),
         private_key: leaf_key.serialize_pem().into_bytes(),
+        certificate_sha256_hex,
     })
 }
 
@@ -460,6 +472,21 @@ fn workflow_configuration(manifest: &Manifest) -> Value {
                         "initial_backoff_ms": 25,
                         "max_backoff_ms": 250,
                         "multiplier_millis": 2000
+                    },
+                    "remote": {
+                        "dispatch_batch_size": 32,
+                        "max_workers": 100_000,
+                        "max_credit_per_worker": 64,
+                        "max_capabilities_per_worker": 32,
+                        "lease_duration_ms": 30000,
+                        "heartbeat_timeout_ms": 10000,
+                        "max_identifier_bytes": 256,
+                        "max_protocol_version_bytes": 32,
+                        "stream_channel_capacity": 128,
+                        "max_input_bytes": 65536,
+                        "max_output_bytes": 65536,
+                        "max_attempts": 5,
+                        "retry_delay_ms": 1000
                     }
                 }
             }
@@ -471,7 +498,13 @@ fn boundary_config(worker: &str) -> Value {
     json!({"projection_batch_size": 64, "dispatch_batch_size": 32, "max_dispatch_attempts": 5, "retry_delay_ms": 100, "lease_duration_ms": 5000, "max_timer_horizon_ms": 31_536_000_000_u64, "max_expression_bytes": 4096, "worker_id": worker, "max_signal_id_bytes": 256, "max_reference_bytes": 512, "max_subscriptions_per_instance": 128})
 }
 
-fn engine_config(manifest: &Manifest, mount: &str, index: usize, keys: &[&AuthKey]) -> Value {
+fn engine_config(
+    manifest: &Manifest,
+    mount: &str,
+    index: usize,
+    keys: &[&AuthKey],
+    tls_certificate_sha256_hex: &str,
+) -> Value {
     let path = |name: &str| format!("{mount}/{name}");
     let verification = |key: &AuthKey| json!({"key_id": key.id, "path": path(&key.public_path)});
     json!({
@@ -497,7 +530,18 @@ fn engine_config(manifest: &Manifest, mount: &str, index: usize, keys: &[&AuthKe
             "policy_bundles": [path("policy.bundle")], "jwks": path("jwks.json"),
             "jwt_issuers": [manifest.actor_issuer], "jwt_audiences": [manifest.actor_audience], "jwt_algorithms": ["EdDSA"],
             "max_proof_bytes": 16384, "max_roles": 32, "max_capabilities": 64, "max_policy_bytes": 65536, "max_policy_grants": 64, "max_jwks_keys": 16, "clock_skew_seconds": 30,
-            "internal_dispatch": {"actor_signing_key": path(&keys[2].private_path), "actor_signing_key_id": keys[2].id, "workload_signing_key": path(&keys[3].private_path), "workload_signing_key_id": keys[3].id, "actor_id": "engine-scheduler", "workload_id": "bpmp-engine", "roles": ["system"], "capabilities": ["boundary.trigger"], "proof_ttl_ms": 60000}
+            "internal_dispatch": {"actor_signing_key": path(&keys[2].private_path), "actor_signing_key_id": keys[2].id, "workload_signing_key": path(&keys[3].private_path), "workload_signing_key_id": keys[3].id, "actor_id": "engine-scheduler", "workload_id": "bpmp-engine", "roles": ["system"], "capabilities": ["boundary.trigger", "workflow.complete"], "proof_ttl_ms": 60000},
+            "remote_workers": {
+                "allowed_protocol_versions": ["1.0"],
+                "identities": [{
+                    "workload_id": "remote-worker-e2e",
+                    "certificate_sha256_hex": tls_certificate_sha256_hex,
+                    "tenant_ids": [manifest.tenant_id]
+                }],
+                "assignment_signing_key": path(&keys[3].private_path),
+                "assignment_signing_key_id": keys[3].id,
+                "max_registration_proof_ttl_ms": 60_000
+            }
         },
         "payload_keys": [
             {"key_scope": format!("{}/operational", manifest.tenant_id), "key_version": "e2e-v1", "key_epoch": 1, "path": path("secrets/payload-operational.key")},

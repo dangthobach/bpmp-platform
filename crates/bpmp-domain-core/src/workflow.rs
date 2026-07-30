@@ -1256,6 +1256,7 @@ pub enum Command {
     },
     CompleteServiceTask {
         node_id: NodeId,
+        outputs: BTreeMap<String, WorkflowValue>,
         occurred_at_epoch_ms: u64,
     },
     CompleteUserTask {
@@ -1318,6 +1319,7 @@ pub enum DomainEvent {
     },
     ServiceTaskCompleted {
         node_id: NodeId,
+        outputs: BTreeMap<String, WorkflowValue>,
         occurred_at_epoch_ms: u64,
     },
     UserTaskActivated {
@@ -1581,6 +1583,7 @@ pub fn decide(
         (
             Command::CompleteServiceTask {
                 node_id,
+                outputs,
                 occurred_at_epoch_ms,
             },
             Lifecycle::Active { .. },
@@ -1598,6 +1601,7 @@ pub fn decide(
             };
             let mut events = vec![DomainEvent::ServiceTaskCompleted {
                 node_id: node_id.clone(),
+                outputs: outputs.clone(),
                 occurred_at_epoch_ms: *occurred_at_epoch_ms,
             }];
             let mut variables = state_variables_with_context(state, context.variables);
@@ -3328,8 +3332,13 @@ pub fn evolve(mut state: InstanceState, event: &DomainEvent) -> InstanceState {
                     .unwrap_or_else(|| node_id.clone()),
             }
         }
-        DomainEvent::ServiceTaskCompleted { node_id, .. }
-        | DomainEvent::ScriptTaskCompleted { node_id, .. } => {
+        DomainEvent::ServiceTaskCompleted {
+            node_id, outputs, ..
+        } => {
+            state.variables.extend(outputs.clone());
+            complete_active_token(&mut state.active_tokens, node_id)
+        }
+        DomainEvent::ScriptTaskCompleted { node_id, .. } => {
             complete_active_token(&mut state.active_tokens, node_id)
         }
         DomainEvent::UserTaskCompleted {
@@ -3773,7 +3782,8 @@ mod tests {
     use super::*;
     use crate::{
         BoundaryRuntimePolicy, ConfigId, ConfigVersion, ConfigurationScope, EnginePolicy,
-        EngineWorkerPolicy, KeyScope, LocalWasmPolicy, PolicyVersion, RetryPolicy, ScopeKind,
+        EngineWorkerPolicy, KeyScope, LocalWasmPolicy, PolicyVersion, RemoteWorkerPolicy,
+        RetryPolicy, ScopeKind,
     };
 
     fn id<T>(
@@ -4213,6 +4223,7 @@ mod tests {
             &after_start,
             &Command::CompleteServiceTask {
                 node_id: left,
+                outputs: BTreeMap::new(),
                 occurred_at_epoch_ms: 2,
             },
             context,
@@ -4227,6 +4238,7 @@ mod tests {
             &after_left,
             &Command::CompleteServiceTask {
                 node_id: right,
+                outputs: BTreeMap::new(),
                 occurred_at_epoch_ms: 3,
             },
             context,
@@ -4924,6 +4936,10 @@ mod tests {
             &active,
             &Command::CompleteServiceTask {
                 node_id: task,
+                outputs: BTreeMap::from([(
+                    "service_result".into(),
+                    WorkflowValue::String("accepted".into()),
+                )]),
                 occurred_at_epoch_ms: 2,
             },
             DecisionContext {
@@ -4943,6 +4959,10 @@ mod tests {
         let all_events = [started, completed].concat();
         let final_state = rehydrate(None, &all_events);
         assert_eq!(final_state.lifecycle, Lifecycle::Completed);
+        assert_eq!(
+            final_state.variables.get("service_result"),
+            Some(&WorkflowValue::String("accepted".into()))
+        );
         assert!(final_state.active_scopes.is_empty());
         assert_eq!(final_state.scope_invocation_counts.get(&scope), Some(&1));
         assert_eq!(final_state, rehydrate(None, &all_events));
@@ -5042,6 +5062,7 @@ mod tests {
             &state,
             &Command::CompleteServiceTask {
                 node_id: id(NodeId::new, "recovery"),
+                outputs: BTreeMap::new(),
                 occurred_at_epoch_ms: 3,
             },
             DecisionContext {
@@ -5061,6 +5082,7 @@ mod tests {
             &state,
             &Command::CompleteServiceTask {
                 node_id: id(NodeId::new, "work"),
+                outputs: BTreeMap::new(),
                 occurred_at_epoch_ms: 4,
             },
             DecisionContext {
@@ -5221,6 +5243,7 @@ mod tests {
                 &InstanceState::default(),
                 &Command::CompleteServiceTask {
                     node_id: id(NodeId::new, "task"),
+                    outputs: BTreeMap::new(),
                     occurred_at_epoch_ms: 1,
                 },
                 context,
@@ -5243,6 +5266,7 @@ mod tests {
             &active,
             &Command::CompleteServiceTask {
                 node_id: id(NodeId::new, "task"),
+                outputs: BTreeMap::new(),
                 occurred_at_epoch_ms: 2,
             },
             context,
@@ -5255,6 +5279,7 @@ mod tests {
                 &terminal,
                 &Command::CompleteServiceTask {
                     node_id: id(NodeId::new, "task"),
+                    outputs: BTreeMap::new(),
                     occurred_at_epoch_ms: 3,
                 },
                 context,
@@ -5385,6 +5410,21 @@ mod tests {
                         initial_backoff_ms: 10,
                         max_backoff_ms: 100,
                         multiplier_millis: 2_000,
+                    },
+                    remote: RemoteWorkerPolicy {
+                        dispatch_batch_size: 32,
+                        max_workers: 1_000,
+                        max_credit_per_worker: 64,
+                        max_capabilities_per_worker: 32,
+                        lease_duration_ms: 30_000,
+                        heartbeat_timeout_ms: 10_000,
+                        max_identifier_bytes: 256,
+                        max_protocol_version_bytes: 32,
+                        stream_channel_capacity: 128,
+                        max_input_bytes: 65_536,
+                        max_output_bytes: 65_536,
+                        max_attempts: 5,
+                        retry_delay_ms: 1_000,
                     },
                 },
             },
@@ -5555,6 +5595,7 @@ mod tests {
                 &terminated,
                 &Command::CompleteServiceTask {
                     node_id: id(NodeId::new, "task"),
+                    outputs: BTreeMap::new(),
                     occurred_at_epoch_ms: 3,
                 },
                 DecisionContext {
@@ -5697,6 +5738,7 @@ mod tests {
                 &active,
                 &Command::CompleteServiceTask {
                     node_id: id(NodeId::new, "task"),
+                    outputs: BTreeMap::new(),
                     occurred_at_epoch_ms: completed_at,
                 },
                 context,

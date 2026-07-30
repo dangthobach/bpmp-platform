@@ -8,6 +8,8 @@ mod governance_runtime;
 mod linux_runtime;
 #[cfg(target_os = "linux")]
 mod raft_runtime;
+#[cfg(target_os = "linux")]
+mod remote_worker_runtime;
 
 use std::path::PathBuf;
 

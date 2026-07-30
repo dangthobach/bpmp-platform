@@ -155,3 +155,37 @@ message BoundarySignalRecord {
   bool dead_lettered = 15;
   string authorization_context_ref = 16;
 }
+
+enum RemoteTaskRecordStatus {
+  REMOTE_TASK_RECORD_STATUS_UNSPECIFIED = 0;
+  REMOTE_TASK_RECORD_STATUS_READY = 1;
+  REMOTE_TASK_RECORD_STATUS_LEASED = 2;
+  REMOTE_TASK_RECORD_STATUS_COMPLETED = 3;
+  REMOTE_TASK_RECORD_STATUS_DEAD_LETTERED = 4;
+}
+
+message RemoteTaskRecord {
+  uint32 storage_schema_version = 1;
+  string task_id = 2;
+  string tenant_id = 3;
+  string instance_id = 4;
+  string workflow_type = 5;
+  string workflow_version = 6;
+  string node_id = 7;
+  string task_type = 8;
+  string activation_event_id = 9;
+  uint64 activation_sequence = 10;
+  uint64 activated_at_epoch_ms = 11;
+  string correlation_id = 12;
+  string config_version = 13;
+  string policy_version = 14;
+  RemoteTaskRecordStatus status = 15;
+  uint32 attempts = 16;
+  uint64 available_at_epoch_ms = 17;
+  string assignment_id = 18;
+  string worker_id = 19;
+  string session_id = 20;
+  uint64 lease_version = 21;
+  uint64 lease_until_epoch_ms = 22;
+  bytes assignment_token_digest = 23;
+}

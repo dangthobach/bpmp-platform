@@ -18,6 +18,10 @@ mod local_task_runtime;
 pub mod memory;
 mod outbox;
 mod ports;
+mod remote_task;
+mod remote_worker_coordinator;
+mod remote_worker_dispatch;
+mod remote_worker_transport;
 mod runtime_registry;
 mod snapshot_codec;
 mod transport;
@@ -72,6 +76,24 @@ pub use ports::{
     ActorProofKind, AuthorizationError, AuthorizationProviderPort, AuthorizationRequest,
     AuthorizedPrincipal, CommitOutcome, CommitRequest, ConfigurationLookup,
     ConfigurationProviderPort, LoadedInstance, StoreError, WorkflowStorePort,
+};
+pub use remote_task::{
+    RemoteTask, RemoteTaskClaim, RemoteTaskClaimRequest, RemoteTaskCompletionPort,
+    RemoteTaskEnqueueOutcome, RemoteTaskError, RemoteTaskFailureOutcome, RemoteTaskIngressPort,
+    RemoteTaskStorePort,
+};
+pub use remote_worker_coordinator::{
+    RemoteAssignmentTokenPort, RemoteAssignmentTokenRequest, RemoteWorkerCoordinator,
+    RemoteWorkerPolicyActivationPort, RemoteWorkerPolicyHandle, RemoteWorkerVerifierPort,
+    VerifiedRemoteWorker,
+};
+pub use remote_worker_dispatch::{
+    RemoteDispatchError, RemoteDispatchRegistry, RemoteTaskAcknowledgement, RemoteWorkerLimits,
+    RemoteWorkerRegistration,
+};
+pub use remote_worker_transport::{
+    GrpcRemoteWorkerDispatchService, RemoteWorkerStreamHandlerPort, RemoteWorkerStreamLimits,
+    RemoteWorkerTransportError,
 };
 pub use runtime_registry::{
     MigrationSafePoint, ResolvedGovernancePolicy, RuntimeConfigurationUpdate,

@@ -242,6 +242,14 @@ pub enum StoreError {
     InvalidAuthorizationAudit,
     #[error("governance transition is stale, malformed, or inconsistent: {0}")]
     InvalidGovernanceTransition(String),
+    #[error(
+        "workflow payload is unavailable for compliance: scope {key_scope}, key {key_version}, epoch {key_epoch}"
+    )]
+    DataUnavailableForCompliance {
+        key_scope: String,
+        key_version: String,
+        key_epoch: u64,
+    },
     #[error("payload cryptography is unavailable or rejected the payload")]
     CryptoUnavailable,
     #[error("durable event data is corrupt or incompatible: {0}")]

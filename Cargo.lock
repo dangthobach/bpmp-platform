@@ -550,6 +550,7 @@ dependencies = [
  "ed25519-dalek",
  "proptest",
  "prost",
+ "sha2 0.11.0",
  "thiserror 2.0.18",
  "time",
  "tokio",
