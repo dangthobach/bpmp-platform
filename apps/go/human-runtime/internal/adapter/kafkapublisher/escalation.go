@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/dangthobach/bpmp-platform/apps/go/human-runtime/internal/application"
+	"github.com/dangthobach/bpmp-platform/go/platform/requestmeta"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
@@ -39,8 +40,16 @@ func (p *EscalationPublisher) PublishEscalation(ctx context.Context, escalation 
 			{Key: "bpmp-escalation-id", Value: []byte(escalation.EscalationID)},
 		},
 	}
+	ctx = requestmeta.WithValues(ctx, requestmeta.Values{
+		RequestID: escalation.EscalationID, CorrelationID: escalation.EscalationID,
+		TenantID: escalation.TenantID,
+	})
+	ctx, span := requestmeta.StartKafkaProducerSpan(ctx, record)
+	defer span.End()
+	requestmeta.InjectKafka(ctx, record)
 	results := p.producer.ProduceSync(ctx, record)
 	if err := results.FirstErr(); err != nil {
+		requestmeta.RecordSpanError(span, err)
 		return fmt.Errorf("publish escalation %s: %w", escalation.EscalationID, err)
 	}
 	return nil

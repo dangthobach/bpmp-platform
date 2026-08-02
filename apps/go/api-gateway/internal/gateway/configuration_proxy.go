@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/dangthobach/bpmp-platform/go/platform/requestmeta"
 )
 
 type httpDoer interface {
@@ -75,6 +77,7 @@ func (h *Handler) configuration(w http.ResponseWriter, r *http.Request) {
 				return nil, requestErr
 			}
 			copyConfigurationHeaders(upstreamRequest.Header, r.Header)
+			requestmeta.InjectHTTP(ctx, upstreamRequest.Header)
 			return h.configurationProxy.client.Do(upstreamRequest)
 		},
 	)
@@ -106,12 +109,7 @@ func copyConfigurationHeaders(target, source http.Header) {
 		"Accept",
 		"Authorization",
 		"Content-Type",
-		"X-BPMP-Tenant-ID",
-		"X-Correlation-ID",
-		"X-Command-ID",
 		"Idempotency-Key",
-		"traceparent",
-		"tracestate",
 	} {
 		if value := source.Get(name); value != "" {
 			target.Set(name, value)

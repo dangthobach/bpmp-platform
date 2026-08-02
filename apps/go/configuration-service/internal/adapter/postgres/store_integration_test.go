@@ -46,6 +46,7 @@ func TestPostgresLifecycleAuditOutboxAndIdempotency(t *testing.T) {
 		"../../../../../../db/configuration-service/migrations/002_kafka_hot_reload.sql",
 		"../../../../../../db/configuration-service/migrations/003_owner_and_tenant_readiness.sql",
 		"../../../../../../db/configuration-service/migrations/004_audit_effective_versions.sql",
+		"../../../../../../db/configuration-service/migrations/005_outbox_observability_context.sql",
 	} {
 		migration, readErr := os.ReadFile(path)
 		if readErr != nil {
@@ -62,7 +63,9 @@ func TestPostgresLifecycleAuditOutboxAndIdempotency(t *testing.T) {
 	})
 	actor := domain.Actor{
 		TenantID: "tenant-a", ActorID: "operator-a", CorrelationID: "correlation-1",
-		CommandID: "command-1", IdempotencyKey: "create-1",
+		RequestID: "request-1", CommandID: "command-1", IdempotencyKey: "create-1",
+		TraceParent:  "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+		TraceState:   "bpmp=integration-test",
 		Capabilities: map[string]struct{}{"configuration.read": {}, "configuration.manage": {}},
 	}
 	input := application.CreateInput{
@@ -130,6 +133,17 @@ func TestPostgresLifecycleAuditOutboxAndIdempotency(t *testing.T) {
 	}
 	if auditCount != 4 || outboxCount != 3 {
 		t.Fatalf("unexpected durable side effects: audit=%d outbox=%d", auditCount, outboxCount)
+	}
+	var requestID, correlationID, commandID, traceParent, traceState string
+	if err = pool.QueryRow(ctx, `SELECT request_id,correlation_id,command_id,trace_parent,trace_state
+		FROM configuration_outbox WHERE tenant_id='tenant-a'
+		ORDER BY created_at LIMIT 1`).Scan(&requestID, &correlationID, &commandID, &traceParent, &traceState); err != nil {
+		t.Fatal(err)
+	}
+	if requestID != actor.RequestID || correlationID != actor.CorrelationID ||
+		commandID != "command-2" || traceParent != actor.TraceParent || traceState != actor.TraceState {
+		t.Fatalf("outbox lost observability context: request=%q correlation=%q command=%q traceparent=%q tracestate=%q",
+			requestID, correlationID, commandID, traceParent, traceState)
 	}
 	var auditedConfigVersion, auditedPolicyVersion string
 	if err = pool.QueryRow(ctx, `SELECT config_version,policy_version

@@ -24,6 +24,7 @@ use bpmp_engine::{
 };
 use bpmp_payload_crypto::PayloadCryptoPort;
 use bpmp_raft_state_machine::{ApplyOutcome, ApplyResponse, PreparedAtomicBatch, TypeConfig};
+use bpmp_transport_observability::{RequestMetadataLayer, inject_tonic_metadata};
 use openraft::error::{NetworkError, RPCError, RaftError, RemoteError};
 use openraft::network::RPCOption;
 use openraft::raft::{
@@ -180,12 +181,14 @@ impl PeerDirectory {
             .client(leader_id)
             .await
             .map_err(|error| unavailable_transport(error.to_string()))?;
+        let mut outbound = tonic::Request::new(ForwardCommandRequest {
+            schema_version: RAFT_RPC_SCHEMA_VERSION,
+            hop_count: MAX_FORWARD_HOPS,
+            command: Some(command),
+        });
+        inject_tonic_metadata(&mut outbound);
         let response = client
-            .forward_command(ForwardCommandRequest {
-                schema_version: RAFT_RPC_SCHEMA_VERSION,
-                hop_count: MAX_FORWARD_HOPS,
-                command: Some(command),
-            })
+            .forward_command(outbound)
             .await
             .map_err(|error| unavailable_transport(error.to_string()))?
             .into_inner();
@@ -236,12 +239,14 @@ impl RaftNetwork<TypeConfig> for TonicRaftConnection {
     ) -> Result<AppendEntriesResponse<u64>, RaftRpcError> {
         let payload_json = encode_request(&request)?;
         let mut client = self.client().await?;
+        let mut outbound = tonic::Request::new(WireAppendEntriesRequest {
+            schema_version: RAFT_RPC_SCHEMA_VERSION,
+            source_node_id: self.source_node_id,
+            payload_json,
+        });
+        inject_tonic_metadata(&mut outbound);
         let response = client
-            .append_entries(WireAppendEntriesRequest {
-                schema_version: RAFT_RPC_SCHEMA_VERSION,
-                source_node_id: self.source_node_id,
-                payload_json,
-            })
+            .append_entries(outbound)
             .await
             .map_err(|error| network_status(&error))?
             .into_inner();
@@ -256,12 +261,14 @@ impl RaftNetwork<TypeConfig> for TonicRaftConnection {
     {
         let payload_json = encode_request(&request)?;
         let mut client = self.client().await?;
+        let mut outbound = tonic::Request::new(WireInstallSnapshotRequest {
+            schema_version: RAFT_RPC_SCHEMA_VERSION,
+            source_node_id: self.source_node_id,
+            payload_json,
+        });
+        inject_tonic_metadata(&mut outbound);
         let response = client
-            .install_snapshot(WireInstallSnapshotRequest {
-                schema_version: RAFT_RPC_SCHEMA_VERSION,
-                source_node_id: self.source_node_id,
-                payload_json,
-            })
+            .install_snapshot(outbound)
             .await
             .map_err(|error| network_status(&error))?
             .into_inner();
@@ -275,12 +282,14 @@ impl RaftNetwork<TypeConfig> for TonicRaftConnection {
     ) -> Result<VoteResponse<u64>, RaftRpcError> {
         let payload_json = encode_request(&request)?;
         let mut client = self.client().await?;
+        let mut outbound = tonic::Request::new(WireVoteRequest {
+            schema_version: RAFT_RPC_SCHEMA_VERSION,
+            source_node_id: self.source_node_id,
+            payload_json,
+        });
+        inject_tonic_metadata(&mut outbound);
         let response = client
-            .vote(WireVoteRequest {
-                schema_version: RAFT_RPC_SCHEMA_VERSION,
-                source_node_id: self.source_node_id,
-                payload_json,
-            })
+            .vote(outbound)
             .await
             .map_err(|error| network_status(&error))?
             .into_inner();
@@ -964,6 +973,7 @@ mod tests {
                     .into_server(64 * 1024, 64 * 1024);
             servers.push(tokio::spawn(async move {
                 Server::builder()
+                    .layer(RequestMetadataLayer::new("bpmp-engine-raft-test"))
                     .add_service(service)
                     .serve_with_incoming(TcpListenerStream::new(listener))
                     .await
@@ -1053,6 +1063,7 @@ mod tests {
             .into_server(64 * 1024, 64 * 1024);
         let server = tokio::spawn(async move {
             Server::builder()
+                .layer(RequestMetadataLayer::new("bpmp-engine-raft-test"))
                 .add_service(service)
                 .serve_with_incoming(TcpListenerStream::new(listener))
                 .await

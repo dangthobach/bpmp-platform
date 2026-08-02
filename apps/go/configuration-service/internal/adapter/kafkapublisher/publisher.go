@@ -16,6 +16,7 @@ import (
 	configurationv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/configuration/v1"
 	tenancyv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/tenancy/v1"
 	"github.com/dangthobach/bpmp-platform/go/platform/kafkaconfig"
+	"github.com/dangthobach/bpmp-platform/go/platform/requestmeta"
 )
 
 type Publisher struct {
@@ -73,7 +74,7 @@ func (p *Publisher) Publish(ctx context.Context, publication domain.Publication)
 	if len(payload) > p.maxMessageBytes {
 		return errors.New("configuration publication exceeds Kafka message bound")
 	}
-	result := p.client.ProduceSync(ctx, &kgo.Record{
+	record := &kgo.Record{
 		Topic: p.topic,
 		Key:   []byte(publication.TenantID),
 		Value: payload,
@@ -82,8 +83,18 @@ func (p *Publisher) Publish(ctx context.Context, publication domain.Publication)
 			{Key: "bpmp-tenant-id", Value: []byte(publication.TenantID)},
 			{Key: "bpmp-schema-version", Value: []byte("1")},
 		},
+	}
+	ctx = requestmeta.Restore(ctx, requestmeta.Values{
+		RequestID: publication.RequestID, CorrelationID: publication.CorrelationID,
+		TenantID: publication.TenantID, CommandID: publication.CommandID,
+		TraceParent: publication.TraceParent, TraceState: publication.TraceState,
 	})
+	ctx, span := requestmeta.StartKafkaProducerSpan(ctx, record)
+	defer span.End()
+	requestmeta.InjectKafka(ctx, record)
+	result := p.client.ProduceSync(ctx, record)
 	if err = result.FirstErr(); err != nil {
+		requestmeta.RecordSpanError(span, err)
 		return fmt.Errorf("publish configuration event: %w", err)
 	}
 	return nil
@@ -119,7 +130,7 @@ func (p *Publisher) PublishTenantReadiness(
 	if len(payload) > p.maxMessageBytes {
 		return errors.New("tenant readiness publication exceeds Kafka message bound")
 	}
-	result := p.client.ProduceSync(ctx, &kgo.Record{
+	record := &kgo.Record{
 		Topic: p.topic,
 		Key:   []byte(publication.TenantID),
 		Value: payload,
@@ -128,8 +139,18 @@ func (p *Publisher) PublishTenantReadiness(
 			{Key: "bpmp-tenant-id", Value: []byte(publication.TenantID)},
 			{Key: "bpmp-schema-version", Value: []byte("1")},
 		},
+	}
+	ctx = requestmeta.Restore(ctx, requestmeta.Values{
+		RequestID: publication.RequestID, CorrelationID: publication.CorrelationID,
+		TenantID: publication.TenantID, CommandID: publication.CommandID,
+		TraceParent: publication.TraceParent, TraceState: publication.TraceState,
 	})
+	ctx, span := requestmeta.StartKafkaProducerSpan(ctx, record)
+	defer span.End()
+	requestmeta.InjectKafka(ctx, record)
+	result := p.client.ProduceSync(ctx, record)
 	if err = result.FirstErr(); err != nil {
+		requestmeta.RecordSpanError(span, err)
 		return fmt.Errorf("publish tenant readiness event: %w", err)
 	}
 	return nil

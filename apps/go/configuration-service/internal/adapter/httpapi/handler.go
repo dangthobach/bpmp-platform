@@ -14,6 +14,7 @@ import (
 
 	"github.com/dangthobach/bpmp-platform/apps/go/configuration-service/internal/application"
 	"github.com/dangthobach/bpmp-platform/apps/go/configuration-service/internal/domain"
+	"github.com/dangthobach/bpmp-platform/go/platform/requestmeta"
 )
 
 type HandlerConfig struct {
@@ -45,12 +46,7 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("POST /v1/configuration/profiles/{profileID}/versions/{versionID}/restore", h.restore)
 	mux.HandleFunc("POST /v1/configuration/profiles/{profileID}/retire", h.retire)
 	mux.HandleFunc("GET /v1/configuration/profiles/{profileID}/diff", h.diff)
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if correlationID := r.Header.Get("X-Correlation-ID"); correlationID != "" && len(correlationID) <= 128 {
-			w.Header().Set("X-Correlation-ID", correlationID)
-		}
-		mux.ServeHTTP(w, r)
-	})
+	return mux
 }
 
 type createRequest struct {
@@ -274,7 +270,8 @@ func (h *Handler) actor(r *http.Request) (domain.Actor, error) {
 	tenantID := r.Header.Get("X-BPMP-Tenant-ID")
 	correlationID := r.Header.Get("X-Correlation-ID")
 	authorization := r.Header.Get("Authorization")
-	if tenantID == "" || correlationID == "" || !strings.HasPrefix(authorization, "Bearer ") {
+	if !requestmeta.ValidID(tenantID) || !requestmeta.ValidID(correlationID) ||
+		!strings.HasPrefix(authorization, "Bearer ") {
 		return domain.Actor{}, domain.ErrUnauthorized
 	}
 	identity, err := h.verifier.Verify(strings.TrimPrefix(authorization, "Bearer "), tenantID, h.now().UTC())
@@ -285,14 +282,22 @@ func (h *Handler) actor(r *http.Request) (domain.Actor, error) {
 		TenantID: identity.TenantID, ActorID: identity.ActorID,
 		CorrelationID: correlationID, Capabilities: identity.Capabilities,
 	}
+	if transport, ok := requestmeta.FromContext(r.Context()); ok {
+		actor.RequestID = transport.RequestID
+		actor.TraceParent = transport.TraceParent
+		actor.TraceState = transport.TraceState
+	}
 	if r.Method != http.MethodGet {
 		actor.CommandID = r.Header.Get("X-Command-ID")
 		actor.IdempotencyKey = r.Header.Get("Idempotency-Key")
-		if actor.CommandID == "" || actor.IdempotencyKey == "" ||
-			len(actor.CommandID) > 128 || len(actor.IdempotencyKey) > 256 {
+		if !requestmeta.ValidID(actor.CommandID) || actor.IdempotencyKey == "" ||
+			len(actor.IdempotencyKey) > 256 {
 			return domain.Actor{}, domain.ErrInvalid
 		}
 	}
+	requestmeta.Enrich(r.Context(), requestmeta.Values{
+		TenantID: actor.TenantID, CommandID: actor.CommandID, ActorID: actor.ActorID,
+	})
 	return actor, nil
 }
 
@@ -330,25 +335,28 @@ func decodeBody(w http.ResponseWriter, r *http.Request, target any, max int64) e
 
 func writeError(w http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
-	message := "internal error"
+	code, message := "internal_error", "Internal server error"
+	retryable := false
 	switch {
 	case errors.Is(err, domain.ErrInvalid):
-		status, message = http.StatusBadRequest, "invalid configuration"
+		status, code, message = http.StatusBadRequest, "invalid_configuration", "Invalid configuration"
 	case errors.Is(err, domain.ErrUnauthorized):
-		status, message = http.StatusForbidden, "forbidden"
+		status, code, message = http.StatusForbidden, "forbidden", "Forbidden"
 	case errors.Is(err, domain.ErrNotFound):
-		status, message = http.StatusNotFound, "configuration not found"
+		status, code, message = http.StatusNotFound, "configuration_not_found", "Configuration not found"
 	case errors.Is(err, domain.ErrConflict):
-		status, message = http.StatusConflict, "configuration version conflict"
+		status, code, message = http.StatusConflict, "configuration_version_conflict", "Configuration version conflict"
+	default:
+		retryable = true
 	}
-	writeJSON(w, status, map[string]string{"error": message})
+	requestmeta.WriteProblemResponse(w, status, code, message, "", retryable)
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
 	var body bytes.Buffer
 	if err := json.NewEncoder(&body).Encode(value); err != nil {
 		slog.Error("encode configuration HTTP response", "error", err)
-		http.Error(w, "response encoding failed", http.StatusInternalServerError)
+		requestmeta.WriteProblemResponse(w, http.StatusInternalServerError, "response_encoding_failed", "Response encoding failed", "response could not be encoded", false)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

@@ -35,7 +35,8 @@ func (s *Store) ClaimTenantReadinessBatch(
 	if publicationLeaseIsActive(leaseOwner, leaseUntil, now) {
 		return nil, nil
 	}
-	rows, err := tx.Query(ctx, `SELECT event_id::text,event_sequence,tenant_id,
+	rows, err := tx.Query(ctx, `SELECT event_id::text,event_sequence,request_id,
+		correlation_id,command_id,COALESCE(trace_parent,''),COALESCE(trace_state,''),tenant_id,
 		tenant_version,ready,missing_owners,profile_set_hash,occurred_at,attempt_count
 		FROM tenant_configuration_readiness_outbox
 		WHERE event_sequence>$1 AND published_at IS NULL
@@ -52,6 +53,11 @@ func (s *Store) ClaimTenantReadinessBatch(
 		if err = rows.Scan(
 			&record.EventID,
 			&record.EventSequence,
+			&record.RequestID,
+			&record.CorrelationID,
+			&record.CommandID,
+			&record.TraceParent,
+			&record.TraceState,
 			&record.TenantID,
 			&record.TenantVersion,
 			&record.Ready,

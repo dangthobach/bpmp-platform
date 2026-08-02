@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use bpmp_contracts::configuration::v1 as configurationv1;
+use bpmp_transport_observability::inject_tonic_metadata;
 use tokio::sync::{Mutex, RwLock};
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint, Identity};
 
@@ -68,19 +69,21 @@ impl PolicyCache {
     }
 
     pub async fn refresh(&self, scope: &PolicyScope) -> Result<ResolvedPolicy> {
+        let mut outbound = tonic::Request::new(configurationv1::ResolveConfigurationRequest {
+            tenant_id: scope.tenant_id.clone(),
+            workflow_type: scope.workflow_type.clone(),
+            workflow_version: scope.workflow_version.clone(),
+            platform_reference: self.resolver.platform_reference.clone(),
+            environment_reference: self.resolver.environment_reference.clone(),
+            instance_id: String::new(),
+            owner: configurationv1::ConfigurationOwner::Governance as i32,
+        });
+        inject_tonic_metadata(&mut outbound);
         let response = self
             .client
             .lock()
             .await
-            .resolve_configuration(configurationv1::ResolveConfigurationRequest {
-                tenant_id: scope.tenant_id.clone(),
-                workflow_type: scope.workflow_type.clone(),
-                workflow_version: scope.workflow_version.clone(),
-                platform_reference: self.resolver.platform_reference.clone(),
-                environment_reference: self.resolver.environment_reference.clone(),
-                instance_id: String::new(),
-                owner: configurationv1::ConfigurationOwner::Governance as i32,
-            })
+            .resolve_configuration(outbound)
             .await
             .context("resolve governance policy")?
             .into_inner()

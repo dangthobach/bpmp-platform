@@ -12,6 +12,13 @@
     "listen_address": "127.0.0.1:8091",
     "max_receive_bytes": 1048576,
     "max_send_bytes": 1048576,
+    "unary_timeout_ms": 15000,
+    "authorized_client_certificate_sha256": ["0000000000000000000000000000000000000000000000000000000000000000"],
+    "authorized_methods": [
+      "/bpmp.configuration.v1.ConfigurationResolverService/ResolveConfiguration"
+    ],
+    "admission_rate_rps": 2000,
+    "admission_burst": 200,
     "reflection_enabled": false
   },
   "kafka": {
@@ -86,12 +93,16 @@
     "default_page_size": 50,
     "max_page_size": 200,
     "max_body_bytes": 1048576,
+    "max_header_bytes": 32768,
     "read_header_timeout_ms": 5000,
+    "request_timeout_ms": 15000,
     "read_timeout_ms": 15000,
     "write_timeout_ms": 15000,
     "idle_timeout_ms": 60000,
     "shutdown_timeout_ms": 10000,
-    "readiness_timeout_ms": 2000
+    "readiness_timeout_ms": 2000,
+    "admission_rate_rps": 1000,
+    "admission_burst": 100
   },
   "telemetry": {
     "service_name": "configuration-service",

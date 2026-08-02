@@ -45,6 +45,7 @@ use bpmp_engine::{
 use bpmp_governance_domain::GovernancePolicy;
 use bpmp_payload_crypto::{AesGcmPayloadCrypto, CryptoError, DataKeyResolverPort, ResolvedDataKey};
 use bpmp_raft_state_machine::{AuthoritativeStateMachine, StateMachineLimits, TypeConfig};
+use bpmp_transport_observability::{AdmissionLimiter, RequestMetadataLayer, WorkloadAuthorization};
 use jsonwebtoken::Algorithm;
 use openraft::Raft;
 use prost::Message as ProstMessage;
@@ -183,8 +184,31 @@ pub async fn run(path: PathBuf) -> Result<()> {
         ))
         .client_ca_root(Certificate::from_pem(client_ca.clone()));
     let peer_listen_addr = config.raft.peer_listen_addr;
+    let peer_request_timeout = Duration::from_millis(config.raft.rpc_timeout_ms);
+    let peer_admission_limiter =
+        AdmissionLimiter::try_new(config.grpc.admission_rate_rps, config.grpc.admission_burst)
+            .map_err(anyhow::Error::msg)
+            .context("build Raft peer admission limiter")?;
+    let peer_certificate_fingerprints = config
+        .raft
+        .peers
+        .iter()
+        .map(|peer| peer.certificate_sha256_hex.clone())
+        .collect::<Vec<_>>();
+    let peer_workload_authorization = WorkloadAuthorization::try_new(
+        &peer_certificate_fingerprints,
+        &config.raft.authorized_methods,
+    )
+    .map_err(anyhow::Error::msg)
+    .context("build Raft peer workload authorization")?;
     let peer_server = tokio::spawn(async move {
         Server::builder()
+            .layer(
+                RequestMetadataLayer::new("bpmp-engine-raft")
+                    .with_request_timeout(peer_request_timeout)
+                    .with_workload_authorization(peer_workload_authorization)
+                    .with_admission_limiter(peer_admission_limiter),
+            )
             .tls_config(peer_tls)?
             .add_service(peer_grpc)
             .serve(peer_listen_addr)
@@ -486,7 +510,16 @@ pub async fn run(path: PathBuf) -> Result<()> {
         })
         .transpose()
         .context("build engine gRPC reflection service")?;
+    let public_admission_limiter =
+        AdmissionLimiter::try_new(config.grpc.admission_rate_rps, config.grpc.admission_burst)
+            .map_err(anyhow::Error::msg)
+            .context("build engine admission limiter")?;
     let server = Server::builder()
+        .layer(
+            RequestMetadataLayer::new("bpmp-engine")
+                .with_request_timeout(Duration::from_millis(config.grpc.request_timeout_ms))
+                .with_admission_limiter(public_admission_limiter),
+        )
         .tls_config(tls)?
         .add_service(grpc)
         .add_service(remote_grpc)
@@ -1815,6 +1848,18 @@ impl bpmp_engine::IntegrationEventPublisherPort for KafkaPublisher {
                         .insert(rdkafka::message::Header {
                             key: "bpmp-tenant-id",
                             value: Some(record.tenant_id.as_bytes()),
+                        })
+                        .insert(rdkafka::message::Header {
+                            key: "x-bpmp-request-id",
+                            value: Some(record.event_id.as_bytes()),
+                        })
+                        .insert(rdkafka::message::Header {
+                            key: "x-bpmp-correlation-id",
+                            value: Some(record.correlation_id.as_bytes()),
+                        })
+                        .insert(rdkafka::message::Header {
+                            key: "x-bpmp-command-id",
+                            value: Some(record.causation_command_id.as_bytes()),
                         }),
                 ),
             Timeout::After(self.timeout),

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/dangthobach/bpmp-platform/go/platform/requestmeta"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
@@ -63,8 +64,13 @@ func (c *Consumer) Run(ctx context.Context) error {
 	return ctx.Err()
 }
 func (c *Consumer) HandleRecord(ctx context.Context, record *kgo.Record) error {
+	ctx, span := requestmeta.StartKafkaConsumerSpan(ctx, record)
+	defer span.End()
 	if err := c.handler.Handle(ctx, record.Value); err != nil {
+		requestmeta.RecordSpanError(span, err)
 		return err
 	}
-	return c.client.CommitRecords(ctx, record)
+	err := c.client.CommitRecords(ctx, record)
+	requestmeta.RecordSpanError(span, err)
+	return err
 }

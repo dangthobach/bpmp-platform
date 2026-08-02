@@ -6,9 +6,14 @@ use std::net::SocketAddr;
 /// Full server configuration.
 #[derive(Debug, Clone)]
 pub struct ServerConfig {
+    pub service_name: String,
     pub host: String,
     pub port: u16,
     pub grpc_port: u16,
+    pub server_request_timeout_ms: u64,
+    pub server_max_body_bytes: usize,
+    pub rate_limit_requests_per_second: u32,
+    pub rate_limit_burst: u32,
     pub database_url: String,
     pub db_max_connections: u32,
     pub db_min_connections: u32,
@@ -67,6 +72,7 @@ impl ServerConfig {
                 anyhow::bail!("KAFKA_SECURITY_PROTOCOL must be PLAINTEXT or SSL");
             };
         let config = Self {
+            service_name: required("SERVICE_NAME")?,
             host: std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_owned()),
             port: std::env::var("PORT")
                 .unwrap_or_else(|_| "8080".to_owned())
@@ -76,6 +82,18 @@ impl ServerConfig {
                 .unwrap_or_else(|_| "50051".to_owned())
                 .parse::<u16>()
                 .context("Invalid GRPC_PORT")?,
+            server_request_timeout_ms: required("SERVER_REQUEST_TIMEOUT_MS")?
+                .parse()
+                .context("SERVER_REQUEST_TIMEOUT_MS is invalid")?,
+            server_max_body_bytes: required("SERVER_MAX_BODY_BYTES")?
+                .parse()
+                .context("SERVER_MAX_BODY_BYTES is invalid")?,
+            rate_limit_requests_per_second: required("RATE_LIMIT_RPS")?
+                .parse()
+                .context("RATE_LIMIT_RPS is invalid")?,
+            rate_limit_burst: required("RATE_LIMIT_BURST")?
+                .parse()
+                .context("RATE_LIMIT_BURST is invalid")?,
             database_url: std::env::var("DATABASE_URL").context("DATABASE_URL is required")?,
             db_max_connections: std::env::var("DB_MAX_CONNECTIONS")
                 .unwrap_or_else(|_| "20".to_owned())
@@ -135,6 +153,10 @@ impl ServerConfig {
             || config.tenant_lifecycle_lease_ms <= 0
             || config.tenant_lifecycle_poll_ms == 0
             || config.kafka_max_message_bytes == 0
+            || config.server_request_timeout_ms == 0
+            || config.server_max_body_bytes == 0
+            || config.rate_limit_requests_per_second == 0
+            || config.rate_limit_burst == 0
         {
             anyhow::bail!("tenant lifecycle Kafka bounds must be positive");
         }

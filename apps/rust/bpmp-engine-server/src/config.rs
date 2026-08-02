@@ -97,6 +97,8 @@ impl RuntimeConfig {
         for value in [
             self.grpc.max_decoding_bytes,
             self.grpc.max_encoding_bytes,
+            self.grpc.admission_rate_rps as usize,
+            self.grpc.admission_burst as usize,
             self.workers.outbox_batch_size,
             self.workers.local_task_batch_size,
             self.workers.local_task_max_attempts as usize,
@@ -108,6 +110,7 @@ impl RuntimeConfig {
             }
         }
         for value in [
+            self.grpc.request_timeout_ms,
             self.workers.poll_interval_ms,
             self.workers.outbox_initial_retry_ms,
             self.workers.outbox_max_retry_ms,
@@ -350,6 +353,7 @@ pub struct RaftRuntimeConfig {
     pub election_timeout_min_ms: u64,
     pub election_timeout_max_ms: u64,
     pub rpc_timeout_ms: u64,
+    pub authorized_methods: Vec<String>,
     pub max_conditions: u32,
     pub max_mutations: u32,
     pub max_batch_bytes: u64,
@@ -369,6 +373,7 @@ impl RaftRuntimeConfig {
             || self.max_mutations == 0
             || self.max_batch_bytes == 0
             || self.max_snapshot_bytes == 0
+            || self.authorized_methods.is_empty()
             || self.peers.is_empty()
         {
             return Err(RuntimeConfigError::Invalid(
@@ -381,6 +386,7 @@ impl RaftRuntimeConfig {
             if peer.node_id == 0
                 || peer.raft_address.trim().is_empty()
                 || peer.tls_domain.trim().is_empty()
+                || !valid_sha256_hex(&peer.certificate_sha256_hex)
                 || !node_ids.insert(peer.node_id)
                 || !addresses.insert(peer.raft_address.as_str())
             {
@@ -388,6 +394,17 @@ impl RaftRuntimeConfig {
                     "Raft peer identities and addresses must be unique and non-empty",
                 ));
             }
+        }
+        let methods = self.authorized_methods.iter().collect::<BTreeSet<_>>();
+        if methods.len() != self.authorized_methods.len()
+            || self
+                .authorized_methods
+                .iter()
+                .any(|method| !method.starts_with('/'))
+        {
+            return Err(RuntimeConfigError::Invalid(
+                "Raft authorized methods must be unique fully-qualified paths",
+            ));
         }
         if !node_ids.contains(&self.node_id) {
             return Err(RuntimeConfigError::Invalid(
@@ -422,6 +439,7 @@ pub struct RaftPeerConfig {
     pub node_id: u64,
     pub raft_address: String,
     pub tls_domain: String,
+    pub certificate_sha256_hex: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -429,6 +447,9 @@ pub struct RaftPeerConfig {
 pub struct GrpcConfig {
     pub max_decoding_bytes: usize,
     pub max_encoding_bytes: usize,
+    pub request_timeout_ms: u64,
+    pub admission_rate_rps: u32,
+    pub admission_burst: u32,
     pub reflection_enabled: bool,
 }
 

@@ -22,6 +22,7 @@ bpmp-engine = { path = "../bpmp-engine" }
 bpmp-governance-domain.workspace = true
 bpmp-payload-crypto.workspace = true
 bpmp-raft-state-machine.workspace = true
+bpmp-transport-observability.workspace = true
 clap.workspace = true
 futures.workspace = true
 jsonwebtoken.workspace = true

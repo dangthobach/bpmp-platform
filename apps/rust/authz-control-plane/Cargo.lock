@@ -168,6 +168,7 @@ dependencies = [
  "async-trait",
  "authz-core",
  "authz-db",
+ "authz-http-middleware",
  "authz-sdk",
  "axum 0.7.9",
  "axum-extra",
@@ -277,6 +278,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "authz-http-middleware"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.9",
+ "futures",
+ "governor",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower 0.4.13",
+ "tower-http",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "authz-sdk"
 version = "0.1.0"
 dependencies = [
@@ -305,6 +322,7 @@ dependencies = [
  "authz-core",
  "authz-db",
  "authz-engine",
+ "authz-http-middleware",
  "axum 0.7.9",
  "chrono",
  "config",

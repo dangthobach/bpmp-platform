@@ -68,11 +68,15 @@ type RateLimit struct {
 	OperationTimeoutMS int64  `json:"operation_timeout_ms"`
 }
 type HTTP struct {
-	ReadHeaderTimeoutMS int64 `json:"read_header_timeout_ms"`
-	ReadTimeoutMS       int64 `json:"read_timeout_ms"`
-	WriteTimeoutMS      int64 `json:"write_timeout_ms"`
-	IdleTimeoutMS       int64 `json:"idle_timeout_ms"`
-	ShutdownTimeoutMS   int64 `json:"shutdown_timeout_ms"`
+	ReadHeaderTimeoutMS int64  `json:"read_header_timeout_ms"`
+	RequestTimeoutMS    int64  `json:"request_timeout_ms"`
+	ReadTimeoutMS       int64  `json:"read_timeout_ms"`
+	WriteTimeoutMS      int64  `json:"write_timeout_ms"`
+	IdleTimeoutMS       int64  `json:"idle_timeout_ms"`
+	ShutdownTimeoutMS   int64  `json:"shutdown_timeout_ms"`
+	MaxHeaderBytes      int    `json:"max_header_bytes"`
+	AdmissionRateRPS    uint32 `json:"admission_rate_rps"`
+	AdmissionBurst      uint32 `json:"admission_burst"`
 }
 type GRPC struct {
 	MaxReceiveBytes int `json:"max_receive_bytes"`
@@ -144,9 +148,11 @@ func (c Config) Validate() error {
 	if c.Identity.MaxTokenBytes <= 0 || c.Identity.MaxJWKSKeys <= 0 ||
 		c.Workload.ProofTTLMS <= 0 || c.RateLimit.RedisAddress == "" ||
 		c.RateLimit.RedisKeyPrefix == "" || c.RateLimit.OperationTimeoutMS <= 0 ||
-		c.HTTP.ReadHeaderTimeoutMS <= 0 || c.HTTP.ReadTimeoutMS <= 0 ||
+		c.HTTP.ReadHeaderTimeoutMS <= 0 || c.HTTP.RequestTimeoutMS <= 0 ||
+		c.HTTP.ReadTimeoutMS <= 0 ||
 		c.HTTP.WriteTimeoutMS <= 0 || c.HTTP.IdleTimeoutMS <= 0 ||
-		c.HTTP.ShutdownTimeoutMS <= 0 ||
+		c.HTTP.ShutdownTimeoutMS <= 0 || c.HTTP.MaxHeaderBytes <= 0 ||
+		c.HTTP.AdmissionRateRPS == 0 || c.HTTP.AdmissionBurst == 0 ||
 		c.GRPC.MaxReceiveBytes <= 0 || c.GRPC.MaxSendBytes <= 0 {
 		return errors.New("api-gateway bounds must be positive")
 	}
@@ -190,6 +196,9 @@ func validDocumentationPath(value string) bool {
 }
 func (c HTTP) ReadHeaderTimeout() time.Duration {
 	return time.Duration(c.ReadHeaderTimeoutMS) * time.Millisecond
+}
+func (c HTTP) RequestTimeout() time.Duration {
+	return time.Duration(c.RequestTimeoutMS) * time.Millisecond
 }
 func (c HTTP) ReadTimeout() time.Duration  { return time.Duration(c.ReadTimeoutMS) * time.Millisecond }
 func (c HTTP) WriteTimeout() time.Duration { return time.Duration(c.WriteTimeoutMS) * time.Millisecond }

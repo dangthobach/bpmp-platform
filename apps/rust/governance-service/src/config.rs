@@ -40,6 +40,11 @@ impl RuntimeConfig {
             || self.postgres.acquire_timeout_ms == 0
             || self.grpc.max_decoding_bytes == 0
             || self.grpc.max_encoding_bytes == 0
+            || self.grpc.request_timeout_ms == 0
+            || self.grpc.authorized_client_certificate_sha256.is_empty()
+            || self.grpc.authorized_methods.is_empty()
+            || self.grpc.admission_rate_rps == 0
+            || self.grpc.admission_burst == 0
             || self.worker.poll_interval_ms == 0
             || self.worker.shred_batch_size == 0
             || self.worker.shred_lease_ms == 0
@@ -149,6 +154,11 @@ pub struct WorkerConfig {
 pub struct GrpcConfig {
     pub max_decoding_bytes: usize,
     pub max_encoding_bytes: usize,
+    pub request_timeout_ms: u64,
+    pub authorized_client_certificate_sha256: Vec<String>,
+    pub authorized_methods: Vec<String>,
+    pub admission_rate_rps: u32,
+    pub admission_burst: u32,
     pub reflection_enabled: bool,
 }
 
@@ -220,6 +230,16 @@ mod tests {
             "grpc": {
                 "max_decoding_bytes": 1_048_576,
                 "max_encoding_bytes": 1_048_576,
+                "request_timeout_ms": 5000,
+                "authorized_client_certificate_sha256": ["0000000000000000000000000000000000000000000000000000000000000000"],
+                "authorized_methods": [
+                    "/bpmp.governance.v1.GovernanceApprovalService/CreateApproval",
+                    "/bpmp.governance.v1.GovernanceApprovalService/RecordApproval",
+                    "/bpmp.governance.v1.GovernanceApprovalService/SubmitApproval",
+                    "/bpmp.governance.v1.GovernanceApprovalService/GetApproval"
+                ],
+                "admission_rate_rps": 2000,
+                "admission_burst": 200,
                 "reflection_enabled": true
             }
         })

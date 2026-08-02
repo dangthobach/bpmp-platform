@@ -7,6 +7,7 @@ edition.workspace = true
 authz-core = { path = "../authz-core" }
 authz-db = { path = "../authz-db" }
 authz-engine = { path = "../authz-engine" }
+authz-http-middleware = { workspace = true }
 axum = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true }

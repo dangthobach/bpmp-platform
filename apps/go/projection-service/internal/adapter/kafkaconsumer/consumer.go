@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/dangthobach/bpmp-platform/go/platform/requestmeta"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
@@ -91,7 +92,7 @@ func (c *Consumer) Run(ctx context.Context) error {
 						"max_lag", policy.MaxLag,
 					)
 				}
-				if err = c.handler.Handle(ctx, record); err != nil {
+				if err = c.handleRecord(ctx, record); err != nil {
 					return err
 				}
 				pending = append(pending, record)
@@ -108,4 +109,12 @@ func (c *Consumer) Run(ctx context.Context) error {
 		catchingUp = nextCatchingUp
 	}
 	return nil
+}
+
+func (c *Consumer) handleRecord(ctx context.Context, record *kgo.Record) error {
+	ctx, span := requestmeta.StartKafkaConsumerSpan(ctx, record)
+	defer span.End()
+	err := c.handler.Handle(ctx, record)
+	requestmeta.RecordSpanError(span, err)
+	return err
 }

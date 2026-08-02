@@ -12,6 +12,7 @@ use authz_app::infrastructure::messaging::{LoggingSink, OutboxWorker};
 use authz_app::infrastructure::persistence::run_app_migrations;
 use authz_app::presentation::router::build_router;
 use authz_app::telemetry;
+use authz_http_middleware::Config as TransportConfig;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -42,7 +43,16 @@ async fn main() -> Result<()> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!(%addr, "authz-app listening");
 
-    let router = build_router(container);
+    let router = build_router(
+        container,
+        TransportConfig {
+            service: cfg.service_name.clone(),
+            request_timeout: Duration::from_millis(cfg.server_request_timeout_ms),
+            max_body_bytes: cfg.server_max_body_bytes,
+            rate_limit_requests_per_second: cfg.rate_limit_requests_per_second,
+            rate_limit_burst: cfg.rate_limit_burst,
+        },
+    )?;
     axum::serve(listener, router).await?;
     Ok(())
 }

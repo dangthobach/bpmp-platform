@@ -2628,11 +2628,15 @@ fn load_outbox_record<C: PayloadCryptoPort>(
     let payload = crypto
         .decrypt(&event_key, &encrypted)
         .map_err(|_| OutboxError::StoreUnavailable("outbox event cannot be decrypted".into()))?;
+    let event = EventCodec::decode(&payload)
+        .map_err(|error| OutboxError::StoreUnavailable(error.to_string()))?;
     Ok(OutboxRecord {
         cursor: entry.outbox_sequence,
         tenant_id: entry.tenant_id,
         instance_id: entry.instance_id,
         event_id: entry.event_id,
+        correlation_id: event.metadata.correlation_id.to_string(),
+        causation_command_id: event.metadata.causation_command_id.to_string(),
         payload,
     })
 }

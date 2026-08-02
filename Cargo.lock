@@ -576,6 +576,7 @@ dependencies = [
  "bpmp-governance-domain",
  "bpmp-payload-crypto",
  "bpmp-raft-state-machine",
+ "bpmp-transport-observability",
  "clap",
  "futures",
  "jsonwebtoken",
@@ -631,6 +632,20 @@ dependencies = [
  "stateright",
  "thiserror 2.0.18",
  "tokio",
+]
+
+[[package]]
+name = "bpmp-transport-observability"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "http",
+ "sha2 0.11.0",
+ "tokio",
+ "tonic",
+ "tower",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -1570,6 +1585,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bpmp-contracts",
+ "bpmp-transport-observability",
  "clap",
  "prost",
  "rdkafka",
@@ -4473,6 +4489,7 @@ version = "1.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bf3923a6f5c4c6382e0b653c4117f48d631ea17f38ed86e2a828e6f7412f5239"
 dependencies = [
+ "getrandom 0.4.3",
  "js-sys",
  "wasm-bindgen",
 ]

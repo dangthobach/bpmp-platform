@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 bpmp-contracts.workspace = true
+bpmp-transport-observability.workspace = true
 clap.workspace = true
 prost.workspace = true
 reqwest.workspace = true

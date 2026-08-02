@@ -4,12 +4,12 @@
 //! JWKS endpoint and audience, then inserts a validated [`AuthenticatedSubject`]
 //! into request extensions.
 
+use authz_http_middleware::{metadata_from_extensions, problem_response, RequestMetadata};
 use axum::{
     extract::Request,
     http::{header, StatusCode},
     middleware::Next,
-    response::{IntoResponse, Response},
-    Json,
+    response::Response,
 };
 use jsonwebtoken::{decode_header, jwk::JwkSet, DecodingKey, Validation};
 use serde::Deserialize;
@@ -17,8 +17,6 @@ use serde_json::Value as JsonValue;
 use uuid::Uuid;
 
 use crate::application::ports::authz_port::Subject;
-use crate::presentation::middleware::request_id::RequestId;
-use authz_sdk::EnvelopeResponse;
 
 #[derive(Debug, Clone)]
 pub struct AuthenticatedSubject(pub Subject);
@@ -36,29 +34,26 @@ struct Claims {
 }
 
 pub async fn identity_middleware(mut req: Request, next: Next) -> Response {
-    let request_id = req
-        .extensions()
-        .get::<RequestId>()
-        .map(|r| r.0.clone())
-        .unwrap_or_default();
+    let metadata = metadata_from_extensions(req.extensions());
+    let request_id = metadata.request_id.clone();
 
     let token = match extract_bearer(&req) {
         Some(t) => t,
-        None => return unauthorized("missing bearer token", &request_id),
+        None => return unauthorized(&metadata),
     };
 
     let claims = match decode_claims(&token).await {
         Ok(c) => c,
-        Err(msg) => return unauthorized(&msg, &request_id),
+        Err(_) => return unauthorized(&metadata),
     };
 
     let tenant_id = match Uuid::parse_str(&claims.tenant_id) {
         Ok(u) => u,
-        Err(_) => return unauthorized("tenant_id claim is not a UUID", &request_id),
+        Err(_) => return unauthorized(&metadata),
     };
     let user_id = match Uuid::parse_str(&claims.sub) {
         Ok(u) => u,
-        Err(_) => return unauthorized("sub claim is not a UUID", &request_id),
+        Err(_) => return unauthorized(&metadata),
     };
 
     let subject = Subject {
@@ -112,7 +107,12 @@ async fn decode_claims(token: &str) -> Result<Claims, String> {
     Ok(data.claims)
 }
 
-fn unauthorized(reason: &str, request_id: &str) -> Response {
-    let body = EnvelopeResponse::<()>::error("UNAUTHORIZED", reason, request_id);
-    (StatusCode::UNAUTHORIZED, Json(body)).into_response()
+fn unauthorized(metadata: &RequestMetadata) -> Response {
+    problem_response(
+        StatusCode::UNAUTHORIZED,
+        "unauthorized",
+        "Unauthorized",
+        metadata,
+        false,
+    )
 }

@@ -17,6 +17,7 @@ import (
 
 	configurationv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/configuration/v1"
 	"github.com/dangthobach/bpmp-platform/go/platform/kafkaconfig"
+	"github.com/dangthobach/bpmp-platform/go/platform/requestmeta"
 )
 
 type Resolver interface {
@@ -104,8 +105,11 @@ func (r *Reloader) HandleRecord(ctx context.Context, record *kgo.Record) error {
 	if record == nil {
 		return errors.New("configuration publication record is required")
 	}
+	ctx, span := requestmeta.StartKafkaConsumerSpan(ctx, record)
+	defer span.End()
 	event := &configurationv1.ConfigurationPublicationEvent{}
 	if err := proto.Unmarshal(record.Value, event); err != nil {
+		requestmeta.RecordSpanError(span, err)
 		return fmt.Errorf("decode configuration publication: %w", err)
 	}
 	if err := validateEvent(event); err != nil {
@@ -126,6 +130,7 @@ func (r *Reloader) HandleRecord(ctx context.Context, record *kgo.Record) error {
 		}
 	}
 	if err := r.consumer.CommitRecords(ctx, record); err != nil {
+		requestmeta.RecordSpanError(span, err)
 		return fmt.Errorf("commit configuration publication: %w", err)
 	}
 	return nil

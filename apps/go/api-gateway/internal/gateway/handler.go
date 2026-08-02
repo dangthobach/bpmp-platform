@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/dangthobach/bpmp-platform/apps/go/api-gateway/internal/config"
 	"github.com/dangthobach/bpmp-platform/apps/go/api-gateway/internal/core/ports"
@@ -274,6 +273,10 @@ func (h *Handler) authenticateRequest(r *http.Request, commandRequired bool) (re
 	if !allowed {
 		return requestScope{}, errRateLimited
 	}
+	requestmeta.Enrich(r.Context(), requestmeta.Values{
+		TenantID: tenant, CommandID: command, ActorID: actor.ID,
+		PolicyVersion: policy.PolicyVersion,
+	})
 	return requestScope{tenantID: tenant, commandID: command, idempotencyKey: idempotency, correlationID: correlation, rawToken: raw, actorID: actor.ID, traceParent: traceParent, traceState: traceState, occurredAt: now, runtimePolicy: policy}, nil
 }
 
@@ -541,15 +544,7 @@ func decodeBody(w http.ResponseWriter, r *http.Request, target any, max int64) e
 	return nil
 }
 func validID(value string) bool {
-	if value == "" || len(value) > 128 {
-		return false
-	}
-	for _, r := range value {
-		if !(unicode.IsLetter(r) || unicode.IsDigit(r) || strings.ContainsRune("-_.:", r)) {
-			return false
-		}
-	}
-	return true
+	return requestmeta.ValidID(value)
 }
 
 func upstreamContext(r *http.Request, scope requestScope) context.Context {
@@ -571,35 +566,37 @@ var (
 
 func writeError(w http.ResponseWriter, err error) {
 	status := http.StatusBadRequest
-	message := "invalid request"
+	code := "invalid_request"
+	message := "Invalid request"
+	retryable := false
 	switch {
 	case errors.Is(err, errForbidden):
 		status = http.StatusForbidden
-		message = "forbidden"
+		code, message = "forbidden", "Forbidden"
 	case errors.Is(err, errRateLimited):
 		status = http.StatusTooManyRequests
-		message = "rate limit exceeded"
+		code, message, retryable = "rate_limit_exceeded", "Rate limit exceeded", true
 	case errors.Is(err, errUpstream):
 		status = http.StatusBadGateway
-		message = "upstream unavailable"
+		code, message, retryable = "upstream_unavailable", "Upstream unavailable", true
 	}
-	response := map[string]string{"error": message}
-	if correlationID := w.Header().Get("X-Correlation-ID"); validID(correlationID) {
-		response["correlation_id"] = correlationID
-	}
-	writeJSON(w, status, response)
+	requestmeta.WriteProblemResponse(w, status, code, message, "", retryable)
 }
 
 func setCorrelationHeader(w http.ResponseWriter, r *http.Request) {
-	if correlationID := r.Header.Get("X-Correlation-ID"); validID(correlationID) {
-		w.Header().Set("X-Correlation-ID", correlationID)
+	if values, ok := requestmeta.FromContext(r.Context()); ok {
+		w.Header().Set(requestmeta.HTTPHeaderCorrelationID, values.CorrelationID)
+		return
+	}
+	if correlationID := r.Header.Get(requestmeta.HTTPHeaderCorrelationID); requestmeta.ValidID(correlationID) {
+		w.Header().Set(requestmeta.HTTPHeaderCorrelationID, correlationID)
 	}
 }
 func writeJSON(w http.ResponseWriter, status int, value any) {
 	var body bytes.Buffer
 	if err := json.NewEncoder(&body).Encode(value); err != nil {
 		slog.Error("encode HTTP response", "error", err)
-		http.Error(w, "response encoding failed", http.StatusInternalServerError)
+		requestmeta.WriteProblemResponse(w, http.StatusInternalServerError, "response_encoding_failed", "Response encoding failed", "response could not be encoded", false)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

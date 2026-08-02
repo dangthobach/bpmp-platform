@@ -8,6 +8,7 @@ import (
 
 	"github.com/dangthobach/bpmp-platform/apps/go/cockpit-gateway/subscription"
 	enginev1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/engine/v1"
+	"github.com/dangthobach/bpmp-platform/go/platform/requestmeta"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"google.golang.org/protobuf/proto"
 )
@@ -61,12 +62,18 @@ func (c *Consumer) Run(ctx context.Context) error {
 			return values[0].Err
 		}
 		for _, record := range fetches.Records() {
+			recordCtx, span := requestmeta.StartKafkaConsumerSpan(ctx, record)
 			if err := c.handle(record); err != nil {
+				requestmeta.RecordSpanError(span, err)
+				span.End()
 				return err
 			}
-			if err := c.client.CommitRecords(ctx, record); err != nil {
+			if err := c.client.CommitRecords(recordCtx, record); err != nil {
+				requestmeta.RecordSpanError(span, err)
+				span.End()
 				return fmt.Errorf("commit cockpit event cursor: %w", err)
 			}
+			span.End()
 		}
 	}
 	return nil

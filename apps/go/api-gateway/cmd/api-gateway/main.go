@@ -30,7 +30,9 @@ import (
 	enginev1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/engine/v1"
 	humanv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/human/v1"
 	platformhealth "github.com/dangthobach/bpmp-platform/go/platform/health"
+	"github.com/dangthobach/bpmp-platform/go/platform/requestmeta"
 	"github.com/dangthobach/bpmp-platform/go/platform/runtimeconfig"
+	"github.com/dangthobach/bpmp-platform/go/platform/servermiddleware"
 	platformtelemetry "github.com/dangthobach/bpmp-platform/go/platform/telemetry"
 )
 
@@ -79,12 +81,12 @@ func run(path string) error {
 	if err != nil {
 		return err
 	}
-	engineConn, err := grpc.NewClient(value.EngineAddress, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, ServerName: value.UpstreamTLS.EngineServerName, RootCAs: roots, Certificates: []tls.Certificate{clientCertificate}})), grpc.WithStatsHandler(platformtelemetry.GRPCClientStatsHandler()), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(value.GRPC.MaxReceiveBytes), grpc.MaxCallSendMsgSize(value.GRPC.MaxSendBytes)))
+	engineConn, err := grpc.NewClient(value.EngineAddress, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, ServerName: value.UpstreamTLS.EngineServerName, RootCAs: roots, Certificates: []tls.Certificate{clientCertificate}})), grpc.WithUnaryInterceptor(requestmeta.UnaryClientInterceptor()), grpc.WithStreamInterceptor(requestmeta.StreamClientInterceptor()), grpc.WithStatsHandler(platformtelemetry.GRPCClientStatsHandler()), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(value.GRPC.MaxReceiveBytes), grpc.MaxCallSendMsgSize(value.GRPC.MaxSendBytes)))
 	if err != nil {
 		return err
 	}
 	defer engineConn.Close()
-	humanConn, err := grpc.NewClient(value.HumanAddress, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, ServerName: value.UpstreamTLS.HumanServerName, RootCAs: roots, Certificates: []tls.Certificate{clientCertificate}})), grpc.WithStatsHandler(platformtelemetry.GRPCClientStatsHandler()), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(value.GRPC.MaxReceiveBytes), grpc.MaxCallSendMsgSize(value.GRPC.MaxSendBytes)))
+	humanConn, err := grpc.NewClient(value.HumanAddress, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, ServerName: value.UpstreamTLS.HumanServerName, RootCAs: roots, Certificates: []tls.Certificate{clientCertificate}})), grpc.WithUnaryInterceptor(requestmeta.UnaryClientInterceptor()), grpc.WithStreamInterceptor(requestmeta.StreamClientInterceptor()), grpc.WithStatsHandler(platformtelemetry.GRPCClientStatsHandler()), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(value.GRPC.MaxReceiveBytes), grpc.MaxCallSendMsgSize(value.GRPC.MaxSendBytes)))
 	if err != nil {
 		return err
 	}
@@ -95,6 +97,8 @@ func run(path string) error {
 			MinVersion: tls.VersionTLS13, ServerName: value.UpstreamTLS.ConfigurationServerName,
 			RootCAs: roots, Certificates: []tls.Certificate{clientCertificate},
 		})),
+		grpc.WithUnaryInterceptor(requestmeta.UnaryClientInterceptor()),
+		grpc.WithStreamInterceptor(requestmeta.StreamClientInterceptor()),
 		grpc.WithStatsHandler(platformtelemetry.GRPCClientStatsHandler()),
 		grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(value.GRPC.MaxReceiveBytes),
@@ -142,7 +146,7 @@ func run(path string) error {
 		return err
 	}
 	configurationClient := &http.Client{
-		Transport: &http.Transport{
+		Transport: platformtelemetry.HTTPTransport(&http.Transport{
 			ForceAttemptHTTP2: true,
 			TLSClientConfig: &tls.Config{
 				MinVersion:   tls.VersionTLS13,
@@ -150,7 +154,7 @@ func run(path string) error {
 				RootCAs:      roots,
 				Certificates: []tls.Certificate{clientCertificate},
 			},
-		},
+		}),
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
@@ -218,7 +222,26 @@ func run(path string) error {
 		apiReference.Register(routes)
 	}
 	routes.Handle("/", handler.Routes())
-	server := &http.Server{Addr: value.ListenAddress, Handler: platformtelemetry.HTTPHandler(value.Telemetry.ServiceName, routes), ReadHeaderTimeout: value.HTTP.ReadHeaderTimeout(), ReadTimeout: value.HTTP.ReadTimeout(), WriteTimeout: value.HTTP.WriteTimeout(), IdleTimeout: value.HTTP.IdleTimeout()}
+	admissionLimiter, err := servermiddleware.NewTokenBucket(
+		value.HTTP.AdmissionRateRPS, value.HTTP.AdmissionBurst,
+	)
+	if err != nil {
+		return err
+	}
+	transportHandler, err := servermiddleware.NewHTTP(servermiddleware.HTTPConfig{
+		Service: value.Telemetry.ServiceName, RequestTimeout: value.HTTP.RequestTimeout(),
+		SecurityHeaders: true, RateLimiter: admissionLimiter,
+	}, routes)
+	if err != nil {
+		return err
+	}
+	server := &http.Server{
+		Addr:              value.ListenAddress,
+		Handler:           platformtelemetry.HTTPHandler(value.Telemetry.ServiceName, transportHandler),
+		ReadHeaderTimeout: value.HTTP.ReadHeaderTimeout(), ReadTimeout: value.HTTP.ReadTimeout(),
+		WriteTimeout: value.HTTP.WriteTimeout(), IdleTimeout: value.HTTP.IdleTimeout(),
+		MaxHeaderBytes: value.HTTP.MaxHeaderBytes,
+	}
 	errorsChannel := make(chan error, 2)
 	go func() {
 		errorsChannel <- server.ListenAndServeTLS(value.PublicTLS.Certificate, value.PublicTLS.PrivateKey)

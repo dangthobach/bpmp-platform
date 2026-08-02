@@ -77,14 +77,20 @@ type workloadConfig struct {
 }
 
 type grpcConfig struct {
-	MaxReceiveBytes   int  `json:"max_receive_bytes"`
-	MaxSendBytes      int  `json:"max_send_bytes"`
-	ReflectionEnabled bool `json:"reflection_enabled"`
+	MaxReceiveBytes                   int      `json:"max_receive_bytes"`
+	MaxSendBytes                      int      `json:"max_send_bytes"`
+	UnaryTimeoutMS                    int64    `json:"unary_timeout_ms"`
+	AuthorizedClientCertificateSHA256 []string `json:"authorized_client_certificate_sha256"`
+	AuthorizedMethods                 []string `json:"authorized_methods"`
+	AdmissionRateRPS                  uint32   `json:"admission_rate_rps"`
+	AdmissionBurst                    uint32   `json:"admission_burst"`
+	ReflectionEnabled                 bool     `json:"reflection_enabled"`
 }
 
 type healthConfig struct {
 	ListenAddress      string `json:"listen_address"`
 	ReadinessTimeoutMS int64  `json:"readiness_timeout_ms"`
+	MaxHeaderBytes     int    `json:"max_header_bytes"`
 }
 
 type telemetryConfig struct {
@@ -138,13 +144,16 @@ func (c runtimeConfig) validate() error {
 	if _, _, err := net.SplitHostPort(c.ListenAddress); err != nil {
 		return err
 	}
-	if c.GRPC.MaxReceiveBytes <= 0 || c.GRPC.MaxSendBytes <= 0 || c.Workload.ProofTTLMS <= 0 {
+	if c.GRPC.MaxReceiveBytes <= 0 || c.GRPC.MaxSendBytes <= 0 ||
+		c.GRPC.UnaryTimeoutMS <= 0 || len(c.GRPC.AuthorizedClientCertificateSHA256) == 0 ||
+		len(c.GRPC.AuthorizedMethods) == 0 || c.GRPC.AdmissionRateRPS == 0 ||
+		c.GRPC.AdmissionBurst == 0 || c.Workload.ProofTTLMS <= 0 {
 		return errors.New("human-runtime bounds and durations must be positive")
 	}
 	if _, _, err := net.SplitHostPort(c.Health.ListenAddress); err != nil {
 		return err
 	}
-	if c.Health.ReadinessTimeoutMS <= 0 ||
+	if c.Health.ReadinessTimeoutMS <= 0 || c.Health.MaxHeaderBytes <= 0 ||
 		c.Telemetry.ServiceName == "" ||
 		c.Telemetry.ServiceVersion == "" ||
 		c.Telemetry.Endpoint == "" ||

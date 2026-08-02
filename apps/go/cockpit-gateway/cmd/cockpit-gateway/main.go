@@ -18,6 +18,7 @@ import (
 	"github.com/dangthobach/bpmp-platform/go/platform/health"
 	"github.com/dangthobach/bpmp-platform/go/platform/jwtauth"
 	"github.com/dangthobach/bpmp-platform/go/platform/runtimeconfig"
+	"github.com/dangthobach/bpmp-platform/go/platform/servermiddleware"
 	"github.com/dangthobach/bpmp-platform/go/platform/telemetry"
 )
 
@@ -105,23 +106,52 @@ func run(configPath string) error {
 	}
 	mux := http.NewServeMux()
 	realtimeHandler.Register(mux)
+	admissionLimiter, err := servermiddleware.NewTokenBucket(
+		value.HTTP.AdmissionRateRPS, value.HTTP.AdmissionBurst,
+	)
+	if err != nil {
+		return err
+	}
+	publicTransport, err := servermiddleware.NewHTTP(servermiddleware.HTTPConfig{
+		Service:        value.Telemetry.ServiceName,
+		RequestTimeout: milliseconds(value.HTTP.RequestTimeoutMS),
+		TimeoutExempt: func(request *http.Request) bool {
+			return request.URL.Path == value.Realtime.Path
+		},
+		SecurityHeaders: true, RateLimiter: admissionLimiter,
+	}, mux)
+	if err != nil {
+		return err
+	}
 	public := &http.Server{
 		Addr:              value.ListenAddress,
-		Handler:           telemetry.HTTPHandler("cockpit-gateway", mux),
+		Handler:           telemetry.HTTPHandler(value.Telemetry.ServiceName, publicTransport),
 		ReadHeaderTimeout: milliseconds(value.HTTP.ReadHeaderTimeoutMS),
 		IdleTimeout:       milliseconds(value.HTTP.IdleTimeoutMS),
 		MaxHeaderBytes:    value.HTTP.MaxHeaderBytes,
 	}
+	healthHandler := health.Handler(
+		milliseconds(value.Health.ReadinessTimeoutMS),
+		func(ctx context.Context) error { return eventKafka.Ping(ctx) },
+	)
+	healthTransport, err := servermiddleware.NewHTTP(servermiddleware.HTTPConfig{
+		Service:        value.Telemetry.ServiceName + ".health",
+		RequestTimeout: milliseconds(value.Health.ReadinessTimeoutMS), SecurityHeaders: true,
+	}, healthHandler)
+	if err != nil {
+		return err
+	}
 	healthServer := &http.Server{
 		Addr: value.HealthAddress,
-		Handler: health.Handler(
-			milliseconds(value.Health.ReadinessTimeoutMS),
-			func(ctx context.Context) error { return eventKafka.Ping(ctx) },
+		Handler: telemetry.HTTPHandler(
+			"cockpit-gateway.health",
+			healthTransport,
 		),
 		ReadHeaderTimeout: milliseconds(value.Health.ReadinessTimeoutMS),
 		ReadTimeout:       milliseconds(value.Health.ReadinessTimeoutMS),
 		WriteTimeout:      milliseconds(value.Health.ReadinessTimeoutMS),
 		IdleTimeout:       milliseconds(value.Health.ReadinessTimeoutMS),
+		MaxHeaderBytes:    value.Health.MaxHeaderBytes,
 	}
 	certificate, err := tls.LoadX509KeyPair(
 		value.TLS.Certificate, value.TLS.PrivateKey,

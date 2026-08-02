@@ -12,6 +12,7 @@ import (
 
 	postgresadapter "github.com/dangthobach/bpmp-platform/apps/go/configuration-service/internal/adapter/postgres"
 	tenancyv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/tenancy/v1"
+	"github.com/dangthobach/bpmp-platform/go/platform/requestmeta"
 )
 
 type Client interface {
@@ -50,23 +51,36 @@ func (c *Consumer) Run(ctx context.Context) error {
 			return fetchErrors[0].Err
 		}
 		for _, record := range fetches.Records() {
+			recordCtx, span := requestmeta.StartKafkaConsumerSpan(ctx, record)
+			transport, _ := requestmeta.FromContext(recordCtx)
 			event, err := decode(record)
 			if err != nil {
+				requestmeta.RecordSpanError(span, err)
+				span.End()
 				return err
 			}
-			_, err = c.store.ApplyTenantLifecycle(ctx, postgresadapter.TenantLifecycle{
+			_, err = c.store.ApplyTenantLifecycle(recordCtx, postgresadapter.TenantLifecycle{
+				EventID:       event.GetEventId(),
 				TenantID:      event.GetTenantId(),
 				TenantVersion: int64(event.GetTenantVersion()),
 				EventSequence: int64(event.GetEventSequence()),
 				Deleted: event.GetKind() ==
 					tenancyv1.TenantLifecycleKind_TENANT_LIFECYCLE_KIND_DELETED,
+				RequestID: transport.RequestID, CorrelationID: event.GetCorrelationId(),
+				CommandID: transport.CommandID, TraceParent: transport.TraceParent,
+				TraceState: transport.TraceState,
 			}, time.UnixMilli(int64(event.GetOccurredAtEpochMs())).UTC())
 			if err != nil {
+				requestmeta.RecordSpanError(span, err)
+				span.End()
 				return fmt.Errorf("apply tenant lifecycle readiness: %w", err)
 			}
-			if err = c.client.CommitRecords(ctx, record); err != nil {
+			if err = c.client.CommitRecords(recordCtx, record); err != nil {
+				requestmeta.RecordSpanError(span, err)
+				span.End()
 				return fmt.Errorf("commit tenant lifecycle offset: %w", err)
 			}
+			span.End()
 		}
 	}
 	return nil

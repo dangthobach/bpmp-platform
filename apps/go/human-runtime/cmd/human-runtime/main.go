@@ -38,7 +38,9 @@ import (
 	platformgrpc "github.com/dangthobach/bpmp-platform/go/platform/grpcclient"
 	platformgrpcserver "github.com/dangthobach/bpmp-platform/go/platform/grpcserver"
 	platformhealth "github.com/dangthobach/bpmp-platform/go/platform/health"
+	"github.com/dangthobach/bpmp-platform/go/platform/requestmeta"
 	platformruntimeconfig "github.com/dangthobach/bpmp-platform/go/platform/runtimeconfig"
+	"github.com/dangthobach/bpmp-platform/go/platform/servermiddleware"
 	platformtelemetry "github.com/dangthobach/bpmp-platform/go/platform/telemetry"
 )
 
@@ -112,6 +114,8 @@ func run(configPath string) error {
 	configurationConn, err := grpc.NewClient(
 		config.RuntimeConfig.ResolverAddress,
 		grpc.WithTransportCredentials(credentials.NewTLS(configurationTLS)),
+		grpc.WithUnaryInterceptor(requestmeta.UnaryClientInterceptor()),
+		grpc.WithStreamInterceptor(requestmeta.StreamClientInterceptor()),
 		grpc.WithStatsHandler(platformtelemetry.GRPCClientStatsHandler()),
 		grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(config.GRPC.MaxReceiveBytes),
@@ -162,7 +166,8 @@ func run(configPath string) error {
 	}
 	engineConn, err := grpc.NewClient(config.EngineAddress,
 		grpc.WithTransportCredentials(credentials.NewTLS(clientTLS)),
-		grpc.WithUnaryInterceptor(engineInterceptor),
+		grpc.WithChainUnaryInterceptor(requestmeta.UnaryClientInterceptor(), engineInterceptor),
+		grpc.WithStreamInterceptor(requestmeta.StreamClientInterceptor()),
 		grpc.WithStatsHandler(platformtelemetry.GRPCClientStatsHandler()),
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(config.GRPC.MaxReceiveBytes), grpc.MaxCallSendMsgSize(config.GRPC.MaxSendBytes)),
 	)
@@ -228,13 +233,21 @@ func run(configPath string) error {
 			return nil
 		},
 	)
+	healthTransport, err := servermiddleware.NewHTTP(servermiddleware.HTTPConfig{
+		Service:        config.Telemetry.ServiceName + ".health",
+		RequestTimeout: config.Health.readinessTimeout(), SecurityHeaders: true,
+	}, healthHandler)
+	if err != nil {
+		return err
+	}
 	healthServer := &http.Server{
 		Addr:              config.Health.ListenAddress,
-		Handler:           healthHandler,
+		Handler:           platformtelemetry.HTTPHandler(config.Telemetry.ServiceName+".health", healthTransport),
 		ReadHeaderTimeout: config.Health.readinessTimeout(),
 		ReadTimeout:       config.Health.readinessTimeout(),
 		WriteTimeout:      config.Health.readinessTimeout(),
 		IdleTimeout:       config.Health.readinessTimeout(),
+		MaxHeaderBytes:    config.Health.MaxHeaderBytes,
 	}
 	projection, err := eventprojection.New(service)
 	if err != nil {
@@ -273,8 +286,49 @@ func run(configPath string) error {
 	if err != nil {
 		return err
 	}
+	workloadAuthorizer, err := servermiddleware.NewMTLSAuthorizer(servermiddleware.MTLSConfig{
+		AllowedCertificateSHA256: config.GRPC.AuthorizedClientCertificateSHA256,
+		AllowedMethods:           config.GRPC.AuthorizedMethods,
+	})
+	if err != nil {
+		return err
+	}
+	grpcAdmissionLimiter, err := servermiddleware.NewTokenBucket(
+		config.GRPC.AdmissionRateRPS, config.GRPC.AdmissionBurst,
+	)
+	if err != nil {
+		return err
+	}
+	unaryMiddleware, err := servermiddleware.UnaryServerInterceptor(servermiddleware.GRPCConfig{
+		Service:        config.Telemetry.ServiceName,
+		UnaryTimeout:   time.Duration(config.GRPC.UnaryTimeoutMS) * time.Millisecond,
+		AuthorizeUnary: workloadAuthorizer.AuthorizeUnary,
+		RateLimitUnary: func(context.Context, string, any) error {
+			if !grpcAdmissionLimiter.Allow() {
+				return errors.New("gRPC admission limit exceeded")
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		return err
+	}
+	streamMiddleware, err := servermiddleware.StreamServerInterceptor(servermiddleware.GRPCConfig{
+		Service: config.Telemetry.ServiceName, AuthorizeStream: workloadAuthorizer.AuthorizeStream,
+		RateLimitStream: func(context.Context, string) error {
+			if !grpcAdmissionLimiter.Allow() {
+				return errors.New("gRPC admission limit exceeded")
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		return err
+	}
 	grpcServer := grpc.NewServer(
 		grpc.Creds(credentials.NewTLS(serverTLS)),
+		grpc.ChainUnaryInterceptor(unaryMiddleware),
+		grpc.ChainStreamInterceptor(streamMiddleware),
 		grpc.StatsHandler(platformtelemetry.GRPCServerStatsHandler()),
 		grpc.MaxRecvMsgSize(config.GRPC.MaxReceiveBytes),
 		grpc.MaxSendMsgSize(config.GRPC.MaxSendBytes),

@@ -10,6 +10,7 @@ description = "Application bounded context (PEP) on top of the AuthZ platform."
 authz-core = { workspace = true }
 authz-db   = { workspace = true }
 authz-sdk  = { workspace = true }
+authz-http-middleware = { workspace = true }
 
 tokio = { workspace = true }
 async-trait = { workspace = true }
