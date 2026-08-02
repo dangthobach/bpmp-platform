@@ -266,6 +266,7 @@
     "parameters": {
       "TenantID": {"name": "X-BPMP-Tenant-ID", "in": "header", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}},
       "CorrelationID": {"name": "X-Correlation-ID", "in": "header", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}},
+	  "RequestID": {"name": "X-Request-ID", "in": "header", "required": false, "description": "Caller request identifier. The platform validates and echoes it, or generates a new value.", "schema": {"$ref": "#/components/schemas/Identifier"}},
       "CommandID": {"name": "X-Command-ID", "in": "header", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}},
       "IdempotencyKey": {"name": "Idempotency-Key", "in": "header", "required": true, "schema": {"type": "string", "minLength": 1, "maxLength": 256}},
       "PageSize": {"name": "page_size", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 4294967295}},
@@ -274,13 +275,18 @@
       "VersionID": {"name": "versionID", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}}
     },
     "responses": {
-      "BadRequest": {"description": "Invalid request", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
-      "Forbidden": {"description": "Authentication or tenant authorization failed", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
-      "NotFound": {"description": "Resource not found", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
-      "Conflict": {"description": "Optimistic version conflict", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
-      "RateLimited": {"description": "Rate limit exceeded", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
-      "UpstreamUnavailable": {"description": "Authoritative service unavailable", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+	  "BadRequest": {"description": "Invalid request", "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestID"}, "X-Correlation-ID": {"$ref": "#/components/headers/CorrelationID"}, "X-Trace-ID": {"$ref": "#/components/headers/TraceID"}}, "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}},
+	  "Forbidden": {"description": "Authentication or tenant authorization failed", "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestID"}, "X-Correlation-ID": {"$ref": "#/components/headers/CorrelationID"}, "X-Trace-ID": {"$ref": "#/components/headers/TraceID"}}, "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}},
+	  "NotFound": {"description": "Resource not found", "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestID"}, "X-Correlation-ID": {"$ref": "#/components/headers/CorrelationID"}, "X-Trace-ID": {"$ref": "#/components/headers/TraceID"}}, "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}},
+	  "Conflict": {"description": "Optimistic version conflict", "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestID"}, "X-Correlation-ID": {"$ref": "#/components/headers/CorrelationID"}, "X-Trace-ID": {"$ref": "#/components/headers/TraceID"}}, "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}},
+	  "RateLimited": {"description": "Rate limit exceeded", "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestID"}, "X-Correlation-ID": {"$ref": "#/components/headers/CorrelationID"}, "X-Trace-ID": {"$ref": "#/components/headers/TraceID"}}, "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}},
+	  "UpstreamUnavailable": {"description": "Authoritative service unavailable", "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestID"}, "X-Correlation-ID": {"$ref": "#/components/headers/CorrelationID"}, "X-Trace-ID": {"$ref": "#/components/headers/TraceID"}}, "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}}
     },
+	"headers": {
+	  "RequestID": {"description": "Identifier for this request across service hops.", "schema": {"$ref": "#/components/schemas/Identifier"}},
+	  "CorrelationID": {"description": "Identifier for the end-to-end business operation.", "schema": {"$ref": "#/components/schemas/Identifier"}},
+	  "TraceID": {"description": "W3C/OpenTelemetry trace identifier.", "schema": {"type": "string", "pattern": "^[0-9a-f]{32}$"}}
+	},
     "schemas": {
       "Identifier": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9_.:-]+$"},
       "BrowserConfiguration": {
@@ -320,7 +326,7 @@
           "schema_change": {"type": "boolean"}
         }
       },
-      "Error": {"type": "object", "required": ["error"], "properties": {"error": {"type": "string"}, "correlation_id": {"type": "string"}}},
+	  "Problem": {"type": "object", "additionalProperties": false, "required": ["type", "title", "status", "code", "request_id", "correlation_id", "retryable"], "properties": {"type": {"type": "string", "format": "uri-reference"}, "title": {"type": "string"}, "status": {"type": "integer", "minimum": 400, "maximum": 599}, "detail": {"type": "string"}, "code": {"type": "string", "pattern": "^[a-z0-9_]+$"}, "instance": {"type": "string"}, "request_id": {"$ref": "#/components/schemas/Identifier"}, "correlation_id": {"$ref": "#/components/schemas/Identifier"}, "trace_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}, "retryable": {"type": "boolean"}}},
       "StartWorkflowRequest": {"type": "object", "additionalProperties": false, "required": ["instance_id", "workflow_version", "start_node_id"], "properties": {"instance_id": {"$ref": "#/components/schemas/Identifier"}, "workflow_version": {"$ref": "#/components/schemas/Identifier"}, "start_node_id": {"$ref": "#/components/schemas/Identifier"}}},
       "CommandReceipt": {"type": "object", "required": ["command_id", "committed_sequence", "duplicate"], "properties": {"command_id": {"type": "string"}, "committed_sequence": {"type": "integer", "minimum": 0}, "duplicate": {"type": "boolean"}}},
       "CompleteWorkItemRequest": {"type": "object", "additionalProperties": false, "required": ["decision", "expected_version"], "properties": {"decision": {"type": "string", "minLength": 1}, "expected_version": {"type": "integer", "minimum": 0}}},

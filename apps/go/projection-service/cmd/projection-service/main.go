@@ -28,7 +28,9 @@ import (
 	projectionv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/projection/v1"
 	platformgrpcserver "github.com/dangthobach/bpmp-platform/go/platform/grpcserver"
 	platformhealth "github.com/dangthobach/bpmp-platform/go/platform/health"
+	"github.com/dangthobach/bpmp-platform/go/platform/requestmeta"
 	platformruntimeconfig "github.com/dangthobach/bpmp-platform/go/platform/runtimeconfig"
+	"github.com/dangthobach/bpmp-platform/go/platform/servermiddleware"
 	platformtelemetry "github.com/dangthobach/bpmp-platform/go/platform/telemetry"
 )
 
@@ -93,6 +95,8 @@ func run(configPath string) error {
 	configurationConn, err := grpc.NewClient(
 		value.RuntimeConfig.ResolverAddress,
 		grpc.WithTransportCredentials(credentials.NewTLS(configurationTLS)),
+		grpc.WithUnaryInterceptor(requestmeta.UnaryClientInterceptor()),
+		grpc.WithStreamInterceptor(requestmeta.StreamClientInterceptor()),
 		grpc.WithStatsHandler(platformtelemetry.GRPCClientStatsHandler()),
 		grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(value.GRPC.MaxReceiveBytes),
@@ -178,8 +182,49 @@ func run(configPath string) error {
 	if err != nil {
 		return err
 	}
+	workloadAuthorizer, err := servermiddleware.NewMTLSAuthorizer(servermiddleware.MTLSConfig{
+		AllowedCertificateSHA256: value.GRPC.AuthorizedClientCertificateSHA256,
+		AllowedMethods:           value.GRPC.AuthorizedMethods,
+	})
+	if err != nil {
+		return err
+	}
+	grpcAdmissionLimiter, err := servermiddleware.NewTokenBucket(
+		value.GRPC.AdmissionRateRPS, value.GRPC.AdmissionBurst,
+	)
+	if err != nil {
+		return err
+	}
+	unaryMiddleware, err := servermiddleware.UnaryServerInterceptor(servermiddleware.GRPCConfig{
+		Service:        value.Telemetry.ServiceName,
+		UnaryTimeout:   milliseconds(value.GRPC.UnaryTimeoutMS),
+		AuthorizeUnary: workloadAuthorizer.AuthorizeUnary,
+		RateLimitUnary: func(context.Context, string, any) error {
+			if !grpcAdmissionLimiter.Allow() {
+				return errors.New("gRPC admission limit exceeded")
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		return err
+	}
+	streamMiddleware, err := servermiddleware.StreamServerInterceptor(servermiddleware.GRPCConfig{
+		Service: value.Telemetry.ServiceName, AuthorizeStream: workloadAuthorizer.AuthorizeStream,
+		RateLimitStream: func(context.Context, string) error {
+			if !grpcAdmissionLimiter.Allow() {
+				return errors.New("gRPC admission limit exceeded")
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		return err
+	}
 	grpcServer := grpc.NewServer(
 		grpc.Creds(credentials.NewTLS(serverTLS)),
+		grpc.ChainUnaryInterceptor(unaryMiddleware),
+		grpc.ChainStreamInterceptor(streamMiddleware),
 		grpc.StatsHandler(platformtelemetry.GRPCServerStatsHandler()),
 		grpc.MaxRecvMsgSize(value.GRPC.MaxReceiveBytes),
 		grpc.MaxSendMsgSize(value.GRPC.MaxSendBytes),
@@ -194,12 +239,24 @@ func run(configPath string) error {
 		func(ctx context.Context) error { return configurationKafka.Ping(ctx) },
 		func(context.Context) error { return cache.Ready(value.RuntimeConfig.InitialTenantIDs) },
 	)
+	healthTransport, err := servermiddleware.NewHTTP(servermiddleware.HTTPConfig{
+		Service:        value.Telemetry.ServiceName + ".health",
+		RequestTimeout: milliseconds(value.Health.ReadinessTimeoutMS), SecurityHeaders: true,
+	}, health)
+	if err != nil {
+		return err
+	}
 	healthServer := &http.Server{
-		Addr: value.HealthAddress, Handler: health,
+		Addr: value.HealthAddress,
+		Handler: platformtelemetry.HTTPHandler(
+			value.Telemetry.ServiceName+".health",
+			healthTransport,
+		),
 		ReadHeaderTimeout: milliseconds(value.Health.ReadinessTimeoutMS),
 		ReadTimeout:       milliseconds(value.Health.ReadinessTimeoutMS),
 		WriteTimeout:      milliseconds(value.Health.ReadinessTimeoutMS),
 		IdleTimeout:       milliseconds(value.Health.ReadinessTimeoutMS),
+		MaxHeaderBytes:    value.Health.MaxHeaderBytes,
 	}
 	errs := make(chan error, 4)
 	go func() { errs <- consumer.Run(ctx) }()

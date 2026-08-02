@@ -32,6 +32,7 @@ message StartWorkflow {}
 
 message CompleteServiceTask {
   string node_id = 1;
+  repeated WorkflowVariable outputs = 2;
 }
 
 message CompleteUserTask {
@@ -127,6 +128,7 @@ message ServiceTaskActivated {
 
 message ServiceTaskCompleted {
   string node_id = 1;
+  repeated WorkflowVariable outputs = 2;
 }
 
 message UserTaskActivated {

@@ -35,7 +35,8 @@ func (s *Store) ClaimPublicationBatch(
 		return nil, nil
 	}
 	rows, err := tx.Query(ctx, `SELECT
-		o.event_id::text,o.event_sequence,o.tenant_id,o.profile_id::text,o.version_id::text,
+		o.event_id::text,o.event_sequence,o.request_id,o.correlation_id,o.command_id,
+		COALESCE(o.trace_parent,''),COALESCE(o.trace_state,''),o.tenant_id,o.profile_id::text,o.version_id::text,
 		v.config_version,v.policy_version,v.ordinal,p.owner,p.scope_type,p.scope_reference,
 		v.content_hash,o.event_type,o.occurred_at,o.attempt_count
 		FROM configuration_outbox o
@@ -53,7 +54,8 @@ func (s *Store) ClaimPublicationBatch(
 		var record domain.Publication
 		var hash []byte
 		if err = rows.Scan(
-			&record.EventID, &record.EventSequence, &record.TenantID, &record.ProfileID,
+			&record.EventID, &record.EventSequence, &record.RequestID, &record.CorrelationID,
+			&record.CommandID, &record.TraceParent, &record.TraceState, &record.TenantID, &record.ProfileID,
 			&record.VersionID, &record.ConfigVersion, &record.PolicyVersion, &record.Ordinal,
 			&record.Owner, &record.Scope.Type, &record.Scope.Reference, &hash, &record.Kind,
 			&record.OccurredAt, &record.AttemptCount,

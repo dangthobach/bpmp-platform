@@ -47,7 +47,10 @@ var (
 type Actor struct {
 	TenantID       string
 	ActorID        string
+	RequestID      string
 	CorrelationID  string
+	TraceParent    string
+	TraceState     string
 	Capabilities   map[string]struct{}
 	CommandID      string
 	IdempotencyKey string

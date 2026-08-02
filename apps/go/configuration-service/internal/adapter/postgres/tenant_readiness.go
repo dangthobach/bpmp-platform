@@ -5,18 +5,27 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/dangthobach/bpmp-platform/apps/go/configuration-service/internal/domain"
 )
 
 type TenantLifecycle struct {
+	EventID       string
 	TenantID      string
 	TenantVersion int64
 	EventSequence int64
 	Deleted       bool
+	RequestID     string
+	CorrelationID string
+	CommandID     string
+	TraceParent   string
+	TraceState    string
 }
 
 func (s *Store) ApplyTenantLifecycle(
@@ -72,8 +81,16 @@ func (s *Store) ApplyTenantLifecycle(
 	if err != nil {
 		return false, err
 	}
+	requestID := event.RequestID
+	if requestID == "" {
+		requestID = event.EventID
+	}
+	if requestID == "" {
+		requestID = fmt.Sprintf("tenant-lifecycle:%d", event.EventSequence)
+	}
 	if err = insertTenantReadinessOutbox(
-		ctx, tx, event.TenantID, event.TenantVersion, ready, missing, hash, now,
+		ctx, tx, requestID, event.CorrelationID, event.CommandID, event.TraceParent, event.TraceState,
+		event.TenantID, event.TenantVersion, ready, missing, hash, now,
 	); err != nil {
 		return false, err
 	}
@@ -83,9 +100,10 @@ func (s *Store) ApplyTenantLifecycle(
 func refreshTenantReadiness(
 	ctx context.Context,
 	tx pgx.Tx,
-	tenantID string,
+	actor domain.Actor,
 	now time.Time,
 ) error {
+	tenantID := actor.TenantID
 	var tenantVersion int64
 	var currentReady bool
 	var currentMissing []string
@@ -116,7 +134,8 @@ func refreshTenantReadiness(
 		return err
 	}
 	return insertTenantReadinessOutbox(
-		ctx, tx, tenantID, tenantVersion, ready, missing, hash, now,
+		ctx, tx, actor.RequestID, actor.CorrelationID, actor.CommandID, actor.TraceParent, actor.TraceState,
+		tenantID, tenantVersion, ready, missing, hash, now,
 	)
 }
 
@@ -186,6 +205,11 @@ func requiredOwners(ctx context.Context, tx pgx.Tx) ([]string, error) {
 func insertTenantReadinessOutbox(
 	ctx context.Context,
 	tx pgx.Tx,
+	requestID string,
+	correlationID string,
+	commandID string,
+	traceParent string,
+	traceState string,
 	tenantID string,
 	tenantVersion int64,
 	ready bool,
@@ -193,10 +217,20 @@ func insertTenantReadinessOutbox(
 	hash [32]byte,
 	now time.Time,
 ) error {
+	if requestID == "" {
+		requestID = commandID
+	}
+	if correlationID == "" {
+		correlationID = requestID
+	}
+	if commandID == "" {
+		commandID = requestID
+	}
 	_, err := tx.Exec(ctx, `INSERT INTO tenant_configuration_readiness_outbox
-		(event_id,tenant_id,tenant_version,ready,missing_owners,profile_set_hash,
-		 occurred_at,next_attempt_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$7)`,
-		uuid.NewString(), tenantID, tenantVersion, ready, missing, hash[:], now)
+		(event_id,request_id,correlation_id,command_id,trace_parent,trace_state,tenant_id,
+		 tenant_version,ready,missing_owners,profile_set_hash,occurred_at,next_attempt_at)
+		VALUES($1,$2,$3,$4,NULLIF($5,''),NULLIF($6,''),$7,$8,$9,$10,$11,$12,$12)`,
+		uuid.NewString(), requestID, correlationID, commandID, traceParent, traceState,
+		tenantID, tenantVersion, ready, missing, hash[:], now)
 	return err
 }

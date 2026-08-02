@@ -2,20 +2,18 @@
 
 use std::sync::Arc;
 
+use authz_http_middleware::Config as TransportConfig;
 use axum::{
     middleware,
     routing::{get, post},
     Router,
 };
-use tower_http::trace::TraceLayer;
 
 use crate::bootstrap::AppContainer;
 use crate::presentation::handlers::{health, organization};
-use crate::presentation::middleware::{
-    identity::identity_middleware, request_id::request_id_middleware, tenant::tenant_middleware,
-};
+use crate::presentation::middleware::{identity::identity_middleware, tenant::tenant_middleware};
 
-pub fn build_router(app: AppContainer) -> Router {
+pub fn build_router(app: AppContainer, transport: TransportConfig) -> anyhow::Result<Router> {
     let health_state = Arc::new(health::HealthState {
         pool: app.pool.clone(),
         authz: app.authz_client.clone(),
@@ -51,9 +49,6 @@ pub fn build_router(app: AppContainer) -> Router {
         .layer(middleware::from_fn(identity_middleware))
         .with_state(app);
 
-    Router::new()
-        .merge(health_routes)
-        .merge(api_routes)
-        .layer(middleware::from_fn(request_id_middleware))
-        .layer(TraceLayer::new_for_http())
+    let router = Router::new().merge(health_routes).merge(api_routes);
+    authz_http_middleware::apply(router, transport).map_err(anyhow::Error::msg)
 }

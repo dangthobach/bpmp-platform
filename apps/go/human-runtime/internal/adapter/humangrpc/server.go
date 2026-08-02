@@ -11,6 +11,7 @@ import (
 	"github.com/dangthobach/bpmp-platform/apps/go/human-runtime/internal/domain"
 	authv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/authorization/v1"
 	humanv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/human/v1"
+	"github.com/dangthobach/bpmp-platform/go/platform/requestmeta"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -175,6 +176,9 @@ func (s *Server) verify(ctx context.Context, tenantID, commandID string, proof *
 		return application.ActorCredential{}, application.ActorIdentity{}, status.Error(codes.Unauthenticated, "actor proof verification failed")
 	}
 	credential.ActorID = identity.ActorID
+	requestmeta.Enrich(ctx, requestmeta.Values{
+		TenantID: tenantID, CommandID: commandID, ActorID: identity.ActorID,
+	})
 	return credential, identity, nil
 }
 

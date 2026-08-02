@@ -10,8 +10,8 @@ use thiserror::Error;
 
 use crate::ports::{
     ActorProofKind, AuthorizationError, AuthorizationProviderPort, AuthorizationRequest,
-    CommitOutcome, CommitRequest, ConfigurationLookup, ConfigurationProviderPort, StoreError,
-    WorkflowStorePort,
+    CommitOutcome, CommitRequest, ConfigurationLookup, ConfigurationProviderPort, LoadedInstance,
+    StoreError, WorkflowStorePort,
 };
 
 /// Immutable wire-contract version for `bpmp.engine.v1.EventEnvelope`.
@@ -175,7 +175,7 @@ where
             workflow_version: definition.workflow_version.clone(),
         })?;
         validate_configuration_binding(&request, &configuration, &principal)?;
-        let loaded = self.store.load(&request.tenant_id, &request.instance_id)?;
+        let loaded = self.load_instance(&request)?;
         if loaded.snapshot.as_ref().is_some_and(|snapshot| {
             snapshot.workflow_type != definition.workflow_type
                 || snapshot.workflow_version != definition.workflow_version
@@ -245,6 +245,12 @@ where
             CommitOutcome::Committed(result) => HandleOutcome::Committed(result),
             CommitOutcome::Duplicate(result) => HandleOutcome::Duplicate(result),
         })
+    }
+
+    fn load_instance(&self, request: &AuthorizedCommand) -> Result<LoadedInstance, EngineError> {
+        self.store
+            .load(&request.tenant_id, &request.instance_id)
+            .map_err(EngineError::from_store_load)
     }
 }
 
@@ -531,6 +537,14 @@ pub enum EngineError {
     Domain(#[from] DomainError),
     #[error(transparent)]
     Store(#[from] StoreError),
+    #[error(
+        "workflow payload is unavailable for compliance: scope {key_scope}, key {key_version}, epoch {key_epoch}"
+    )]
+    DataUnavailableForCompliance {
+        key_scope: String,
+        key_version: String,
+        key_epoch: u64,
+    },
     #[error("workflow event sequence overflow")]
     SequenceOverflow,
     #[error("snapshot workflow identity does not match the loaded definition")]
@@ -548,4 +562,21 @@ pub enum EngineError {
         configured: PolicyVersion,
         authorized: PolicyVersion,
     },
+}
+
+impl EngineError {
+    fn from_store_load(error: StoreError) -> Self {
+        match error {
+            StoreError::DataUnavailableForCompliance {
+                key_scope,
+                key_version,
+                key_epoch,
+            } => Self::DataUnavailableForCompliance {
+                key_scope,
+                key_version,
+                key_epoch,
+            },
+            other => Self::Store(other),
+        }
+    }
 }

@@ -5,6 +5,11 @@ import "time"
 type Publication struct {
 	EventID       string
 	EventSequence uint64
+	RequestID     string
+	CorrelationID string
+	CommandID     string
+	TraceParent   string
+	TraceState    string
 	TenantID      string
 	ProfileID     string
 	VersionID     string
@@ -22,6 +27,11 @@ type Publication struct {
 type TenantReadinessPublication struct {
 	EventID        string
 	EventSequence  uint64
+	RequestID      string
+	CorrelationID  string
+	CommandID      string
+	TraceParent    string
+	TraceState     string
 	TenantID       string
 	TenantVersion  uint64
 	Ready          bool

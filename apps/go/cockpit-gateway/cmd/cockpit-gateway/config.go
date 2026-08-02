@@ -41,10 +41,13 @@ type identityConfig struct {
 
 type httpConfig struct {
 	ReadHeaderTimeoutMS int64    `json:"read_header_timeout_ms"`
+	RequestTimeoutMS    int64    `json:"request_timeout_ms"`
 	IdleTimeoutMS       int64    `json:"idle_timeout_ms"`
 	ShutdownTimeoutMS   int64    `json:"shutdown_timeout_ms"`
 	MaxHeaderBytes      int      `json:"max_header_bytes"`
 	AllowedOrigins      []string `json:"allowed_origins"`
+	AdmissionRateRPS    uint32   `json:"admission_rate_rps"`
+	AdmissionBurst      uint32   `json:"admission_burst"`
 }
 
 type realtimeConfig struct {
@@ -62,6 +65,7 @@ type realtimeConfig struct {
 
 type healthConfig struct {
 	ReadinessTimeoutMS int64 `json:"readiness_timeout_ms"`
+	MaxHeaderBytes     int   `json:"max_header_bytes"`
 }
 
 type telemetryConfig struct {
@@ -99,8 +103,10 @@ func (c config) Validate() error {
 		len(c.Identity.Audiences) == 0 || len(c.Identity.Algorithms) == 0 ||
 		c.Identity.MaxTokenBytes <= 0 || c.Identity.MaxJWKSKeys <= 0 ||
 		c.Identity.ClockSkewSeconds < 0 ||
-		c.HTTP.ReadHeaderTimeoutMS <= 0 || c.HTTP.IdleTimeoutMS <= 0 ||
+		c.HTTP.ReadHeaderTimeoutMS <= 0 || c.HTTP.RequestTimeoutMS <= 0 ||
+		c.HTTP.IdleTimeoutMS <= 0 ||
 		c.HTTP.ShutdownTimeoutMS <= 0 || c.HTTP.MaxHeaderBytes <= 0 ||
+		c.HTTP.AdmissionRateRPS == 0 || c.HTTP.AdmissionBurst == 0 ||
 		c.Realtime.Path == "" || c.Realtime.Path[0] != '/' ||
 		len(c.Realtime.AllowedSignalNames) == 0 ||
 		c.Realtime.MaxNamesPerConnection == 0 ||
@@ -111,7 +117,7 @@ func (c config) Validate() error {
 		c.Realtime.ReplaySizePerStream == 0 ||
 		c.Realtime.MaxReplayStreams < c.Realtime.MaxSubscriptions ||
 		c.Realtime.HeartbeatIntervalMS <= 0 ||
-		c.Health.ReadinessTimeoutMS <= 0 ||
+		c.Health.ReadinessTimeoutMS <= 0 || c.Health.MaxHeaderBytes <= 0 ||
 		c.Telemetry.ServiceName == "" || c.Telemetry.ServiceVersion == "" ||
 		c.Telemetry.Endpoint == "" || c.Telemetry.SampleRatio < 0 ||
 		c.Telemetry.SampleRatio > 1 || c.Telemetry.ExportTimeoutMS <= 0 ||

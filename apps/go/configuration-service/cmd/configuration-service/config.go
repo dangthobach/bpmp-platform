@@ -46,10 +46,15 @@ type identityConfig struct {
 }
 
 type grpcConfig struct {
-	ListenAddress     string `json:"listen_address"`
-	MaxReceiveBytes   int    `json:"max_receive_bytes"`
-	MaxSendBytes      int    `json:"max_send_bytes"`
-	ReflectionEnabled bool   `json:"reflection_enabled"`
+	ListenAddress                     string   `json:"listen_address"`
+	MaxReceiveBytes                   int      `json:"max_receive_bytes"`
+	MaxSendBytes                      int      `json:"max_send_bytes"`
+	UnaryTimeoutMS                    int64    `json:"unary_timeout_ms"`
+	AuthorizedClientCertificateSHA256 []string `json:"authorized_client_certificate_sha256"`
+	AuthorizedMethods                 []string `json:"authorized_methods"`
+	AdmissionRateRPS                  uint32   `json:"admission_rate_rps"`
+	AdmissionBurst                    uint32   `json:"admission_burst"`
+	ReflectionEnabled                 bool     `json:"reflection_enabled"`
 }
 
 type outboxConfig struct {
@@ -63,15 +68,19 @@ type outboxConfig struct {
 }
 
 type apiConfig struct {
-	DefaultPageSize     int   `json:"default_page_size"`
-	MaxPageSize         int   `json:"max_page_size"`
-	MaxBodyBytes        int64 `json:"max_body_bytes"`
-	ReadHeaderTimeoutMS int64 `json:"read_header_timeout_ms"`
-	ReadTimeoutMS       int64 `json:"read_timeout_ms"`
-	WriteTimeoutMS      int64 `json:"write_timeout_ms"`
-	IdleTimeoutMS       int64 `json:"idle_timeout_ms"`
-	ShutdownTimeoutMS   int64 `json:"shutdown_timeout_ms"`
-	ReadinessTimeoutMS  int64 `json:"readiness_timeout_ms"`
+	DefaultPageSize     int    `json:"default_page_size"`
+	MaxPageSize         int    `json:"max_page_size"`
+	MaxBodyBytes        int64  `json:"max_body_bytes"`
+	MaxHeaderBytes      int    `json:"max_header_bytes"`
+	ReadHeaderTimeoutMS int64  `json:"read_header_timeout_ms"`
+	RequestTimeoutMS    int64  `json:"request_timeout_ms"`
+	ReadTimeoutMS       int64  `json:"read_timeout_ms"`
+	WriteTimeoutMS      int64  `json:"write_timeout_ms"`
+	IdleTimeoutMS       int64  `json:"idle_timeout_ms"`
+	ShutdownTimeoutMS   int64  `json:"shutdown_timeout_ms"`
+	ReadinessTimeoutMS  int64  `json:"readiness_timeout_ms"`
+	AdmissionRateRPS    uint32 `json:"admission_rate_rps"`
+	AdmissionBurst      uint32 `json:"admission_burst"`
 }
 
 type telemetryConfig struct {
@@ -130,11 +139,16 @@ func (c runtimeConfig) validate() error {
 	}
 	if c.Identity.MaxTokenBytes <= 0 || c.Identity.MaxJWKSKeys <= 0 ||
 		c.GRPC.MaxReceiveBytes <= 0 || c.GRPC.MaxSendBytes <= 0 ||
+		c.GRPC.UnaryTimeoutMS <= 0 || len(c.GRPC.AuthorizedClientCertificateSHA256) == 0 ||
+		len(c.GRPC.AuthorizedMethods) == 0 || c.GRPC.AdmissionRateRPS == 0 ||
+		c.GRPC.AdmissionBurst == 0 ||
 		c.API.DefaultPageSize <= 0 || c.API.MaxPageSize < c.API.DefaultPageSize ||
-		c.API.MaxBodyBytes <= 0 || c.API.ReadHeaderTimeoutMS <= 0 ||
+		c.API.MaxBodyBytes <= 0 || c.API.MaxHeaderBytes <= 0 ||
+		c.API.ReadHeaderTimeoutMS <= 0 || c.API.RequestTimeoutMS <= 0 ||
 		c.API.ReadTimeoutMS <= 0 || c.API.WriteTimeoutMS <= 0 ||
 		c.API.IdleTimeoutMS <= 0 || c.API.ShutdownTimeoutMS <= 0 ||
-		c.API.ReadinessTimeoutMS <= 0 || c.Telemetry.ExportTimeoutMS <= 0 ||
+		c.API.ReadinessTimeoutMS <= 0 || c.API.AdmissionRateRPS == 0 ||
+		c.API.AdmissionBurst == 0 || c.Telemetry.ExportTimeoutMS <= 0 ||
 		c.Telemetry.SampleRatio < 0 || c.Telemetry.SampleRatio > 1 ||
 		c.Outbox.BatchSize <= 0 || c.Outbox.LeaseDurationMS <= 0 ||
 		c.Outbox.PollIntervalMS <= 0 || c.Outbox.InitialRetryDelayMS <= 0 ||

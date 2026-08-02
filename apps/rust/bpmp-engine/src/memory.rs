@@ -234,6 +234,8 @@ impl WorkflowStorePort for InMemoryWorkflowStore {
                     tenant_id: request.tenant_id.to_string(),
                     instance_id: request.instance_id.to_string(),
                     event_id: event.metadata.event_id.clone(),
+                    correlation_id: event.metadata.correlation_id.to_string(),
+                    causation_command_id: event.metadata.causation_command_id.to_string(),
                     payload: EventCodec::encode(event),
                 })
             })

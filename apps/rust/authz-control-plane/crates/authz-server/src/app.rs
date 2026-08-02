@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use authz_http_middleware::{apply as apply_transport, Config as TransportConfig};
 use axum::{middleware, routing::get, Router};
-use tower_http::trace::TraceLayer;
 
 use authz_core::models::tenant::FailMode;
 use authz_core::AuthzError;
@@ -26,10 +26,8 @@ use authz_engine::{
 use serde_json::Value as JsonValue;
 
 use crate::{
-    config::ServerConfig,
-    handlers::health::health_handler,
-    middleware::{request_id::inject_request_id, service_auth::require_service_jwt},
-    state::AppState,
+    config::ServerConfig, handlers::health::health_handler,
+    middleware::service_auth::require_service_jwt, state::AppState,
 };
 
 // ─── No-op JIT Fetcher (MVP) ──────────────────────────────────────────────────
@@ -51,7 +49,7 @@ impl JitAttributeFetcher for NoopJitFetcher {
 }
 
 /// Builds the Axum router.
-pub fn build_router(state: AppState) -> Router {
+pub fn build_router(state: AppState, transport: TransportConfig) -> Result<Router> {
     let protected_routes = Router::new()
         .nest("/admin/v1", crate::handlers::admin::admin_routes())
         .layer(middleware::from_fn_with_state(
@@ -59,14 +57,12 @@ pub fn build_router(state: AppState) -> Router {
             require_service_jwt,
         ));
 
-    Router::new()
+    let router = Router::new()
         // Health check
         .route("/health", get(health_handler))
         .merge(protected_routes)
-        // Middleware stack (applied innermost first → outermost last)
-        .layer(middleware::from_fn(inject_request_id))
-        .layer(TraceLayer::new_for_http())
-        .with_state(state)
+        .with_state(state);
+    apply_transport(router, transport).map_err(anyhow::Error::msg)
 }
 
 /// Starts the server: connects to DB, runs migrations, wires dependencies, listens.
@@ -163,6 +159,14 @@ pub async fn run(config: ServerConfig) -> Result<()> {
         .await;
     });
 
+    let transport = TransportConfig {
+        service: config.service_name.clone(),
+        request_timeout: std::time::Duration::from_millis(config.server_request_timeout_ms),
+        max_body_bytes: config.server_max_body_bytes,
+        rate_limit_requests_per_second: config.rate_limit_requests_per_second,
+        rate_limit_burst: config.rate_limit_burst,
+    };
+
     // ── Start server ──────────────────────────────────────────────────────────
     let addr = config.socket_addr()?;
     let listener = tokio::net::TcpListener::bind(addr).await?;
@@ -178,7 +182,7 @@ pub async fn run(config: ServerConfig) -> Result<()> {
         let readiness_consumer = tokio::spawn(crate::tenant_lifecycle::run_readiness_consumer(
             pool, config,
         ));
-        let server = axum::serve(listener, build_router(state));
+        let server = axum::serve(listener, build_router(state, transport)?);
         tokio::pin!(server);
         tokio::select! {
             result = &mut server => result.context("serve AuthZ HTTP"),
@@ -199,7 +203,7 @@ pub async fn run(config: ServerConfig) -> Result<()> {
     #[cfg(not(target_os = "linux"))]
     {
         let _ = (pool, config);
-        axum::serve(listener, build_router(state))
+        axum::serve(listener, build_router(state, transport)?)
             .await
             .context("serve AuthZ HTTP")
     }

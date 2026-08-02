@@ -1,4 +1,5 @@
 #![forbid(unsafe_code)]
+#![recursion_limit = "256"]
 
 use std::fmt::Write as _;
 use std::fs;
@@ -152,6 +153,7 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
     fs::create_dir_all(&secrets)?;
 
     let tls = generate_tls(&manifest.tls_dns_names)?;
+    let tls_certificate_sha256_hex = tls.certificate_sha256_hex.clone();
     write(&secrets.join("ca.pem"), tls.ca)?;
     write(&secrets.join("tls.pem"), tls.certificate)?;
     write(&secrets.join("tls-key.pem"), tls.private_key)?;
@@ -253,12 +255,19 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
                     &internal_actor,
                     &internal_workload,
                 ],
+                &tls_certificate_sha256_hex,
             ),
         )?;
     }
     write_json(
         &output.join("human-runtime.json"),
-        &human_config(manifest, mount, &human_workload, &internal_actor),
+        &human_config(
+            manifest,
+            mount,
+            &human_workload,
+            &internal_actor,
+            &tls_certificate_sha256_hex,
+        ),
     )?;
     write_json(
         &output.join("api-gateway.json"),
@@ -266,11 +275,11 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
     )?;
     write_json(
         &output.join("configuration-service.json"),
-        &configuration_config(manifest, mount),
+        &configuration_config(manifest, mount, &tls_certificate_sha256_hex),
     )?;
     write_json(
         &output.join("projection-service.json"),
-        &projection_config(manifest, mount),
+        &projection_config(manifest, mount, &tls_certificate_sha256_hex),
     )?;
     write_json(
         &output.join("cockpit-gateway.json"),
@@ -286,7 +295,7 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
     )?;
     write_json(
         &output.join("governance-service.json"),
-        &governance_config(manifest, mount),
+        &governance_config(manifest, mount, &tls_certificate_sha256_hex),
     )?;
     write(
         &output.join("human-runtime.sql"),
@@ -313,6 +322,7 @@ struct TlsMaterial {
     ca: Vec<u8>,
     certificate: Vec<u8>,
     private_key: Vec<u8>,
+    certificate_sha256_hex: String,
 }
 
 fn generate_tls(dns_names: &[String]) -> Result<TlsMaterial> {
@@ -330,10 +340,18 @@ fn generate_tls(dns_names: &[String]) -> Result<TlsMaterial> {
     leaf_params.distinguished_name = leaf_name;
     let leaf_key = KeyPair::generate()?;
     let leaf = leaf_params.signed_by(&leaf_key, &ca)?;
+    let certificate_sha256_hex = Sha256::digest(leaf.der().as_ref()).iter().fold(
+        String::with_capacity(64),
+        |mut output, byte| {
+            let _ = write!(output, "{byte:02x}");
+            output
+        },
+    );
     Ok(TlsMaterial {
         ca: ca.pem().into_bytes(),
         certificate: leaf.pem().into_bytes(),
         private_key: leaf_key.serialize_pem().into_bytes(),
+        certificate_sha256_hex,
     })
 }
 
@@ -460,6 +478,21 @@ fn workflow_configuration(manifest: &Manifest) -> Value {
                         "initial_backoff_ms": 25,
                         "max_backoff_ms": 250,
                         "multiplier_millis": 2000
+                    },
+                    "remote": {
+                        "dispatch_batch_size": 32,
+                        "max_workers": 100_000,
+                        "max_credit_per_worker": 64,
+                        "max_capabilities_per_worker": 32,
+                        "lease_duration_ms": 30000,
+                        "heartbeat_timeout_ms": 10000,
+                        "max_identifier_bytes": 256,
+                        "max_protocol_version_bytes": 32,
+                        "stream_channel_capacity": 128,
+                        "max_input_bytes": 65536,
+                        "max_output_bytes": 65536,
+                        "max_attempts": 5,
+                        "retry_delay_ms": 1000
                     }
                 }
             }
@@ -471,7 +504,13 @@ fn boundary_config(worker: &str) -> Value {
     json!({"projection_batch_size": 64, "dispatch_batch_size": 32, "max_dispatch_attempts": 5, "retry_delay_ms": 100, "lease_duration_ms": 5000, "max_timer_horizon_ms": 31_536_000_000_u64, "max_expression_bytes": 4096, "worker_id": worker, "max_signal_id_bytes": 256, "max_reference_bytes": 512, "max_subscriptions_per_instance": 128})
 }
 
-fn engine_config(manifest: &Manifest, mount: &str, index: usize, keys: &[&AuthKey]) -> Value {
+fn engine_config(
+    manifest: &Manifest,
+    mount: &str,
+    index: usize,
+    keys: &[&AuthKey],
+    tls_certificate_sha256_hex: &str,
+) -> Value {
     let path = |name: &str| format!("{mount}/{name}");
     let verification = |key: &AuthKey| json!({"key_id": key.id, "path": path(&key.public_path)});
     json!({
@@ -497,7 +536,18 @@ fn engine_config(manifest: &Manifest, mount: &str, index: usize, keys: &[&AuthKe
             "policy_bundles": [path("policy.bundle")], "jwks": path("jwks.json"),
             "jwt_issuers": [manifest.actor_issuer], "jwt_audiences": [manifest.actor_audience], "jwt_algorithms": ["EdDSA"],
             "max_proof_bytes": 16384, "max_roles": 32, "max_capabilities": 64, "max_policy_bytes": 65536, "max_policy_grants": 64, "max_jwks_keys": 16, "clock_skew_seconds": 30,
-            "internal_dispatch": {"actor_signing_key": path(&keys[2].private_path), "actor_signing_key_id": keys[2].id, "workload_signing_key": path(&keys[3].private_path), "workload_signing_key_id": keys[3].id, "actor_id": "engine-scheduler", "workload_id": "bpmp-engine", "roles": ["system"], "capabilities": ["boundary.trigger"], "proof_ttl_ms": 60000}
+            "internal_dispatch": {"actor_signing_key": path(&keys[2].private_path), "actor_signing_key_id": keys[2].id, "workload_signing_key": path(&keys[3].private_path), "workload_signing_key_id": keys[3].id, "actor_id": "engine-scheduler", "workload_id": "bpmp-engine", "roles": ["system"], "capabilities": ["boundary.trigger", "workflow.complete"], "proof_ttl_ms": 60000},
+            "remote_workers": {
+                "allowed_protocol_versions": ["1.0"],
+                "identities": [{
+                    "workload_id": "remote-worker-e2e",
+                    "certificate_sha256_hex": tls_certificate_sha256_hex,
+                    "tenant_ids": [manifest.tenant_id]
+                }],
+                "assignment_signing_key": path(&keys[3].private_path),
+                "assignment_signing_key_id": keys[3].id,
+                "max_registration_proof_ttl_ms": 60_000
+            }
         },
         "payload_keys": [
             {"key_scope": format!("{}/operational", manifest.tenant_id), "key_version": "e2e-v1", "key_epoch": 1, "path": path("secrets/payload-operational.key")},
@@ -507,12 +557,20 @@ fn engine_config(manifest: &Manifest, mount: &str, index: usize, keys: &[&AuthKe
         "raft": {
             "cluster_name": "bpmp-e2e", "node_id": index + 1,
             "peer_listen_addr": manifest.engine_peer_listen_addresses[index],
-            "peers": (0..3).map(|peer| json!({"node_id": peer + 1, "raft_address": manifest.engine_peer_addresses[peer], "tls_domain": format!("engine{}", peer + 1)})).collect::<Vec<_>>(),
+            "peers": (0..3).map(|peer| json!({"node_id": peer + 1, "raft_address": manifest.engine_peer_addresses[peer], "tls_domain": format!("engine{}", peer + 1), "certificate_sha256_hex": tls_certificate_sha256_hex})).collect::<Vec<_>>(),
             "bootstrap": index == 0, "heartbeat_interval_ms": 100, "election_timeout_min_ms": 300, "election_timeout_max_ms": 600, "rpc_timeout_ms": 2000,
+            "authorized_methods": [
+                "/bpmp.raft.v1.RaftPeerService/AppendEntries",
+                "/bpmp.raft.v1.RaftPeerService/Vote",
+                "/bpmp.raft.v1.RaftPeerService/InstallSnapshot",
+                "/bpmp.raft.v1.RaftPeerService/ForwardCommand",
+                "/bpmp.raft.v1.RaftPeerService/AddLearner",
+                "/bpmp.raft.v1.RaftPeerService/ChangeMembership"
+            ],
             "max_conditions": 512, "max_mutations": 512, "max_batch_bytes": 4_194_304, "max_snapshot_bytes": 67_108_864,
             "append_only_column_families": ["events","dedup","outbox","idempotency","authorization_audit","compensation_ledger","governance_audit","raft_applied_commands"]
         },
-        "grpc": {"max_decoding_bytes": 1_048_576, "max_encoding_bytes": 1_048_576, "reflection_enabled": true},
+        "grpc": {"max_decoding_bytes": 1_048_576, "max_encoding_bytes": 1_048_576, "request_timeout_ms": 5000, "admission_rate_rps": 5000, "admission_burst": 500, "reflection_enabled": true},
         "workers": {"poll_interval_ms": 100, "outbox_batch_size": 64, "outbox_max_attempts": 10, "outbox_initial_retry_ms": 50, "outbox_max_retry_ms": 1000, "outbox_retry_multiplier_millis": 2000, "boundary": boundary_config(&format!("engine-{}-boundary", index + 1)), "local_task_batch_size": 32, "local_task_max_attempts": 3, "local_task_initial_retry_ms": 25, "local_task_max_retry_ms": 250, "local_task_retry_multiplier_millis": 2000},
         "kafka": {
             "brokers": manifest.kafka.brokers,
@@ -533,7 +591,13 @@ fn engine_config(manifest: &Manifest, mount: &str, index: usize, keys: &[&AuthKe
     })
 }
 
-fn human_config(manifest: &Manifest, mount: &str, workload: &AuthKey, internal: &AuthKey) -> Value {
+fn human_config(
+    manifest: &Manifest,
+    mount: &str,
+    workload: &AuthKey,
+    internal: &AuthKey,
+    tls_fingerprint: &str,
+) -> Value {
     let path = |name: &str| format!("{mount}/{name}");
     json!({
         "listen_address": manifest.human_listen_address, "postgres_dsn": manifest.postgres_dsn,
@@ -543,8 +607,25 @@ fn human_config(manifest: &Manifest, mount: &str, workload: &AuthKey, internal: 
         "kafka": {"brokers": manifest.kafka.brokers, "committed_event_topic": manifest.kafka.topics.engine_committed_events, "escalation_topic": manifest.kafka.topics.human_escalations, "consumer_group": manifest.kafka.consumer_groups.human_committed_events},
         "identity": {"jwks_path": path("jwks.json"), "internal_keys": {(internal.id.clone()): path(&internal.public_path)}, "issuers": [manifest.actor_issuer], "audiences": [manifest.actor_audience], "allowed_jwt_methods": ["EdDSA"], "workload_id": "human-runtime", "max_proof_bytes": 16384, "max_jwks_keys": 16, "max_roles": 32, "max_capabilities": 64, "clock_skew_ms": 30000},
         "workload": {"id": "human-runtime", "signing_key_id": workload.id, "private_key_path": path(&workload.private_path), "proof_ttl_ms": 60000},
-        "grpc": {"max_receive_bytes": 1_048_576, "max_send_bytes": 1_048_576, "reflection_enabled": true},
-        "health": {"listen_address": manifest.human_health_address, "readiness_timeout_ms": 1000},
+        "grpc": {
+            "max_receive_bytes": 1_048_576, "max_send_bytes": 1_048_576,
+            "unary_timeout_ms": 5000,
+            "authorized_client_certificate_sha256": [tls_fingerprint],
+            "authorized_methods": [
+                "/bpmp.human.v1.HumanRuntimeService/GetWorkItem",
+                "/bpmp.human.v1.HumanRuntimeService/ListWorkItems",
+                "/bpmp.human.v1.HumanRuntimeService/CompleteWorkItem",
+                "/bpmp.human.v1.HumanRuntimeService/DelegateWorkItem",
+                "/bpmp.human.v1.HumanRuntimeService/GetCase",
+                "/bpmp.human.v1.HumanRuntimeService/ListAuditRecords",
+                "/grpc.reflection.v1.ServerReflection/ServerReflectionInfo",
+                "/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo"
+            ],
+            "admission_rate_rps": 2000,
+            "admission_burst": 200,
+            "reflection_enabled": true
+        },
+        "health": {"listen_address": manifest.human_health_address, "readiness_timeout_ms": 1000, "max_header_bytes": 32768},
         "telemetry": {"service_name": "human-runtime-e2e", "service_version": "e2e", "endpoint": manifest.otel_endpoint, "insecure": true, "sample_ratio": 0.0, "export_timeout_ms": 1000},
         "escalation": {"worker_id": "human-e2e"},
         "runtime_configuration": {
@@ -581,7 +662,7 @@ fn gateway_config(manifest: &Manifest, mount: &str, workload: &AuthKey) -> Value
         "identity": {"jwks_path": path("jwks.json"), "issuers": [manifest.actor_issuer], "audiences": [manifest.actor_audience], "algorithms": ["EdDSA"], "max_token_bytes": 16384, "max_jwks_keys": 16, "clock_skew_seconds": 30},
         "workload": {"id": "api-gateway", "signing_key_id": workload.id, "private_key_path": path(&workload.private_path), "proof_ttl_ms": 60000},
         "rate_limit": {"redis_address": manifest.redis_address, "redis_username": "", "redis_password_file": "", "redis_database": 0, "redis_key_prefix": "bpmp:e2e", "operation_timeout_ms": 1000},
-        "http": {"read_header_timeout_ms": 2000, "read_timeout_ms": 5000, "write_timeout_ms": 5000, "idle_timeout_ms": 10000, "shutdown_timeout_ms": 5000},
+        "http": {"read_header_timeout_ms": 2000, "request_timeout_ms": 5000, "read_timeout_ms": 5000, "write_timeout_ms": 5000, "idle_timeout_ms": 10000, "shutdown_timeout_ms": 5000, "max_header_bytes": 32768, "admission_rate_rps": 5000, "admission_burst": 500},
         "grpc": {"max_receive_bytes": 1_048_576, "max_send_bytes": 1_048_576},
         "health": {"readiness_timeout_ms": 1000},
         "telemetry": {"service_name": "api-gateway-e2e", "service_version": "e2e", "endpoint": manifest.otel_endpoint, "insecure": true, "sample_ratio": 0.0, "export_timeout_ms": 1000},
@@ -614,7 +695,7 @@ fn gateway_config(manifest: &Manifest, mount: &str, workload: &AuthKey) -> Value
     })
 }
 
-fn projection_config(manifest: &Manifest, mount: &str) -> Value {
+fn projection_config(manifest: &Manifest, mount: &str, tls_fingerprint: &str) -> Value {
     let path = |name: &str| format!("{mount}/{name}");
     json!({
         "listen_address": manifest.projection_listen_address,
@@ -631,8 +712,21 @@ fn projection_config(manifest: &Manifest, mount: &str) -> Value {
             "configuration_ca": path("secrets/ca.pem"),
             "configuration_server_name": "configuration-service"
         },
-        "grpc": {"max_receive_bytes": 1_048_576, "max_send_bytes": 1_048_576, "reflection_enabled": true},
-        "health": {"readiness_timeout_ms": 1000, "shutdown_timeout_ms": 5000},
+        "grpc": {
+            "max_receive_bytes": 1_048_576, "max_send_bytes": 1_048_576,
+            "unary_timeout_ms": 5000,
+            "authorized_client_certificate_sha256": [tls_fingerprint],
+            "authorized_methods": [
+                "/bpmp.projection.v1.ProjectionQueryService/GetWorkflowInstance",
+                "/bpmp.projection.v1.ProjectionQueryService/ListWorkflowInstances",
+                "/grpc.reflection.v1.ServerReflection/ServerReflectionInfo",
+                "/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo"
+            ],
+            "admission_rate_rps": 2000,
+            "admission_burst": 200,
+            "reflection_enabled": true
+        },
+        "health": {"readiness_timeout_ms": 1000, "shutdown_timeout_ms": 5000, "max_header_bytes": 32768},
         "telemetry": {
             "service_name": "projection-service-e2e",
             "service_version": "e2e",
@@ -697,9 +791,12 @@ fn cockpit_gateway_config(manifest: &Manifest, mount: &str) -> Value {
         },
         "http": {
             "read_header_timeout_ms": 5000,
+            "request_timeout_ms": 5000,
             "idle_timeout_ms": 60000,
             "shutdown_timeout_ms": 10000,
             "max_header_bytes": 32768,
+            "admission_rate_rps": 2000,
+            "admission_burst": 200,
             "allowed_origins": [
                 manifest.cockpit_web_public_origin,
                 "https://localhost:4173"
@@ -722,7 +819,7 @@ fn cockpit_gateway_config(manifest: &Manifest, mount: &str) -> Value {
             "max_replay_streams": 20000,
             "heartbeat_interval_ms": 15000
         },
-        "health": {"readiness_timeout_ms": 1000},
+        "health": {"readiness_timeout_ms": 1000, "max_header_bytes": 32768},
         "telemetry": {
             "service_name": "cockpit-gateway-e2e",
             "service_version": "e2e",
@@ -815,7 +912,7 @@ http {
     .to_owned()
 }
 
-fn governance_config(manifest: &Manifest, mount: &str) -> Value {
+fn governance_config(manifest: &Manifest, mount: &str, tls_fingerprint: &str) -> Value {
     let path = |name: &str| format!("{mount}/{name}");
     json!({
         "listen_addr": manifest.governance_listen_address,
@@ -865,12 +962,23 @@ fn governance_config(manifest: &Manifest, mount: &str) -> Value {
         "grpc": {
             "max_decoding_bytes": 1_048_576,
             "max_encoding_bytes": 1_048_576,
+            "request_timeout_ms": 5000,
+            "authorized_client_certificate_sha256": [tls_fingerprint],
+            "authorized_methods": [
+                "/bpmp.governance.v1.GovernanceApprovalService/CreateApproval",
+                "/bpmp.governance.v1.GovernanceApprovalService/RecordApproval",
+                "/bpmp.governance.v1.GovernanceApprovalService/SubmitApproval",
+                "/bpmp.governance.v1.GovernanceApprovalService/GetApproval",
+                "/grpc.reflection.v1.ServerReflection/ServerReflectionInfo"
+            ],
+            "admission_rate_rps": 2000,
+            "admission_burst": 200,
             "reflection_enabled": true
         }
     })
 }
 
-fn configuration_config(manifest: &Manifest, mount: &str) -> Value {
+fn configuration_config(manifest: &Manifest, mount: &str, tls_fingerprint: &str) -> Value {
     let path = |name: &str| format!("{mount}/{name}");
     json!({
         "listen_address": manifest.configuration_listen_address,
@@ -886,6 +994,15 @@ fn configuration_config(manifest: &Manifest, mount: &str) -> Value {
             "listen_address": manifest.configuration_grpc_listen_address,
             "max_receive_bytes": 1_048_576,
             "max_send_bytes": 1_048_576,
+            "unary_timeout_ms": 5000,
+            "authorized_client_certificate_sha256": [tls_fingerprint],
+            "authorized_methods": [
+                "/bpmp.configuration.v1.ConfigurationResolverService/ResolveConfiguration",
+                "/grpc.reflection.v1.ServerReflection/ServerReflectionInfo",
+                "/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo"
+            ],
+            "admission_rate_rps": 5000,
+            "admission_burst": 500,
             "reflection_enabled": true
         },
         "kafka": {
@@ -951,12 +1068,16 @@ fn configuration_config(manifest: &Manifest, mount: &str) -> Value {
             "default_page_size": 50,
             "max_page_size": 200,
             "max_body_bytes": 1_048_576,
+            "max_header_bytes": 32768,
             "read_header_timeout_ms": 2000,
+            "request_timeout_ms": 5000,
             "read_timeout_ms": 5000,
             "write_timeout_ms": 5000,
             "idle_timeout_ms": 10000,
             "shutdown_timeout_ms": 5000,
-            "readiness_timeout_ms": 1000
+            "readiness_timeout_ms": 1000,
+            "admission_rate_rps": 2000,
+            "admission_burst": 200
         },
         "telemetry": {
             "service_name": "configuration-service-e2e",

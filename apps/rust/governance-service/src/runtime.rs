@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use bpmp_contracts::configuration::v1 as configurationv1;
+use bpmp_transport_observability::{AdmissionLimiter, RequestMetadataLayer, WorkloadAuthorization};
 use prost::Message;
 use rdkafka::ClientConfig;
 use rdkafka::Message as _;
@@ -32,6 +33,16 @@ pub async fn run(path: PathBuf) -> Result<()> {
         config.grpc.max_decoding_bytes,
         config.grpc.max_encoding_bytes,
     );
+    let workload_authorization = WorkloadAuthorization::try_new(
+        &config.grpc.authorized_client_certificate_sha256,
+        &config.grpc.authorized_methods,
+    )
+    .map_err(anyhow::Error::msg)
+    .context("build governance workload authorization")?;
+    let admission_limiter =
+        AdmissionLimiter::try_new(config.grpc.admission_rate_rps, config.grpc.admission_burst)
+            .map_err(anyhow::Error::msg)
+            .context("build governance admission limiter")?;
     let certificate = tokio::fs::read(&config.tls.server_certificate).await?;
     let private_key = tokio::fs::read(&config.tls.server_private_key).await?;
     let client_ca = tokio::fs::read(&config.tls.client_ca).await?;
@@ -66,6 +77,14 @@ pub async fn run(path: PathBuf) -> Result<()> {
         .transpose()
         .context("build governance gRPC reflection service")?;
     let server = Server::builder()
+        .layer(
+            RequestMetadataLayer::new("governance-service")
+                .with_request_timeout(std::time::Duration::from_millis(
+                    config.grpc.request_timeout_ms,
+                ))
+                .with_workload_authorization(workload_authorization)
+                .with_admission_limiter(admission_limiter),
+        )
         .tls_config(tls)?
         .add_service(grpc)
         .add_optional_service(reflection)

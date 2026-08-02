@@ -10,6 +10,10 @@ use std::time::Duration;
 pub struct AppConfig {
     pub host: String,
     pub port: u16,
+    pub server_request_timeout_ms: u64,
+    pub server_max_body_bytes: usize,
+    pub rate_limit_requests_per_second: u32,
+    pub rate_limit_burst: u32,
     pub database_url: String,
     pub db_max_connections: u32,
     pub db_min_connections: u32,
@@ -39,6 +43,10 @@ impl AppConfig {
         Ok(Self {
             host: env_or("HOST", "0.0.0.0"),
             port: env_parse("PORT", 9090)?,
+            server_request_timeout_ms: env_required_parse("SERVER_REQUEST_TIMEOUT_MS")?,
+            server_max_body_bytes: env_required_parse("SERVER_MAX_BODY_BYTES")?,
+            rate_limit_requests_per_second: env_required_parse("RATE_LIMIT_RPS")?,
+            rate_limit_burst: env_required_parse("RATE_LIMIT_BURST")?,
             database_url: std::env::var("DATABASE_URL").context("DATABASE_URL is required")?,
             db_max_connections: env_parse("DB_MAX_CONNECTIONS", 20)?,
             db_min_connections: env_parse("DB_MIN_CONNECTIONS", 2)?,
@@ -84,4 +92,14 @@ where
             .map_err(|e| anyhow::anyhow!("invalid {key}: {e}")),
         Err(_) => Ok(fallback),
     }
+}
+
+fn env_required_parse<T: std::str::FromStr>(key: &str) -> Result<T>
+where
+    T::Err: std::fmt::Display,
+{
+    std::env::var(key)
+        .with_context(|| format!("{key} is required"))?
+        .parse::<T>()
+        .map_err(|error| anyhow::anyhow!("invalid {key}: {error}"))
 }

@@ -4,7 +4,6 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use serde::Deserialize;
 use thiserror::Error;
@@ -78,6 +77,7 @@ impl RuntimeConfig {
             ));
         }
         self.validate_configuration_source()?;
+        self.validate_remote_workers()?;
         self.kafka.validate()?;
         for value in [
             self.workers.boundary.projection_batch_size,
@@ -97,6 +97,8 @@ impl RuntimeConfig {
         for value in [
             self.grpc.max_decoding_bytes,
             self.grpc.max_encoding_bytes,
+            self.grpc.admission_rate_rps as usize,
+            self.grpc.admission_burst as usize,
             self.workers.outbox_batch_size,
             self.workers.local_task_batch_size,
             self.workers.local_task_max_attempts as usize,
@@ -108,6 +110,7 @@ impl RuntimeConfig {
             }
         }
         for value in [
+            self.grpc.request_timeout_ms,
             self.workers.poll_interval_ms,
             self.workers.outbox_initial_retry_ms,
             self.workers.outbox_max_retry_ms,
@@ -147,8 +150,47 @@ impl RuntimeConfig {
         Ok(())
     }
 
-    pub const fn poll_interval(&self) -> Duration {
-        Duration::from_millis(self.workers.poll_interval_ms)
+    fn validate_remote_workers(&self) -> Result<(), RuntimeConfigError> {
+        let remote = &self.authorization.remote_workers;
+        if remote.allowed_protocol_versions.is_empty()
+            || remote
+                .allowed_protocol_versions
+                .iter()
+                .any(|value| value.trim().is_empty())
+            || remote.assignment_signing_key.as_os_str().is_empty()
+            || remote.assignment_signing_key_id.trim().is_empty()
+            || remote.max_registration_proof_ttl_ms == 0
+            || remote.identities.is_empty()
+        {
+            return Err(RuntimeConfigError::Invalid(
+                "remote worker trust configuration is incomplete",
+            ));
+        }
+        let mut protocols = BTreeSet::new();
+        let mut fingerprints = BTreeSet::new();
+        for protocol in &remote.allowed_protocol_versions {
+            if !protocols.insert(protocol.as_str()) {
+                return Err(RuntimeConfigError::Invalid(
+                    "remote worker protocol versions must be unique",
+                ));
+            }
+        }
+        for identity in &remote.identities {
+            if identity.workload_id.trim().is_empty()
+                || identity.tenant_ids.is_empty()
+                || identity
+                    .tenant_ids
+                    .iter()
+                    .any(|tenant| tenant.trim().is_empty())
+                || !valid_sha256_hex(&identity.certificate_sha256_hex)
+                || !fingerprints.insert(identity.certificate_sha256_hex.as_str())
+            {
+                return Err(RuntimeConfigError::Invalid(
+                    "remote worker identities must have unique certificate fingerprints and tenants",
+                ));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -239,6 +281,7 @@ pub struct AuthorizationConfig {
     pub max_jwks_keys: usize,
     pub clock_skew_seconds: u64,
     pub internal_dispatch: InternalDispatchConfig,
+    pub remote_workers: RemoteWorkerAuthorizationConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -253,6 +296,24 @@ pub struct InternalDispatchConfig {
     pub roles: Vec<String>,
     pub capabilities: Vec<String>,
     pub proof_ttl_ms: u64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RemoteWorkerAuthorizationConfig {
+    pub allowed_protocol_versions: Vec<String>,
+    pub identities: Vec<RemoteWorkerIdentityConfig>,
+    pub assignment_signing_key: PathBuf,
+    pub assignment_signing_key_id: String,
+    pub max_registration_proof_ttl_ms: u64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RemoteWorkerIdentityConfig {
+    pub workload_id: String,
+    pub certificate_sha256_hex: String,
+    pub tenant_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -292,6 +353,7 @@ pub struct RaftRuntimeConfig {
     pub election_timeout_min_ms: u64,
     pub election_timeout_max_ms: u64,
     pub rpc_timeout_ms: u64,
+    pub authorized_methods: Vec<String>,
     pub max_conditions: u32,
     pub max_mutations: u32,
     pub max_batch_bytes: u64,
@@ -311,6 +373,7 @@ impl RaftRuntimeConfig {
             || self.max_mutations == 0
             || self.max_batch_bytes == 0
             || self.max_snapshot_bytes == 0
+            || self.authorized_methods.is_empty()
             || self.peers.is_empty()
         {
             return Err(RuntimeConfigError::Invalid(
@@ -323,6 +386,7 @@ impl RaftRuntimeConfig {
             if peer.node_id == 0
                 || peer.raft_address.trim().is_empty()
                 || peer.tls_domain.trim().is_empty()
+                || !valid_sha256_hex(&peer.certificate_sha256_hex)
                 || !node_ids.insert(peer.node_id)
                 || !addresses.insert(peer.raft_address.as_str())
             {
@@ -330,6 +394,17 @@ impl RaftRuntimeConfig {
                     "Raft peer identities and addresses must be unique and non-empty",
                 ));
             }
+        }
+        let methods = self.authorized_methods.iter().collect::<BTreeSet<_>>();
+        if methods.len() != self.authorized_methods.len()
+            || self
+                .authorized_methods
+                .iter()
+                .any(|method| !method.starts_with('/'))
+        {
+            return Err(RuntimeConfigError::Invalid(
+                "Raft authorized methods must be unique fully-qualified paths",
+            ));
         }
         if !node_ids.contains(&self.node_id) {
             return Err(RuntimeConfigError::Invalid(
@@ -364,6 +439,7 @@ pub struct RaftPeerConfig {
     pub node_id: u64,
     pub raft_address: String,
     pub tls_domain: String,
+    pub certificate_sha256_hex: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -371,6 +447,9 @@ pub struct RaftPeerConfig {
 pub struct GrpcConfig {
     pub max_decoding_bytes: usize,
     pub max_encoding_bytes: usize,
+    pub request_timeout_ms: u64,
+    pub admission_rate_rps: u32,
+    pub admission_burst: u32,
     pub reflection_enabled: bool,
 }
 
@@ -405,6 +484,10 @@ fn is_sha256_version(value: &str) -> bool {
     value.strip_prefix("sha256:").is_some_and(|digest| {
         digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
     })
+}
+
+fn valid_sha256_hex(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -553,6 +636,13 @@ mod tests {
         assert!(is_sha256_version(&format!("sha256:{}", "a".repeat(64))));
         assert!(!is_sha256_version("latest"));
         assert!(!is_sha256_version("sha256:abc"));
+    }
+
+    #[test]
+    fn remote_worker_certificate_fingerprint_is_exact_sha256() {
+        assert!(valid_sha256_hex(&"ab".repeat(32)));
+        assert!(!valid_sha256_hex("sha256:abc"));
+        assert!(!valid_sha256_hex(&"z1".repeat(32)));
     }
 
     #[test]

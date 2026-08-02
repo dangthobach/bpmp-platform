@@ -14,9 +14,11 @@ describe("configuration policy form", () => {
     form["retry.multiplier_millis"] = "1000";
     form["workers.outbox_retry.multiplier_millis"] = "1000";
     form["workers.local_task_retry.multiplier_millis"] = "1000";
+    form["workers.remote.heartbeat_timeout_ms"] = "9";
     const policy = buildPolicy(form);
     expect(policy.default_multi_instance_parallelism).toBe(10);
     expect(policyToForm(policy as unknown as Record<string, unknown>)["boundary.worker_id"]).toBe("worker-a");
+    expect(policyToForm(policy as unknown as Record<string, unknown>)["workers.remote.max_workers"]).toBe("10");
   });
 
   it("builds Human Runtime reliability as typed nested policy", () => {

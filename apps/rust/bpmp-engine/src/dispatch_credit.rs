@@ -53,6 +53,25 @@ impl CreditController {
         })
     }
 
+    /// Replaces bounds at a safe point without invalidating active credit.
+    ///
+    /// # Errors
+    ///
+    /// Rejects invalid limits or limits below currently active worker state.
+    pub fn replace_limits(&mut self, limits: DispatchLimits) -> Result<(), CreditError> {
+        limits.validate()?;
+        if self.workers.len() > limits.max_workers as usize
+            || self.workers.values().any(|worker| {
+                worker.granted > limits.max_credits_per_worker
+                    || worker.inflight.len() > limits.max_credits_per_worker as usize
+            })
+        {
+            return Err(CreditError::ActiveStateExceedsNewLimits);
+        }
+        self.limits = limits;
+        Ok(())
+    }
+
     /// Replaces the worker's advertised credit.
     ///
     /// # Errors
@@ -153,6 +172,8 @@ pub enum CreditError {
     WorkerLimitExceeded,
     #[error("worker credit limit exceeded")]
     CreditLimitExceeded,
+    #[error("active worker credit state exceeds replacement limits")]
+    ActiveStateExceedsNewLimits,
     #[error("advertised credit is below current inflight count")]
     CreditBelowInflight,
     #[error("worker is unknown")]

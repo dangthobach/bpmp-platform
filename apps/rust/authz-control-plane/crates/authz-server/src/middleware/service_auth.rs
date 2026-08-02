@@ -1,14 +1,14 @@
 //! Service-to-service JWT authentication for the PDP HTTP API.
 
+use authz_http_middleware::{metadata_from_extensions, problem_response};
 use axum::{
     extract::{Request, State},
     http::{header, StatusCode},
     middleware::Next,
-    response::{IntoResponse, Response},
-    Json,
+    response::Response,
 };
 use jsonwebtoken::{decode_header, jwk::JwkSet, DecodingKey, Validation};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use crate::state::AppState;
 
@@ -24,12 +24,6 @@ pub struct ServicePrincipal {
     pub subject: String,
 }
 
-#[derive(Debug, Serialize)]
-struct UnauthorizedBody {
-    error_code: &'static str,
-    message: String,
-}
-
 pub async fn require_service_jwt(
     State(state): State<AppState>,
     mut req: Request,
@@ -41,12 +35,12 @@ pub async fn require_service_jwt(
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
     else {
-        return unauthorized("missing bearer token");
+        return unauthorized(&req);
     };
 
     let principal = match verify_jwt(token, &state.jwt_jwks_url, &state.jwt_audience).await {
         Ok(principal) => principal,
-        Err(reason) => return unauthorized(&reason),
+        Err(_) => return unauthorized(&req),
     };
     req.extensions_mut().insert(principal);
 
@@ -97,13 +91,13 @@ pub async fn verify_jwt(
     })
 }
 
-fn unauthorized(message: &str) -> Response {
-    (
+fn unauthorized(request: &Request) -> Response {
+    let metadata = metadata_from_extensions(request.extensions());
+    problem_response(
         StatusCode::UNAUTHORIZED,
-        Json(UnauthorizedBody {
-            error_code: "UNAUTHORIZED",
-            message: message.to_owned(),
-        }),
+        "unauthorized",
+        "Unauthorized",
+        &metadata,
+        false,
     )
-        .into_response()
 }

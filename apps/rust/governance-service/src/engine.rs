@@ -6,6 +6,7 @@ use bpmp_contracts::governance::v1::{
     CommitAbortAndReconcileRequest, CommitAbortAndReconcileResponse,
     PrepareAbortAndReconcileRequest, PrepareAbortAndReconcileResponse,
 };
+use bpmp_transport_observability::inject_tonic_metadata;
 use tonic::Code;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint, Identity};
 
@@ -69,11 +70,9 @@ impl EngineCluster {
     ) -> Result<PrepareAbortAndReconcileResponse> {
         let mut last = None;
         for client in &self.clients {
-            match client
-                .clone()
-                .prepare_abort_and_reconcile(request.clone())
-                .await
-            {
+            let mut outbound = tonic::Request::new(request.clone());
+            inject_tonic_metadata(&mut outbound);
+            match client.clone().prepare_abort_and_reconcile(outbound).await {
                 Ok(response) => return Ok(response.into_inner()),
                 Err(status) if retryable(status.code()) => last = Some(status),
                 Err(status) => return Err(anyhow::Error::new(status)),
@@ -90,11 +89,9 @@ impl EngineCluster {
     ) -> Result<CommitAbortAndReconcileResponse> {
         let mut last = None;
         for client in &self.clients {
-            match client
-                .clone()
-                .commit_abort_and_reconcile(request.clone())
-                .await
-            {
+            let mut outbound = tonic::Request::new(request.clone());
+            inject_tonic_metadata(&mut outbound);
+            match client.clone().commit_abort_and_reconcile(outbound).await {
                 Ok(response) => return Ok(response.into_inner()),
                 Err(status) if retryable(status.code()) => last = Some(status),
                 Err(status) => return Err(anyhow::Error::new(status)),

@@ -32,6 +32,7 @@ import (
 	platformgrpcserver "github.com/dangthobach/bpmp-platform/go/platform/grpcserver"
 	platformhealth "github.com/dangthobach/bpmp-platform/go/platform/health"
 	platformruntimeconfig "github.com/dangthobach/bpmp-platform/go/platform/runtimeconfig"
+	"github.com/dangthobach/bpmp-platform/go/platform/servermiddleware"
 	platformtelemetry "github.com/dangthobach/bpmp-platform/go/platform/telemetry"
 )
 
@@ -184,8 +185,50 @@ func run(path string) error {
 	if err != nil {
 		return err
 	}
+	workloadAuthorizer, err := servermiddleware.NewMTLSAuthorizer(servermiddleware.MTLSConfig{
+		AllowedCertificateSHA256: config.GRPC.AuthorizedClientCertificateSHA256,
+		AllowedMethods:           config.GRPC.AuthorizedMethods,
+	})
+	if err != nil {
+		return err
+	}
+	grpcAdmissionLimiter, err := servermiddleware.NewTokenBucket(
+		config.GRPC.AdmissionRateRPS, config.GRPC.AdmissionBurst,
+	)
+	if err != nil {
+		return err
+	}
+	unaryMiddleware, err := servermiddleware.UnaryServerInterceptor(servermiddleware.GRPCConfig{
+		Service:        config.Telemetry.ServiceName,
+		UnaryTimeout:   milliseconds(config.GRPC.UnaryTimeoutMS),
+		AuthorizeUnary: workloadAuthorizer.AuthorizeUnary,
+		RateLimitUnary: func(context.Context, string, any) error {
+			if !grpcAdmissionLimiter.Allow() {
+				return errors.New("gRPC admission limit exceeded")
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		return err
+	}
+	streamMiddleware, err := servermiddleware.StreamServerInterceptor(servermiddleware.GRPCConfig{
+		Service: config.Telemetry.ServiceName, AuthorizeStream: workloadAuthorizer.AuthorizeStream,
+		RateLimitStream: func(context.Context, string) error {
+			if !grpcAdmissionLimiter.Allow() {
+				return errors.New("gRPC admission limit exceeded")
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		return err
+	}
 	grpcServer := grpc.NewServer(
 		grpc.Creds(credentials.NewTLS(tlsSettings.Clone())),
+		grpc.ChainUnaryInterceptor(unaryMiddleware),
+		grpc.ChainStreamInterceptor(streamMiddleware),
+		grpc.StatsHandler(platformtelemetry.GRPCServerStatsHandler()),
 		grpc.MaxRecvMsgSize(config.GRPC.MaxReceiveBytes),
 		grpc.MaxSendMsgSize(config.GRPC.MaxSendBytes),
 	)
@@ -207,13 +250,29 @@ func run(path string) error {
 	routes.Handle("/livez", health)
 	routes.Handle("/readyz", health)
 	routes.Handle("/", api.Routes())
+	httpAdmissionLimiter, err := servermiddleware.NewTokenBucket(
+		config.API.AdmissionRateRPS, config.API.AdmissionBurst,
+	)
+	if err != nil {
+		return err
+	}
+	transportHandler, err := servermiddleware.NewHTTP(servermiddleware.HTTPConfig{
+		Service:         config.Telemetry.ServiceName,
+		RequestTimeout:  milliseconds(config.API.RequestTimeoutMS),
+		MaxBodyBytes:    config.API.MaxBodyBytes,
+		SecurityHeaders: true, RateLimiter: httpAdmissionLimiter,
+	}, routes)
+	if err != nil {
+		return err
+	}
 	server := &http.Server{
 		Addr:              config.ListenAddress,
-		Handler:           platformtelemetry.HTTPHandler(config.Telemetry.ServiceName, routes),
+		Handler:           platformtelemetry.HTTPHandler(config.Telemetry.ServiceName, transportHandler),
 		ReadHeaderTimeout: milliseconds(config.API.ReadHeaderTimeoutMS),
 		ReadTimeout:       milliseconds(config.API.ReadTimeoutMS),
 		WriteTimeout:      milliseconds(config.API.WriteTimeoutMS),
 		IdleTimeout:       milliseconds(config.API.IdleTimeoutMS),
+		MaxHeaderBytes:    config.API.MaxHeaderBytes,
 		TLSConfig:         tlsSettings,
 	}
 	errs := make(chan error, 5)

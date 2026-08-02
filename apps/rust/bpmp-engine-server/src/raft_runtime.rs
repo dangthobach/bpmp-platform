@@ -18,10 +18,13 @@ use bpmp_contracts::raft::v1::{
 use bpmp_domain_core::{ActorId, CommandId, IdempotencyKey, InstanceId, TenantId};
 use bpmp_engine::{
     CommitOutcome, CommitRequest, CommittedResult, EngineCommandHandlerPort, EngineError,
-    LoadedInstance, StoreError, TransportError, WorkflowStorePort,
+    LoadedInstance, LocalTaskActivation, RemoteTask, RemoteTaskClaim, RemoteTaskClaimRequest,
+    RemoteTaskEnqueueOutcome, RemoteTaskError, RemoteTaskFailureOutcome, RemoteTaskIngressPort,
+    RemoteTaskStorePort, StoreError, TransportError, WorkflowStorePort,
 };
 use bpmp_payload_crypto::PayloadCryptoPort;
-use bpmp_raft_state_machine::{ApplyResponse, PreparedAtomicBatch, TypeConfig};
+use bpmp_raft_state_machine::{ApplyOutcome, ApplyResponse, PreparedAtomicBatch, TypeConfig};
+use bpmp_transport_observability::{RequestMetadataLayer, inject_tonic_metadata};
 use openraft::error::{NetworkError, RPCError, RaftError, RemoteError};
 use openraft::network::RPCOption;
 use openraft::raft::{
@@ -178,12 +181,14 @@ impl PeerDirectory {
             .client(leader_id)
             .await
             .map_err(|error| unavailable_transport(error.to_string()))?;
+        let mut outbound = tonic::Request::new(ForwardCommandRequest {
+            schema_version: RAFT_RPC_SCHEMA_VERSION,
+            hop_count: MAX_FORWARD_HOPS,
+            command: Some(command),
+        });
+        inject_tonic_metadata(&mut outbound);
         let response = client
-            .forward_command(ForwardCommandRequest {
-                schema_version: RAFT_RPC_SCHEMA_VERSION,
-                hop_count: MAX_FORWARD_HOPS,
-                command: Some(command),
-            })
+            .forward_command(outbound)
             .await
             .map_err(|error| unavailable_transport(error.to_string()))?
             .into_inner();
@@ -234,12 +239,14 @@ impl RaftNetwork<TypeConfig> for TonicRaftConnection {
     ) -> Result<AppendEntriesResponse<u64>, RaftRpcError> {
         let payload_json = encode_request(&request)?;
         let mut client = self.client().await?;
+        let mut outbound = tonic::Request::new(WireAppendEntriesRequest {
+            schema_version: RAFT_RPC_SCHEMA_VERSION,
+            source_node_id: self.source_node_id,
+            payload_json,
+        });
+        inject_tonic_metadata(&mut outbound);
         let response = client
-            .append_entries(WireAppendEntriesRequest {
-                schema_version: RAFT_RPC_SCHEMA_VERSION,
-                source_node_id: self.source_node_id,
-                payload_json,
-            })
+            .append_entries(outbound)
             .await
             .map_err(|error| network_status(&error))?
             .into_inner();
@@ -254,12 +261,14 @@ impl RaftNetwork<TypeConfig> for TonicRaftConnection {
     {
         let payload_json = encode_request(&request)?;
         let mut client = self.client().await?;
+        let mut outbound = tonic::Request::new(WireInstallSnapshotRequest {
+            schema_version: RAFT_RPC_SCHEMA_VERSION,
+            source_node_id: self.source_node_id,
+            payload_json,
+        });
+        inject_tonic_metadata(&mut outbound);
         let response = client
-            .install_snapshot(WireInstallSnapshotRequest {
-                schema_version: RAFT_RPC_SCHEMA_VERSION,
-                source_node_id: self.source_node_id,
-                payload_json,
-            })
+            .install_snapshot(outbound)
             .await
             .map_err(|error| network_status(&error))?
             .into_inner();
@@ -273,12 +282,14 @@ impl RaftNetwork<TypeConfig> for TonicRaftConnection {
     ) -> Result<VoteResponse<u64>, RaftRpcError> {
         let payload_json = encode_request(&request)?;
         let mut client = self.client().await?;
+        let mut outbound = tonic::Request::new(WireVoteRequest {
+            schema_version: RAFT_RPC_SCHEMA_VERSION,
+            source_node_id: self.source_node_id,
+            payload_json,
+        });
+        inject_tonic_metadata(&mut outbound);
         let response = client
-            .vote(WireVoteRequest {
-                schema_version: RAFT_RPC_SCHEMA_VERSION,
-                source_node_id: self.source_node_id,
-                payload_json,
-            })
+            .vote(outbound)
             .await
             .map_err(|error| network_status(&error))?
             .into_inner();
@@ -610,6 +621,13 @@ impl<C> RaftWorkflowStore<C> {
                 }
             })
     }
+
+    fn propose_remote_batch(
+        &self,
+        batch: PreparedAtomicBatch,
+    ) -> Result<ApplyResponse, RemoteTaskError> {
+        self.propose_prepared(batch).map_err(remote_store_error)
+    }
 }
 
 impl<C> WorkflowStorePort for RaftWorkflowStore<C>
@@ -659,6 +677,116 @@ where
                 }
             })?;
         self.local.resolve_workflow_apply(&request, &response.data)
+    }
+}
+
+impl<C> RemoteTaskIngressPort for RaftWorkflowStore<C>
+where
+    C: PayloadCryptoPort + 'static,
+{
+    fn enqueue_remote_task(
+        &self,
+        activation: &LocalTaskActivation,
+    ) -> Result<RemoteTaskEnqueueOutcome, RemoteTaskError> {
+        let task = RemoteTask::try_from(activation)?;
+        let Some(batch) = self.local.prepare_remote_task_enqueue(&task)? else {
+            return Ok(RemoteTaskEnqueueOutcome::Duplicate);
+        };
+        match self.propose_remote_batch(batch)?.outcome {
+            ApplyOutcome::Applied => Ok(RemoteTaskEnqueueOutcome::Enqueued),
+            ApplyOutcome::Duplicate => Ok(RemoteTaskEnqueueOutcome::Duplicate),
+            ApplyOutcome::PreconditionFailed { .. } => Err(RemoteTaskError::Conflict),
+            ApplyOutcome::Rejected { reason } => Err(RemoteTaskError::Store(reason)),
+        }
+    }
+}
+
+impl<C> RemoteTaskStorePort for RaftWorkflowStore<C>
+where
+    C: PayloadCryptoPort + 'static,
+{
+    fn ready_tasks(
+        &self,
+        now_epoch_ms: u64,
+        limit: usize,
+    ) -> Result<Vec<RemoteTask>, RemoteTaskError> {
+        self.local.ready_remote_tasks(now_epoch_ms, limit)
+    }
+
+    fn claim_remote_task(
+        &self,
+        request: &RemoteTaskClaimRequest,
+    ) -> Result<Option<RemoteTaskClaim>, RemoteTaskError> {
+        let Some(batch) = self.local.prepare_remote_task_claim(request)? else {
+            return Ok(None);
+        };
+        match self.propose_remote_batch(batch)?.outcome {
+            ApplyOutcome::Applied | ApplyOutcome::Duplicate => self
+                .local
+                .load_remote_task_claim(&request.tenant_id, &request.task_id)
+                .and_then(|claim| {
+                    claim
+                        .filter(|claim| claim.assignment_id == request.assignment_id)
+                        .ok_or(RemoteTaskError::Conflict)
+                        .map(Some)
+                }),
+            ApplyOutcome::PreconditionFailed { .. } => Ok(None),
+            ApplyOutcome::Rejected { reason } => Err(RemoteTaskError::Store(reason)),
+        }
+    }
+
+    fn complete_remote_task(&self, claim: &RemoteTaskClaim) -> Result<(), RemoteTaskError> {
+        let response =
+            self.propose_remote_batch(self.local.prepare_remote_task_complete(claim)?)?;
+        remote_mutation_applied(response)
+    }
+
+    fn fail_remote_task(
+        &self,
+        claim: &RemoteTaskClaim,
+        retry_at_epoch_ms: u64,
+        dead_letter: bool,
+    ) -> Result<RemoteTaskFailureOutcome, RemoteTaskError> {
+        let response = self.propose_remote_batch(self.local.prepare_remote_task_failure(
+            claim,
+            retry_at_epoch_ms,
+            dead_letter,
+        )?)?;
+        remote_mutation_applied(response)?;
+        Ok(if dead_letter {
+            RemoteTaskFailureOutcome::DeadLettered
+        } else {
+            RemoteTaskFailureOutcome::RetryScheduled
+        })
+    }
+
+    fn expired_claims(
+        &self,
+        now_epoch_ms: u64,
+        limit: usize,
+    ) -> Result<Vec<RemoteTaskClaim>, RemoteTaskError> {
+        self.local.expired_remote_task_claims(now_epoch_ms, limit)
+    }
+}
+
+fn remote_mutation_applied(response: ApplyResponse) -> Result<(), RemoteTaskError> {
+    match response.outcome {
+        ApplyOutcome::Applied | ApplyOutcome::Duplicate => Ok(()),
+        ApplyOutcome::PreconditionFailed { .. } => Err(RemoteTaskError::Conflict),
+        ApplyOutcome::Rejected { reason } => Err(RemoteTaskError::Store(reason)),
+    }
+}
+
+fn remote_store_error(error: StoreError) -> RemoteTaskError {
+    match error {
+        StoreError::NotLeader {
+            leader_id,
+            leader_address,
+        } => RemoteTaskError::NotLeader {
+            leader_id,
+            leader_address,
+        },
+        other => RemoteTaskError::Store(other.to_string()),
     }
 }
 
@@ -845,6 +973,7 @@ mod tests {
                     .into_server(64 * 1024, 64 * 1024);
             servers.push(tokio::spawn(async move {
                 Server::builder()
+                    .layer(RequestMetadataLayer::new("bpmp-engine-raft-test"))
                     .add_service(service)
                     .serve_with_incoming(TcpListenerStream::new(listener))
                     .await
@@ -934,6 +1063,7 @@ mod tests {
             .into_server(64 * 1024, 64 * 1024);
         let server = tokio::spawn(async move {
             Server::builder()
+                .layer(RequestMetadataLayer::new("bpmp-engine-raft-test"))
                 .add_service(service)
                 .serve_with_incoming(TcpListenerStream::new(listener))
                 .await

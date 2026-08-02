@@ -23,6 +23,7 @@ import (
 	enginev1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/engine/v1"
 	humanv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/human/v1"
 	"github.com/dangthobach/bpmp-platform/go/platform/jwtauth"
+	"github.com/dangthobach/bpmp-platform/go/platform/requestmeta"
 )
 
 type doerFunc func(*http.Request) (*http.Response, error)
@@ -294,6 +295,9 @@ func TestConfigurationFacadePreservesAuthenticatedCommandScope(t *testing.T) {
 			t.Fatalf("%s was not preserved: %q", name, actual)
 		}
 	}
+	if requestID := forwarded.Header.Get("X-Request-ID"); !requestmeta.ValidID(requestID) {
+		t.Fatalf("canonical request ID was not injected: %q", requestID)
+	}
 	if string(forwardedBody) != `{"name":"default"}` {
 		t.Fatalf("body changed: %s", forwardedBody)
 	}
@@ -342,13 +346,15 @@ func TestProperty33ErrorResponsesAreRedactedAndCorrelated(t *testing.T) {
 		}
 		writeError(response, err)
 
-		var body map[string]string
+		var body requestmeta.Problem
 		if json.Unmarshal(response.Body.Bytes(), &body) != nil {
 			return false
 		}
 		encoded := response.Body.String()
 		return response.Header().Get("X-Correlation-ID") == correlationID &&
-			body["correlation_id"] == correlationID &&
+			body.CorrelationID == correlationID &&
+			body.RequestID != "" && body.Code != "" &&
+			response.Header().Get("Content-Type") == "application/problem+json" &&
 			!strings.Contains(encoded, sensitive) &&
 			!strings.Contains(encoded, "password=") &&
 			!strings.Contains(encoded, "stack trace")

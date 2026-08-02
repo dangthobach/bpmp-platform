@@ -110,6 +110,21 @@ export interface EngineConfigurationPolicy {
     outbox_retry: Record<string, number | string>;
     local_task_batch_size: number;
     local_task_retry: Record<string, number | string>;
+    remote: {
+      dispatch_batch_size: number;
+      max_workers: number;
+      max_credit_per_worker: number;
+      max_capabilities_per_worker: number;
+      lease_duration_ms: string;
+      heartbeat_timeout_ms: string;
+      max_identifier_bytes: number;
+      max_protocol_version_bytes: number;
+      stream_channel_capacity: number;
+      max_input_bytes: number;
+      max_output_bytes: number;
+      max_attempts: number;
+      retry_delay_ms: string;
+    };
   };
 }
 

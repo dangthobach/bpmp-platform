@@ -283,10 +283,10 @@ func (s *Store) Publish(ctx context.Context, actor domain.Actor, profileID, vers
 	if err = insertAudit(ctx, tx, actor, profileID, versionID, "CONFIGURATION_PUBLISHED", next, configVersion, policyVersion, reason, hash, now); err != nil {
 		return domain.Profile{}, err
 	}
-	if err = insertOutbox(ctx, tx, actor.TenantID, profileID, versionID, configVersion, hash, "configuration.published", now); err != nil {
+	if err = insertOutbox(ctx, tx, actor, profileID, versionID, configVersion, hash, "configuration.published", now); err != nil {
 		return domain.Profile{}, err
 	}
-	if err = refreshTenantReadiness(ctx, tx, actor.TenantID, now); err != nil {
+	if err = refreshTenantReadiness(ctx, tx, actor, now); err != nil {
 		return domain.Profile{}, err
 	}
 	if err = completeIdempotency(ctx, tx, actor, profileID, versionID); err != nil {
@@ -396,10 +396,10 @@ func (s *Store) restoreVersion(
 	if err = insertAudit(ctx, tx, actor, profileID, version.ID, auditAction, next, version.ConfigVersion, version.PolicyVersion, version.Reason, hash, now); err != nil {
 		return domain.Profile{}, err
 	}
-	if err = insertOutbox(ctx, tx, actor.TenantID, profileID, version.ID, version.ConfigVersion, hash, eventType, now); err != nil {
+	if err = insertOutbox(ctx, tx, actor, profileID, version.ID, version.ConfigVersion, hash, eventType, now); err != nil {
 		return domain.Profile{}, err
 	}
-	if err = refreshTenantReadiness(ctx, tx, actor.TenantID, now); err != nil {
+	if err = refreshTenantReadiness(ctx, tx, actor, now); err != nil {
 		return domain.Profile{}, err
 	}
 	if err = completeIdempotency(ctx, tx, actor, profileID, version.ID); err != nil {
@@ -475,10 +475,10 @@ func (s *Store) Retire(
 	if err = insertAudit(ctx, tx, actor, profileID, versionID, "CONFIGURATION_RETIRED", next, configVersion, policyVersion, reason, hash, now); err != nil {
 		return domain.Profile{}, err
 	}
-	if err = insertOutbox(ctx, tx, actor.TenantID, profileID, versionID, configVersion, hash, "configuration.retired", now); err != nil {
+	if err = insertOutbox(ctx, tx, actor, profileID, versionID, configVersion, hash, "configuration.retired", now); err != nil {
 		return domain.Profile{}, err
 	}
-	if err = refreshTenantReadiness(ctx, tx, actor.TenantID, now); err != nil {
+	if err = refreshTenantReadiness(ctx, tx, actor, now); err != nil {
 		return domain.Profile{}, err
 	}
 	if err = completeIdempotency(ctx, tx, actor, profileID, versionID); err != nil {
@@ -564,9 +564,9 @@ func insertAudit(ctx context.Context, tx pgx.Tx, actor domain.Actor, profileID, 
 	return err
 }
 
-func insertOutbox(ctx context.Context, tx pgx.Tx, tenantID, profileID, versionID, configVersion string, hash []byte, eventType string, now time.Time) error {
+func insertOutbox(ctx context.Context, tx pgx.Tx, actor domain.Actor, profileID, versionID, configVersion string, hash []byte, eventType string, now time.Time) error {
 	payload, err := json.Marshal(map[string]any{
-		"tenant_id": tenantID, "profile_id": profileID, "version_id": versionID,
+		"tenant_id": actor.TenantID, "profile_id": profileID, "version_id": versionID,
 		"config_version": configVersion, "content_hash": fmt.Sprintf("%x", hash),
 	})
 	if err != nil {
@@ -578,10 +578,16 @@ func insertOutbox(ctx context.Context, tx pgx.Tx, tenantID, profileID, versionID
 		WHERE singleton_id=1 RETURNING next_sequence`, now).Scan(&eventSequence); err != nil {
 		return err
 	}
+	requestID := actor.RequestID
+	if requestID == "" {
+		requestID = actor.CommandID
+	}
 	_, err = tx.Exec(ctx, `INSERT INTO configuration_outbox
-		(event_id,event_sequence,tenant_id,profile_id,version_id,event_type,payload,occurred_at,next_attempt_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$8)`,
-		uuid.NewString(), eventSequence, tenantID, profileID, versionID, eventType, payload, now)
+		(event_id,event_sequence,request_id,correlation_id,command_id,trace_parent,trace_state,
+		 tenant_id,profile_id,version_id,event_type,payload,occurred_at,next_attempt_at)
+		VALUES($1,$2,$3,$4,$5,NULLIF($6,''),NULLIF($7,''),$8,$9,$10,$11,$12::jsonb,$13,$13)`,
+		uuid.NewString(), eventSequence, requestID, actor.CorrelationID, actor.CommandID,
+		actor.TraceParent, actor.TraceState, actor.TenantID, profileID, versionID, eventType, payload, now)
 	return err
 }
 

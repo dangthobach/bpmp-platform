@@ -325,6 +325,7 @@ fn map_command(
         },
         WireCommand::CompleteServiceTask(value) => Command::CompleteServiceTask {
             node_id: node_id(&value.node_id)?,
+            outputs: map_workflow_variables(&value.outputs)?,
             occurred_at_epoch_ms,
         },
         WireCommand::CompleteUserTask(value) => Command::CompleteUserTask {
@@ -401,6 +402,19 @@ fn map_case_facts(
         let (name, value) = workflow_variable_from_wire(fact)?;
         if mapped.insert(name, value).is_some() {
             return Err(TransportError::DuplicateCaseFact);
+        }
+    }
+    Ok(mapped)
+}
+
+fn map_workflow_variables(
+    variables: &[bpmp_contracts::engine::v1::WorkflowVariable],
+) -> Result<BTreeMap<String, WorkflowValue>, TransportError> {
+    let mut mapped = BTreeMap::new();
+    for variable in variables {
+        let (name, value) = workflow_variable_from_wire(variable)?;
+        if mapped.insert(name, value).is_some() {
+            return Err(TransportError::InvalidField("workflow_variable.name"));
         }
     }
     Ok(mapped)

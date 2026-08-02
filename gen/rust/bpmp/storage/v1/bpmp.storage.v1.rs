@@ -265,4 +265,88 @@ pub struct BoundarySignalRecord {
     #[prost(string, tag="16")]
     pub authorization_context_ref: ::prost::alloc::string::String,
 }
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct RemoteTaskRecord {
+    #[prost(uint32, tag="1")]
+    pub storage_schema_version: u32,
+    #[prost(string, tag="2")]
+    pub task_id: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub tenant_id: ::prost::alloc::string::String,
+    #[prost(string, tag="4")]
+    pub instance_id: ::prost::alloc::string::String,
+    #[prost(string, tag="5")]
+    pub workflow_type: ::prost::alloc::string::String,
+    #[prost(string, tag="6")]
+    pub workflow_version: ::prost::alloc::string::String,
+    #[prost(string, tag="7")]
+    pub node_id: ::prost::alloc::string::String,
+    #[prost(string, tag="8")]
+    pub task_type: ::prost::alloc::string::String,
+    #[prost(string, tag="9")]
+    pub activation_event_id: ::prost::alloc::string::String,
+    #[prost(uint64, tag="10")]
+    pub activation_sequence: u64,
+    #[prost(uint64, tag="11")]
+    pub activated_at_epoch_ms: u64,
+    #[prost(string, tag="12")]
+    pub correlation_id: ::prost::alloc::string::String,
+    #[prost(string, tag="13")]
+    pub config_version: ::prost::alloc::string::String,
+    #[prost(string, tag="14")]
+    pub policy_version: ::prost::alloc::string::String,
+    #[prost(enumeration="RemoteTaskRecordStatus", tag="15")]
+    pub status: i32,
+    #[prost(uint32, tag="16")]
+    pub attempts: u32,
+    #[prost(uint64, tag="17")]
+    pub available_at_epoch_ms: u64,
+    #[prost(string, tag="18")]
+    pub assignment_id: ::prost::alloc::string::String,
+    #[prost(string, tag="19")]
+    pub worker_id: ::prost::alloc::string::String,
+    #[prost(string, tag="20")]
+    pub session_id: ::prost::alloc::string::String,
+    #[prost(uint64, tag="21")]
+    pub lease_version: u64,
+    #[prost(uint64, tag="22")]
+    pub lease_until_epoch_ms: u64,
+    #[prost(bytes="vec", tag="23")]
+    pub assignment_token_digest: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum RemoteTaskRecordStatus {
+    Unspecified = 0,
+    Ready = 1,
+    Leased = 2,
+    Completed = 3,
+    DeadLettered = 4,
+}
+impl RemoteTaskRecordStatus {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "REMOTE_TASK_RECORD_STATUS_UNSPECIFIED",
+            Self::Ready => "REMOTE_TASK_RECORD_STATUS_READY",
+            Self::Leased => "REMOTE_TASK_RECORD_STATUS_LEASED",
+            Self::Completed => "REMOTE_TASK_RECORD_STATUS_COMPLETED",
+            Self::DeadLettered => "REMOTE_TASK_RECORD_STATUS_DEAD_LETTERED",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "REMOTE_TASK_RECORD_STATUS_UNSPECIFIED" => Some(Self::Unspecified),
+            "REMOTE_TASK_RECORD_STATUS_READY" => Some(Self::Ready),
+            "REMOTE_TASK_RECORD_STATUS_LEASED" => Some(Self::Leased),
+            "REMOTE_TASK_RECORD_STATUS_COMPLETED" => Some(Self::Completed),
+            "REMOTE_TASK_RECORD_STATUS_DEAD_LETTERED" => Some(Self::DeadLettered),
+            _ => None,
+        }
+    }
+}
 // @@protoc_insertion_point(module)

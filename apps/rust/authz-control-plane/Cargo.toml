@@ -6,6 +6,7 @@ members = [
     "crates/authz-server",
     "crates/authz-cli",
     "crates/authz-sdk",
+    "crates/authz-http-middleware",
     "crates/authz-app",
 ]
 resolver = "2"
@@ -22,6 +23,7 @@ authz-core   = { path = "crates/authz-core" }
 authz-db     = { path = "crates/authz-db" }
 authz-engine = { path = "crates/authz-engine" }
 authz-sdk    = { path = "crates/authz-sdk" }
+authz-http-middleware = { path = "crates/authz-http-middleware" }
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
@@ -30,7 +32,7 @@ tokio-util = { version = "0.7" }
 # Web framework
 axum = { version = "0.7", features = ["macros"] }
 tower = { version = "0.4", features = ["full"] }
-tower-http = { version = "0.5", features = ["trace", "cors", "request-id", "timeout"] }
+tower-http = { version = "0.5", features = ["trace", "cors", "request-id", "timeout", "limit"] }
 hyper = { version = "1" }
 
 # Database
@@ -113,7 +115,7 @@ prometheus = "0.13"
 opt-level = 3
 lto = true
 codegen-units = 1
-panic = "abort"
+panic = "unwind"
 
 [profile.dev]
 opt-level = 0

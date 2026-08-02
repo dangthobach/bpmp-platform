@@ -36,14 +36,20 @@ type tlsConfig struct {
 }
 
 type grpcConfig struct {
-	MaxReceiveBytes   int  `json:"max_receive_bytes"`
-	MaxSendBytes      int  `json:"max_send_bytes"`
-	ReflectionEnabled bool `json:"reflection_enabled"`
+	MaxReceiveBytes                   int      `json:"max_receive_bytes"`
+	MaxSendBytes                      int      `json:"max_send_bytes"`
+	UnaryTimeoutMS                    int64    `json:"unary_timeout_ms"`
+	AuthorizedClientCertificateSHA256 []string `json:"authorized_client_certificate_sha256"`
+	AuthorizedMethods                 []string `json:"authorized_methods"`
+	AdmissionRateRPS                  uint32   `json:"admission_rate_rps"`
+	AdmissionBurst                    uint32   `json:"admission_burst"`
+	ReflectionEnabled                 bool     `json:"reflection_enabled"`
 }
 
 type healthConfig struct {
 	ReadinessTimeoutMS int64 `json:"readiness_timeout_ms"`
 	ShutdownTimeoutMS  int64 `json:"shutdown_timeout_ms"`
+	MaxHeaderBytes     int   `json:"max_header_bytes"`
 }
 
 type telemetryConfig struct {
@@ -91,7 +97,11 @@ func (c config) Validate() error {
 		c.TLS.ClientCA == "" || c.TLS.ConfigurationCA == "" ||
 		c.TLS.ConfigurationServerName == "" ||
 		c.GRPC.MaxReceiveBytes <= 0 || c.GRPC.MaxSendBytes <= 0 ||
+		c.GRPC.UnaryTimeoutMS <= 0 || len(c.GRPC.AuthorizedClientCertificateSHA256) == 0 ||
+		len(c.GRPC.AuthorizedMethods) == 0 || c.GRPC.AdmissionRateRPS == 0 ||
+		c.GRPC.AdmissionBurst == 0 ||
 		c.Health.ReadinessTimeoutMS <= 0 || c.Health.ShutdownTimeoutMS <= 0 ||
+		c.Health.MaxHeaderBytes <= 0 ||
 		c.Telemetry.ServiceName == "" || c.Telemetry.ServiceVersion == "" ||
 		c.Telemetry.Endpoint == "" || c.Telemetry.SampleRatio < 0 ||
 		c.Telemetry.SampleRatio > 1 || c.Telemetry.ExportTimeoutMS <= 0 ||

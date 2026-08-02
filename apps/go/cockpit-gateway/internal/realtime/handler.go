@@ -1,7 +1,6 @@
 package realtime
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/dangthobach/bpmp-platform/apps/go/cockpit-gateway/subscription"
 	"github.com/dangthobach/bpmp-platform/go/platform/jwtauth"
+	"github.com/dangthobach/bpmp-platform/go/platform/requestmeta"
 )
 
 type Config struct {
@@ -265,9 +265,10 @@ func sanitizeField(value string) string {
 }
 
 func writeError(response http.ResponseWriter, status int, code string) {
-	response.Header().Set("Content-Type", "application/json")
-	response.WriteHeader(status)
-	_ = json.NewEncoder(response).Encode(map[string]string{"error": code})
+	requestmeta.WriteProblemResponse(
+		response, status, code, http.StatusText(status), "",
+		status == http.StatusServiceUnavailable || status == http.StatusTooManyRequests,
+	)
 }
 
 func stringSet(values []string) map[string]struct{} {

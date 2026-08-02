@@ -22,19 +22,21 @@ use bpmp_contracts::configuration::v1 as configurationv1;
 use bpmp_domain_core::{
     BoundaryRuntimePolicy, Command, CommandId, ConfigId, ConfigVersion, ConfigurationScope,
     CorrelationId, EnginePolicy, EngineWorkerPolicy, IdempotencyKey, InstanceId, KeyScope,
-    LocalWasmPolicy, PolicyVersion, ResolvedConfigSnapshot, RetryPolicy, ScopeKind, TenantId,
-    WorkflowType, WorkflowVersion,
+    LocalWasmPolicy, PolicyVersion, RemoteWorkerPolicy, ResolvedConfigSnapshot, RetryPolicy,
+    ScopeKind, TenantId, WorkflowType, WorkflowVersion,
 };
 use bpmp_engine::{
     ActorProofKind, AuthoritativeCommandHandler, AuthorizedCommand, BoundaryDispatchCredentials,
     BoundaryDispatchCredentialsPort, BoundaryDispatchRequest, BoundaryPolicyHandle,
     BoundaryRuntime, BoundaryRuntimeError, ConfigurationLookup, ConfigurationProviderPort,
     EmbeddedAuthorizationProvider, Engine, EngineBoundaryCommandDispatcher,
-    GrpcEngineCommandService, GrpcEngineGovernanceService, GrpcTransportConfig,
-    LocalTaskActivation, LocalTaskCompletionDispatcherPort, LocalTaskExecutionOutcome,
-    LocalTaskExecutorPort, LocalTaskKind, LocalTaskRetryPolicy, LocalTaskRetryPolicyHandle,
-    LocalTaskRuntime, LocalTaskRuntimeError, OutboxBoundaryEventSource, OutboxError,
-    OutboxPublisher, OutboxPublisherConfig, OutboxRecord, OutboxStorePort, PublishAcknowledgement,
+    GrpcEngineCommandService, GrpcEngineGovernanceService, GrpcRemoteWorkerDispatchService,
+    GrpcTransportConfig, LocalTaskActivation, LocalTaskCompletionDispatcherPort,
+    LocalTaskExecutionOutcome, LocalTaskExecutorPort, LocalTaskKind, LocalTaskRetryPolicy,
+    LocalTaskRetryPolicyHandle, LocalTaskRuntime, LocalTaskRuntimeError, OutboxBoundaryEventSource,
+    OutboxError, OutboxPublisher, OutboxPublisherConfig, OutboxRecord, OutboxStorePort,
+    PublishAcknowledgement, RemoteTaskClaim, RemoteTaskCompletionPort, RemoteTaskError,
+    RemoteWorkerCoordinator, RemoteWorkerPolicyActivationPort, RemoteWorkerPolicyHandle,
     RetryDelayPort, RetryingLocalTaskExecutor, RuntimeConfigurationUpdate,
     RuntimeGovernancePolicyUpdate, RuntimeRegistry, RuntimeSafePointGate, SafePointCommandHandler,
     SystemClock, WirLoader, WorkflowDefinitionProviderPort,
@@ -43,6 +45,7 @@ use bpmp_engine::{
 use bpmp_governance_domain::GovernancePolicy;
 use bpmp_payload_crypto::{AesGcmPayloadCrypto, CryptoError, DataKeyResolverPort, ResolvedDataKey};
 use bpmp_raft_state_machine::{AuthoritativeStateMachine, StateMachineLimits, TypeConfig};
+use bpmp_transport_observability::{AdmissionLimiter, RequestMetadataLayer, WorkloadAuthorization};
 use jsonwebtoken::Algorithm;
 use openraft::Raft;
 use prost::Message as ProstMessage;
@@ -69,6 +72,9 @@ use crate::raft_runtime::{
     ForwardingCommandHandler, PeerDirectory, RaftPeer, RaftWorkflowStore, TonicRaftNetworkFactory,
     TonicRaftPeerService,
 };
+use crate::remote_worker_runtime::{
+    ConfiguredRemoteWorkerVerifier, SignedRemoteAssignmentTokenIssuer,
+};
 
 #[allow(clippy::too_many_lines)]
 pub async fn run(path: PathBuf) -> Result<()> {
@@ -76,6 +82,8 @@ pub async fn run(path: PathBuf) -> Result<()> {
     let config = RuntimeConfig::load(&path)?;
     let registry = Arc::new(load_runtime_registry(&config).await?);
     let (initial_boundary_policy, initial_worker_policy) = common_runtime_worker_policy(&registry)?;
+    let remote_worker_policy = RemoteWorkerPolicyHandle::new(initial_worker_policy.remote.clone())
+        .map_err(anyhow::Error::msg)?;
     let worker_policy = EngineWorkerPolicyHandle::new(initial_worker_policy)?;
     let boundary_policy = BoundaryPolicyHandle::new(initial_boundary_policy);
     let local_task_retry_policy =
@@ -176,8 +184,31 @@ pub async fn run(path: PathBuf) -> Result<()> {
         ))
         .client_ca_root(Certificate::from_pem(client_ca.clone()));
     let peer_listen_addr = config.raft.peer_listen_addr;
+    let peer_request_timeout = Duration::from_millis(config.raft.rpc_timeout_ms);
+    let peer_admission_limiter =
+        AdmissionLimiter::try_new(config.grpc.admission_rate_rps, config.grpc.admission_burst)
+            .map_err(anyhow::Error::msg)
+            .context("build Raft peer admission limiter")?;
+    let peer_certificate_fingerprints = config
+        .raft
+        .peers
+        .iter()
+        .map(|peer| peer.certificate_sha256_hex.clone())
+        .collect::<Vec<_>>();
+    let peer_workload_authorization = WorkloadAuthorization::try_new(
+        &peer_certificate_fingerprints,
+        &config.raft.authorized_methods,
+    )
+    .map_err(anyhow::Error::msg)
+    .context("build Raft peer workload authorization")?;
     let peer_server = tokio::spawn(async move {
         Server::builder()
+            .layer(
+                RequestMetadataLayer::new("bpmp-engine-raft")
+                    .with_request_timeout(peer_request_timeout)
+                    .with_workload_authorization(peer_workload_authorization)
+                    .with_admission_limiter(peer_admission_limiter),
+            )
             .tls_config(peer_tls)?
             .add_service(peer_grpc)
             .serve(peer_listen_addr)
@@ -203,7 +234,8 @@ pub async fn run(path: PathBuf) -> Result<()> {
         boundary_policy.clone(),
     ));
     let local_task_credentials = DispatchCredentialProvider::load(&config, registry.clone())?;
-    let local_task_engine = Engine::new(registry.clone(), raft_store, authorization.clone());
+    let local_task_engine =
+        Engine::new(registry.clone(), raft_store.clone(), authorization.clone());
     let local_tasks = Arc::new(LocalTaskRuntime::new(
         store.clone(),
         store.clone(),
@@ -212,6 +244,7 @@ pub async fn run(path: PathBuf) -> Result<()> {
             ThreadDelay,
             local_task_retry_policy.clone(),
         )?,
+        raft_store.clone(),
         LocalTaskCompletionDispatcher {
             engine: local_task_engine,
             definitions: registry.clone(),
@@ -220,6 +253,47 @@ pub async fn run(path: PathBuf) -> Result<()> {
         usize::try_from(worker_policy.snapshot()?.local_task_batch_size)
             .context("local task batch size exceeds usize")?,
     )?);
+    let remote_proof_limits = AuthorizationProofLimits::new(
+        config.authorization.max_proof_bytes,
+        config.authorization.max_roles,
+        config.authorization.max_capabilities,
+    )?;
+    let remote_verifier = ConfiguredRemoteWorkerVerifier::new(
+        &config.authorization.remote_workers,
+        load_keyring(&config.authorization.workload_keys)?,
+        remote_proof_limits,
+        config.authorization.clock_skew_seconds,
+    )?;
+    let remote_token_issuer = SignedRemoteAssignmentTokenIssuer::new(
+        config
+            .authorization
+            .remote_workers
+            .assignment_signing_key_id
+            .clone(),
+        read_exact_32(&config.authorization.remote_workers.assignment_signing_key)?,
+    )?;
+    let remote_task_credentials = DispatchCredentialProvider::load(&config, registry.clone())?;
+    let remote_task_engine =
+        Engine::new(registry.clone(), raft_store.clone(), authorization.clone());
+    let remote_workers = Arc::new(
+        RemoteWorkerCoordinator::new(
+            raft_store.clone(),
+            RemoteTaskCompletionDispatcher {
+                engine: remote_task_engine,
+                definitions: registry.clone(),
+                credentials: remote_task_credentials,
+            },
+            remote_verifier,
+            remote_token_issuer,
+            SystemClock,
+            remote_worker_policy.clone(),
+        )
+        .map_err(anyhow::Error::msg)?,
+    );
+    let remote_grpc = GrpcRemoteWorkerDispatchService::new(remote_workers.clone()).into_server(
+        config.grpc.max_decoding_bytes,
+        config.grpc.max_encoding_bytes,
+    );
     let initial_outbox_config = outbox_publisher_config(&worker_policy.snapshot()?)?;
     let outbox = Arc::new(OutboxPublisher::new(
         store.clone(),
@@ -365,6 +439,41 @@ pub async fn run(path: PathBuf) -> Result<()> {
         }
     });
 
+    let remote_task_raft = raft.clone();
+    let remote_task_worker_policy = worker_policy.clone();
+    let remote_task_workers = remote_workers.clone();
+    let remote_task_worker = tokio::spawn(async move {
+        loop {
+            let interval = match remote_task_worker_policy.snapshot() {
+                Ok(policy) => Duration::from_millis(policy.poll_interval_ms),
+                Err(error) => {
+                    error!(%error, "read remote task worker policy");
+                    break;
+                }
+            };
+            if !is_current_leader(&remote_task_raft, local_node_id) {
+                tokio::time::sleep(interval).await;
+                continue;
+            }
+            let workers = remote_task_workers.clone();
+            match tokio::task::spawn_blocking(move || {
+                let reclaimed = workers.reap_once()?;
+                let dispatched = workers.dispatch_once()?;
+                Ok::<_, bpmp_engine::RemoteWorkerTransportError>((reclaimed, dispatched))
+            })
+            .await
+            {
+                Ok(Ok((reclaimed, dispatched))) if reclaimed > 0 || dispatched > 0 => {
+                    info!(reclaimed, dispatched, "processed remote task leases")
+                }
+                Ok(Ok(_)) => {}
+                Ok(Err(error)) => error!(%error, "process remote task batch"),
+                Err(error) => error!(%error, "remote task worker join failure"),
+            }
+            tokio::time::sleep(interval).await;
+        }
+    });
+
     let mut configuration_worker = if let Some(resolver) = config.configuration_resolver.clone() {
         let consumer = configuration_consumer(&config.kafka)?;
         consumer.subscribe(&[&config.kafka.topics.configuration_publications])?;
@@ -375,6 +484,7 @@ pub async fn run(path: PathBuf) -> Result<()> {
             workers: worker_policy,
             boundary: boundary_policy,
             local_task_retry: local_task_retry_policy,
+            remote: remote_workers,
         };
         Some(tokio::spawn(async move {
             run_configuration_reloader(consumer, client, resolver, registry, gate, handles).await
@@ -394,14 +504,25 @@ pub async fn run(path: PathBuf) -> Result<()> {
             tonic_reflection::server::Builder::configure()
                 .register_encoded_file_descriptor_set(bpmp_contracts::PUBLIC_FILE_DESCRIPTOR_SET)
                 .with_service_name("bpmp.engine.v1.EngineCommandService")
+                .with_service_name("bpmp.engine.v1.RemoteWorkerDispatchService")
                 .with_service_name("bpmp.governance.v1.EngineGovernanceService")
                 .build_v1()
         })
         .transpose()
         .context("build engine gRPC reflection service")?;
+    let public_admission_limiter =
+        AdmissionLimiter::try_new(config.grpc.admission_rate_rps, config.grpc.admission_burst)
+            .map_err(anyhow::Error::msg)
+            .context("build engine admission limiter")?;
     let server = Server::builder()
+        .layer(
+            RequestMetadataLayer::new("bpmp-engine")
+                .with_request_timeout(Duration::from_millis(config.grpc.request_timeout_ms))
+                .with_admission_limiter(public_admission_limiter),
+        )
         .tls_config(tls)?
         .add_service(grpc)
+        .add_service(remote_grpc)
         .add_service(governance_grpc)
         .add_optional_service(reflection)
         .serve_with_shutdown(config.listen_addr, shutdown());
@@ -424,6 +545,7 @@ pub async fn run(path: PathBuf) -> Result<()> {
     outbox_worker.abort();
     boundary_worker.abort();
     local_task_worker.abort();
+    remote_task_worker.abort();
     if let Some(worker) = configuration_worker {
         worker.abort();
     }
@@ -470,6 +592,7 @@ struct RuntimeWorkerPolicyHandles {
     workers: EngineWorkerPolicyHandle,
     boundary: BoundaryPolicyHandle,
     local_task_retry: LocalTaskRetryPolicyHandle,
+    remote: Arc<dyn RemoteWorkerPolicyActivationPort>,
 }
 
 impl RuntimeWorkerPolicyHandles {
@@ -477,6 +600,9 @@ impl RuntimeWorkerPolicyHandles {
         let retry = local_task_retry_policy(&workers);
         validate_worker_policy(&workers)?;
         retry.validate().map_err(anyhow::Error::from)?;
+        self.remote
+            .activate(workers.remote.clone())
+            .map_err(anyhow::Error::msg)?;
         self.boundary
             .replace(boundary)
             .map_err(anyhow::Error::from)?;
@@ -739,6 +865,7 @@ where
             command: match activation.kind {
                 LocalTaskKind::Service => Command::CompleteServiceTask {
                     node_id: activation.node_id.clone(),
+                    outputs: BTreeMap::new(),
                     occurred_at_epoch_ms: activation.occurred_at_epoch_ms,
                 },
                 LocalTaskKind::Script => Command::CompleteScriptTask {
@@ -775,6 +902,80 @@ where
                 },
             )
             .map_err(|error| LocalTaskRuntimeError::Dispatch(error.to_string()))?;
+        Ok(())
+    }
+}
+
+struct RemoteTaskCompletionDispatcher<C, S, A> {
+    engine: Engine<C, S, A>,
+    definitions: Arc<RuntimeRegistry>,
+    credentials: DispatchCredentialProvider,
+}
+
+impl<C, S, A> RemoteTaskCompletionPort for RemoteTaskCompletionDispatcher<C, S, A>
+where
+    C: ConfigurationProviderPort,
+    S: bpmp_engine::WorkflowStorePort,
+    A: bpmp_engine::AuthorizationProviderPort,
+{
+    fn complete(
+        &self,
+        claim: &RemoteTaskClaim,
+        outputs: BTreeMap<String, bpmp_domain_core::WorkflowValue>,
+        occurred_at_epoch_ms: u64,
+    ) -> Result<(), RemoteTaskError> {
+        let task = &claim.task;
+        let definition = WorkflowDefinitionProviderPort::resolve(
+            &*self.definitions,
+            &task.tenant_id,
+            &task.workflow_type,
+            &task.workflow_version,
+        )
+        .map_err(|error| RemoteTaskError::Completion(error.to_string()))?;
+        let identity = format!("remote-task:{}", claim.assignment_id);
+        let command_id = CommandId::new(identity.clone())
+            .map_err(|error| RemoteTaskError::Completion(error.to_string()))?;
+        let request = BoundaryDispatchRequest {
+            tenant_id: task.tenant_id.clone(),
+            instance_id: task.instance_id.clone(),
+            command_id: command_id.clone(),
+            idempotency_key: IdempotencyKey::new(identity)
+                .map_err(|error| RemoteTaskError::Completion(error.to_string()))?,
+            correlation_id: task.correlation_id.clone(),
+            command: Command::CompleteServiceTask {
+                node_id: task.node_id.clone(),
+                outputs,
+                occurred_at_epoch_ms,
+            },
+            source: bpmp_engine::BoundaryDispatchSource::ExternalWorker,
+            occurred_at_epoch_ms,
+            workflow_type: task.workflow_type.clone(),
+            workflow_version: task.workflow_version.clone(),
+            authorization_context_ref: Some(claim.worker_id.clone()),
+        };
+        let credentials = self
+            .credentials
+            .resolve_for_workload(&request, &claim.worker_id)
+            .map_err(|error| RemoteTaskError::Completion(error.to_string()))?;
+        self.engine
+            .handle(
+                &definition,
+                AuthorizedCommand {
+                    tenant_id: task.tenant_id.clone(),
+                    instance_id: task.instance_id.clone(),
+                    command_id,
+                    idempotency_key: request.idempotency_key,
+                    correlation_id: task.correlation_id.clone(),
+                    evaluated_at_epoch_ms: occurred_at_epoch_ms,
+                    actor_proof: credentials.actor_proof,
+                    actor_proof_kind: ActorProofKind::SignedInternalContext,
+                    workload_proof: credentials.workload_proof,
+                    encryption_key_scope: credentials.encryption_key_scope,
+                    variables: BTreeMap::new(),
+                    command: request.command,
+                },
+            )
+            .map_err(|error| RemoteTaskError::Completion(error.to_string()))?;
         Ok(())
     }
 }
@@ -1190,6 +1391,9 @@ fn configuration_snapshot_from_proto(
     let local_task_retry = workers
         .local_task_retry
         .context("configuration resolver returned no local task retry policy")?;
+    let remote = workers
+        .remote
+        .context("configuration resolver returned no remote worker policy")?;
     ResolvedConfigSnapshot::new(
         ConfigId::new(snapshot.config_id)?,
         ConfigVersion::new(snapshot.config_version)?,
@@ -1252,10 +1456,31 @@ fn configuration_snapshot_from_proto(
                     max_backoff_ms: local_task_retry.max_backoff_ms,
                     multiplier_millis: local_task_retry.multiplier_millis,
                 },
+                remote: remote_worker_policy_from_proto(remote),
             },
         },
     )
     .map_err(Into::into)
+}
+
+const fn remote_worker_policy_from_proto(
+    value: configurationv1::RemoteWorkerPolicy,
+) -> RemoteWorkerPolicy {
+    RemoteWorkerPolicy {
+        dispatch_batch_size: value.dispatch_batch_size,
+        max_workers: value.max_workers,
+        max_credit_per_worker: value.max_credit_per_worker,
+        max_capabilities_per_worker: value.max_capabilities_per_worker,
+        lease_duration_ms: value.lease_duration_ms,
+        heartbeat_timeout_ms: value.heartbeat_timeout_ms,
+        max_identifier_bytes: value.max_identifier_bytes,
+        max_protocol_version_bytes: value.max_protocol_version_bytes,
+        stream_channel_capacity: value.stream_channel_capacity,
+        max_input_bytes: value.max_input_bytes,
+        max_output_bytes: value.max_output_bytes,
+        max_attempts: value.max_attempts,
+        retry_delay_ms: value.retry_delay_ms,
+    }
 }
 
 fn governance_policy_from_proto(
@@ -1478,13 +1703,17 @@ impl DispatchCredentialProvider {
             )?,
         })
     }
-}
 
-impl BoundaryDispatchCredentialsPort for DispatchCredentialProvider {
-    fn resolve(
+    fn resolve_for_workload(
         &self,
         request: &BoundaryDispatchRequest,
+        workload_id: &str,
     ) -> Result<BoundaryDispatchCredentials, BoundaryRuntimeError> {
+        if workload_id.trim().is_empty() {
+            return Err(BoundaryRuntimeError::Dispatch(
+                "dispatch workload id is empty".into(),
+            ));
+        }
         let expires = request
             .occurred_at_epoch_ms
             .checked_add(self.proof_ttl_ms)
@@ -1499,7 +1728,7 @@ impl BoundaryDispatchCredentialsPort for DispatchCredentialProvider {
                 revoke_epoch: 0,
                 issued_at_epoch_ms: request.occurred_at_epoch_ms,
                 expires_at_epoch_ms: expires,
-                audience_workload_id: self.workload_id.clone(),
+                audience_workload_id: workload_id.to_owned(),
                 command_id: request.command_id.as_str().to_owned(),
                 signing_key_id: String::new(),
                 content_hash: Vec::new(),
@@ -1514,7 +1743,7 @@ impl BoundaryDispatchCredentialsPort for DispatchCredentialProvider {
             SignedWorkloadContext {
                 schema_version: AUTHORIZATION_PROOF_SCHEMA_VERSION,
                 tenant_id: request.tenant_id.as_str().to_owned(),
-                workload_id: self.workload_id.clone(),
+                workload_id: workload_id.to_owned(),
                 command_id: request.command_id.as_str().to_owned(),
                 issued_at_epoch_ms: request.occurred_at_epoch_ms,
                 expires_at_epoch_ms: expires,
@@ -1542,6 +1771,15 @@ impl BoundaryDispatchCredentialsPort for DispatchCredentialProvider {
             .engine
             .event_payload_key_scope,
         })
+    }
+}
+
+impl BoundaryDispatchCredentialsPort for DispatchCredentialProvider {
+    fn resolve(
+        &self,
+        request: &BoundaryDispatchRequest,
+    ) -> Result<BoundaryDispatchCredentials, BoundaryRuntimeError> {
+        self.resolve_for_workload(request, &self.workload_id)
     }
 }
 
@@ -1610,6 +1848,18 @@ impl bpmp_engine::IntegrationEventPublisherPort for KafkaPublisher {
                         .insert(rdkafka::message::Header {
                             key: "bpmp-tenant-id",
                             value: Some(record.tenant_id.as_bytes()),
+                        })
+                        .insert(rdkafka::message::Header {
+                            key: "x-bpmp-request-id",
+                            value: Some(record.event_id.as_bytes()),
+                        })
+                        .insert(rdkafka::message::Header {
+                            key: "x-bpmp-correlation-id",
+                            value: Some(record.correlation_id.as_bytes()),
+                        })
+                        .insert(rdkafka::message::Header {
+                            key: "x-bpmp-command-id",
+                            value: Some(record.causation_command_id.as_bytes()),
                         }),
                 ),
             Timeout::After(self.timeout),
@@ -1755,6 +2005,7 @@ struct EngineWorkerPolicyDto {
     outbox_retry: RetryPolicyDto,
     local_task_batch_size: u32,
     local_task_retry: RetryPolicyDto,
+    remote: RemoteWorkerPolicyDto,
 }
 
 impl EngineWorkerPolicyDto {
@@ -1765,6 +2016,45 @@ impl EngineWorkerPolicyDto {
             outbox_retry: self.outbox_retry.into_domain(),
             local_task_batch_size: self.local_task_batch_size,
             local_task_retry: self.local_task_retry.into_domain(),
+            remote: self.remote.into_domain(),
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RemoteWorkerPolicyDto {
+    dispatch_batch_size: u32,
+    max_workers: u32,
+    max_credit_per_worker: u32,
+    max_capabilities_per_worker: u32,
+    lease_duration_ms: u64,
+    heartbeat_timeout_ms: u64,
+    max_identifier_bytes: u32,
+    max_protocol_version_bytes: u32,
+    stream_channel_capacity: u32,
+    max_input_bytes: u32,
+    max_output_bytes: u32,
+    max_attempts: u32,
+    retry_delay_ms: u64,
+}
+
+impl RemoteWorkerPolicyDto {
+    const fn into_domain(self) -> RemoteWorkerPolicy {
+        RemoteWorkerPolicy {
+            dispatch_batch_size: self.dispatch_batch_size,
+            max_workers: self.max_workers,
+            max_credit_per_worker: self.max_credit_per_worker,
+            max_capabilities_per_worker: self.max_capabilities_per_worker,
+            lease_duration_ms: self.lease_duration_ms,
+            heartbeat_timeout_ms: self.heartbeat_timeout_ms,
+            max_identifier_bytes: self.max_identifier_bytes,
+            max_protocol_version_bytes: self.max_protocol_version_bytes,
+            stream_channel_capacity: self.stream_channel_capacity,
+            max_input_bytes: self.max_input_bytes,
+            max_output_bytes: self.max_output_bytes,
+            max_attempts: self.max_attempts,
+            retry_delay_ms: self.retry_delay_ms,
         }
     }
 }

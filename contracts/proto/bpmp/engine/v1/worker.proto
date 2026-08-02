@@ -1,0 +1,124 @@
+syntax = "proto3";
+
+package bpmp.engine.v1;
+
+import "bpmp/authorization/v1/authorization.proto";
+import "bpmp/engine/v1/engine.proto";
+
+// WorkerToEngine is the bounded client frame for one bidirectional worker
+// session. The first frame must contain registration.
+message WorkerToEngine {
+  string session_id = 1;
+  uint64 frame_sequence = 2;
+  oneof frame {
+    RemoteWorkerRegistration registration = 10;
+    RemoteWorkerCredit credit = 11;
+    RemoteTaskAcknowledgement acknowledgement = 12;
+    RemoteWorkerHeartbeat heartbeat = 13;
+  }
+}
+
+message RemoteWorkerRegistration {
+  string worker_id = 1;
+  string protocol_version = 2;
+  repeated string capabilities = 3;
+  uint32 initial_credit = 4;
+  bpmp.authorization.v1.WorkloadProof workload_proof = 5;
+  string tenant_id = 6;
+}
+
+// available_credit is an absolute inflight bound, not an increment. A value of
+// zero applies backpressure without terminating the session.
+message RemoteWorkerCredit {
+  uint32 available_credit = 1;
+}
+
+enum RemoteTaskAcknowledgementStatus {
+  REMOTE_TASK_ACKNOWLEDGEMENT_STATUS_UNSPECIFIED = 0;
+  REMOTE_TASK_ACKNOWLEDGEMENT_STATUS_ACCEPTED = 1;
+  REMOTE_TASK_ACKNOWLEDGEMENT_STATUS_COMPLETED = 2;
+  REMOTE_TASK_ACKNOWLEDGEMENT_STATUS_FAILED = 3;
+}
+
+message RemoteTaskAcknowledgement {
+  string assignment_id = 1;
+  bytes assignment_token = 2;
+  RemoteTaskAcknowledgementStatus status = 3;
+  repeated WorkflowVariable outputs = 4;
+  string error_code = 5;
+  bool retryable = 6;
+  uint64 occurred_at_epoch_ms = 7;
+}
+
+message RemoteWorkerHeartbeat {
+  uint64 observed_at_epoch_ms = 1;
+}
+
+message EngineToWorker {
+  string session_id = 1;
+  uint64 frame_sequence = 2;
+  oneof frame {
+    RemoteWorkerRegistered registered = 10;
+    RemoteTaskAssignment assignment = 11;
+    RemoteTaskRevocation revocation = 12;
+    RemoteWorkerProtocolError protocol_error = 13;
+  }
+}
+
+message RemoteWorkerRegistered {
+  string worker_id = 1;
+  uint64 lease_expires_at_epoch_ms = 2;
+}
+
+message RemoteTaskAssignment {
+  string assignment_id = 1;
+  bytes assignment_token = 2;
+  string tenant_id = 3;
+  string instance_id = 4;
+  string workflow_type = 5;
+  string workflow_version = 6;
+  string node_id = 7;
+  string task_type = 8;
+  string activation_event_id = 9;
+  uint64 activation_sequence = 10;
+  uint32 attempt = 11;
+  uint64 lease_expires_at_epoch_ms = 12;
+  string config_version = 13;
+  string policy_version = 14;
+  bytes input_payload = 15;
+  string input_content_type = 16;
+  string correlation_id = 17;
+}
+
+// SignedRemoteAssignmentToken is command-bound and lease-bound. Workers may
+// verify it before executing an assignment; the engine stores its SHA-256
+// digest with the durable lease and requires the exact token on ACK.
+message SignedRemoteAssignmentToken {
+  uint32 schema_version = 1;
+  string assignment_id = 2;
+  string tenant_id = 3;
+  string task_id = 4;
+  string worker_id = 5;
+  string session_id = 6;
+  uint64 lease_expires_at_epoch_ms = 7;
+  string signing_key_id = 8;
+  bytes content_hash = 9;
+  bytes signature = 10;
+}
+
+message RemoteTaskRevocation {
+  string assignment_id = 1;
+  string reason_code = 2;
+}
+
+message RemoteWorkerProtocolError {
+  string code = 1;
+  string message = 2;
+  bool terminal = 3;
+}
+
+service RemoteWorkerDispatchService {
+  // buf:lint:ignore RPC_REQUEST_STANDARD_NAME
+  // buf:lint:ignore RPC_RESPONSE_STANDARD_NAME
+  rpc OpenDispatchStream(stream WorkerToEngine) returns (stream EngineToWorker);
+}

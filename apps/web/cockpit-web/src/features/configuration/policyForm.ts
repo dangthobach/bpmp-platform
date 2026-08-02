@@ -53,6 +53,19 @@ export const policyFields: readonly PolicyField[] = [
   { key: "workers.local_task_retry.initial_backoff_ms", label: "Local task initial backoff (ms)", group: "Workers" },
   { key: "workers.local_task_retry.max_backoff_ms", label: "Local task max backoff (ms)", group: "Workers" },
   { key: "workers.local_task_retry.multiplier_millis", label: "Local task retry multiplier", group: "Workers", integer: true },
+  { key: "workers.remote.dispatch_batch_size", label: "Remote dispatch batch size", group: "Remote workers", integer: true },
+  { key: "workers.remote.max_workers", label: "Maximum remote workers", group: "Remote workers", integer: true },
+  { key: "workers.remote.max_credit_per_worker", label: "Credit per remote worker", group: "Remote workers", integer: true },
+  { key: "workers.remote.max_capabilities_per_worker", label: "Capabilities per worker", group: "Remote workers", integer: true },
+  { key: "workers.remote.lease_duration_ms", label: "Assignment lease (ms)", group: "Remote workers" },
+  { key: "workers.remote.heartbeat_timeout_ms", label: "Heartbeat timeout (ms)", group: "Remote workers" },
+  { key: "workers.remote.max_identifier_bytes", label: "Identifier bytes", group: "Remote workers", integer: true },
+  { key: "workers.remote.max_protocol_version_bytes", label: "Protocol version bytes", group: "Remote workers", integer: true },
+  { key: "workers.remote.stream_channel_capacity", label: "Stream channel capacity", group: "Remote workers", integer: true },
+  { key: "workers.remote.max_input_bytes", label: "Input payload bytes", group: "Remote workers", integer: true },
+  { key: "workers.remote.max_output_bytes", label: "Output payload bytes", group: "Remote workers", integer: true },
+  { key: "workers.remote.max_attempts", label: "Remote retry attempts", group: "Remote workers", integer: true },
+  { key: "workers.remote.retry_delay_ms", label: "Remote retry delay (ms)", group: "Remote workers" },
 ] as const;
 
 const boundedContextFields: Record<Exclude<ConfigurationOwner, "ENGINE">, readonly PolicyField[]> = {
@@ -329,6 +342,11 @@ export function buildPolicy(form: PolicyForm, owner: ConfigurationOwner = "ENGIN
     positive("workers.local_task_retry.multiplier_millis") < 1000) {
     throw new Error("Worker retry multiplier must be at least 1000");
   }
+  const remoteLease = positive("workers.remote.lease_duration_ms");
+  const remoteHeartbeat = positive("workers.remote.heartbeat_timeout_ms");
+  if (remoteHeartbeat >= remoteLease) {
+    throw new Error("Remote heartbeat timeout must be shorter than the assignment lease");
+  }
   const engine: EngineConfigurationPolicy = {
     snapshot_interval_events: positive("snapshot_interval_events"),
     max_events_per_decision: positive("max_events_per_decision"),
@@ -368,6 +386,12 @@ export function buildPolicy(form: PolicyForm, owner: ConfigurationOwner = "ENGIN
         max_backoff_ms: String(localMax),
         multiplier_millis: positive("workers.local_task_retry.multiplier_millis"),
       },
+      remote: Object.fromEntries(policyFields
+        .filter(({ key }) => key.startsWith("workers.remote."))
+        .map(({ key, integer }) => [
+          key.slice(15),
+          integer ? positive(key) : String(positive(key)),
+        ])) as EngineConfigurationPolicy["workers"]["remote"],
     },
   };
   return engine;
@@ -410,6 +434,7 @@ export function policyToForm(
   const workers = record(policy.workers);
   const outboxRetry = record(workers.outbox_retry);
   const localTaskRetry = record(workers.local_task_retry);
+  const remoteWorkers = record(workers.remote);
   for (const field of policyFields) {
     const value = field.key.startsWith("retry.")
       ? retry[field.key.slice(6)]
@@ -421,6 +446,8 @@ export function policyToForm(
             ? outboxRetry[field.key.slice(21)]
             : field.key.startsWith("workers.local_task_retry.")
               ? localTaskRetry[field.key.slice(25)]
+              : field.key.startsWith("workers.remote.")
+                ? remoteWorkers[field.key.slice(15)]
               : field.key.startsWith("workers.")
                 ? workers[field.key.slice(8)]
           : policy[field.key];

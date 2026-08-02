@@ -8,6 +8,8 @@ pub struct OutboxRecord {
     pub tenant_id: String,
     pub instance_id: String,
     pub event_id: String,
+    pub correlation_id: String,
+    pub causation_command_id: String,
     pub payload: Vec<u8>,
 }
 
@@ -321,6 +323,8 @@ mod tests {
             tenant_id: "tenant-a".into(),
             instance_id: "instance-1".into(),
             event_id: format!("event-{cursor}"),
+            correlation_id: "correlation-1".into(),
+            causation_command_id: "command-1".into(),
             payload: vec![1],
         }
     }

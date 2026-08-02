@@ -21,6 +21,61 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type RemoteTaskRecordStatus int32
+
+const (
+	RemoteTaskRecordStatus_REMOTE_TASK_RECORD_STATUS_UNSPECIFIED   RemoteTaskRecordStatus = 0
+	RemoteTaskRecordStatus_REMOTE_TASK_RECORD_STATUS_READY         RemoteTaskRecordStatus = 1
+	RemoteTaskRecordStatus_REMOTE_TASK_RECORD_STATUS_LEASED        RemoteTaskRecordStatus = 2
+	RemoteTaskRecordStatus_REMOTE_TASK_RECORD_STATUS_COMPLETED     RemoteTaskRecordStatus = 3
+	RemoteTaskRecordStatus_REMOTE_TASK_RECORD_STATUS_DEAD_LETTERED RemoteTaskRecordStatus = 4
+)
+
+// Enum value maps for RemoteTaskRecordStatus.
+var (
+	RemoteTaskRecordStatus_name = map[int32]string{
+		0: "REMOTE_TASK_RECORD_STATUS_UNSPECIFIED",
+		1: "REMOTE_TASK_RECORD_STATUS_READY",
+		2: "REMOTE_TASK_RECORD_STATUS_LEASED",
+		3: "REMOTE_TASK_RECORD_STATUS_COMPLETED",
+		4: "REMOTE_TASK_RECORD_STATUS_DEAD_LETTERED",
+	}
+	RemoteTaskRecordStatus_value = map[string]int32{
+		"REMOTE_TASK_RECORD_STATUS_UNSPECIFIED":   0,
+		"REMOTE_TASK_RECORD_STATUS_READY":         1,
+		"REMOTE_TASK_RECORD_STATUS_LEASED":        2,
+		"REMOTE_TASK_RECORD_STATUS_COMPLETED":     3,
+		"REMOTE_TASK_RECORD_STATUS_DEAD_LETTERED": 4,
+	}
+)
+
+func (x RemoteTaskRecordStatus) Enum() *RemoteTaskRecordStatus {
+	p := new(RemoteTaskRecordStatus)
+	*p = x
+	return p
+}
+
+func (x RemoteTaskRecordStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (RemoteTaskRecordStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_bpmp_storage_v1_storage_proto_enumTypes[0].Descriptor()
+}
+
+func (RemoteTaskRecordStatus) Type() protoreflect.EnumType {
+	return &file_bpmp_storage_v1_storage_proto_enumTypes[0]
+}
+
+func (x RemoteTaskRecordStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use RemoteTaskRecordStatus.Descriptor instead.
+func (RemoteTaskRecordStatus) EnumDescriptor() ([]byte, []int) {
+	return file_bpmp_storage_v1_storage_proto_rawDescGZIP(), []int{0}
+}
+
 type EncryptedEventRecord struct {
 	state                protoimpl.MessageState `protogen:"open.v1"`
 	StorageSchemaVersion uint32                 `protobuf:"varint,1,opt,name=storage_schema_version,json=storageSchemaVersion,proto3" json:"storage_schema_version,omitempty"`
@@ -1393,6 +1448,226 @@ func (x *BoundarySignalRecord) GetAuthorizationContextRef() string {
 	return ""
 }
 
+type RemoteTaskRecord struct {
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	StorageSchemaVersion  uint32                 `protobuf:"varint,1,opt,name=storage_schema_version,json=storageSchemaVersion,proto3" json:"storage_schema_version,omitempty"`
+	TaskId                string                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	TenantId              string                 `protobuf:"bytes,3,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	InstanceId            string                 `protobuf:"bytes,4,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
+	WorkflowType          string                 `protobuf:"bytes,5,opt,name=workflow_type,json=workflowType,proto3" json:"workflow_type,omitempty"`
+	WorkflowVersion       string                 `protobuf:"bytes,6,opt,name=workflow_version,json=workflowVersion,proto3" json:"workflow_version,omitempty"`
+	NodeId                string                 `protobuf:"bytes,7,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	TaskType              string                 `protobuf:"bytes,8,opt,name=task_type,json=taskType,proto3" json:"task_type,omitempty"`
+	ActivationEventId     string                 `protobuf:"bytes,9,opt,name=activation_event_id,json=activationEventId,proto3" json:"activation_event_id,omitempty"`
+	ActivationSequence    uint64                 `protobuf:"varint,10,opt,name=activation_sequence,json=activationSequence,proto3" json:"activation_sequence,omitempty"`
+	ActivatedAtEpochMs    uint64                 `protobuf:"varint,11,opt,name=activated_at_epoch_ms,json=activatedAtEpochMs,proto3" json:"activated_at_epoch_ms,omitempty"`
+	CorrelationId         string                 `protobuf:"bytes,12,opt,name=correlation_id,json=correlationId,proto3" json:"correlation_id,omitempty"`
+	ConfigVersion         string                 `protobuf:"bytes,13,opt,name=config_version,json=configVersion,proto3" json:"config_version,omitempty"`
+	PolicyVersion         string                 `protobuf:"bytes,14,opt,name=policy_version,json=policyVersion,proto3" json:"policy_version,omitempty"`
+	Status                RemoteTaskRecordStatus `protobuf:"varint,15,opt,name=status,proto3,enum=bpmp.storage.v1.RemoteTaskRecordStatus" json:"status,omitempty"`
+	Attempts              uint32                 `protobuf:"varint,16,opt,name=attempts,proto3" json:"attempts,omitempty"`
+	AvailableAtEpochMs    uint64                 `protobuf:"varint,17,opt,name=available_at_epoch_ms,json=availableAtEpochMs,proto3" json:"available_at_epoch_ms,omitempty"`
+	AssignmentId          string                 `protobuf:"bytes,18,opt,name=assignment_id,json=assignmentId,proto3" json:"assignment_id,omitempty"`
+	WorkerId              string                 `protobuf:"bytes,19,opt,name=worker_id,json=workerId,proto3" json:"worker_id,omitempty"`
+	SessionId             string                 `protobuf:"bytes,20,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	LeaseVersion          uint64                 `protobuf:"varint,21,opt,name=lease_version,json=leaseVersion,proto3" json:"lease_version,omitempty"`
+	LeaseUntilEpochMs     uint64                 `protobuf:"varint,22,opt,name=lease_until_epoch_ms,json=leaseUntilEpochMs,proto3" json:"lease_until_epoch_ms,omitempty"`
+	AssignmentTokenDigest []byte                 `protobuf:"bytes,23,opt,name=assignment_token_digest,json=assignmentTokenDigest,proto3" json:"assignment_token_digest,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
+}
+
+func (x *RemoteTaskRecord) Reset() {
+	*x = RemoteTaskRecord{}
+	mi := &file_bpmp_storage_v1_storage_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoteTaskRecord) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoteTaskRecord) ProtoMessage() {}
+
+func (x *RemoteTaskRecord) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_storage_v1_storage_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoteTaskRecord.ProtoReflect.Descriptor instead.
+func (*RemoteTaskRecord) Descriptor() ([]byte, []int) {
+	return file_bpmp_storage_v1_storage_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *RemoteTaskRecord) GetStorageSchemaVersion() uint32 {
+	if x != nil {
+		return x.StorageSchemaVersion
+	}
+	return 0
+}
+
+func (x *RemoteTaskRecord) GetTaskId() string {
+	if x != nil {
+		return x.TaskId
+	}
+	return ""
+}
+
+func (x *RemoteTaskRecord) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *RemoteTaskRecord) GetInstanceId() string {
+	if x != nil {
+		return x.InstanceId
+	}
+	return ""
+}
+
+func (x *RemoteTaskRecord) GetWorkflowType() string {
+	if x != nil {
+		return x.WorkflowType
+	}
+	return ""
+}
+
+func (x *RemoteTaskRecord) GetWorkflowVersion() string {
+	if x != nil {
+		return x.WorkflowVersion
+	}
+	return ""
+}
+
+func (x *RemoteTaskRecord) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *RemoteTaskRecord) GetTaskType() string {
+	if x != nil {
+		return x.TaskType
+	}
+	return ""
+}
+
+func (x *RemoteTaskRecord) GetActivationEventId() string {
+	if x != nil {
+		return x.ActivationEventId
+	}
+	return ""
+}
+
+func (x *RemoteTaskRecord) GetActivationSequence() uint64 {
+	if x != nil {
+		return x.ActivationSequence
+	}
+	return 0
+}
+
+func (x *RemoteTaskRecord) GetActivatedAtEpochMs() uint64 {
+	if x != nil {
+		return x.ActivatedAtEpochMs
+	}
+	return 0
+}
+
+func (x *RemoteTaskRecord) GetCorrelationId() string {
+	if x != nil {
+		return x.CorrelationId
+	}
+	return ""
+}
+
+func (x *RemoteTaskRecord) GetConfigVersion() string {
+	if x != nil {
+		return x.ConfigVersion
+	}
+	return ""
+}
+
+func (x *RemoteTaskRecord) GetPolicyVersion() string {
+	if x != nil {
+		return x.PolicyVersion
+	}
+	return ""
+}
+
+func (x *RemoteTaskRecord) GetStatus() RemoteTaskRecordStatus {
+	if x != nil {
+		return x.Status
+	}
+	return RemoteTaskRecordStatus_REMOTE_TASK_RECORD_STATUS_UNSPECIFIED
+}
+
+func (x *RemoteTaskRecord) GetAttempts() uint32 {
+	if x != nil {
+		return x.Attempts
+	}
+	return 0
+}
+
+func (x *RemoteTaskRecord) GetAvailableAtEpochMs() uint64 {
+	if x != nil {
+		return x.AvailableAtEpochMs
+	}
+	return 0
+}
+
+func (x *RemoteTaskRecord) GetAssignmentId() string {
+	if x != nil {
+		return x.AssignmentId
+	}
+	return ""
+}
+
+func (x *RemoteTaskRecord) GetWorkerId() string {
+	if x != nil {
+		return x.WorkerId
+	}
+	return ""
+}
+
+func (x *RemoteTaskRecord) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *RemoteTaskRecord) GetLeaseVersion() uint64 {
+	if x != nil {
+		return x.LeaseVersion
+	}
+	return 0
+}
+
+func (x *RemoteTaskRecord) GetLeaseUntilEpochMs() uint64 {
+	if x != nil {
+		return x.LeaseUntilEpochMs
+	}
+	return 0
+}
+
+func (x *RemoteTaskRecord) GetAssignmentTokenDigest() []byte {
+	if x != nil {
+		return x.AssignmentTokenDigest
+	}
+	return nil
+}
+
 var File_bpmp_storage_v1_storage_proto protoreflect.FileDescriptor
 
 const file_bpmp_storage_v1_storage_proto_rawDesc = "" +
@@ -1558,7 +1833,40 @@ const file_bpmp_storage_v1_storage_proto_rawDesc = "" +
 	"\rdead_lettered\x18\x0f \x01(\bR\fdeadLettered\x12:\n" +
 	"\x19authorization_context_ref\x18\x10 \x01(\tR\x17authorizationContextRefB\f\n" +
 	"\n" +
-	"_referenceJ\x04\b\x06\x10\aB\xd2\x01\n" +
+	"_referenceJ\x04\b\x06\x10\a\"\xad\a\n" +
+	"\x10RemoteTaskRecord\x124\n" +
+	"\x16storage_schema_version\x18\x01 \x01(\rR\x14storageSchemaVersion\x12\x17\n" +
+	"\atask_id\x18\x02 \x01(\tR\x06taskId\x12\x1b\n" +
+	"\ttenant_id\x18\x03 \x01(\tR\btenantId\x12\x1f\n" +
+	"\vinstance_id\x18\x04 \x01(\tR\n" +
+	"instanceId\x12#\n" +
+	"\rworkflow_type\x18\x05 \x01(\tR\fworkflowType\x12)\n" +
+	"\x10workflow_version\x18\x06 \x01(\tR\x0fworkflowVersion\x12\x17\n" +
+	"\anode_id\x18\a \x01(\tR\x06nodeId\x12\x1b\n" +
+	"\ttask_type\x18\b \x01(\tR\btaskType\x12.\n" +
+	"\x13activation_event_id\x18\t \x01(\tR\x11activationEventId\x12/\n" +
+	"\x13activation_sequence\x18\n" +
+	" \x01(\x04R\x12activationSequence\x121\n" +
+	"\x15activated_at_epoch_ms\x18\v \x01(\x04R\x12activatedAtEpochMs\x12%\n" +
+	"\x0ecorrelation_id\x18\f \x01(\tR\rcorrelationId\x12%\n" +
+	"\x0econfig_version\x18\r \x01(\tR\rconfigVersion\x12%\n" +
+	"\x0epolicy_version\x18\x0e \x01(\tR\rpolicyVersion\x12?\n" +
+	"\x06status\x18\x0f \x01(\x0e2'.bpmp.storage.v1.RemoteTaskRecordStatusR\x06status\x12\x1a\n" +
+	"\battempts\x18\x10 \x01(\rR\battempts\x121\n" +
+	"\x15available_at_epoch_ms\x18\x11 \x01(\x04R\x12availableAtEpochMs\x12#\n" +
+	"\rassignment_id\x18\x12 \x01(\tR\fassignmentId\x12\x1b\n" +
+	"\tworker_id\x18\x13 \x01(\tR\bworkerId\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x14 \x01(\tR\tsessionId\x12#\n" +
+	"\rlease_version\x18\x15 \x01(\x04R\fleaseVersion\x12/\n" +
+	"\x14lease_until_epoch_ms\x18\x16 \x01(\x04R\x11leaseUntilEpochMs\x126\n" +
+	"\x17assignment_token_digest\x18\x17 \x01(\fR\x15assignmentTokenDigest*\xe4\x01\n" +
+	"\x16RemoteTaskRecordStatus\x12)\n" +
+	"%REMOTE_TASK_RECORD_STATUS_UNSPECIFIED\x10\x00\x12#\n" +
+	"\x1fREMOTE_TASK_RECORD_STATUS_READY\x10\x01\x12$\n" +
+	" REMOTE_TASK_RECORD_STATUS_LEASED\x10\x02\x12'\n" +
+	"#REMOTE_TASK_RECORD_STATUS_COMPLETED\x10\x03\x12+\n" +
+	"'REMOTE_TASK_RECORD_STATUS_DEAD_LETTERED\x10\x04B\xd2\x01\n" +
 	"\x13com.bpmp.storage.v1B\fStorageProtoP\x01ZOgithub.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/storage/v1;storagev1\xa2\x02\x03BSX\xaa\x02\x0fBpmp.Storage.V1\xca\x02\x0fBpmp\\Storage\\V1\xe2\x02\x1bBpmp\\Storage\\V1\\GPBMetadata\xea\x02\x11Bpmp::Storage::V1b\x06proto3"
 
 var (
@@ -1573,31 +1881,35 @@ func file_bpmp_storage_v1_storage_proto_rawDescGZIP() []byte {
 	return file_bpmp_storage_v1_storage_proto_rawDescData
 }
 
-var file_bpmp_storage_v1_storage_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_bpmp_storage_v1_storage_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_bpmp_storage_v1_storage_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_bpmp_storage_v1_storage_proto_goTypes = []any{
-	(*EncryptedEventRecord)(nil),              // 0: bpmp.storage.v1.EncryptedEventRecord
-	(*EncryptedSnapshotRecord)(nil),           // 1: bpmp.storage.v1.EncryptedSnapshotRecord
-	(*EncryptedAuthorizationAuditRecord)(nil), // 2: bpmp.storage.v1.EncryptedAuthorizationAuditRecord
-	(*EncryptedGovernanceRecord)(nil),         // 3: bpmp.storage.v1.EncryptedGovernanceRecord
-	(*CompensationLedgerRecord)(nil),          // 4: bpmp.storage.v1.CompensationLedgerRecord
-	(*ReconciliationWorkItemRecord)(nil),      // 5: bpmp.storage.v1.ReconciliationWorkItemRecord
-	(*GovernanceApprovalAuditRef)(nil),        // 6: bpmp.storage.v1.GovernanceApprovalAuditRef
-	(*GovernanceDecisionAuditRecord)(nil),     // 7: bpmp.storage.v1.GovernanceDecisionAuditRecord
-	(*StoredCommandResult)(nil),               // 8: bpmp.storage.v1.StoredCommandResult
-	(*OutboxEntry)(nil),                       // 9: bpmp.storage.v1.OutboxEntry
-	(*BoundarySubscriptionRecord)(nil),        // 10: bpmp.storage.v1.BoundarySubscriptionRecord
-	(*BoundaryTimerScheduleRecord)(nil),       // 11: bpmp.storage.v1.BoundaryTimerScheduleRecord
-	(*BoundarySignalRecord)(nil),              // 12: bpmp.storage.v1.BoundarySignalRecord
+	(RemoteTaskRecordStatus)(0),               // 0: bpmp.storage.v1.RemoteTaskRecordStatus
+	(*EncryptedEventRecord)(nil),              // 1: bpmp.storage.v1.EncryptedEventRecord
+	(*EncryptedSnapshotRecord)(nil),           // 2: bpmp.storage.v1.EncryptedSnapshotRecord
+	(*EncryptedAuthorizationAuditRecord)(nil), // 3: bpmp.storage.v1.EncryptedAuthorizationAuditRecord
+	(*EncryptedGovernanceRecord)(nil),         // 4: bpmp.storage.v1.EncryptedGovernanceRecord
+	(*CompensationLedgerRecord)(nil),          // 5: bpmp.storage.v1.CompensationLedgerRecord
+	(*ReconciliationWorkItemRecord)(nil),      // 6: bpmp.storage.v1.ReconciliationWorkItemRecord
+	(*GovernanceApprovalAuditRef)(nil),        // 7: bpmp.storage.v1.GovernanceApprovalAuditRef
+	(*GovernanceDecisionAuditRecord)(nil),     // 8: bpmp.storage.v1.GovernanceDecisionAuditRecord
+	(*StoredCommandResult)(nil),               // 9: bpmp.storage.v1.StoredCommandResult
+	(*OutboxEntry)(nil),                       // 10: bpmp.storage.v1.OutboxEntry
+	(*BoundarySubscriptionRecord)(nil),        // 11: bpmp.storage.v1.BoundarySubscriptionRecord
+	(*BoundaryTimerScheduleRecord)(nil),       // 12: bpmp.storage.v1.BoundaryTimerScheduleRecord
+	(*BoundarySignalRecord)(nil),              // 13: bpmp.storage.v1.BoundarySignalRecord
+	(*RemoteTaskRecord)(nil),                  // 14: bpmp.storage.v1.RemoteTaskRecord
 }
 var file_bpmp_storage_v1_storage_proto_depIdxs = []int32{
-	6,  // 0: bpmp.storage.v1.GovernanceDecisionAuditRecord.requester:type_name -> bpmp.storage.v1.GovernanceApprovalAuditRef
-	6,  // 1: bpmp.storage.v1.GovernanceDecisionAuditRecord.approvers:type_name -> bpmp.storage.v1.GovernanceApprovalAuditRef
-	11, // 2: bpmp.storage.v1.BoundarySubscriptionRecord.timer_schedule:type_name -> bpmp.storage.v1.BoundaryTimerScheduleRecord
-	3,  // [3:3] is the sub-list for method output_type
-	3,  // [3:3] is the sub-list for method input_type
-	3,  // [3:3] is the sub-list for extension type_name
-	3,  // [3:3] is the sub-list for extension extendee
-	0,  // [0:3] is the sub-list for field type_name
+	7,  // 0: bpmp.storage.v1.GovernanceDecisionAuditRecord.requester:type_name -> bpmp.storage.v1.GovernanceApprovalAuditRef
+	7,  // 1: bpmp.storage.v1.GovernanceDecisionAuditRecord.approvers:type_name -> bpmp.storage.v1.GovernanceApprovalAuditRef
+	12, // 2: bpmp.storage.v1.BoundarySubscriptionRecord.timer_schedule:type_name -> bpmp.storage.v1.BoundaryTimerScheduleRecord
+	0,  // 3: bpmp.storage.v1.RemoteTaskRecord.status:type_name -> bpmp.storage.v1.RemoteTaskRecordStatus
+	4,  // [4:4] is the sub-list for method output_type
+	4,  // [4:4] is the sub-list for method input_type
+	4,  // [4:4] is the sub-list for extension type_name
+	4,  // [4:4] is the sub-list for extension extendee
+	0,  // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_bpmp_storage_v1_storage_proto_init() }
@@ -1612,13 +1924,14 @@ func file_bpmp_storage_v1_storage_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bpmp_storage_v1_storage_proto_rawDesc), len(file_bpmp_storage_v1_storage_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   13,
+			NumEnums:      1,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_bpmp_storage_v1_storage_proto_goTypes,
 		DependencyIndexes: file_bpmp_storage_v1_storage_proto_depIdxs,
+		EnumInfos:         file_bpmp_storage_v1_storage_proto_enumTypes,
 		MessageInfos:      file_bpmp_storage_v1_storage_proto_msgTypes,
 	}.Build()
 	File_bpmp_storage_v1_storage_proto = out.File

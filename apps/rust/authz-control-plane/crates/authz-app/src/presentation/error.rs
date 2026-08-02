@@ -1,18 +1,16 @@
 //! HTTP error mapping. Every `AppError` becomes an envelope with the
 //! correct status, machine code, and safe message.
 
+use authz_http_middleware::{problem_response, RequestMetadata};
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
-use serde::Serialize;
 
 use crate::application::errors::AppError;
-use authz_sdk::EnvelopeResponse;
 
 /// Concrete envelope body for error responses — `data` is always null.
-#[derive(Debug, Serialize)]
+#[derive(Debug)]
 pub struct ApiError {
     pub status: u16,
     pub code: &'static str,
@@ -39,10 +37,13 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let body =
-            EnvelopeResponse::<()>::error(self.code, self.message.clone(), self.request_id.clone());
         let status = StatusCode::from_u16(self.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-        (status, Json(body)).into_response()
+        let metadata = RequestMetadata {
+            correlation_id: self.request_id.clone(),
+            trace_id: self.request_id.clone(),
+            request_id: self.request_id,
+        };
+        problem_response(status, self.code, &self.message, &metadata, false)
     }
 }
 

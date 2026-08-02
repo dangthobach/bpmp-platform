@@ -52,10 +52,12 @@ pub mod command_envelope {
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct StartWorkflow {
 }
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CompleteServiceTask {
     #[prost(string, tag="1")]
     pub node_id: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag="2")]
+    pub outputs: ::prost::alloc::vec::Vec<WorkflowVariable>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct CompleteUserTask {
@@ -213,10 +215,12 @@ pub struct ServiceTaskActivated {
     #[prost(string, tag="2")]
     pub task_type: ::prost::alloc::string::String,
 }
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ServiceTaskCompleted {
     #[prost(string, tag="1")]
     pub node_id: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag="2")]
+    pub outputs: ::prost::alloc::vec::Vec<WorkflowVariable>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct UserTaskActivated {
@@ -738,6 +742,216 @@ impl WorkflowLifecycle {
             "WORKFLOW_LIFECYCLE_ACTIVE" => Some(Self::Active),
             "WORKFLOW_LIFECYCLE_COMPLETED" => Some(Self::Completed),
             "WORKFLOW_LIFECYCLE_TERMINATED_FOR_COMPLIANCE" => Some(Self::TerminatedForCompliance),
+            _ => None,
+        }
+    }
+}
+/// WorkerToEngine is the bounded client frame for one bidirectional worker
+/// session. The first frame must contain registration.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct WorkerToEngine {
+    #[prost(string, tag="1")]
+    pub session_id: ::prost::alloc::string::String,
+    #[prost(uint64, tag="2")]
+    pub frame_sequence: u64,
+    #[prost(oneof="worker_to_engine::Frame", tags="10, 11, 12, 13")]
+    pub frame: ::core::option::Option<worker_to_engine::Frame>,
+}
+/// Nested message and enum types in `WorkerToEngine`.
+pub mod worker_to_engine {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Frame {
+        #[prost(message, tag="10")]
+        Registration(super::RemoteWorkerRegistration),
+        #[prost(message, tag="11")]
+        Credit(super::RemoteWorkerCredit),
+        #[prost(message, tag="12")]
+        Acknowledgement(super::RemoteTaskAcknowledgement),
+        #[prost(message, tag="13")]
+        Heartbeat(super::RemoteWorkerHeartbeat),
+    }
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct RemoteWorkerRegistration {
+    #[prost(string, tag="1")]
+    pub worker_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub protocol_version: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag="3")]
+    pub capabilities: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(uint32, tag="4")]
+    pub initial_credit: u32,
+    #[prost(message, optional, tag="5")]
+    pub workload_proof: ::core::option::Option<super::super::authorization::v1::WorkloadProof>,
+    #[prost(string, tag="6")]
+    pub tenant_id: ::prost::alloc::string::String,
+}
+/// available_credit is an absolute inflight bound, not an increment. A value of
+/// zero applies backpressure without terminating the session.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct RemoteWorkerCredit {
+    #[prost(uint32, tag="1")]
+    pub available_credit: u32,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RemoteTaskAcknowledgement {
+    #[prost(string, tag="1")]
+    pub assignment_id: ::prost::alloc::string::String,
+    #[prost(bytes="vec", tag="2")]
+    pub assignment_token: ::prost::alloc::vec::Vec<u8>,
+    #[prost(enumeration="RemoteTaskAcknowledgementStatus", tag="3")]
+    pub status: i32,
+    #[prost(message, repeated, tag="4")]
+    pub outputs: ::prost::alloc::vec::Vec<WorkflowVariable>,
+    #[prost(string, tag="5")]
+    pub error_code: ::prost::alloc::string::String,
+    #[prost(bool, tag="6")]
+    pub retryable: bool,
+    #[prost(uint64, tag="7")]
+    pub occurred_at_epoch_ms: u64,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct RemoteWorkerHeartbeat {
+    #[prost(uint64, tag="1")]
+    pub observed_at_epoch_ms: u64,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct EngineToWorker {
+    #[prost(string, tag="1")]
+    pub session_id: ::prost::alloc::string::String,
+    #[prost(uint64, tag="2")]
+    pub frame_sequence: u64,
+    #[prost(oneof="engine_to_worker::Frame", tags="10, 11, 12, 13")]
+    pub frame: ::core::option::Option<engine_to_worker::Frame>,
+}
+/// Nested message and enum types in `EngineToWorker`.
+pub mod engine_to_worker {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum Frame {
+        #[prost(message, tag="10")]
+        Registered(super::RemoteWorkerRegistered),
+        #[prost(message, tag="11")]
+        Assignment(super::RemoteTaskAssignment),
+        #[prost(message, tag="12")]
+        Revocation(super::RemoteTaskRevocation),
+        #[prost(message, tag="13")]
+        ProtocolError(super::RemoteWorkerProtocolError),
+    }
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct RemoteWorkerRegistered {
+    #[prost(string, tag="1")]
+    pub worker_id: ::prost::alloc::string::String,
+    #[prost(uint64, tag="2")]
+    pub lease_expires_at_epoch_ms: u64,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct RemoteTaskAssignment {
+    #[prost(string, tag="1")]
+    pub assignment_id: ::prost::alloc::string::String,
+    #[prost(bytes="vec", tag="2")]
+    pub assignment_token: ::prost::alloc::vec::Vec<u8>,
+    #[prost(string, tag="3")]
+    pub tenant_id: ::prost::alloc::string::String,
+    #[prost(string, tag="4")]
+    pub instance_id: ::prost::alloc::string::String,
+    #[prost(string, tag="5")]
+    pub workflow_type: ::prost::alloc::string::String,
+    #[prost(string, tag="6")]
+    pub workflow_version: ::prost::alloc::string::String,
+    #[prost(string, tag="7")]
+    pub node_id: ::prost::alloc::string::String,
+    #[prost(string, tag="8")]
+    pub task_type: ::prost::alloc::string::String,
+    #[prost(string, tag="9")]
+    pub activation_event_id: ::prost::alloc::string::String,
+    #[prost(uint64, tag="10")]
+    pub activation_sequence: u64,
+    #[prost(uint32, tag="11")]
+    pub attempt: u32,
+    #[prost(uint64, tag="12")]
+    pub lease_expires_at_epoch_ms: u64,
+    #[prost(string, tag="13")]
+    pub config_version: ::prost::alloc::string::String,
+    #[prost(string, tag="14")]
+    pub policy_version: ::prost::alloc::string::String,
+    #[prost(bytes="vec", tag="15")]
+    pub input_payload: ::prost::alloc::vec::Vec<u8>,
+    #[prost(string, tag="16")]
+    pub input_content_type: ::prost::alloc::string::String,
+    #[prost(string, tag="17")]
+    pub correlation_id: ::prost::alloc::string::String,
+}
+/// SignedRemoteAssignmentToken is command-bound and lease-bound. Workers may
+/// verify it before executing an assignment; the engine stores its SHA-256
+/// digest with the durable lease and requires the exact token on ACK.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct SignedRemoteAssignmentToken {
+    #[prost(uint32, tag="1")]
+    pub schema_version: u32,
+    #[prost(string, tag="2")]
+    pub assignment_id: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub tenant_id: ::prost::alloc::string::String,
+    #[prost(string, tag="4")]
+    pub task_id: ::prost::alloc::string::String,
+    #[prost(string, tag="5")]
+    pub worker_id: ::prost::alloc::string::String,
+    #[prost(string, tag="6")]
+    pub session_id: ::prost::alloc::string::String,
+    #[prost(uint64, tag="7")]
+    pub lease_expires_at_epoch_ms: u64,
+    #[prost(string, tag="8")]
+    pub signing_key_id: ::prost::alloc::string::String,
+    #[prost(bytes="vec", tag="9")]
+    pub content_hash: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes="vec", tag="10")]
+    pub signature: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct RemoteTaskRevocation {
+    #[prost(string, tag="1")]
+    pub assignment_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub reason_code: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct RemoteWorkerProtocolError {
+    #[prost(string, tag="1")]
+    pub code: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub message: ::prost::alloc::string::String,
+    #[prost(bool, tag="3")]
+    pub terminal: bool,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum RemoteTaskAcknowledgementStatus {
+    Unspecified = 0,
+    Accepted = 1,
+    Completed = 2,
+    Failed = 3,
+}
+impl RemoteTaskAcknowledgementStatus {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "REMOTE_TASK_ACKNOWLEDGEMENT_STATUS_UNSPECIFIED",
+            Self::Accepted => "REMOTE_TASK_ACKNOWLEDGEMENT_STATUS_ACCEPTED",
+            Self::Completed => "REMOTE_TASK_ACKNOWLEDGEMENT_STATUS_COMPLETED",
+            Self::Failed => "REMOTE_TASK_ACKNOWLEDGEMENT_STATUS_FAILED",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "REMOTE_TASK_ACKNOWLEDGEMENT_STATUS_UNSPECIFIED" => Some(Self::Unspecified),
+            "REMOTE_TASK_ACKNOWLEDGEMENT_STATUS_ACCEPTED" => Some(Self::Accepted),
+            "REMOTE_TASK_ACKNOWLEDGEMENT_STATUS_COMPLETED" => Some(Self::Completed),
+            "REMOTE_TASK_ACKNOWLEDGEMENT_STATUS_FAILED" => Some(Self::Failed),
             _ => None,
         }
     }

@@ -4,20 +4,11 @@
 //! Internal details (DB errors) are never exposed to the API caller.
 
 use authz_core::AuthzError;
+use authz_http_middleware::{problem_response, RequestMetadata};
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
-use serde::{Deserialize, Serialize};
-
-/// Structured API error response.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ApiErrorResponse {
-    pub error_code: String,
-    pub message: String,
-    pub request_id: Option<String>,
-}
 
 /// Wrapper that converts `AuthzError` to an HTTP response.
 pub struct ApiError {
@@ -57,13 +48,13 @@ impl IntoResponse for ApiError {
             "An internal error occurred. Please contact support.".to_owned()
         };
 
-        let body = ApiErrorResponse {
-            error_code: code,
-            message,
-            request_id: self.request_id,
+        let request_id = self.request_id.unwrap_or_default();
+        let metadata = RequestMetadata {
+            correlation_id: request_id.clone(),
+            trace_id: request_id.clone(),
+            request_id,
         };
-
-        (status, Json(body)).into_response()
+        problem_response(status, &code, &message, &metadata, false)
     }
 }
 

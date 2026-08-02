@@ -20,6 +20,7 @@ pub mod engine {
     #[allow(
         clippy::default_trait_access,
         clippy::doc_markdown,
+        clippy::large_enum_variant,
         clippy::missing_errors_doc,
         clippy::too_many_lines
     )]

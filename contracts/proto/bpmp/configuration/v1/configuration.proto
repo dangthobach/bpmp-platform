@@ -65,6 +65,23 @@ message EngineWorkerPolicy {
   RetryPolicy outbox_retry = 3;
   uint32 local_task_batch_size = 4;
   RetryPolicy local_task_retry = 5;
+  RemoteWorkerPolicy remote = 6;
+}
+
+message RemoteWorkerPolicy {
+  uint32 dispatch_batch_size = 1;
+  uint32 max_workers = 2;
+  uint32 max_credit_per_worker = 3;
+  uint32 max_capabilities_per_worker = 4;
+  uint64 lease_duration_ms = 5;
+  uint64 heartbeat_timeout_ms = 6;
+  uint32 max_identifier_bytes = 7;
+  uint32 max_protocol_version_bytes = 8;
+  uint32 stream_channel_capacity = 9;
+  uint32 max_input_bytes = 10;
+  uint32 max_output_bytes = 11;
+  uint32 max_attempts = 12;
+  uint64 retry_delay_ms = 13;
 }
 
 message BoundaryRuntimePolicy {
