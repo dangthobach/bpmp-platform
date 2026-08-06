@@ -67,6 +67,8 @@ struct Manifest {
     configuration_postgres_dsn: String,
     projection_postgres_dsn: String,
     governance_postgres_dsn: String,
+    authz_postgres_dsn: String,
+    authz_app_postgres_dsn: String,
     redis_address: String,
     otel_endpoint: String,
     runtime_mount: String,
@@ -229,6 +231,23 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
         &EncodingKey::from_ed_der(jwt_private.as_bytes()),
     )?;
     write(&output.join("actor.jwt"), token.as_bytes())?;
+    let service_token = encode(
+        &header,
+        &JwtClaims {
+            iss: &manifest.actor_issuer,
+            sub: "authz-app",
+            aud: &manifest.actor_audience,
+            tenant_id: &manifest.tenant_id,
+            roles: vec!["workload"],
+            capabilities: vec!["authz.check", "authz.filter", "authz.explain"],
+            revoke_epoch: 0,
+            iat: now.saturating_sub(5),
+            nbf: now.saturating_sub(5),
+            exp: now.saturating_add(7_200),
+        },
+        &EncodingKey::from_ed_der(jwt_private.as_bytes()),
+    )?;
+    write(&secrets.join("authz-app.jwt"), service_token.as_bytes())?;
     for label in ["governance-requester", "governance-approver"] {
         let key = SigningKey::from_bytes(&derive_key(manifest, label));
         write(
@@ -296,6 +315,18 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
         &output.join("cockpit-web-nginx.conf"),
         cockpit_web_nginx_config().as_bytes(),
     )?;
+    write(
+        &output.join("authz-server.env"),
+        authz_server_env(manifest).as_bytes(),
+    )?;
+    write(
+        &output.join("authz-app.env"),
+        authz_app_env(manifest).as_bytes(),
+    )?;
+    write(
+        &output.join("authz-seed.sql"),
+        authz_seed_sql(manifest).as_bytes(),
+    )?;
     write_json(
         &output.join("governance-service.json"),
         &governance_config(manifest, mount, &tls_certificate_sha256_hex),
@@ -318,7 +349,7 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
     )?;
     write(
         &output.join("key-lifecycle-nginx.conf"),
-        b"events {}\nhttp { server { listen 8080; location = / { return 200 'ok'; } location = /barrier { return 204; } location = /shred { return 204; } } }\n",
+        b"events {}\nhttp { server { listen 8080; location = / { return 200 'ok'; } location = /jwks.json { alias /runtime/jwks.json; default_type application/json; } location = /barrier { return 204; } location = /shred { return 204; } } }\n",
     )?;
     write(
         &output.join("kafka-topics.sh"),
@@ -901,6 +932,14 @@ http {
       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     }
 
+    location /api/v1/ {
+      set $authz_app http://authz-app:9090;
+      proxy_pass $authz_app;
+      proxy_set_header Host authz-app;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
     location /realtime/ {
       set $cockpit_gateway https://cockpit-gateway:7601;
       proxy_pass $cockpit_gateway;
@@ -921,6 +960,65 @@ http {
 }
 "#
     .to_owned()
+}
+
+fn authz_server_env(manifest: &Manifest) -> String {
+    format!(
+        "SERVICE_NAME=authz-server-e2e\nHOST=0.0.0.0\nPORT=8080\nGRPC_PORT=50051\nSERVER_REQUEST_TIMEOUT_MS=5000\nSERVER_MAX_BODY_BYTES=1048576\nRATE_LIMIT_RPS=1000\nRATE_LIMIT_BURST=2000\nDATABASE_URL={}\nDB_MAX_CONNECTIONS=16\nDB_MIN_CONNECTIONS=1\nJWT_JWKS_URL=http://key-lifecycle:8080/jwks.json\nJWT_AUDIENCE={}\nFAIL_MODE=DENY\nKAFKA_BROKERS={}\nKAFKA_CLIENT_ID=bpmp-authz-control-plane-e2e\nKAFKA_SECURITY_PROTOCOL={}\nTENANT_LIFECYCLE_TOPIC={}\nTENANT_READINESS_TOPIC={}\nTENANT_READINESS_CONSUMER_GROUP=bpmp.authz.tenant-readiness.v1.e2e\nTENANT_LIFECYCLE_WORKER_ID=authz-e2e-1\nTENANT_LIFECYCLE_BATCH_SIZE=64\nTENANT_LIFECYCLE_LEASE_MS=5000\nTENANT_LIFECYCLE_POLL_MS=250\nKAFKA_MAX_MESSAGE_BYTES=1048576\n",
+        manifest.authz_postgres_dsn,
+        manifest.actor_audience,
+        manifest.kafka.brokers.join(","),
+        manifest.kafka.security_protocol,
+        manifest.kafka.topics.tenant_lifecycle,
+        manifest.kafka.topics.tenant_configuration_readiness,
+    )
+}
+
+fn authz_app_env(manifest: &Manifest) -> String {
+    format!(
+        "SERVICE_NAME=authz-app-e2e\nHOST=0.0.0.0\nPORT=9090\nSERVER_REQUEST_TIMEOUT_MS=5000\nSERVER_MAX_BODY_BYTES=1048576\nRATE_LIMIT_RPS=1000\nRATE_LIMIT_BURST=2000\nDATABASE_URL={}\nDB_MAX_CONNECTIONS=16\nDB_MIN_CONNECTIONS=1\nAUTHZ_PDP_URL=http://authz-server:8080\nAUTHZ_SERVICE_TOKEN_FILE=/runtime/secrets/authz-app.jwt\nAUTHZ_TIMEOUT_MS=2000\nAUTHZ_CACHE_CAPACITY=10000\nAUTHZ_CACHE_TTL_SECS=5\nJWT_JWKS_URL=http://key-lifecycle:8080/jwks.json\nJWT_AUDIENCE={}\nKAFKA_BROKERS={}\nOUTBOX_POLL_INTERVAL_MS=250\nOUTBOX_BATCH_SIZE=64\n",
+        manifest.authz_app_postgres_dsn,
+        manifest.actor_audience,
+        manifest.kafka.brokers.join(","),
+    )
+}
+
+fn authz_seed_sql(manifest: &Manifest) -> String {
+    format!(
+        r#"CREATE SCHEMA IF NOT EXISTS authz_app;
+
+INSERT INTO tenant (id, code, name, is_active)
+VALUES ('{tenant}', 'e2e', 'BPMP E2E', true)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO user_account (id, tenant_id, username, external_id)
+VALUES ('{actor}', '{tenant}', 'e2e-user', '{actor}')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO role (id, tenant_id, code, name)
+VALUES ('00000000-0000-4000-8000-000000000003', '{tenant}', 'organization-admin', 'Organization administrator')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO permission (id, tenant_id, code, resource_type, action, scope) VALUES
+('00000000-0000-4000-8000-000000000011', '{tenant}', 'organization:organization:read', 'organization', 'organization:read', 'all'),
+('00000000-0000-4000-8000-000000000012', '{tenant}', 'organization:organization:create', 'organization', 'organization:create', 'all'),
+('00000000-0000-4000-8000-000000000013', '{tenant}', 'organization:organization:write', 'organization', 'organization:write', 'all'),
+('00000000-0000-4000-8000-000000000014', '{tenant}', 'organization:organization:move', 'organization', 'organization:move', 'all')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO role_permission (role_id, permission_id)
+SELECT '00000000-0000-4000-8000-000000000003', id
+FROM permission
+WHERE tenant_id = '{tenant}' AND resource_type = 'organization'
+ON CONFLICT DO NOTHING;
+
+INSERT INTO user_role (user_id, role_id, tenant_id)
+VALUES ('{actor}', '00000000-0000-4000-8000-000000000003', '{tenant}')
+ON CONFLICT DO NOTHING;
+"#,
+        tenant = manifest.tenant_id,
+        actor = manifest.actor_id,
+    )
 }
 
 fn governance_config(manifest: &Manifest, mount: &str, tls_fingerprint: &str) -> Value {
@@ -1152,14 +1250,14 @@ fn seeded_configuration_policies(
     vec![
         (
             "ENGINE",
-            "00000000-0000-0000-0000-00000000c001",
-            "00000000-0000-0000-0000-00000000c002",
+            "00000000-0000-4000-8000-00000000c001",
+            "00000000-0000-4000-8000-00000000c002",
             engine.clone(),
         ),
         (
             "API_GATEWAY",
-            "00000000-0000-0000-0000-00000000c011",
-            "00000000-0000-0000-0000-00000000c012",
+            "00000000-0000-4000-8000-00000000c011",
+            "00000000-0000-4000-8000-00000000c012",
             json!({
                 "rate_limit_requests": 1000,
                 "rate_limit_window_ms": "60000",
@@ -1182,8 +1280,8 @@ fn seeded_configuration_policies(
         ),
         (
             "HUMAN_RUNTIME",
-            "00000000-0000-0000-0000-00000000c021",
-            "00000000-0000-0000-0000-00000000c022",
+            "00000000-0000-4000-8000-00000000c021",
+            "00000000-0000-4000-8000-00000000c022",
             json!({
                 "projection_batch_size": 64,
                 "escalation_batch_size": 32,
@@ -1208,8 +1306,8 @@ fn seeded_configuration_policies(
         ),
         (
             "PROJECTION",
-            "00000000-0000-0000-0000-00000000c031",
-            "00000000-0000-0000-0000-00000000c032",
+            "00000000-0000-4000-8000-00000000c031",
+            "00000000-0000-4000-8000-00000000c032",
             json!({
                 "consume_batch_size": 64,
                 "rebuild_batch_size": 256,
@@ -1222,8 +1320,8 @@ fn seeded_configuration_policies(
         ),
         (
             "GOVERNANCE",
-            "00000000-0000-0000-0000-00000000c041",
-            "00000000-0000-0000-0000-00000000c042",
+            "00000000-0000-4000-8000-00000000c041",
+            "00000000-0000-4000-8000-00000000c042",
             json!({
                 "approval_ttl_ms": "300000",
                 "fresh_authentication_max_age_ms": "60000",
@@ -1259,8 +1357,8 @@ fn seeded_configuration_policies(
         ),
         (
             "CONFIGURATION_SERVICE",
-            "00000000-0000-0000-0000-00000000c051",
-            "00000000-0000-0000-0000-00000000c052",
+            "00000000-0000-4000-8000-00000000c051",
+            "00000000-0000-4000-8000-00000000c052",
             json!({
                 "outbox_batch_size": 64,
                 "outbox_lease_ms": "10000",
@@ -1278,8 +1376,8 @@ fn seeded_configuration_policies(
         ),
         (
             "COCKPIT_GATEWAY",
-            "00000000-0000-0000-0000-00000000c061",
-            "00000000-0000-0000-0000-00000000c062",
+            "00000000-0000-4000-8000-00000000c061",
+            "00000000-0000-4000-8000-00000000c062",
             json!({
                 "max_names_per_connection": 32,
                 "max_signal_names_bytes": 4096,
@@ -1296,8 +1394,8 @@ fn seeded_configuration_policies(
         ),
         (
             "AUTHZ_CONTROL_PLANE",
-            "00000000-0000-0000-0000-00000000c071",
-            "00000000-0000-0000-0000-00000000c072",
+            "00000000-0000-4000-8000-00000000c071",
+            "00000000-0000-4000-8000-00000000c072",
             json!({
                 "request_timeout_ms": "3000",
                 "connect_timeout_ms": "1000",

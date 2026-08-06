@@ -243,13 +243,13 @@ func (h *Handler) authenticateRequest(r *http.Request, commandRequired bool) (re
 	}
 	authorization := r.Header.Get("Authorization")
 	if !strings.HasPrefix(authorization, "Bearer ") {
-		return requestScope{}, errors.New("bearer token is required")
+		return requestScope{}, errUnauthorized
 	}
 	raw := strings.TrimPrefix(authorization, "Bearer ")
 	now := h.now().UTC()
 	actor, err := h.verifier.verify(raw, tenant, now)
 	if err != nil {
-		return requestScope{}, err
+		return requestScope{}, errUnauthorized
 	}
 	policy, err := h.policyProvider.Policy(tenant)
 	if err != nil {
@@ -558,10 +558,11 @@ func upstreamContext(r *http.Request, scope requestScope) context.Context {
 }
 
 var (
-	errInvalid     = errors.New("invalid request")
-	errForbidden   = errors.New("tenant is not configured")
-	errRateLimited = errors.New("rate limit exceeded")
-	errUpstream    = errors.New("upstream unavailable")
+	errInvalid      = errors.New("invalid request")
+	errUnauthorized = errors.New("unauthorized")
+	errForbidden    = errors.New("tenant is not configured")
+	errRateLimited  = errors.New("rate limit exceeded")
+	errUpstream     = errors.New("upstream unavailable")
 )
 
 func writeError(w http.ResponseWriter, err error) {
@@ -570,6 +571,10 @@ func writeError(w http.ResponseWriter, err error) {
 	message := "Invalid request"
 	retryable := false
 	switch {
+	case errors.Is(err, errUnauthorized):
+		status = http.StatusUnauthorized
+		code, message = "unauthorized", "Unauthorized"
+		w.Header().Set("WWW-Authenticate", "Bearer")
 	case errors.Is(err, errForbidden):
 		status = http.StatusForbidden
 		code, message = "forbidden", "Forbidden"

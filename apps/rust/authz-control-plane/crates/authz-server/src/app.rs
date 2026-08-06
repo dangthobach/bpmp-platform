@@ -2,9 +2,16 @@
 
 use std::sync::Arc;
 
+#[cfg(target_os = "linux")]
+use std::future::IntoFuture;
+
 use anyhow::{Context, Result};
 use authz_http_middleware::{apply as apply_transport, Config as TransportConfig};
-use axum::{middleware, routing::get, Router};
+use axum::{
+    middleware,
+    routing::{get, post},
+    Router,
+};
 
 use authz_core::models::tenant::FailMode;
 use authz_core::AuthzError;
@@ -24,6 +31,7 @@ use authz_engine::{
     shadow::ShadowEngine,
 };
 use serde_json::Value as JsonValue;
+use sqlx::PgPool;
 
 use crate::{
     config::ServerConfig, handlers::health::health_handler,
@@ -51,6 +59,9 @@ impl JitAttributeFetcher for NoopJitFetcher {
 /// Builds the Axum router.
 pub fn build_router(state: AppState, transport: TransportConfig) -> Result<Router> {
     let protected_routes = Router::new()
+        .route("/authz/v1/check", post(crate::handlers::check_handler))
+        .route("/authz/v1/filter", post(crate::handlers::filter_handler))
+        .route("/authz/v1/explain", post(crate::handlers::explain_handler))
         .nest("/admin/v1", crate::handlers::admin::admin_routes())
         .layer(middleware::from_fn_with_state(
             state.clone(),
@@ -68,15 +79,7 @@ pub fn build_router(state: AppState, transport: TransportConfig) -> Result<Route
 /// Starts the server: connects to DB, runs migrations, wires dependencies, listens.
 pub async fn run(config: ServerConfig) -> Result<()> {
     // ── Database ──────────────────────────────────────────────────────────────
-    let pool = create_pool(&DbPoolConfig {
-        database_url: config.database_url.clone(),
-        max_connections: config.db_max_connections,
-        min_connections: config.db_min_connections,
-        ..Default::default()
-    })
-    .await?;
-
-    run_migrations(&pool).await?;
+    let pool = connect_and_migrate(&config).await?;
 
     // ── Policy engine wiring ───────────────────────────────────────────────────
     let rebac_config = ReBacConfig {
@@ -182,7 +185,7 @@ pub async fn run(config: ServerConfig) -> Result<()> {
         let readiness_consumer = tokio::spawn(crate::tenant_lifecycle::run_readiness_consumer(
             pool, config,
         ));
-        let server = axum::serve(listener, build_router(state, transport)?);
+        let server = axum::serve(listener, build_router(state, transport)?).into_future();
         tokio::pin!(server);
         tokio::select! {
             result = &mut server => result.context("serve AuthZ HTTP"),
@@ -207,4 +210,23 @@ pub async fn run(config: ServerConfig) -> Result<()> {
             .await
             .context("serve AuthZ HTTP")
     }
+}
+
+/// Applies the embedded AuthZ schema without starting listeners or workers.
+pub async fn migrate(config: &ServerConfig) -> Result<()> {
+    let _ = connect_and_migrate(config).await?;
+    Ok(())
+}
+
+async fn connect_and_migrate(config: &ServerConfig) -> Result<PgPool> {
+    let pool = create_pool(&DbPoolConfig {
+        database_url: config.database_url.clone(),
+        max_connections: config.db_max_connections,
+        min_connections: config.db_min_connections,
+        ..Default::default()
+    })
+    .await?;
+
+    run_migrations(&pool).await?;
+    Ok(pool)
 }

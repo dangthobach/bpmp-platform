@@ -30,11 +30,16 @@ pub struct AppContainer {
 
 impl AppContainer {
     pub fn build(cfg: &AppConfig, pool: PgPool) -> anyhow::Result<Self> {
+        let auth_token = std::fs::read_to_string(&cfg.authz_service_token_file)?;
+        let auth_token = auth_token.trim();
+        if auth_token.is_empty() || auth_token.len() > 16 * 1024 {
+            anyhow::bail!("AUTHZ_SERVICE_TOKEN_FILE must contain a token of 1..=16384 bytes");
+        }
         let http = HttpAuthzClient::new(HttpAuthzClientConfig {
             base_url: cfg.authz_pdp_url.clone(),
             timeout: cfg.authz_timeout(),
             connect_timeout: Duration::from_millis(200),
-            auth_token: None,
+            auth_token: Some(auth_token.to_owned()),
         })?;
         let cached = CachedAuthzClient::new(http, cfg.authz_cache_capacity, cfg.authz_cache_ttl());
         let authz_client: Arc<dyn AuthzClient> = Arc::new(cached);

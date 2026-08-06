@@ -182,6 +182,34 @@ func TestBrowserConfigurationReturnsSafeFieldsAndHonorsETag(t *testing.T) {
 	}
 }
 
+func TestBrowserConfigurationRejectsMissingBearerAsUnauthorized(t *testing.T) {
+	public, private, _ := ed25519.GenerateKey(nil)
+	handler, err := NewHandler(
+		&recordingEngine{},
+		&recordingHuman{},
+		testVerifier(t, public),
+		&workloadSigner{
+			id: "api-gateway", keyID: "workload-key", key: private, ttl: time.Minute,
+		},
+		newModelRateLimiter(10, time.Minute),
+		staticPolicyProvider{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/v1/runtime/browser-configuration", nil)
+	request.Header.Set("X-BPMP-Tenant-ID", "tenant-a")
+	request.Header.Set("X-Correlation-ID", "correlation-1")
+	response := httptest.NewRecorder()
+	handler.Routes().ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("unexpected status %d: %s", response.Code, response.Body.String())
+	}
+	if response.Header().Get("WWW-Authenticate") != "Bearer" {
+		t.Fatalf("missing bearer challenge: %q", response.Header().Get("WWW-Authenticate"))
+	}
+}
+
 func TestListWorkItemsForwardsTenantActorAndCursor(t *testing.T) {
 	public, private, _ := ed25519.GenerateKey(nil)
 	now := time.Unix(1_000, 0).UTC()

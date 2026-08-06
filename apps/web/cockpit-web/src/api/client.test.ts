@@ -76,7 +76,10 @@ describe("BpmpApiClient organization API", () => {
       message: "",
       request_id: "request-2",
       timestamp: 1_715_000_000,
-    }), { status: 200 })));
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    })));
 
     const client = new BpmpApiClient(config, () => identity);
     await expect(client.listOrganizations()).rejects.toMatchObject({
@@ -92,7 +95,10 @@ describe("BpmpApiClient organization API", () => {
       message: "version mismatch",
       request_id: "control-plane-request",
       timestamp: 1_715_000_000,
-    }), { status: 409 })));
+    }), {
+      status: 409,
+      headers: { "Content-Type": "application/json" },
+    })));
 
     const client = new BpmpApiClient(config, () => identity);
     await expect(client.createOrganization({ code: "APAC", name: "Asia Pacific" }))
@@ -101,6 +107,19 @@ describe("BpmpApiClient organization API", () => {
         status: 409,
         correlationId: "control-plane-request",
       });
+  });
+
+  it("identifies an SPA fallback instead of reporting invalid organization data", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("<html></html>", {
+      status: 200,
+      headers: { "Content-Type": "text/html" },
+    })));
+
+    const client = new BpmpApiClient(config, () => identity);
+    await expect(client.listOrganizations()).rejects.toMatchObject({
+      message: "Organization API route is unavailable",
+      status: 502,
+    });
   });
 });
 
@@ -156,6 +175,50 @@ describe("BpmpApiClient configuration facade", () => {
     expect(headers.get("X-BPMP-Tenant-ID")).toBe(identity.tenantId);
     expect(headers.get("Idempotency-Key")).toBe("stable-idempotency-key");
     expect(headers.get("X-Command-ID")).toBeTruthy();
+    expect(headers.get("X-Correlation-ID")).toBeTruthy();
+  });
+
+  it("identifies a non-JSON configuration upstream response", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("Bad Gateway", {
+      status: 502,
+      headers: { "Content-Type": "text/plain" },
+    })));
+
+    const client = new BpmpApiClient(config, () => identity);
+    await expect(client.listConfigurationProfiles()).rejects.toMatchObject({
+      message: "Configuration API route is unavailable",
+      status: 502,
+    });
+  });
+});
+
+describe("BpmpApiClient browser configuration", () => {
+  it("sends tenant identity and surfaces Problem Details", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      type: "https://docs.bpmp.dev/problems/unauthorized",
+      title: "Unauthorized",
+      status: 401,
+      code: "unauthorized",
+    }), {
+      status: 401,
+      headers: {
+        "Content-Type": "application/problem+json",
+        "X-Correlation-ID": "browser-config-correlation",
+      },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new BpmpApiClient(config, () => identity);
+    await expect(client.getBrowserConfiguration()).rejects.toMatchObject({
+      message: "Unauthorized",
+      status: 401,
+      correlationId: "browser-config-correlation",
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
+    const headers = new Headers(init.headers);
+    expect(headers.get("Authorization")).toBe("Bearer signed-user-token");
+    expect(headers.get("X-BPMP-Tenant-ID")).toBe(identity.tenantId);
     expect(headers.get("X-Correlation-ID")).toBeTruthy();
   });
 });

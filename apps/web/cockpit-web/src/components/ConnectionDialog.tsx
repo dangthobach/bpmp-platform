@@ -1,19 +1,27 @@
 import { useState, type FormEvent } from "react";
 import { KeyRound } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
+import { validateSessionInput } from "../auth/sessionValidation";
 import { Button } from "./Button";
 
 export function ConnectionDialog() {
   const { identity, connect } = useAuth();
   const [tenantId, setTenantId] = useState("");
   const [accessToken, setAccessToken] = useState("");
+  const [error, setError] = useState("");
   if (identity) return null;
 
   function submit(event: FormEvent) {
     event.preventDefault();
     const tenant = tenantId.trim();
     const token = accessToken.trim();
-    if (tenant && token) connect({ tenantId: tenant, accessToken: token });
+    const validationError = validateSessionInput(tenant, token);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+    setError("");
+    connect({ tenantId: tenant, accessToken: token });
   }
 
   return (
@@ -44,6 +52,7 @@ export function ConnectionDialog() {
             required
           />
         </div>
+        {error ? <p className="form-error" role="alert">{error}</p> : null}
         <Button type="submit" variant="primary">Connect</Button>
       </form>
     </div>

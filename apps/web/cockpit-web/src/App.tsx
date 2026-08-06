@@ -1,7 +1,10 @@
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
+import { LogOut, RefreshCw } from "lucide-react";
 import { useEffect, useState, type PropsWithChildren } from "react";
 import { ApiProvider, useApi } from "./api/ApiContext";
+import { ApiError } from "./api/client";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
+import { Button } from "./components/Button";
 import { ConnectionDialog } from "./components/ConnectionDialog";
 import { ConfigProvider, useBrowserConfigurationUpdater } from "./config/ConfigContext";
 import type { RuntimeConfig } from "./config/runtime";
@@ -44,7 +47,7 @@ export function App({ config }: { config: RuntimeConfig }) {
 
 function BrowserConfigurationBoundary({ children }: PropsWithChildren) {
   const api = useApi();
-  const { identity } = useAuth();
+  const { identity, disconnect } = useAuth();
   const apply = useBrowserConfigurationUpdater();
   const configuration = useQuery({
     queryKey: ["browser-configuration", identity?.tenantId],
@@ -59,7 +62,42 @@ function BrowserConfigurationBoundary({ children }: PropsWithChildren) {
       batchConcurrency: configuration.data.batch_concurrency,
     });
   }, [apply, configuration.data]);
-  if (identity && !configuration.isSuccess) return null;
+  if (identity && configuration.isPending) {
+    return (
+      <main className="connection-screen" aria-busy="true">
+        <section className="connection-panel" role="status">
+          <h1>Loading runtime configuration</h1>
+        </section>
+      </main>
+    );
+  }
+  if (identity && configuration.isError) {
+    const error = configuration.error;
+    const correlation = error instanceof ApiError && error.correlationId
+      ? ` Correlation ID: ${error.correlationId}.`
+      : "";
+    return (
+      <main className="connection-screen">
+        <section className="connection-panel" role="alert">
+          <h1>Runtime configuration unavailable</h1>
+          <p className="form-error">
+            {error instanceof Error ? error.message : "Request failed"}.{correlation}
+          </p>
+          <div className="connection-panel__actions">
+            <Button
+              icon={RefreshCw}
+              variant="primary"
+              onClick={() => void configuration.refetch()}
+              disabled={configuration.isFetching}
+            >
+              Retry
+            </Button>
+            <Button icon={LogOut} onClick={disconnect}>Disconnect</Button>
+          </div>
+        </section>
+      </main>
+    );
+  }
   return children;
 }
 

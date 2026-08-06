@@ -26,6 +26,26 @@ if (-not (Test-Path $envFile)) {
     }
 }
 
+$bootstrapManifest = Get-Content (Join-Path $PSScriptRoot "manifest.json") -Raw | ConvertFrom-Json
+$expectedPostgresDatabase = ([System.Uri]$bootstrapManifest.postgres_dsn).AbsolutePath.Trim('/')
+if (-not $expectedPostgresDatabase) {
+    throw "manifest postgres_dsn must include a database name"
+}
+$envLines = Get-Content $envFile
+$databaseSettingFound = $false
+$envLines = @($envLines | ForEach-Object {
+    if ($_ -match '^POSTGRES_DB=') {
+        $databaseSettingFound = $true
+        "POSTGRES_DB=$expectedPostgresDatabase"
+    } else {
+        $_
+    }
+})
+if (-not $databaseSettingFound) {
+    $envLines += "POSTGRES_DB=$expectedPostgresDatabase"
+}
+Set-Content -LiteralPath $envFile -Value $envLines
+
 function Invoke-Compose {
     docker compose --env-file $envFile -f $compose @args
     if ($LASTEXITCODE -ne 0) {
@@ -172,7 +192,11 @@ try {
         Invoke-Compose --profile setup run --rm fixture-generator
     }
     try {
-        Invoke-TimedPhase -Name "Start and health-check E2E services" -Action {
+        Invoke-TimedPhase -Name "Start and health-check E2E infrastructure" -Action {
+            Invoke-Compose up -d --wait --wait-timeout $StartupTimeoutSeconds `
+                postgres authz-postgres redis redpanda otel-collector key-lifecycle
+        }
+        Invoke-TimedPhase -Name "Start and health-check E2E applications" -Action {
             Invoke-Compose up -d --wait --wait-timeout $StartupTimeoutSeconds
         }
     } catch {
@@ -182,6 +206,8 @@ try {
     }
 
     $settings = Get-Content $envFile -Raw | ConvertFrom-StringData
+    $manifestSettings = Get-Content (Join-Path $PSScriptRoot "manifest.json") -Raw | ConvertFrom-Json
+    $tenantId = $manifestSettings.tenant_id
     $gatewayPort = $settings.GATEWAY_PORT
     $governancePort = $settings.GOVERNANCE_PORT
     $cockpitGatewayPort = $settings.COCKPIT_GATEWAY_PORT
@@ -217,6 +243,39 @@ try {
     ) {
         throw "Cockpit Web JavaScript or stylesheet MIME type is invalid"
     }
+    $configurationPage = Invoke-RestMethod `
+        -Method Get `
+        -Uri "http://localhost:$cockpitWebPort/v1/configuration/profiles?page_size=50" `
+        -Headers @{
+            Authorization = "Bearer $token"
+            "X-BPMP-Tenant-ID" = $tenantId
+            "X-Correlation-ID" = "cockpit-configuration-$suffix"
+        }
+    if ($null -eq $configurationPage.profiles) {
+        throw "Cockpit Web configuration facade is unavailable"
+    }
+    $uuidV4Pattern = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
+    foreach ($profile in @($configurationPage.profiles)) {
+        if ($profile.id -notmatch $uuidV4Pattern) {
+            throw "Cockpit Web configuration profile '$($profile.id)' is not a valid UUID v4"
+        }
+        foreach ($version in @($profile.current_version, $profile.latest_version)) {
+            if ($null -ne $version -and $version.id -notmatch $uuidV4Pattern) {
+                throw "Cockpit Web configuration version '$($version.id)' is not a valid UUID v4"
+            }
+        }
+    }
+    $organizationPage = Invoke-RestMethod `
+        -Method Get `
+        -Uri "http://localhost:$cockpitWebPort/api/v1/organizations?offset=0&limit=50" `
+        -Headers @{
+            Authorization = "Bearer $token"
+            "X-Tenant-ID" = $tenantId
+            "X-Request-ID" = "cockpit-organization-$suffix"
+        }
+    if ($organizationPage.error_code -ne "OK" -or $null -eq $organizationPage.data) {
+        throw "Cockpit Web organization facade is unavailable"
+    }
     $openAPI = Invoke-RestMethod `
         -SkipCertificateCheck `
         -Method Get `
@@ -248,7 +307,7 @@ try {
     }
     $configurationHeaders = @{
         Authorization = "Bearer $token"
-        "X-BPMP-Tenant-ID" = "tenant-e2e"
+        "X-BPMP-Tenant-ID" = $tenantId
         "X-Command-ID" = "configuration-create-$suffix"
         "Idempotency-Key" = "configuration-create-idem-$suffix"
         "X-Correlation-ID" = "configuration-correlation-$suffix"
@@ -275,8 +334,8 @@ try {
             max_memories = 2
             fuel = "10000000"
         }
-        event_payload_key_scope = "tenant-e2e/operational"
-        authorization_audit_key_scope = "tenant-e2e/audit"
+        event_payload_key_scope = "$tenantId/operational"
+        authorization_audit_key_scope = "$tenantId/audit"
         max_multi_instance_cardinality = 1000
         default_multi_instance_parallelism = 32
         boundary_runtime = @{
@@ -339,7 +398,7 @@ try {
         } | ConvertTo-Json -Depth 8 -Compress)
     $queryHeaders = @{
         Authorization = "Bearer $token"
-        "X-BPMP-Tenant-ID" = "tenant-e2e"
+        "X-BPMP-Tenant-ID" = $tenantId
         "X-Correlation-ID" = "configuration-correlation-$suffix"
     }
     $configurationDetail = Invoke-GetRequestEventually `
@@ -488,7 +547,7 @@ show-error
 no-buffer
 max-time = 90
 header = "Authorization: Bearer $token"
-header = "X-BPMP-Tenant-ID: tenant-e2e"
+header = "X-BPMP-Tenant-ID: $tenantId"
 header = "X-Correlation-ID: realtime-$suffix"
 url = "https://localhost:$cockpitGatewayPort/realtime/v1/events?names=workflow.changed,work-item.changed"
 "@ | Set-Content -LiteralPath $realtimeCurlConfig -Encoding utf8NoBOM
@@ -505,7 +564,7 @@ url = "https://localhost:$cockpitGatewayPort/realtime/v1/events?names=workflow.c
     $realtimeProcess = Start-Process @realtimeProcessArguments
     $startHeaders = @{
         Authorization = "Bearer $token"
-        "X-BPMP-Tenant-ID" = "tenant-e2e"
+        "X-BPMP-Tenant-ID" = $tenantId
         "X-Command-ID" = "start-$suffix"
         "Idempotency-Key" = "start-idem-$suffix"
         "X-Correlation-ID" = "correlation-$suffix"
@@ -532,13 +591,13 @@ url = "https://localhost:$cockpitGatewayPort/realtime/v1/events?names=workflow.c
         idempotency_key = "governance-create-idem-$suffix"
         created_at_epoch_ms = "$governanceCreatedAt"
         spec = @{
-            tenant_id = "tenant-e2e"
+            tenant_id = $tenantId
             instance_id = $instance
             workflow_type = "approval"
             workflow_version = "1"
             policy_id = "abort-and-reconcile-e2e"
             legal_deadline_epoch_ms = "$($governanceCreatedAt + 3600000)"
-            key_scope = "tenant-e2e/subject-$suffix"
+            key_scope = "$tenantId/subject-$suffix"
             key_epoch = "1"
             reason_code = "E2E_GOVERNANCE_SMOKE"
         }
@@ -563,8 +622,8 @@ url = "https://localhost:$cockpitGatewayPort/realtime/v1/events?names=workflow.c
     ) {
         throw "Governance CreateApproval returned an invalid durable approval"
     }
-    $governanceRequestCount = [int](Invoke-Compose exec -T postgres psql -U $settings.POSTGRES_USER -d $settings.POSTGRES_DB -Atc "SELECT count(*) FROM governance.governance_approval_requests WHERE tenant_id='tenant-e2e' AND request_id='$governanceRequestId'").Trim()
-    $governanceAuditCount = [int](Invoke-Compose exec -T postgres psql -U $settings.POSTGRES_USER -d $settings.POSTGRES_DB -Atc "SELECT count(*) FROM governance.governance_service_audit WHERE tenant_id='tenant-e2e' AND request_id='$governanceRequestId' AND action='CREATED'").Trim()
+    $governanceRequestCount = [int](Invoke-Compose exec -T postgres psql -U $settings.POSTGRES_USER -d $settings.POSTGRES_DB -Atc "SELECT count(*) FROM governance.governance_approval_requests WHERE tenant_id='$tenantId' AND request_id='$governanceRequestId'").Trim()
+    $governanceAuditCount = [int](Invoke-Compose exec -T postgres psql -U $settings.POSTGRES_USER -d $settings.POSTGRES_DB -Atc "SELECT count(*) FROM governance.governance_service_audit WHERE tenant_id='$tenantId' AND request_id='$governanceRequestId' AND action='CREATED'").Trim()
     if ($governanceRequestCount -ne 1 -or $governanceAuditCount -ne 1) {
         throw "Governance approval or immutable creation audit was not committed"
     }
@@ -572,7 +631,7 @@ url = "https://localhost:$cockpitGatewayPort/realtime/v1/events?names=workflow.c
     $workItem = ""
     $deadline = (Get-Date).AddMinutes(2)
     do {
-        $workItem = (Invoke-Compose exec -T postgres psql -U $settings.POSTGRES_USER -d $settings.POSTGRES_DB -Atc "SELECT work_item_id FROM human_runtime.work_items WHERE tenant_id='tenant-e2e' AND instance_id='$instance' AND status='ACTIVE'").Trim()
+        $workItem = (Invoke-Compose exec -T postgres psql -U $settings.POSTGRES_USER -d $settings.POSTGRES_DB -Atc "SELECT work_item_id FROM human_runtime.work_items WHERE tenant_id='$tenantId' AND instance_id='$instance' AND status='ACTIVE'").Trim()
         if ($workItem) { break }
         Start-Sleep -Seconds 1
     } while ((Get-Date) -lt $deadline)
@@ -612,7 +671,7 @@ url = "https://localhost:$cockpitGatewayPort/realtime/v1/events?names=workflow.c
 
     $completeHeaders = @{
         Authorization = "Bearer $token"
-        "X-BPMP-Tenant-ID" = "tenant-e2e"
+        "X-BPMP-Tenant-ID" = $tenantId
         "X-Command-ID" = "complete-$suffix"
         "Idempotency-Key" = "complete-idem-$suffix"
         "X-Correlation-ID" = "correlation-$suffix"
@@ -625,28 +684,28 @@ url = "https://localhost:$cockpitGatewayPort/realtime/v1/events?names=workflow.c
     $status = ""
     $deadline = (Get-Date).AddMinutes(2)
     do {
-        $status = (Invoke-Compose exec -T postgres psql -U $settings.POSTGRES_USER -d $settings.POSTGRES_DB -Atc "SELECT status FROM human_runtime.work_items WHERE tenant_id='tenant-e2e' AND work_item_id='$workItem'").Trim()
+        $status = (Invoke-Compose exec -T postgres psql -U $settings.POSTGRES_USER -d $settings.POSTGRES_DB -Atc "SELECT status FROM human_runtime.work_items WHERE tenant_id='$tenantId' AND work_item_id='$workItem'").Trim()
         if ($status -eq "COMPLETED") { break }
         Start-Sleep -Seconds 1
     } while ((Get-Date) -lt $deadline)
     if ($status -ne "COMPLETED") {
         throw "committed completion was not projected back to PostgreSQL"
     }
-    $inboxCount = [int](Invoke-Compose exec -T postgres psql -U $settings.POSTGRES_USER -d $settings.POSTGRES_DB -Atc "SELECT count(*) FROM human_runtime.human_event_inbox WHERE tenant_id='tenant-e2e' AND stream_id='$instance'").Trim()
+    $inboxCount = [int](Invoke-Compose exec -T postgres psql -U $settings.POSTGRES_USER -d $settings.POSTGRES_DB -Atc "SELECT count(*) FROM human_runtime.human_event_inbox WHERE tenant_id='$tenantId' AND stream_id='$instance'").Trim()
     if ($inboxCount -lt 2) {
         throw "Kafka consumer inbox does not contain both activation and completion"
     }
     $projectionStatus = ""
     $deadline = (Get-Date).AddMinutes(2)
     do {
-        $projectionStatus = (Invoke-Compose exec -T postgres psql -U $settings.POSTGRES_USER -d $settings.POSTGRES_DB -Atc "SELECT status FROM projection.workflow_instance_read_models WHERE tenant_id='tenant-e2e' AND instance_id='$instance'").Trim()
+        $projectionStatus = (Invoke-Compose exec -T postgres psql -U $settings.POSTGRES_USER -d $settings.POSTGRES_DB -Atc "SELECT status FROM projection.workflow_instance_read_models WHERE tenant_id='$tenantId' AND instance_id='$instance'").Trim()
         if ($projectionStatus -eq "COMPLETED") { break }
         Start-Sleep -Milliseconds 500
     } while ((Get-Date) -lt $deadline)
     if ($projectionStatus -ne "COMPLETED") {
         throw "workflow instance was not projected to the durable query read model"
     }
-    $projectionInboxCount = [int](Invoke-Compose exec -T postgres psql -U $settings.POSTGRES_USER -d $settings.POSTGRES_DB -Atc "SELECT count(*) FROM projection.projection_event_inbox WHERE tenant_id='tenant-e2e' AND instance_id='$instance'").Trim()
+    $projectionInboxCount = [int](Invoke-Compose exec -T postgres psql -U $settings.POSTGRES_USER -d $settings.POSTGRES_DB -Atc "SELECT count(*) FROM projection.projection_event_inbox WHERE tenant_id='$tenantId' AND instance_id='$instance'").Trim()
     if ($projectionInboxCount -lt 3) {
         throw "projection inbox does not contain the committed workflow lifecycle"
     }

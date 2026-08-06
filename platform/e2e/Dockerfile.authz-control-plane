@@ -1,0 +1,22 @@
+FROM rust:1.91.1-bookworm AS builder
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends clang cmake libclang-dev pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /workspace
+COPY . .
+ENV CARGO_TARGET_DIR=/workspace/target-authz
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/workspace/target-authz \
+    cargo build --manifest-path apps/rust/authz-control-plane/Cargo.toml \
+      -p authz-server -p authz-app \
+    && cp /workspace/target-authz/debug/authz-server /tmp/authz-server \
+    && cp /workspace/target-authz/debug/authz-app /tmp/authz-app
+
+FROM debian:bookworm-slim
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /tmp/authz-server /usr/local/bin/authz-server
+COPY --from=builder /tmp/authz-app /usr/local/bin/authz-app
+ENTRYPOINT ["/usr/local/bin/authz-server"]

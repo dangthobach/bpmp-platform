@@ -1,8 +1,8 @@
 {
-  "tenant_id": "tenant-e2e",
+  "tenant_id": "00000000-0000-4000-8000-000000000001",
   "workflow_type": "approval",
   "workflow_version": "1",
-  "actor_id": "user-1",
+  "actor_id": "00000000-0000-4000-8000-000000000002",
   "actor_issuer": "bpmp-e2e-issuer",
   "actor_audience": "bpmp-e2e",
   "kafka": {
@@ -35,6 +35,8 @@
   "configuration_postgres_dsn": "postgres://bpmp:bpmp-e2e@postgres:5432/bpmp_platform?sslmode=disable&options=-csearch_path%3Dconfiguration%2Cpublic",
   "projection_postgres_dsn": "postgres://bpmp:bpmp-e2e@postgres:5432/bpmp_platform?sslmode=disable&options=-csearch_path%3Dprojection%2Cpublic",
   "governance_postgres_dsn": "postgres://bpmp:bpmp-e2e@postgres:5432/bpmp_platform?sslmode=disable&options=-csearch_path%3Dgovernance%2Cpublic",
+  "authz_postgres_dsn": "postgres://bpmp:bpmp-e2e@authz-postgres:5432/authz",
+  "authz_app_postgres_dsn": "postgres://bpmp:bpmp-e2e@authz-postgres:5432/authz?options=-csearch_path%3Dauthz_app%2Cpublic",
   "redis_address": "redis:6379",
   "otel_endpoint": "otel-collector:4317",
   "runtime_mount": "/runtime",

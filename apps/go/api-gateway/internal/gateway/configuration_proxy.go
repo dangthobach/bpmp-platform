@@ -21,6 +21,12 @@ type configurationProxy struct {
 	baseURL *url.URL
 }
 
+type configurationResponse struct {
+	statusCode  int
+	contentType string
+	body        []byte
+}
+
 func newConfigurationProxy(
 	client httpDoer,
 	rawBaseURL string,
@@ -66,7 +72,7 @@ func (h *Handler) configuration(w http.ResponseWriter, r *http.Request) {
 		upstreamContext(r, scope),
 		scope,
 		configurationDependency,
-		func(ctx context.Context) (*http.Response, error) {
+		func(ctx context.Context) (configurationResponse, error) {
 			upstreamRequest, requestErr := http.NewRequestWithContext(
 				ctx,
 				r.Method,
@@ -74,32 +80,39 @@ func (h *Handler) configuration(w http.ResponseWriter, r *http.Request) {
 				bytes.NewReader(requestBody),
 			)
 			if requestErr != nil {
-				return nil, requestErr
+				return configurationResponse{}, requestErr
 			}
 			copyConfigurationHeaders(upstreamRequest.Header, r.Header)
 			requestmeta.InjectHTTP(ctx, upstreamRequest.Header)
-			return h.configurationProxy.client.Do(upstreamRequest)
+			upstreamResponse, requestErr := h.configurationProxy.client.Do(upstreamRequest)
+			if requestErr != nil {
+				return configurationResponse{}, requestErr
+			}
+			defer upstreamResponse.Body.Close()
+			body, requestErr := io.ReadAll(io.LimitReader(
+				upstreamResponse.Body,
+				maxResponseBytes+1,
+			))
+			if requestErr != nil || int64(len(body)) > maxResponseBytes {
+				return configurationResponse{}, errUpstream
+			}
+			return configurationResponse{
+				statusCode:  upstreamResponse.StatusCode,
+				contentType: upstreamResponse.Header.Get("Content-Type"),
+				body:        body,
+			}, nil
 		},
 	)
 	if err != nil {
 		writeError(w, errUpstream)
 		return
 	}
-	defer response.Body.Close()
-	responseBody, err := io.ReadAll(io.LimitReader(
-		response.Body,
-		maxResponseBytes+1,
-	))
-	if err != nil || int64(len(responseBody)) > maxResponseBytes {
-		writeError(w, errUpstream)
-		return
-	}
-	if contentType := response.Header.Get("Content-Type"); contentType != "" {
-		w.Header().Set("Content-Type", contentType)
+	if response.contentType != "" {
+		w.Header().Set("Content-Type", response.contentType)
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(response.StatusCode)
-	if _, err = w.Write(responseBody); err != nil {
+	w.WriteHeader(response.statusCode)
+	if _, err = w.Write(response.body); err != nil {
 		return
 	}
 }

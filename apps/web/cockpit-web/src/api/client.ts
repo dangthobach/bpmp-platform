@@ -46,6 +46,13 @@ const browserConfigurationSchema = z.object({
 
 export type BrowserConfiguration = z.infer<typeof browserConfigurationSchema>;
 
+const problemDetailsSchema = z.object({
+  title: z.string().optional(),
+  detail: z.string().optional(),
+  code: z.string().optional(),
+  error: z.string().optional(),
+});
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -376,8 +383,11 @@ export class BpmpApiClient {
         response.headers.get("X-Correlation-ID") ?? correlationId;
       const body = await response.json().catch(() => ({})) as Record<string, unknown>;
       if (!response.ok) {
+        const problem = problemDetailsSchema.safeParse(body);
         throw new ApiError(
-          typeof body.error === "string" ? body.error : "Request failed",
+          problem.success
+            ? problem.data.detail || problem.data.title || problem.data.error || problem.data.code || "Request failed"
+            : "Request failed",
           response.status,
           responseCorrelation,
         );
@@ -428,6 +438,14 @@ export class BpmpApiClient {
           ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
         },
       );
+      const contentType = response.headers.get("Content-Type") ?? "";
+      if (contentType && !contentType.toLowerCase().includes("application/json")) {
+        throw new ApiError(
+          "Organization API route is unavailable",
+          response.ok ? 502 : response.status,
+          response.headers.get("X-Request-ID") ?? requestId,
+        );
+      }
       const raw: unknown = await response.json().catch(() => null);
       const envelope = z.object({
         data: z.unknown().nullable(),
@@ -504,6 +522,14 @@ export class BpmpApiClient {
           ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
         },
       );
+      const contentType = response.headers.get("Content-Type") ?? "";
+      if (contentType && !contentType.toLowerCase().includes("application/json")) {
+        throw new ApiError(
+          "Configuration API route is unavailable",
+          response.ok ? 502 : response.status,
+          response.headers.get("X-Correlation-ID") ?? correlationId,
+        );
+      }
       const raw: unknown = await response.json().catch(() => null);
       const responseCorrelation =
         response.headers.get("X-Correlation-ID") ?? correlationId;

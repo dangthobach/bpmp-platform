@@ -42,5 +42,9 @@ async fn main() -> anyhow::Result<()> {
         "Starting AuthZ server"
     );
 
-    app::run(config).await
+    if std::env::var("AUTHZ_MIGRATE_ONLY").as_deref() == Ok("true") {
+        app::migrate(&config).await
+    } else {
+        app::run(config).await
+    }
 }

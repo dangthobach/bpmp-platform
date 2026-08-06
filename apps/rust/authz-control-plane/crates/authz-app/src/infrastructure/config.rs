@@ -4,6 +4,7 @@
 
 use anyhow::{Context, Result};
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::time::Duration;
 
 #[derive(Debug, Clone)]
@@ -20,6 +21,7 @@ pub struct AppConfig {
 
     /// AuthZ PDP base URL (e.g. http://authz-server:8080).
     pub authz_pdp_url: String,
+    pub authz_service_token_file: PathBuf,
     pub authz_timeout_ms: u64,
     pub authz_cache_capacity: u64,
     pub authz_cache_ttl_secs: u64,
@@ -51,6 +53,10 @@ impl AppConfig {
             db_max_connections: env_parse("DB_MAX_CONNECTIONS", 20)?,
             db_min_connections: env_parse("DB_MIN_CONNECTIONS", 2)?,
             authz_pdp_url: env_or("AUTHZ_PDP_URL", "http://localhost:8080"),
+            authz_service_token_file: PathBuf::from(
+                std::env::var("AUTHZ_SERVICE_TOKEN_FILE")
+                    .context("AUTHZ_SERVICE_TOKEN_FILE is required")?,
+            ),
             authz_timeout_ms: env_parse("AUTHZ_TIMEOUT_MS", 500)?,
             authz_cache_capacity: env_parse("AUTHZ_CACHE_CAPACITY", 100_000)?,
             authz_cache_ttl_secs: env_parse("AUTHZ_CACHE_TTL_SECS", 30)?,
