@@ -879,6 +879,8 @@ fn cockpit_web_config(manifest: &Manifest) -> Value {
 fn cockpit_web_nginx_config() -> String {
     r#"events {}
 http {
+  include /etc/nginx/mime.types;
+  default_type application/octet-stream;
   resolver 127.0.0.11 valid=10s ipv6=off;
   server {
     listen 8080;

@@ -194,12 +194,28 @@ try {
     $cockpitRuntime = Invoke-RestMethod `
         -Method Get `
         -Uri "http://localhost:$cockpitWebPort/config.json"
+    $cockpitScriptPath = [regex]::Match($cockpitPage.Content, 'src="([^"]+\.js)"').Groups[1].Value
+    $cockpitStylesheetPath = [regex]::Match($cockpitPage.Content, 'href="([^"]+\.css)"').Groups[1].Value
     if (
         $cockpitPage.StatusCode -ne 200 -or
         $cockpitPage.Content -notmatch '<div id="root"></div>' -or
-        $cockpitRuntime.realtimePath -ne "/realtime/v1/events"
+        $cockpitRuntime.realtimePath -ne "/realtime/v1/events" -or
+        -not $cockpitScriptPath -or
+        -not $cockpitStylesheetPath
     ) {
         throw "Cockpit Web artifact or runtime configuration is unavailable"
+    }
+    $cockpitScript = Invoke-WebRequest `
+        -Method Head `
+        -Uri "http://localhost:$cockpitWebPort$cockpitScriptPath"
+    $cockpitStylesheet = Invoke-WebRequest `
+        -Method Head `
+        -Uri "http://localhost:$cockpitWebPort$cockpitStylesheetPath"
+    if (
+        $cockpitScript.Headers.'Content-Type' -notmatch 'javascript' -or
+        $cockpitStylesheet.Headers.'Content-Type' -notmatch '^text/css'
+    ) {
+        throw "Cockpit Web JavaScript or stylesheet MIME type is invalid"
     }
     $openAPI = Invoke-RestMethod `
         -SkipCertificateCheck `
