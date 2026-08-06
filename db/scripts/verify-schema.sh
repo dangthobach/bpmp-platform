@@ -9,12 +9,21 @@ fi
 namespace=$1
 psql_args=(-X --no-psqlrc --set=ON_ERROR_STOP=1 --quiet --tuples-only --no-align)
 
-for variable in PGHOST PGPORT PGDATABASE PGUSER PGPASSWORD; do
+for variable in PGHOST PGPORT PGDATABASE PGUSER; do
   if [[ -z "${!variable:-}" ]]; then
     echo "$variable is required" >&2
     exit 2
   fi
 done
+
+schema=${PGSCHEMA:-public}
+if [[ ! "$schema" =~ ^[a-z_][a-z0-9_]{0,62}$ ]]; then
+  echo "PGSCHEMA must be a valid PostgreSQL schema name" >&2
+  exit 2
+fi
+
+psql_args+=(--set=schema="$schema")
+export PGOPTIONS="-c search_path=\"$schema\",public"
 
 assert_zero() {
   local description=$1
@@ -39,9 +48,9 @@ assert_one() {
 }
 
 assert_one "migration ledger exists" \
-  "SELECT count(*) FROM pg_class WHERE oid = to_regclass('public.bpmp_schema_migrations');"
+    "SELECT count(*) FROM pg_class WHERE oid = to_regclass(format('%I.bpmp_schema_migrations', '$schema'));"
 assert_one "migration ledger is append-only" \
-  "SELECT count(*) FROM pg_trigger WHERE tgrelid = 'bpmp_schema_migrations'::regclass AND tgname = 'bpmp_schema_migrations_no_mutation' AND tgenabled <> 'D';"
+    "SELECT count(*) FROM pg_trigger WHERE tgrelid = format('%I.bpmp_schema_migrations', '$schema')::regclass AND tgname = 'bpmp_schema_migrations_no_mutation' AND tgenabled <> 'D';"
 
 case "$namespace" in
   human-runtime)
@@ -51,7 +60,7 @@ case "$namespace" in
         'human_cases','human_case_plan_items','escalation_outbox',
         'human_tenant_security_profiles','human_actor_revoke_epochs'
       ]) AS required(name)
-      WHERE to_regclass('public.' || required.name) IS NULL;"
+      WHERE to_regclass('$schema' || '.' || required.name) IS NULL;"
     assert_zero "Human Runtime mutable entities expose version and is_deleted" "
       SELECT count(*) FROM (VALUES
         ('assignment_policies'),('work_items'),('human_cases'),
@@ -61,14 +70,14 @@ case "$namespace" in
       CROSS JOIN (VALUES ('version'),('is_deleted')) AS required(column_name)
       WHERE NOT EXISTS (
         SELECT 1 FROM information_schema.columns c
-        WHERE c.table_schema = 'public'
+        WHERE c.table_schema = '$schema'
           AND c.table_name = entity.table_name
           AND c.column_name = required.column_name
       );"
     assert_one "Human Runtime audit trigger" \
       "SELECT count(*) FROM pg_trigger WHERE tgrelid = 'human_audit_log'::regclass AND tgname = 'human_audit_immutable' AND tgenabled <> 'D';"
     assert_one "Human Runtime delegation depth column" \
-      "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'work_items' AND column_name = 'delegation_depth';"
+      "SELECT count(*) FROM information_schema.columns WHERE table_schema = '$schema' AND table_name = 'work_items' AND column_name = 'delegation_depth';"
     ;;
   configuration-service)
     assert_zero "Configuration Service required tables" "
@@ -77,11 +86,11 @@ case "$namespace" in
         'configuration_audit','configuration_outbox',
         'configuration_outbox_publish_state','configuration_idempotency'
       ]) AS required(name)
-      WHERE to_regclass('public.' || required.name) IS NULL;"
+      WHERE to_regclass('$schema' || '.' || required.name) IS NULL;"
     assert_one "Configuration profile optimistic version" \
-      "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'configuration_profiles' AND column_name = 'aggregate_version';"
+    "SELECT count(*) FROM information_schema.columns WHERE table_schema = '$schema' AND table_name = 'configuration_profiles' AND column_name = 'aggregate_version';"
     assert_one "Configuration profile soft delete" \
-      "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'configuration_profiles' AND column_name = 'is_deleted';"
+    "SELECT count(*) FROM information_schema.columns WHERE table_schema = '$schema' AND table_name = 'configuration_profiles' AND column_name = 'is_deleted';"
     assert_one "Configuration audit trigger" \
       "SELECT count(*) FROM pg_trigger WHERE tgrelid = 'configuration_audit'::regclass AND tgname = 'configuration_audit_no_update' AND tgenabled <> 'D';"
     assert_one "Configuration outbox sequence uniqueness" \
@@ -92,12 +101,12 @@ case "$namespace" in
       SELECT count(*) FROM unnest(ARRAY[
         'projection_event_inbox','projection_checkpoints','workflow_instance_read_models'
       ]) AS required(name)
-      WHERE to_regclass('public.' || required.name) IS NULL;"
+      WHERE to_regclass('$schema' || '.' || required.name) IS NULL;"
     assert_zero "Projection read model exposes version and is_deleted" "
       SELECT count(*) FROM (VALUES ('version'),('is_deleted')) AS required(column_name)
       WHERE NOT EXISTS (
         SELECT 1 FROM information_schema.columns c
-        WHERE c.table_schema = 'public'
+        WHERE c.table_schema = '$schema'
           AND c.table_name = 'workflow_instance_read_models'
           AND c.column_name = required.column_name
       );"
@@ -110,9 +119,9 @@ case "$namespace" in
         'governance_approval_requests','governance_signed_approvals',
         'governance_service_audit'
       ]) AS required(name)
-      WHERE to_regclass('public.' || required.name) IS NULL;"
+      WHERE to_regclass('$schema' || '.' || required.name) IS NULL;"
     assert_one "Governance aggregate optimistic version" \
-      "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'governance_approval_requests' AND column_name = 'aggregate_version';"
+    "SELECT count(*) FROM information_schema.columns WHERE table_schema = '$schema' AND table_name = 'governance_approval_requests' AND column_name = 'aggregate_version';"
     assert_one "Governance audit trigger" \
       "SELECT count(*) FROM pg_trigger WHERE tgrelid = 'governance_service_audit'::regclass AND tgname = 'governance_audit_no_update' AND tgenabled <> 'D';"
     assert_one "Governance approval ownership foreign key" \

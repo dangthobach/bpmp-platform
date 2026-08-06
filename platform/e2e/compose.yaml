@@ -37,46 +37,10 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB}
     ports:
       - "${POSTGRES_PORT:?set POSTGRES_PORT}:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
-      interval: 2s
-      timeout: 2s
-      retries: 30
-
-  configuration-postgres:
-    image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE}
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
-      POSTGRES_DB: configuration
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d configuration"]
-      interval: 2s
-      timeout: 2s
-      retries: 30
-
-  projection-postgres:
-    image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE}
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
-      POSTGRES_DB: projection
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d projection"]
-      interval: 2s
-      timeout: 2s
-      retries: 30
-
-  governance-postgres:
-    image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE}
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
-      POSTGRES_DB: governance
     volumes:
       - ./runtime/governance-service.sql:/docker-entrypoint-initdb.d/001-governance.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d governance"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 2s
       timeout: 2s
       retries: 30
@@ -178,7 +142,7 @@ services:
     volumes:
       - ./runtime:/runtime:ro
     depends_on:
-      configuration-postgres:
+      postgres:
         condition: service_healthy
       otel-collector:
         condition: service_started
@@ -210,7 +174,7 @@ services:
     volumes:
       - ./runtime:/runtime:ro
     depends_on:
-      projection-postgres:
+      postgres:
         condition: service_healthy
       topic-init:
         condition: service_completed_successfully
@@ -287,7 +251,7 @@ services:
     ports:
       - "${GOVERNANCE_PORT:?set GOVERNANCE_PORT}:7501"
     depends_on:
-      governance-postgres:
+      postgres:
         condition: service_healthy
       topic-init:
         condition: service_completed_successfully

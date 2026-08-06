@@ -12,6 +12,7 @@ $compose = Join-Path $PSScriptRoot "compose.yaml"
 $envFile = Join-Path $PSScriptRoot ".env"
 $runtime = Join-Path $PSScriptRoot "runtime"
 $realtimeProcess = $null
+$curlExecutable = if ($IsWindows) { "curl.exe" } else { "curl" }
 
 if (-not (Test-Path $envFile)) {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot ".env.example") -Destination $envFile
@@ -144,14 +145,26 @@ try {
     Invoke-TimedPhase -Name "Clean previous E2E state" -Action {
         Invoke-Compose down --volumes --remove-orphans
         if (Test-Path $runtime) {
-            Remove-Item -LiteralPath $runtime -Recurse -Force
+            try {
+                Remove-Item -LiteralPath $runtime -Recurse -Force
+            } catch {
+                # Files written through the bind mount can be owned by the
+                # container's remapped root user on Linux. Let that same image
+                # clear its output before removing the host directory.
+                Invoke-Compose --profile setup run --rm --no-deps `
+                    --entrypoint /bin/sh fixture-generator `
+                    -c "rm -rf /runtime/*"
+                Remove-Item -LiteralPath $runtime -Recurse -Force
+            }
         }
         New-Item -ItemType Directory -Path $runtime | Out-Null
     }
 
     if (-not $SkipBuild) {
-        Invoke-TimedPhase -Name "Build E2E images in parallel" -Action {
-            Invoke-Compose --profile setup build
+        Invoke-TimedPhase -Name "Build E2E images" -Action {
+            # The Rust Dockerfiles share Cargo cache mounts. Serializing the
+            # image build avoids concurrent unpack races in the shared cache.
+            Invoke-Compose --parallel 1 --profile setup build
         }
     }
 
@@ -193,7 +206,7 @@ try {
         -Method Get `
         -Uri "https://localhost:$gatewayPort/openapi/v1.json"
     if ($openAPI.openapi -ne "3.1.0" -or
-        @($openAPI.paths.PSObject.Properties).Count -ne 12) {
+        @($openAPI.paths.PSObject.Properties).Count -ne 16) {
         throw "API Gateway OpenAPI contract is unavailable or incomplete"
     }
     $apiReference = Invoke-WebRequest `
@@ -262,6 +275,38 @@ try {
             max_signal_id_bytes = 256
             max_reference_bytes = 1024
             max_subscriptions_per_instance = 256
+        }
+        workers = @{
+            poll_interval_ms = "100"
+            outbox_batch_size = 64
+            outbox_retry = @{
+                max_attempts = 10
+                initial_backoff_ms = "50"
+                max_backoff_ms = "1000"
+                multiplier_millis = 2000
+            }
+            local_task_batch_size = 32
+            local_task_retry = @{
+                max_attempts = 3
+                initial_backoff_ms = "25"
+                max_backoff_ms = "250"
+                multiplier_millis = 2000
+            }
+            remote = @{
+                dispatch_batch_size = 32
+                max_workers = 100000
+                max_credit_per_worker = 64
+                max_capabilities_per_worker = 32
+                lease_duration_ms = "30000"
+                heartbeat_timeout_ms = "10000"
+                max_identifier_bytes = 256
+                max_protocol_version_bytes = 32
+                stream_channel_capacity = 128
+                max_input_bytes = "65536"
+                max_output_bytes = "65536"
+                max_attempts = 5
+                retry_delay_ms = "1000"
+            }
         }
     }
     $configuration = Invoke-JsonRequestEventually `
@@ -431,13 +476,17 @@ header = "X-BPMP-Tenant-ID: tenant-e2e"
 header = "X-Correlation-ID: realtime-$suffix"
 url = "https://localhost:$cockpitGatewayPort/realtime/v1/events?names=workflow.changed,work-item.changed"
 "@ | Set-Content -LiteralPath $realtimeCurlConfig -Encoding utf8NoBOM
-    $realtimeProcess = Start-Process `
-        -FilePath "curl.exe" `
-        -ArgumentList @("--config", $realtimeCurlConfig) `
-        -RedirectStandardOutput $realtimeOutput `
-        -RedirectStandardError (Join-Path $runtime "cockpit-realtime-error.txt") `
-        -WindowStyle Hidden `
-        -PassThru
+    $realtimeProcessArguments = @{
+        FilePath = $curlExecutable
+        ArgumentList = @("--config", $realtimeCurlConfig)
+        RedirectStandardOutput = $realtimeOutput
+        RedirectStandardError = Join-Path $runtime "cockpit-realtime-error.txt"
+        PassThru = $true
+    }
+    if ($IsWindows) {
+        $realtimeProcessArguments.WindowStyle = "Hidden"
+    }
+    $realtimeProcess = Start-Process @realtimeProcessArguments
     $startHeaders = @{
         Authorization = "Bearer $token"
         "X-BPMP-Tenant-ID" = "tenant-e2e"
@@ -498,8 +547,8 @@ url = "https://localhost:$cockpitGatewayPort/realtime/v1/events?names=workflow.c
     ) {
         throw "Governance CreateApproval returned an invalid durable approval"
     }
-    $governanceRequestCount = [int](Invoke-Compose exec -T governance-postgres psql -U $settings.POSTGRES_USER -d governance -Atc "SELECT count(*) FROM governance_approval_requests WHERE tenant_id='tenant-e2e' AND request_id='$governanceRequestId'").Trim()
-    $governanceAuditCount = [int](Invoke-Compose exec -T governance-postgres psql -U $settings.POSTGRES_USER -d governance -Atc "SELECT count(*) FROM governance_service_audit WHERE tenant_id='tenant-e2e' AND request_id='$governanceRequestId' AND action='CREATED'").Trim()
+    $governanceRequestCount = [int](Invoke-Compose exec -T postgres psql -U $settings.POSTGRES_USER -d $settings.POSTGRES_DB -Atc "SELECT count(*) FROM governance.governance_approval_requests WHERE tenant_id='tenant-e2e' AND request_id='$governanceRequestId'").Trim()
+    $governanceAuditCount = [int](Invoke-Compose exec -T postgres psql -U $settings.POSTGRES_USER -d $settings.POSTGRES_DB -Atc "SELECT count(*) FROM governance.governance_service_audit WHERE tenant_id='tenant-e2e' AND request_id='$governanceRequestId' AND action='CREATED'").Trim()
     if ($governanceRequestCount -ne 1 -or $governanceAuditCount -ne 1) {
         throw "Governance approval or immutable creation audit was not committed"
     }
@@ -507,7 +556,7 @@ url = "https://localhost:$cockpitGatewayPort/realtime/v1/events?names=workflow.c
     $workItem = ""
     $deadline = (Get-Date).AddMinutes(2)
     do {
-        $workItem = (Invoke-Compose exec -T postgres psql -U $settings.POSTGRES_USER -d $settings.POSTGRES_DB -Atc "SELECT work_item_id FROM work_items WHERE tenant_id='tenant-e2e' AND instance_id='$instance' AND status='ACTIVE'").Trim()
+        $workItem = (Invoke-Compose exec -T postgres psql -U $settings.POSTGRES_USER -d $settings.POSTGRES_DB -Atc "SELECT work_item_id FROM human_runtime.work_items WHERE tenant_id='tenant-e2e' AND instance_id='$instance' AND status='ACTIVE'").Trim()
         if ($workItem) { break }
         Start-Sleep -Seconds 1
     } while ((Get-Date) -lt $deadline)
@@ -560,28 +609,28 @@ url = "https://localhost:$cockpitGatewayPort/realtime/v1/events?names=workflow.c
     $status = ""
     $deadline = (Get-Date).AddMinutes(2)
     do {
-        $status = (Invoke-Compose exec -T postgres psql -U $settings.POSTGRES_USER -d $settings.POSTGRES_DB -Atc "SELECT status FROM work_items WHERE tenant_id='tenant-e2e' AND work_item_id='$workItem'").Trim()
+        $status = (Invoke-Compose exec -T postgres psql -U $settings.POSTGRES_USER -d $settings.POSTGRES_DB -Atc "SELECT status FROM human_runtime.work_items WHERE tenant_id='tenant-e2e' AND work_item_id='$workItem'").Trim()
         if ($status -eq "COMPLETED") { break }
         Start-Sleep -Seconds 1
     } while ((Get-Date) -lt $deadline)
     if ($status -ne "COMPLETED") {
         throw "committed completion was not projected back to PostgreSQL"
     }
-    $inboxCount = [int](Invoke-Compose exec -T postgres psql -U $settings.POSTGRES_USER -d $settings.POSTGRES_DB -Atc "SELECT count(*) FROM human_event_inbox WHERE tenant_id='tenant-e2e' AND stream_id='$instance'").Trim()
+    $inboxCount = [int](Invoke-Compose exec -T postgres psql -U $settings.POSTGRES_USER -d $settings.POSTGRES_DB -Atc "SELECT count(*) FROM human_runtime.human_event_inbox WHERE tenant_id='tenant-e2e' AND stream_id='$instance'").Trim()
     if ($inboxCount -lt 2) {
         throw "Kafka consumer inbox does not contain both activation and completion"
     }
     $projectionStatus = ""
     $deadline = (Get-Date).AddMinutes(2)
     do {
-        $projectionStatus = (Invoke-Compose exec -T projection-postgres psql -U $settings.POSTGRES_USER -d projection -Atc "SELECT status FROM workflow_instance_read_models WHERE tenant_id='tenant-e2e' AND instance_id='$instance'").Trim()
+        $projectionStatus = (Invoke-Compose exec -T postgres psql -U $settings.POSTGRES_USER -d $settings.POSTGRES_DB -Atc "SELECT status FROM projection.workflow_instance_read_models WHERE tenant_id='tenant-e2e' AND instance_id='$instance'").Trim()
         if ($projectionStatus -eq "COMPLETED") { break }
         Start-Sleep -Milliseconds 500
     } while ((Get-Date) -lt $deadline)
     if ($projectionStatus -ne "COMPLETED") {
         throw "workflow instance was not projected to the durable query read model"
     }
-    $projectionInboxCount = [int](Invoke-Compose exec -T projection-postgres psql -U $settings.POSTGRES_USER -d projection -Atc "SELECT count(*) FROM projection_event_inbox WHERE tenant_id='tenant-e2e' AND instance_id='$instance'").Trim()
+    $projectionInboxCount = [int](Invoke-Compose exec -T postgres psql -U $settings.POSTGRES_USER -d $settings.POSTGRES_DB -Atc "SELECT count(*) FROM projection.projection_event_inbox WHERE tenant_id='tenant-e2e' AND instance_id='$instance'").Trim()
     if ($projectionInboxCount -lt 3) {
         throw "projection inbox does not contain the committed workflow lifecycle"
     }

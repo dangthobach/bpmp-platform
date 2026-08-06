@@ -194,6 +194,8 @@ pub async fn run(path: PathBuf) -> Result<()> {
         .peers
         .iter()
         .map(|peer| peer.certificate_sha256_hex.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
         .collect::<Vec<_>>();
     let peer_workload_authorization = WorkloadAuthorization::try_new(
         &peer_certificate_fingerprints,

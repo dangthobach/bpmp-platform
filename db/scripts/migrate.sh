@@ -23,12 +23,19 @@ if [[ ! "$wait_timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
   exit 2
 fi
 
-for variable in PGHOST PGPORT PGDATABASE PGUSER PGPASSWORD; do
+for variable in PGHOST PGPORT PGDATABASE PGUSER; do
   if [[ -z "${!variable:-}" ]]; then
     echo "$variable is required" >&2
     exit 2
   fi
 done
+
+schema=${PGSCHEMA:-public}
+if [[ ! "$schema" =~ ^[a-z_][a-z0-9_]{0,62}$ ]]; then
+  echo "PGSCHEMA must be a valid PostgreSQL schema name" >&2
+  exit 2
+fi
+export PGOPTIONS="-c search_path=\"$schema\",public"
 
 deadline=$((SECONDS + wait_timeout_seconds))
 until pg_isready -q; do
@@ -41,7 +48,9 @@ done
 
 psql_args=(-X --no-psqlrc --set=ON_ERROR_STOP=1)
 
-psql "${psql_args[@]}" <<'SQL'
+psql "${psql_args[@]}" --set=schema="$schema" <<'SQL'
+CREATE SCHEMA IF NOT EXISTS :"schema";
+SET search_path TO :"schema", public;
 CREATE TABLE IF NOT EXISTS bpmp_schema_migrations (
     namespace text NOT NULL,
     migration_id text NOT NULL,
@@ -67,7 +76,7 @@ FOR EACH ROW EXECUTE FUNCTION bpmp_reject_schema_migration_mutation();
 SQL
 
 coproc LOCK_SESSION {
-  psql "${psql_args[@]}" --quiet --tuples-only --no-align
+  psql "${psql_args[@]}" --quiet --tuples-only --no-align --set=schema="$schema"
 }
 lock_input=${LOCK_SESSION[1]}
 lock_output=${LOCK_SESSION[0]}
@@ -118,8 +127,8 @@ for migration in "${migrations[@]}"; do
 
   checksum=$(sha256sum "$migration" | cut -d ' ' -f 1)
   recorded_checksum=$(
-    psql "${psql_args[@]}" --quiet --tuples-only --no-align \
-      --command="SELECT checksum_sha256 FROM bpmp_schema_migrations WHERE namespace = '$namespace' AND migration_id = '$migration_id';"
+    psql "${psql_args[@]}" --quiet --tuples-only --no-align --set=schema="$schema" \
+      --command="SELECT checksum_sha256 FROM \"$schema\".bpmp_schema_migrations WHERE namespace = '$namespace' AND migration_id = '$migration_id';"
   )
 
   if [[ -n "$recorded_checksum" ]]; then
@@ -138,6 +147,7 @@ for migration in "${migrations[@]}"; do
     "$migration" >"$normalized"
   cat >"$driver" <<SQL
 \set ON_ERROR_STOP on
+SET search_path TO "$schema", public;
 BEGIN;
 \i $normalized
 INSERT INTO bpmp_schema_migrations(namespace, migration_id, checksum_sha256)
@@ -146,7 +156,7 @@ COMMIT;
 SQL
 
   echo "apply $namespace/$migration_id"
-  if ! psql "${psql_args[@]}" \
+  if ! psql "${psql_args[@]}" --set=schema="$schema" \
       --set=namespace="$namespace" \
       --set=migration_id="$migration_id" \
       --set=checksum="$checksum" \
@@ -160,7 +170,7 @@ done
 
 recorded_count=$(
   psql "${psql_args[@]}" --quiet --tuples-only --no-align \
-    --command="SELECT count(*) FROM bpmp_schema_migrations WHERE namespace = '$namespace';"
+    --command="SELECT count(*) FROM \"$schema\".bpmp_schema_migrations WHERE namespace = '$namespace';"
 )
 if [[ "$recorded_count" != "${#migrations[@]}" ]]; then
   echo "migration ledger count mismatch for $namespace: files=${#migrations[@]} ledger=$recorded_count" >&2

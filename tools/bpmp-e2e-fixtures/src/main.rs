@@ -37,6 +37,9 @@ const CONFIGURATION_TENANT_READINESS_MIGRATION: &str =
     include_str!("../../../db/configuration-service/migrations/003_owner_and_tenant_readiness.sql");
 const CONFIGURATION_AUDIT_VERSIONS_MIGRATION: &str =
     include_str!("../../../db/configuration-service/migrations/004_audit_effective_versions.sql");
+const CONFIGURATION_OUTBOX_OBSERVABILITY_MIGRATION: &str = include_str!(
+    "../../../db/configuration-service/migrations/005_outbox_observability_context.sql"
+);
 const PROJECTION_MIGRATION: &str =
     include_str!("../../../db/projection-service/migrations/001_projection.sql");
 const GOVERNANCE_MIGRATION: &str =
@@ -299,14 +302,20 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
     )?;
     write(
         &output.join("human-runtime.sql"),
-        seeded_migration(manifest).as_bytes(),
+        schema_migration("human_runtime", &seeded_migration(manifest)),
     )?;
     write(
         &output.join("configuration-service.sql"),
-        seeded_configuration_migration(manifest)?.as_bytes(),
+        schema_migration("configuration", &seeded_configuration_migration(manifest)?),
     )?;
-    write(&output.join("projection-service.sql"), PROJECTION_MIGRATION)?;
-    write(&output.join("governance-service.sql"), GOVERNANCE_MIGRATION)?;
+    write(
+        &output.join("projection-service.sql"),
+        schema_migration("projection", PROJECTION_MIGRATION),
+    )?;
+    write(
+        &output.join("governance-service.sql"),
+        schema_migration("governance", GOVERNANCE_MIGRATION),
+    )?;
     write(
         &output.join("key-lifecycle-nginx.conf"),
         b"events {}\nhttp { server { listen 8080; location = / { return 200 'ok'; } location = /barrier { return 204; } location = /shred { return 204; } } }\n",
@@ -1100,7 +1109,8 @@ fn seeded_configuration_migration(manifest: &Manifest) -> Result<String> {
     let mut migration = format!(
         "{CONFIGURATION_MIGRATION}\n{CONFIGURATION_HOT_RELOAD_MIGRATION}\n\
          {CONFIGURATION_TENANT_READINESS_MIGRATION}\n\
-         {CONFIGURATION_AUDIT_VERSIONS_MIGRATION}\n"
+         {CONFIGURATION_AUDIT_VERSIONS_MIGRATION}\n\
+         {CONFIGURATION_OUTBOX_OBSERVABILITY_MIGRATION}\n"
     );
     for (owner, profile_id, version_id, policy) in policies {
         let raw = serde_json::to_vec(&policy)?;
@@ -1407,6 +1417,18 @@ fn kafka_topics_script(manifest: &Manifest) -> String {
 
 fn write(path: &Path, bytes: impl AsRef<[u8]>) -> Result<()> {
     fs::write(path, bytes).with_context(|| format!("write {}", path.display()))
+}
+
+fn schema_migration(schema: &str, migration: &str) -> Vec<u8> {
+    format!(
+        "CREATE SCHEMA IF NOT EXISTS {schema};\nSET search_path TO {schema}, public;\n{migration}",
+        schema = quote_ident(schema),
+    )
+    .into_bytes()
+}
+
+fn quote_ident(value: &str) -> String {
+    format!("\"{}\"", value.replace('"', "\"\""))
 }
 
 fn write_json(path: &Path, value: &Value) -> Result<()> {
