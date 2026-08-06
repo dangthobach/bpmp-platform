@@ -104,6 +104,19 @@ describe("BpmpApiClient organization API", () => {
   });
 });
 
+describe("BpmpApiClient work items API", () => {
+  it("normalizes an empty protobuf list response", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
+
+    const client = new BpmpApiClient(config, () => identity);
+
+    await expect(client.listWorkItems()).resolves.toEqual({
+      work_items: [],
+      next_page_token: "",
+    });
+  });
+});
+
 describe("BpmpApiClient configuration facade", () => {
   it("uses the public gateway and preserves a caller-owned idempotency key", async () => {
     const profile = {

@@ -72,10 +72,19 @@ export class BpmpApiClient {
     return parsed.data;
   }
 
-  listWorkItems(pageToken = "", pageSize = this.config.defaultPageSize): Promise<WorkItemPage> {
+  async listWorkItems(pageToken = "", pageSize = this.config.defaultPageSize): Promise<WorkItemPage> {
     const query = new URLSearchParams({ page_size: String(pageSize) });
     if (pageToken) query.set("page_token", pageToken);
-    return this.request(`/v1/work-items?${query.toString()}`);
+    const response = await this.request<Partial<WorkItemPage>>(
+      `/v1/work-items?${query.toString()}`,
+    );
+    return {
+      // Protobuf omits an empty repeated field, which produces `{}` rather than
+      // `{ work_items: [] }` on the current gateway. Keep the UI's list contract stable.
+      work_items: Array.isArray(response.work_items) ? response.work_items : [],
+      next_page_token:
+        typeof response.next_page_token === "string" ? response.next_page_token : "",
+    };
   }
 
   getWorkItem(workItemId: string): Promise<WorkItemResponse> {
