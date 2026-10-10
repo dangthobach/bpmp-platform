@@ -15,21 +15,22 @@ import (
 )
 
 type Config struct {
-	ListenAddress    string        `json:"listen_address"`
-	EngineAddress    string        `json:"engine_address"`
-	HumanAddress     string        `json:"human_address"`
-	ConfigurationURL string        `json:"configuration_url"`
-	PublicTLS        PublicTLS     `json:"public_tls"`
-	UpstreamTLS      UpstreamTLS   `json:"upstream_tls"`
-	Identity         Identity      `json:"identity"`
-	Workload         Workload      `json:"workload"`
-	RateLimit        RateLimit     `json:"rate_limit"`
-	HTTP             HTTP          `json:"http"`
-	GRPC             GRPC          `json:"grpc"`
-	Health           Health        `json:"health"`
-	Telemetry        Telemetry     `json:"telemetry"`
-	APIDocs          APIDocs       `json:"api_docs"`
-	RuntimeConfig    RuntimeConfig `json:"runtime_configuration"`
+	ListenAddress     string        `json:"listen_address"`
+	EngineAddress     string        `json:"engine_address"`
+	HumanAddress      string        `json:"human_address"`
+	ProjectionAddress string        `json:"projection_address"`
+	ConfigurationURL  string        `json:"configuration_url"`
+	PublicTLS         PublicTLS     `json:"public_tls"`
+	UpstreamTLS       UpstreamTLS   `json:"upstream_tls"`
+	Identity          Identity      `json:"identity"`
+	Workload          Workload      `json:"workload"`
+	RateLimit         RateLimit     `json:"rate_limit"`
+	HTTP              HTTP          `json:"http"`
+	GRPC              GRPC          `json:"grpc"`
+	Health            Health        `json:"health"`
+	Telemetry         Telemetry     `json:"telemetry"`
+	APIDocs           APIDocs       `json:"api_docs"`
+	RuntimeConfig     RuntimeConfig `json:"runtime_configuration"`
 }
 
 type PublicTLS struct {
@@ -42,6 +43,7 @@ type UpstreamTLS struct {
 	CA                      string `json:"ca"`
 	EngineServerName        string `json:"engine_server_name"`
 	HumanServerName         string `json:"human_server_name"`
+	ProjectionServerName    string `json:"projection_server_name"`
 	ConfigurationServerName string `json:"configuration_server_name"`
 }
 type Identity struct {
@@ -127,6 +129,7 @@ func Load(path string) (Config, error) {
 
 func (c Config) Validate() error {
 	if c.ListenAddress == "" || c.EngineAddress == "" || c.HumanAddress == "" ||
+		c.ProjectionAddress == "" || c.UpstreamTLS.ProjectionServerName == "" ||
 		c.ConfigurationURL == "" || c.UpstreamTLS.ConfigurationServerName == "" ||
 		c.Identity.JWKSPath == "" || len(c.Identity.Issuers) == 0 ||
 		len(c.Identity.Audiences) == 0 || len(c.Identity.Algorithms) == 0 ||

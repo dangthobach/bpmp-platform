@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package bpmp.projection.v1;
 
+import "bpmp/authorization/v1/authorization.proto";
+
 message WorkflowInstanceReadModel {
   string tenant_id = 1;
   string instance_id = 2;
@@ -42,7 +44,143 @@ message ListWorkflowInstancesResponse {
   string next_page_token = 2;
 }
 
+enum LogicalOperator {
+  LOGICAL_OPERATOR_UNSPECIFIED = 0;
+  LOGICAL_OPERATOR_AND = 1;
+  LOGICAL_OPERATOR_OR = 2;
+}
+
+enum ComparisonOperator {
+  COMPARISON_OPERATOR_UNSPECIFIED = 0;
+  COMPARISON_OPERATOR_EQUAL = 1;
+  COMPARISON_OPERATOR_NOT_EQUAL = 2;
+  COMPARISON_OPERATOR_GREATER_THAN = 3;
+  COMPARISON_OPERATOR_GREATER_THAN_OR_EQUAL = 4;
+  COMPARISON_OPERATOR_LESS_THAN = 5;
+  COMPARISON_OPERATOR_LESS_THAN_OR_EQUAL = 6;
+  COMPARISON_OPERATOR_IN = 7;
+  COMPARISON_OPERATOR_NOT_IN = 8;
+  COMPARISON_OPERATOR_CONTAINS = 9;
+  COMPARISON_OPERATOR_STARTS_WITH = 10;
+  COMPARISON_OPERATOR_IS_NULL = 11;
+  COMPARISON_OPERATOR_IS_NOT_NULL = 12;
+}
+
+enum ProcessField {
+  PROCESS_FIELD_UNSPECIFIED = 0;
+  PROCESS_FIELD_INSTANCE_ID = 1;
+  PROCESS_FIELD_WORKFLOW_TYPE = 2;
+  PROCESS_FIELD_WORKFLOW_VERSION = 3;
+  PROCESS_FIELD_STATUS = 4;
+  PROCESS_FIELD_ACTIVE_NODE_ID = 5;
+  PROCESS_FIELD_LAST_EVENT_SEQUENCE = 6;
+  PROCESS_FIELD_STARTED_AT = 7;
+  PROCESS_FIELD_UPDATED_AT = 8;
+  PROCESS_FIELD_COMPLETED_AT = 9;
+  PROCESS_FIELD_DURATION_MS = 10;
+  PROCESS_FIELD_CONFIG_VERSION = 11;
+  PROCESS_FIELD_POLICY_VERSION = 12;
+  PROCESS_FIELD_VERSION = 13;
+}
+
+enum EventField {
+  EVENT_FIELD_UNSPECIFIED = 0;
+  EVENT_FIELD_EVENT_TYPE = 1;
+  EVENT_FIELD_NODE_ID = 2;
+  EVENT_FIELD_ACTOR_ID = 3;
+  EVENT_FIELD_SEQUENCE = 4;
+  EVENT_FIELD_OCCURRED_AT = 5;
+  EVENT_FIELD_CONFIG_VERSION = 6;
+  EVENT_FIELD_POLICY_VERSION = 7;
+}
+
+enum SortDirection {
+  SORT_DIRECTION_UNSPECIFIED = 0;
+  SORT_DIRECTION_ASCENDING = 1;
+  SORT_DIRECTION_DESCENDING = 2;
+}
+
+message QueryValue {
+  oneof value {
+    string string_value = 1;
+    sint64 integer_value = 2;
+    bool boolean_value = 3;
+    uint64 timestamp_epoch_ms = 4;
+  }
+}
+
+message ProcessPredicate {
+  ProcessField field = 1;
+  ComparisonOperator operator = 2;
+  repeated QueryValue values = 3;
+}
+
+message EventPredicate {
+  EventField field = 1;
+  ComparisonOperator operator = 2;
+  repeated QueryValue values = 3;
+}
+
+message EventExpression {
+  oneof expression {
+    EventPredicate predicate = 1;
+    EventExpressionGroup group = 2;
+    EventExpression negated = 3;
+  }
+}
+
+message EventExpressionGroup {
+  LogicalOperator operator = 1;
+  repeated EventExpression expressions = 2;
+}
+
+message EventRelationPredicate {
+  EventExpression expression = 1;
+  bool must_exist = 2;
+}
+
+message ProcessExpression {
+  oneof expression {
+    ProcessPredicate predicate = 1;
+    ProcessExpressionGroup group = 2;
+    ProcessExpression negated = 3;
+    EventRelationPredicate event_relation = 4;
+  }
+}
+
+message ProcessExpressionGroup {
+  LogicalOperator operator = 1;
+  repeated ProcessExpression expressions = 2;
+}
+
+message ProcessSort {
+  ProcessField field = 1;
+  SortDirection direction = 2;
+}
+
+message QueryCompletedProcessesRequest {
+  string tenant_id = 1;
+  ProcessExpression filter = 2;
+  repeated ProcessSort sort = 3;
+  bool include_deleted = 4;
+  uint32 page_size = 5;
+  string page_token = 6;
+  bpmp.authorization.v1.ActorProof actor_proof = 7;
+}
+
+message CompletedProcessReadModel {
+  WorkflowInstanceReadModel instance = 1;
+  uint64 duration_ms = 2;
+  uint64 event_count = 3;
+}
+
+message QueryCompletedProcessesResponse {
+  repeated CompletedProcessReadModel processes = 1;
+  string next_page_token = 2;
+}
+
 service ProjectionQueryService {
   rpc GetWorkflowInstance(GetWorkflowInstanceRequest) returns (GetWorkflowInstanceResponse);
   rpc ListWorkflowInstances(ListWorkflowInstancesRequest) returns (ListWorkflowInstancesResponse);
+  rpc QueryCompletedProcesses(QueryCompletedProcessesRequest) returns (QueryCompletedProcessesResponse);
 }

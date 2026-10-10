@@ -281,7 +281,7 @@ try {
         -Method Get `
         -Uri "https://localhost:$gatewayPort/openapi/v1.json"
     if ($openAPI.openapi -ne "3.1.0" -or
-        @($openAPI.paths.PSObject.Properties).Count -ne 16) {
+        @($openAPI.paths.PSObject.Properties).Count -ne 17) {
         throw "API Gateway OpenAPI contract is unavailable or incomplete"
     }
     $apiReference = Invoke-WebRequest `
@@ -708,6 +708,43 @@ url = "https://localhost:$cockpitGatewayPort/realtime/v1/events?names=workflow.c
     $projectionInboxCount = [int](Invoke-Compose exec -T postgres psql -U $settings.POSTGRES_USER -d $settings.POSTGRES_DB -Atc "SELECT count(*) FROM projection.projection_event_inbox WHERE tenant_id='$tenantId' AND instance_id='$instance'").Trim()
     if ($projectionInboxCount -lt 3) {
         throw "projection inbox does not contain the committed workflow lifecycle"
+    }
+
+    $completedQuery = @{
+        filter = @{
+            group = @{
+                operator = "LOGICAL_OPERATOR_AND"
+                expressions = @(
+                    @{ predicate = @{
+                        field = "PROCESS_FIELD_INSTANCE_ID"
+                        operator = "COMPARISON_OPERATOR_EQUAL"
+                        values = @(@{ string_value = $instance })
+                    } },
+                    @{ event_relation = @{
+                        must_exist = $true
+                        expression = @{ predicate = @{
+                            field = "EVENT_FIELD_EVENT_TYPE"
+                            operator = "COMPARISON_OPERATOR_EQUAL"
+                            values = @(@{ string_value = "user_task_completed" })
+                        } }
+                    } }
+                )
+            }
+        }
+        sort = @(@{
+            field = "PROCESS_FIELD_COMPLETED_AT"
+            direction = "SORT_DIRECTION_DESCENDING"
+        })
+        page_size = 10
+    } | ConvertTo-Json -Depth 12 -Compress
+    $completedPage = Invoke-JsonRequestEventually `
+        -Path "/v1/process-instances/completed/query" `
+        -Headers $completeHeaders `
+        -Body $completedQuery
+    if (@($completedPage.processes).Count -ne 1 -or
+        $completedPage.processes[0].instance.instance_id -ne $instance -or
+        $completedPage.processes[0].event_count -lt 3) {
+        throw "completed process dynamic query did not return the projected instance"
     }
 
     Write-Host "Broker-backed E2E passed with Projection, Governance and leader failover: config=$($configuration.id) governance=$governanceRequestId instance=$instance work_item=$workItem human_inbox=$inboxCount projection_inbox=$projectionInboxCount"

@@ -368,6 +368,8 @@ services:
         condition: service_healthy
       human-runtime:
         condition: service_healthy
+      projection-service:
+        condition: service_healthy
       engine2:
         condition: service_started
       configuration-service:

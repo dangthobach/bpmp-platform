@@ -34,7 +34,13 @@ func (p *Provider) Policy(tenantID string) (application.RuntimePolicy, error) {
 		value.GetQueryMaxPageSize() < value.GetQueryDefaultPageSize() ||
 		value.GetRealtimePublishBatchSize() == 0 ||
 		value.GetCheckpointFlushMs() == 0 ||
-		value.GetMaxProjectionLagMs() == 0 {
+		value.GetMaxProjectionLagMs() == 0 ||
+		value.GetQueryMaxFilterDepth() == 0 ||
+		value.GetQueryMaxPredicates() == 0 ||
+		value.GetQueryMaxSortFields() == 0 ||
+		value.GetQueryMaxInValues() == 0 ||
+		value.GetQueryTimeoutMs() == 0 ||
+		value.GetQueryMaxStringBytes() == 0 {
 		return application.RuntimePolicy{}, errors.New("projection runtime policy is invalid")
 	}
 	return application.RuntimePolicy{
@@ -45,6 +51,13 @@ func (p *Provider) Policy(tenantID string) (application.RuntimePolicy, error) {
 		RealtimePublishBatchSize: int(value.GetRealtimePublishBatchSize()),
 		CheckpointFlush:          time.Duration(value.GetCheckpointFlushMs()) * time.Millisecond,
 		MaxProjectionLag:         time.Duration(value.GetMaxProjectionLagMs()) * time.Millisecond,
+		QueryMaxFilterDepth:      value.GetQueryMaxFilterDepth(),
+		QueryMaxPredicates:       value.GetQueryMaxPredicates(),
+		QueryMaxSortFields:       value.GetQueryMaxSortFields(),
+		QueryMaxRelationJoins:    value.GetQueryMaxRelationJoins(),
+		QueryMaxInValues:         value.GetQueryMaxInValues(),
+		QueryTimeout:             time.Duration(value.GetQueryTimeoutMs()) * time.Millisecond,
+		QueryMaxStringBytes:      value.GetQueryMaxStringBytes(),
 	}, nil
 }
 

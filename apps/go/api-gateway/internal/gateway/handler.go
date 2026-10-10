@@ -17,12 +17,17 @@ import (
 	authv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/authorization/v1"
 	enginev1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/engine/v1"
 	humanv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/human/v1"
+	projectionv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/projection/v1"
 	"github.com/dangthobach/bpmp-platform/go/platform/requestmeta"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 type Handler struct {
 	engine             ports.Engine
 	human              ports.HumanRuntime
+	projection         ports.Projection
 	verifier           *verifier
 	workload           *workloadSigner
 	limiter            ports.RateLimiter
@@ -72,11 +77,15 @@ type dynamicRateLimiter interface {
 func NewWithPolicy(
 	engine ports.Engine,
 	human ports.HumanRuntime,
+	projection ports.Projection,
 	limiter ports.RateLimiter,
 	configurationClient httpDoer,
 	value config.Config,
 	policyProvider PolicyProvider,
 ) (*Handler, error) {
+	if projection == nil {
+		return nil, errors.New("projection client is required")
+	}
 	identity, err := newVerifier(value.Identity)
 	if err != nil {
 		return nil, err
@@ -96,6 +105,7 @@ func NewWithPolicy(
 	if err != nil {
 		return nil, err
 	}
+	handler.projection = projection
 	handler.configurationProxy, err = newConfigurationProxy(
 		configurationClient,
 		value.ConfigurationURL,
@@ -163,6 +173,7 @@ var publicOperationDefinitions = []publicOperationDefinition{
 	{PublicOperation{http.MethodPost, "/v1/work-items/{workItemID}/delegate", "delegateWorkItem"}, (*Handler).delegateWorkItem, false},
 	{PublicOperation{http.MethodGet, "/v1/cases/{caseID}", "getCase"}, (*Handler).getCase, false},
 	{PublicOperation{http.MethodGet, "/v1/audit-records", "listAuditRecords"}, (*Handler).listAuditRecords, false},
+	{PublicOperation{http.MethodPost, "/v1/process-instances/completed/query", "queryCompletedProcesses"}, (*Handler).queryCompletedProcesses, false},
 	{PublicOperation{http.MethodGet, "/v1/configuration/profiles", "listConfigurationProfiles"}, (*Handler).configuration, true},
 	{PublicOperation{http.MethodPost, "/v1/configuration/profiles", "createConfigurationProfile"}, (*Handler).configuration, true},
 	{PublicOperation{http.MethodGet, "/v1/configuration/profiles/{profileID}", "getConfigurationProfile"}, (*Handler).configuration, true},
@@ -172,6 +183,39 @@ var publicOperationDefinitions = []publicOperationDefinition{
 	{PublicOperation{http.MethodPost, "/v1/configuration/profiles/{profileID}/versions/{versionID}/restore", "restoreConfigurationVersion"}, (*Handler).configuration, true},
 	{PublicOperation{http.MethodPost, "/v1/configuration/profiles/{profileID}/retire", "retireConfigurationProfile"}, (*Handler).configuration, true},
 	{PublicOperation{http.MethodGet, "/v1/configuration/profiles/{profileID}/diff", "diffConfigurationVersions"}, (*Handler).configuration, true},
+}
+
+func (h *Handler) queryCompletedProcesses(w http.ResponseWriter, r *http.Request) {
+	setCorrelationHeader(w, r)
+	scope, err := h.authenticateQuery(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if h.projection == nil {
+		writeError(w, errUpstream)
+		return
+	}
+	request := &projectionv1.QueryCompletedProcessesRequest{}
+	if err = decodeProtoBody(w, r, request, scope.runtimePolicy.MaxRequestBodyBytes); err != nil {
+		writeError(w, errInvalid)
+		return
+	}
+	request.TenantId = scope.tenantID
+	request.ActorProof = actorProof(scope)
+	response, err := invokeUpstream(h, upstreamContext(r, scope), scope, projectionDependency,
+		func(ctx context.Context) (*projectionv1.QueryCompletedProcessesResponse, error) {
+			return h.projection.QueryCompletedProcesses(ctx, request)
+		})
+	if err != nil {
+		if status.Code(err) == codes.InvalidArgument {
+			writeError(w, errInvalid)
+			return
+		}
+		writeError(w, errUpstream)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 type browserConfigurationResponse struct {
@@ -542,6 +586,15 @@ func decodeBody(w http.ResponseWriter, r *http.Request, target any, max int64) e
 		return errors.New("request body must contain exactly one JSON value")
 	}
 	return nil
+}
+
+func decodeProtoBody(w http.ResponseWriter, r *http.Request, target *projectionv1.QueryCompletedProcessesRequest, max int64) error {
+	r.Body = http.MaxBytesReader(w, r.Body, max)
+	data, err := io.ReadAll(r.Body)
+	if err != nil {
+		return err
+	}
+	return (protojson.UnmarshalOptions{DiscardUnknown: false}).Unmarshal(data, target)
 }
 func validID(value string) bool {
 	return requestmeta.ValidID(value)

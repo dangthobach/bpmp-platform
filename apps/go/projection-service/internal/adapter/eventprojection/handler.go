@@ -47,7 +47,10 @@ func (h *Handler) Handle(ctx context.Context, record *kgo.Record) error {
 
 func mapEvent(envelope *enginev1.EventEnvelope) (application.InstanceEvent, error) {
 	metadata := envelope.GetMetadata()
-	if metadata == nil || metadata.GetOccurredAtEpochMs() > uint64(^uint64(0)>>1) {
+	eventField := envelope.ProtoReflect().WhichOneof(
+		envelope.ProtoReflect().Descriptor().Oneofs().ByName("event"),
+	)
+	if metadata == nil || eventField == nil || metadata.GetOccurredAtEpochMs() > uint64(^uint64(0)>>1) {
 		return application.InstanceEvent{}, application.ErrInvalidEvent
 	}
 	event := application.InstanceEvent{
@@ -60,6 +63,8 @@ func mapEvent(envelope *enginev1.EventEnvelope) (application.InstanceEvent, erro
 		OccurredAt:      time.UnixMilli(int64(metadata.GetOccurredAtEpochMs())).UTC(),
 		ConfigVersion:   metadata.GetConfigVersion(),
 		PolicyVersion:   metadata.GetPolicyVersion(),
+		EventType:       string(eventField.Name()),
+		ActorID:         metadata.GetActorId(),
 		Kind:            application.EventProgress,
 	}
 	switch value := envelope.GetEvent().(type) {
@@ -69,12 +74,46 @@ func mapEvent(envelope *enginev1.EventEnvelope) (application.InstanceEvent, erro
 	case *enginev1.EventEnvelope_ServiceTaskActivated:
 		event.Kind = application.EventNodeActivated
 		event.NodeID = value.ServiceTaskActivated.GetNodeId()
+	case *enginev1.EventEnvelope_ServiceTaskCompleted:
+		event.NodeID = value.ServiceTaskCompleted.GetNodeId()
 	case *enginev1.EventEnvelope_UserTaskActivated:
 		event.Kind = application.EventNodeActivated
 		event.NodeID = value.UserTaskActivated.GetNodeId()
+	case *enginev1.EventEnvelope_UserTaskCompleted:
+		event.NodeID = value.UserTaskCompleted.GetNodeId()
 	case *enginev1.EventEnvelope_ScriptTaskActivated:
 		event.Kind = application.EventNodeActivated
 		event.NodeID = value.ScriptTaskActivated.GetNodeId()
+	case *enginev1.EventEnvelope_ScriptTaskCompleted:
+		event.NodeID = value.ScriptTaskCompleted.GetNodeId()
+	case *enginev1.EventEnvelope_DecisionTaskEvaluated:
+		event.NodeID = value.DecisionTaskEvaluated.GetNodeId()
+	case *enginev1.EventEnvelope_GatewaySplitActivated:
+		event.NodeID = value.GatewaySplitActivated.GetGatewayId()
+	case *enginev1.EventEnvelope_GatewayTokenArrived:
+		event.NodeID = value.GatewayTokenArrived.GetGatewayId()
+	case *enginev1.EventEnvelope_GatewayJoined:
+		event.NodeID = value.GatewayJoined.GetGatewayId()
+	case *enginev1.EventEnvelope_MultiInstanceStarted:
+		event.NodeID = value.MultiInstanceStarted.GetNodeId()
+	case *enginev1.EventEnvelope_MultiInstanceIterationActivated:
+		event.NodeID = value.MultiInstanceIterationActivated.GetNodeId()
+	case *enginev1.EventEnvelope_MultiInstanceIterationCompleted:
+		event.NodeID = value.MultiInstanceIterationCompleted.GetNodeId()
+	case *enginev1.EventEnvelope_MultiInstanceCompleted:
+		event.NodeID = value.MultiInstanceCompleted.GetNodeId()
+	case *enginev1.EventEnvelope_BoundaryEventTriggered:
+		event.NodeID = value.BoundaryEventTriggered.GetBoundaryEventId()
+	case *enginev1.EventEnvelope_BoundaryEventArmed:
+		event.NodeID = value.BoundaryEventArmed.GetBoundaryEventId()
+	case *enginev1.EventEnvelope_ScopeEntered:
+		event.NodeID = value.ScopeEntered.GetScopeNodeId()
+	case *enginev1.EventEnvelope_ScopeCompleted:
+		event.NodeID = value.ScopeCompleted.GetScopeNodeId()
+	case *enginev1.EventEnvelope_UserTaskCancelled:
+		event.NodeID = value.UserTaskCancelled.GetNodeId()
+	case *enginev1.EventEnvelope_CasePlanItemTransitioned:
+		event.NodeID = value.CasePlanItemTransitioned.GetPlanItemId()
 	case *enginev1.EventEnvelope_CaseActivated:
 		event.Kind = application.EventStarted
 		event.NodeID = value.CaseActivated.GetCaseId()

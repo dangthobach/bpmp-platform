@@ -5,6 +5,7 @@ import (
 
 	enginev1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/engine/v1"
 	humanv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/human/v1"
+	projectionv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/projection/v1"
 	"google.golang.org/grpc"
 )
 
@@ -19,6 +20,10 @@ type HumanRuntime interface {
 	DelegateWorkItem(context.Context, *humanv1.DelegateWorkItemRequest, ...grpc.CallOption) (*humanv1.DelegateWorkItemResponse, error)
 	GetCase(context.Context, *humanv1.GetCaseRequest, ...grpc.CallOption) (*humanv1.GetCaseResponse, error)
 	ListAuditRecords(context.Context, *humanv1.ListAuditRecordsRequest, ...grpc.CallOption) (*humanv1.ListAuditRecordsResponse, error)
+}
+
+type Projection interface {
+	QueryCompletedProcesses(context.Context, *projectionv1.QueryCompletedProcessesRequest, ...grpc.CallOption) (*projectionv1.QueryCompletedProcessesResponse, error)
 }
 
 type RateLimiter interface {

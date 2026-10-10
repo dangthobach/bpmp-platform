@@ -42,6 +42,8 @@ const CONFIGURATION_OUTBOX_OBSERVABILITY_MIGRATION: &str = include_str!(
 );
 const PROJECTION_MIGRATION: &str =
     include_str!("../../../db/projection-service/migrations/001_projection.sql");
+const PROJECTION_QUERY_MIGRATION: &str =
+    include_str!("../../../db/projection-service/migrations/002_completed_process_query.sql");
 const GOVERNANCE_MIGRATION: &str =
     include_str!("../../../db/governance-service/migrations/001_governance.sql");
 
@@ -341,7 +343,10 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
     )?;
     write(
         &output.join("projection-service.sql"),
-        schema_migration("projection", PROJECTION_MIGRATION),
+        schema_migration(
+            "projection",
+            &format!("{PROJECTION_MIGRATION}\n{PROJECTION_QUERY_MIGRATION}"),
+        ),
     )?;
     write(
         &output.join("governance-service.sql"),
@@ -696,9 +701,10 @@ fn gateway_config(manifest: &Manifest, mount: &str, workload: &AuthKey) -> Value
     json!({
         "listen_address": manifest.gateway_listen_address,
         "engine_address": manifest.engine_public_addresses[1], "human_address": manifest.human_address,
+        "projection_address": manifest.projection_listen_address,
         "configuration_url": manifest.configuration_url,
         "public_tls": {"certificate": path("secrets/tls.pem"), "private_key": path("secrets/tls-key.pem")},
-        "upstream_tls": {"certificate": path("secrets/tls.pem"), "private_key": path("secrets/tls-key.pem"), "ca": path("secrets/ca.pem"), "engine_server_name": "engine2", "human_server_name": "human-runtime", "configuration_server_name": "configuration-service"},
+        "upstream_tls": {"certificate": path("secrets/tls.pem"), "private_key": path("secrets/tls-key.pem"), "ca": path("secrets/ca.pem"), "engine_server_name": "engine2", "human_server_name": "human-runtime", "projection_server_name": "projection-service", "configuration_server_name": "configuration-service"},
         "identity": {"jwks_path": path("jwks.json"), "issuers": [manifest.actor_issuer], "audiences": [manifest.actor_audience], "algorithms": ["EdDSA"], "max_token_bytes": 16384, "max_jwks_keys": 16, "clock_skew_seconds": 30},
         "workload": {"id": "api-gateway", "signing_key_id": workload.id, "private_key_path": path(&workload.private_path), "proof_ttl_ms": 60000},
         "rate_limit": {"redis_address": manifest.redis_address, "redis_username": "", "redis_password_file": "", "redis_database": 0, "redis_key_prefix": "bpmp:e2e", "operation_timeout_ms": 1000},
@@ -759,6 +765,7 @@ fn projection_config(manifest: &Manifest, mount: &str, tls_fingerprint: &str) ->
             "authorized_methods": [
                 "/bpmp.projection.v1.ProjectionQueryService/GetWorkflowInstance",
                 "/bpmp.projection.v1.ProjectionQueryService/ListWorkflowInstances",
+                "/bpmp.projection.v1.ProjectionQueryService/QueryCompletedProcesses",
                 "/grpc.reflection.v1.ServerReflection/ServerReflectionInfo",
                 "/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo"
             ],
@@ -1315,7 +1322,14 @@ fn seeded_configuration_policies(
                 "query_max_page_size": 200,
                 "realtime_publish_batch_size": 64,
                 "checkpoint_flush_ms": "1000",
-                "max_projection_lag_ms": "30000"
+                "max_projection_lag_ms": "30000",
+                "query_max_filter_depth": 8,
+                "query_max_predicates": 32,
+                "query_max_sort_fields": 4,
+                "query_max_relation_joins": 4,
+                "query_max_in_values": 100,
+                "query_timeout_ms": "3000",
+                "query_max_string_bytes": 512
             }),
         ),
         (

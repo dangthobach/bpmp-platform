@@ -23,6 +23,10 @@ func (s *fakeStore) List(_ context.Context, filter ListFilter) ([]Instance, erro
 	return []Instance{{InstanceID: "one"}, {InstanceID: "two"}, {InstanceID: "three"}}, nil
 }
 
+func (s *fakeStore) QueryCompleted(_ context.Context, query ProcessQuery) ([]CompletedProcess, error) {
+	return nil, nil
+}
+
 type fakePolicy struct{ value RuntimePolicy }
 
 func (p fakePolicy) Policy(string) (RuntimePolicy, error) { return p.value, nil }
@@ -52,7 +56,7 @@ func TestEventValidationRejectsIncompleteDurableMetadata(t *testing.T) {
 		EventID: "event-1", TenantID: "tenant-a", InstanceID: "instance-1",
 		WorkflowType: "approval", WorkflowVersion: "1", Sequence: 1,
 		OccurredAt: time.UnixMilli(1), ConfigVersion: "config-v1",
-		PolicyVersion: "policy-v1", Kind: EventStarted,
+		PolicyVersion: "policy-v1", EventType: "workflow_started", Kind: EventStarted,
 	}
 	if err := event.Validate(); err != nil {
 		t.Fatal(err)

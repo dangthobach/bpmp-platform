@@ -65,4 +65,361 @@ pub struct ListWorkflowInstancesResponse {
     #[prost(string, tag="2")]
     pub next_page_token: ::prost::alloc::string::String,
 }
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct QueryValue {
+    #[prost(oneof="query_value::Value", tags="1, 2, 3, 4")]
+    pub value: ::core::option::Option<query_value::Value>,
+}
+/// Nested message and enum types in `QueryValue`.
+pub mod query_value {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum Value {
+        #[prost(string, tag="1")]
+        StringValue(::prost::alloc::string::String),
+        #[prost(sint64, tag="2")]
+        IntegerValue(i64),
+        #[prost(bool, tag="3")]
+        BooleanValue(bool),
+        #[prost(uint64, tag="4")]
+        TimestampEpochMs(u64),
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ProcessPredicate {
+    #[prost(enumeration="ProcessField", tag="1")]
+    pub field: i32,
+    #[prost(enumeration="ComparisonOperator", tag="2")]
+    pub operator: i32,
+    #[prost(message, repeated, tag="3")]
+    pub values: ::prost::alloc::vec::Vec<QueryValue>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EventPredicate {
+    #[prost(enumeration="EventField", tag="1")]
+    pub field: i32,
+    #[prost(enumeration="ComparisonOperator", tag="2")]
+    pub operator: i32,
+    #[prost(message, repeated, tag="3")]
+    pub values: ::prost::alloc::vec::Vec<QueryValue>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EventExpression {
+    #[prost(oneof="event_expression::Expression", tags="1, 2, 3")]
+    pub expression: ::core::option::Option<event_expression::Expression>,
+}
+/// Nested message and enum types in `EventExpression`.
+pub mod event_expression {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Expression {
+        #[prost(message, tag="1")]
+        Predicate(super::EventPredicate),
+        #[prost(message, tag="2")]
+        Group(super::EventExpressionGroup),
+        #[prost(message, tag="3")]
+        Negated(::prost::alloc::boxed::Box<super::EventExpression>),
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EventExpressionGroup {
+    #[prost(enumeration="LogicalOperator", tag="1")]
+    pub operator: i32,
+    #[prost(message, repeated, tag="2")]
+    pub expressions: ::prost::alloc::vec::Vec<EventExpression>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EventRelationPredicate {
+    #[prost(message, optional, tag="1")]
+    pub expression: ::core::option::Option<EventExpression>,
+    #[prost(bool, tag="2")]
+    pub must_exist: bool,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ProcessExpression {
+    #[prost(oneof="process_expression::Expression", tags="1, 2, 3, 4")]
+    pub expression: ::core::option::Option<process_expression::Expression>,
+}
+/// Nested message and enum types in `ProcessExpression`.
+pub mod process_expression {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Expression {
+        #[prost(message, tag="1")]
+        Predicate(super::ProcessPredicate),
+        #[prost(message, tag="2")]
+        Group(super::ProcessExpressionGroup),
+        #[prost(message, tag="3")]
+        Negated(::prost::alloc::boxed::Box<super::ProcessExpression>),
+        #[prost(message, tag="4")]
+        EventRelation(super::EventRelationPredicate),
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ProcessExpressionGroup {
+    #[prost(enumeration="LogicalOperator", tag="1")]
+    pub operator: i32,
+    #[prost(message, repeated, tag="2")]
+    pub expressions: ::prost::alloc::vec::Vec<ProcessExpression>,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ProcessSort {
+    #[prost(enumeration="ProcessField", tag="1")]
+    pub field: i32,
+    #[prost(enumeration="SortDirection", tag="2")]
+    pub direction: i32,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct QueryCompletedProcessesRequest {
+    #[prost(string, tag="1")]
+    pub tenant_id: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="2")]
+    pub filter: ::core::option::Option<ProcessExpression>,
+    #[prost(message, repeated, tag="3")]
+    pub sort: ::prost::alloc::vec::Vec<ProcessSort>,
+    #[prost(bool, tag="4")]
+    pub include_deleted: bool,
+    #[prost(uint32, tag="5")]
+    pub page_size: u32,
+    #[prost(string, tag="6")]
+    pub page_token: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="7")]
+    pub actor_proof: ::core::option::Option<super::super::authorization::v1::ActorProof>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct CompletedProcessReadModel {
+    #[prost(message, optional, tag="1")]
+    pub instance: ::core::option::Option<WorkflowInstanceReadModel>,
+    #[prost(uint64, tag="2")]
+    pub duration_ms: u64,
+    #[prost(uint64, tag="3")]
+    pub event_count: u64,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct QueryCompletedProcessesResponse {
+    #[prost(message, repeated, tag="1")]
+    pub processes: ::prost::alloc::vec::Vec<CompletedProcessReadModel>,
+    #[prost(string, tag="2")]
+    pub next_page_token: ::prost::alloc::string::String,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum LogicalOperator {
+    Unspecified = 0,
+    And = 1,
+    Or = 2,
+}
+impl LogicalOperator {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "LOGICAL_OPERATOR_UNSPECIFIED",
+            Self::And => "LOGICAL_OPERATOR_AND",
+            Self::Or => "LOGICAL_OPERATOR_OR",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "LOGICAL_OPERATOR_UNSPECIFIED" => Some(Self::Unspecified),
+            "LOGICAL_OPERATOR_AND" => Some(Self::And),
+            "LOGICAL_OPERATOR_OR" => Some(Self::Or),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum ComparisonOperator {
+    Unspecified = 0,
+    Equal = 1,
+    NotEqual = 2,
+    GreaterThan = 3,
+    GreaterThanOrEqual = 4,
+    LessThan = 5,
+    LessThanOrEqual = 6,
+    In = 7,
+    NotIn = 8,
+    Contains = 9,
+    StartsWith = 10,
+    IsNull = 11,
+    IsNotNull = 12,
+}
+impl ComparisonOperator {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "COMPARISON_OPERATOR_UNSPECIFIED",
+            Self::Equal => "COMPARISON_OPERATOR_EQUAL",
+            Self::NotEqual => "COMPARISON_OPERATOR_NOT_EQUAL",
+            Self::GreaterThan => "COMPARISON_OPERATOR_GREATER_THAN",
+            Self::GreaterThanOrEqual => "COMPARISON_OPERATOR_GREATER_THAN_OR_EQUAL",
+            Self::LessThan => "COMPARISON_OPERATOR_LESS_THAN",
+            Self::LessThanOrEqual => "COMPARISON_OPERATOR_LESS_THAN_OR_EQUAL",
+            Self::In => "COMPARISON_OPERATOR_IN",
+            Self::NotIn => "COMPARISON_OPERATOR_NOT_IN",
+            Self::Contains => "COMPARISON_OPERATOR_CONTAINS",
+            Self::StartsWith => "COMPARISON_OPERATOR_STARTS_WITH",
+            Self::IsNull => "COMPARISON_OPERATOR_IS_NULL",
+            Self::IsNotNull => "COMPARISON_OPERATOR_IS_NOT_NULL",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "COMPARISON_OPERATOR_UNSPECIFIED" => Some(Self::Unspecified),
+            "COMPARISON_OPERATOR_EQUAL" => Some(Self::Equal),
+            "COMPARISON_OPERATOR_NOT_EQUAL" => Some(Self::NotEqual),
+            "COMPARISON_OPERATOR_GREATER_THAN" => Some(Self::GreaterThan),
+            "COMPARISON_OPERATOR_GREATER_THAN_OR_EQUAL" => Some(Self::GreaterThanOrEqual),
+            "COMPARISON_OPERATOR_LESS_THAN" => Some(Self::LessThan),
+            "COMPARISON_OPERATOR_LESS_THAN_OR_EQUAL" => Some(Self::LessThanOrEqual),
+            "COMPARISON_OPERATOR_IN" => Some(Self::In),
+            "COMPARISON_OPERATOR_NOT_IN" => Some(Self::NotIn),
+            "COMPARISON_OPERATOR_CONTAINS" => Some(Self::Contains),
+            "COMPARISON_OPERATOR_STARTS_WITH" => Some(Self::StartsWith),
+            "COMPARISON_OPERATOR_IS_NULL" => Some(Self::IsNull),
+            "COMPARISON_OPERATOR_IS_NOT_NULL" => Some(Self::IsNotNull),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum ProcessField {
+    Unspecified = 0,
+    InstanceId = 1,
+    WorkflowType = 2,
+    WorkflowVersion = 3,
+    Status = 4,
+    ActiveNodeId = 5,
+    LastEventSequence = 6,
+    StartedAt = 7,
+    UpdatedAt = 8,
+    CompletedAt = 9,
+    DurationMs = 10,
+    ConfigVersion = 11,
+    PolicyVersion = 12,
+    Version = 13,
+}
+impl ProcessField {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "PROCESS_FIELD_UNSPECIFIED",
+            Self::InstanceId => "PROCESS_FIELD_INSTANCE_ID",
+            Self::WorkflowType => "PROCESS_FIELD_WORKFLOW_TYPE",
+            Self::WorkflowVersion => "PROCESS_FIELD_WORKFLOW_VERSION",
+            Self::Status => "PROCESS_FIELD_STATUS",
+            Self::ActiveNodeId => "PROCESS_FIELD_ACTIVE_NODE_ID",
+            Self::LastEventSequence => "PROCESS_FIELD_LAST_EVENT_SEQUENCE",
+            Self::StartedAt => "PROCESS_FIELD_STARTED_AT",
+            Self::UpdatedAt => "PROCESS_FIELD_UPDATED_AT",
+            Self::CompletedAt => "PROCESS_FIELD_COMPLETED_AT",
+            Self::DurationMs => "PROCESS_FIELD_DURATION_MS",
+            Self::ConfigVersion => "PROCESS_FIELD_CONFIG_VERSION",
+            Self::PolicyVersion => "PROCESS_FIELD_POLICY_VERSION",
+            Self::Version => "PROCESS_FIELD_VERSION",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "PROCESS_FIELD_UNSPECIFIED" => Some(Self::Unspecified),
+            "PROCESS_FIELD_INSTANCE_ID" => Some(Self::InstanceId),
+            "PROCESS_FIELD_WORKFLOW_TYPE" => Some(Self::WorkflowType),
+            "PROCESS_FIELD_WORKFLOW_VERSION" => Some(Self::WorkflowVersion),
+            "PROCESS_FIELD_STATUS" => Some(Self::Status),
+            "PROCESS_FIELD_ACTIVE_NODE_ID" => Some(Self::ActiveNodeId),
+            "PROCESS_FIELD_LAST_EVENT_SEQUENCE" => Some(Self::LastEventSequence),
+            "PROCESS_FIELD_STARTED_AT" => Some(Self::StartedAt),
+            "PROCESS_FIELD_UPDATED_AT" => Some(Self::UpdatedAt),
+            "PROCESS_FIELD_COMPLETED_AT" => Some(Self::CompletedAt),
+            "PROCESS_FIELD_DURATION_MS" => Some(Self::DurationMs),
+            "PROCESS_FIELD_CONFIG_VERSION" => Some(Self::ConfigVersion),
+            "PROCESS_FIELD_POLICY_VERSION" => Some(Self::PolicyVersion),
+            "PROCESS_FIELD_VERSION" => Some(Self::Version),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum EventField {
+    Unspecified = 0,
+    EventType = 1,
+    NodeId = 2,
+    ActorId = 3,
+    Sequence = 4,
+    OccurredAt = 5,
+    ConfigVersion = 6,
+    PolicyVersion = 7,
+}
+impl EventField {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "EVENT_FIELD_UNSPECIFIED",
+            Self::EventType => "EVENT_FIELD_EVENT_TYPE",
+            Self::NodeId => "EVENT_FIELD_NODE_ID",
+            Self::ActorId => "EVENT_FIELD_ACTOR_ID",
+            Self::Sequence => "EVENT_FIELD_SEQUENCE",
+            Self::OccurredAt => "EVENT_FIELD_OCCURRED_AT",
+            Self::ConfigVersion => "EVENT_FIELD_CONFIG_VERSION",
+            Self::PolicyVersion => "EVENT_FIELD_POLICY_VERSION",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "EVENT_FIELD_UNSPECIFIED" => Some(Self::Unspecified),
+            "EVENT_FIELD_EVENT_TYPE" => Some(Self::EventType),
+            "EVENT_FIELD_NODE_ID" => Some(Self::NodeId),
+            "EVENT_FIELD_ACTOR_ID" => Some(Self::ActorId),
+            "EVENT_FIELD_SEQUENCE" => Some(Self::Sequence),
+            "EVENT_FIELD_OCCURRED_AT" => Some(Self::OccurredAt),
+            "EVENT_FIELD_CONFIG_VERSION" => Some(Self::ConfigVersion),
+            "EVENT_FIELD_POLICY_VERSION" => Some(Self::PolicyVersion),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum SortDirection {
+    Unspecified = 0,
+    Ascending = 1,
+    Descending = 2,
+}
+impl SortDirection {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "SORT_DIRECTION_UNSPECIFIED",
+            Self::Ascending => "SORT_DIRECTION_ASCENDING",
+            Self::Descending => "SORT_DIRECTION_DESCENDING",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "SORT_DIRECTION_UNSPECIFIED" => Some(Self::Unspecified),
+            "SORT_DIRECTION_ASCENDING" => Some(Self::Ascending),
+            "SORT_DIRECTION_DESCENDING" => Some(Self::Descending),
+            _ => None,
+        }
+    }
+}
 // @@protoc_insertion_point(module)

@@ -32,6 +32,8 @@ type InstanceEvent struct {
 	OccurredAt      time.Time
 	ConfigVersion   string
 	PolicyVersion   string
+	EventType       string
+	ActorID         string
 	Kind            EventKind
 	NodeID          string
 }
@@ -40,6 +42,7 @@ func (e InstanceEvent) Validate() error {
 	if e.EventID == "" || e.TenantID == "" || e.InstanceID == "" ||
 		e.WorkflowType == "" || e.WorkflowVersion == "" || e.Sequence == 0 ||
 		e.OccurredAt.IsZero() || e.ConfigVersion == "" || e.PolicyVersion == "" ||
+		e.EventType == "" ||
 		e.Kind < EventProgress || e.Kind > EventTerminatedForCompliance {
 		return ErrInvalidEvent
 	}
@@ -98,6 +101,7 @@ type Store interface {
 	Apply(context.Context, KafkaPosition, InstanceEvent) (bool, error)
 	Get(context.Context, string, string) (Instance, error)
 	List(context.Context, ListFilter) ([]Instance, error)
+	QueryCompleted(context.Context, ProcessQuery) ([]CompletedProcess, error)
 }
 
 type RuntimePolicy struct {
@@ -108,6 +112,13 @@ type RuntimePolicy struct {
 	RealtimePublishBatchSize int
 	CheckpointFlush          time.Duration
 	MaxProjectionLag         time.Duration
+	QueryMaxFilterDepth      uint32
+	QueryMaxPredicates       uint32
+	QueryMaxSortFields       uint32
+	QueryMaxRelationJoins    uint32
+	QueryMaxInValues         uint32
+	QueryTimeout             time.Duration
+	QueryMaxStringBytes      uint32
 }
 
 type RuntimePolicyProvider interface {

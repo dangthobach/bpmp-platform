@@ -3,7 +3,7 @@
   "info": {
     "title": "BPMP Platform Public API",
     "version": "1.0.0",
-    "description": "Authoritative public HTTP contract for workflow commands, human work, audit queries, and runtime configuration lifecycle.",
+    "description": "Authoritative public HTTP contract for workflow commands, human work, completed-process queries, audit queries, and runtime configuration lifecycle.",
     "license": {"name": "Apache-2.0", "identifier": "Apache-2.0"}
   },
   "servers": [{"url": "/"}],
@@ -11,6 +11,7 @@
   "tags": [
     {"name": "Workflow", "description": "Authoritative workflow commands."},
     {"name": "Human Work", "description": "Human work-item and case operations."},
+    {"name": "Process Query", "description": "Bounded typed queries over completed process projections."},
     {"name": "Audit", "description": "Immutable audit queries."},
     {"name": "Configuration", "description": "Versioned runtime-configuration lifecycle."}
   ],
@@ -163,6 +164,23 @@
         }
       }
     },
+    "/v1/process-instances/completed/query": {
+      "parameters": [{"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"}],
+      "post": {
+        "summary": "Query completed process projections",
+        "description": "Executes a tenant-scoped typed filter tree with stable multi-field keyset pagination. Raw SQL and arbitrary field names are not accepted.",
+        "operationId": "queryCompletedProcesses",
+        "tags": ["Process Query"],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CompletedProcessQuery"}}}},
+        "responses": {
+          "200": {"description": "Completed process page", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CompletedProcessQueryResponse"}}}},
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "502": {"$ref": "#/components/responses/UpstreamUnavailable"}
+        }
+      }
+    },
     "/v1/configuration/profiles": {
       "parameters": [{"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"}],
       "get": {
@@ -289,6 +307,37 @@
 	},
     "schemas": {
       "Identifier": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9_.:-]+$"},
+      "QueryValue": {
+        "oneOf": [
+          {"type": "object", "additionalProperties": false, "required": ["string_value"], "properties": {"string_value": {"type": "string"}}},
+          {"type": "object", "additionalProperties": false, "required": ["integer_value"], "properties": {"integer_value": {"type": "integer", "format": "int64"}}},
+          {"type": "object", "additionalProperties": false, "required": ["boolean_value"], "properties": {"boolean_value": {"type": "boolean"}}},
+          {"type": "object", "additionalProperties": false, "required": ["timestamp_epoch_ms"], "properties": {"timestamp_epoch_ms": {"type": "integer", "format": "uint64", "minimum": 1}}}
+        ]
+      },
+      "ComparisonOperator": {"type": "string", "enum": ["COMPARISON_OPERATOR_EQUAL", "COMPARISON_OPERATOR_NOT_EQUAL", "COMPARISON_OPERATOR_GREATER_THAN", "COMPARISON_OPERATOR_GREATER_THAN_OR_EQUAL", "COMPARISON_OPERATOR_LESS_THAN", "COMPARISON_OPERATOR_LESS_THAN_OR_EQUAL", "COMPARISON_OPERATOR_IN", "COMPARISON_OPERATOR_NOT_IN", "COMPARISON_OPERATOR_CONTAINS", "COMPARISON_OPERATOR_STARTS_WITH", "COMPARISON_OPERATOR_IS_NULL", "COMPARISON_OPERATOR_IS_NOT_NULL"]},
+      "ProcessField": {"type": "string", "enum": ["PROCESS_FIELD_INSTANCE_ID", "PROCESS_FIELD_WORKFLOW_TYPE", "PROCESS_FIELD_WORKFLOW_VERSION", "PROCESS_FIELD_STATUS", "PROCESS_FIELD_ACTIVE_NODE_ID", "PROCESS_FIELD_LAST_EVENT_SEQUENCE", "PROCESS_FIELD_STARTED_AT", "PROCESS_FIELD_UPDATED_AT", "PROCESS_FIELD_COMPLETED_AT", "PROCESS_FIELD_DURATION_MS", "PROCESS_FIELD_CONFIG_VERSION", "PROCESS_FIELD_POLICY_VERSION", "PROCESS_FIELD_VERSION"]},
+      "EventField": {"type": "string", "enum": ["EVENT_FIELD_EVENT_TYPE", "EVENT_FIELD_NODE_ID", "EVENT_FIELD_ACTOR_ID", "EVENT_FIELD_SEQUENCE", "EVENT_FIELD_OCCURRED_AT", "EVENT_FIELD_CONFIG_VERSION", "EVENT_FIELD_POLICY_VERSION"]},
+      "ProcessPredicate": {"type": "object", "additionalProperties": false, "required": ["field", "operator"], "properties": {"field": {"$ref": "#/components/schemas/ProcessField"}, "operator": {"$ref": "#/components/schemas/ComparisonOperator"}, "values": {"type": "array", "items": {"$ref": "#/components/schemas/QueryValue"}}}},
+      "EventPredicate": {"type": "object", "additionalProperties": false, "required": ["field", "operator"], "properties": {"field": {"$ref": "#/components/schemas/EventField"}, "operator": {"$ref": "#/components/schemas/ComparisonOperator"}, "values": {"type": "array", "items": {"$ref": "#/components/schemas/QueryValue"}}}},
+      "EventExpression": {
+        "oneOf": [
+          {"type": "object", "required": ["predicate"], "properties": {"predicate": {"$ref": "#/components/schemas/EventPredicate"}}},
+          {"type": "object", "required": ["group"], "properties": {"group": {"type": "object", "required": ["operator", "expressions"], "properties": {"operator": {"type": "string", "enum": ["LOGICAL_OPERATOR_AND", "LOGICAL_OPERATOR_OR"]}, "expressions": {"type": "array", "minItems": 2, "items": {"$ref": "#/components/schemas/EventExpression"}}}}}},
+          {"type": "object", "required": ["negated"], "properties": {"negated": {"$ref": "#/components/schemas/EventExpression"}}}
+        ]
+      },
+      "ProcessExpression": {
+        "oneOf": [
+          {"type": "object", "required": ["predicate"], "properties": {"predicate": {"$ref": "#/components/schemas/ProcessPredicate"}}},
+          {"type": "object", "required": ["group"], "properties": {"group": {"type": "object", "required": ["operator", "expressions"], "properties": {"operator": {"type": "string", "enum": ["LOGICAL_OPERATOR_AND", "LOGICAL_OPERATOR_OR"]}, "expressions": {"type": "array", "minItems": 2, "items": {"$ref": "#/components/schemas/ProcessExpression"}}}}}},
+          {"type": "object", "required": ["negated"], "properties": {"negated": {"$ref": "#/components/schemas/ProcessExpression"}}},
+          {"type": "object", "required": ["event_relation"], "properties": {"event_relation": {"type": "object", "required": ["expression", "must_exist"], "properties": {"expression": {"$ref": "#/components/schemas/EventExpression"}, "must_exist": {"type": "boolean"}}}}}
+        ]
+      },
+      "CompletedProcessQuery": {"type": "object", "additionalProperties": false, "properties": {"filter": {"$ref": "#/components/schemas/ProcessExpression"}, "sort": {"type": "array", "items": {"type": "object", "required": ["field", "direction"], "properties": {"field": {"$ref": "#/components/schemas/ProcessField"}, "direction": {"type": "string", "enum": ["SORT_DIRECTION_ASCENDING", "SORT_DIRECTION_DESCENDING"]}}}}, "include_deleted": {"type": "boolean"}, "page_size": {"type": "integer", "minimum": 1}, "page_token": {"type": "string"}}},
+      "WorkflowInstanceReadModel": {"type": "object", "additionalProperties": false, "required": ["tenant_id", "instance_id", "workflow_type", "workflow_version", "status", "last_event_sequence", "started_at_epoch_ms", "updated_at_epoch_ms", "completed_at_epoch_ms", "config_version", "policy_version", "version"], "properties": {"tenant_id": {"$ref": "#/components/schemas/Identifier"}, "instance_id": {"$ref": "#/components/schemas/Identifier"}, "workflow_type": {"type": "string"}, "workflow_version": {"type": "string"}, "status": {"type": "string"}, "active_node_id": {"type": "string"}, "last_event_sequence": {"type": "integer", "format": "uint64"}, "started_at_epoch_ms": {"type": "integer", "format": "uint64"}, "updated_at_epoch_ms": {"type": "integer", "format": "uint64"}, "completed_at_epoch_ms": {"type": "integer", "format": "uint64"}, "config_version": {"type": "string"}, "policy_version": {"type": "string"}, "is_deleted": {"type": "boolean"}, "version": {"type": "integer", "format": "uint64"}}},
+      "CompletedProcessQueryResponse": {"type": "object", "additionalProperties": false, "properties": {"processes": {"type": "array", "items": {"type": "object", "required": ["instance", "duration_ms", "event_count"], "properties": {"instance": {"$ref": "#/components/schemas/WorkflowInstanceReadModel"}, "duration_ms": {"type": "integer", "format": "uint64"}, "event_count": {"type": "integer", "format": "uint64"}}}}, "next_page_token": {"type": "string"}}},
       "BrowserConfiguration": {
         "type": "object",
         "additionalProperties": false,

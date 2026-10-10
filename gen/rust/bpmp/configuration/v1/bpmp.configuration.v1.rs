@@ -209,6 +209,20 @@ pub struct ProjectionPolicy {
     pub checkpoint_flush_ms: u64,
     #[prost(uint64, tag="7")]
     pub max_projection_lag_ms: u64,
+    #[prost(uint32, tag="8")]
+    pub query_max_filter_depth: u32,
+    #[prost(uint32, tag="9")]
+    pub query_max_predicates: u32,
+    #[prost(uint32, tag="10")]
+    pub query_max_sort_fields: u32,
+    #[prost(uint32, tag="11")]
+    pub query_max_relation_joins: u32,
+    #[prost(uint32, tag="12")]
+    pub query_max_in_values: u32,
+    #[prost(uint64, tag="13")]
+    pub query_timeout_ms: u64,
+    #[prost(uint32, tag="14")]
+    pub query_max_string_bytes: u32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GovernancePolicy {

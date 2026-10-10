@@ -17,6 +17,7 @@ var errCircuitOpen = errors.New("upstream circuit is open")
 const (
 	engineDependency        = "engine"
 	humanDependency         = "human-runtime"
+	projectionDependency    = "projection-service"
 	configurationDependency = "configuration-service"
 )
 

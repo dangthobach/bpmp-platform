@@ -29,6 +29,7 @@ import (
 	configurationv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/configuration/v1"
 	enginev1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/engine/v1"
 	humanv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/human/v1"
+	projectionv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/projection/v1"
 	platformhealth "github.com/dangthobach/bpmp-platform/go/platform/health"
 	"github.com/dangthobach/bpmp-platform/go/platform/requestmeta"
 	"github.com/dangthobach/bpmp-platform/go/platform/runtimeconfig"
@@ -91,6 +92,11 @@ func run(path string) error {
 		return err
 	}
 	defer humanConn.Close()
+	projectionConn, err := grpc.NewClient(value.ProjectionAddress, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, ServerName: value.UpstreamTLS.ProjectionServerName, RootCAs: roots, Certificates: []tls.Certificate{clientCertificate}})), grpc.WithUnaryInterceptor(requestmeta.UnaryClientInterceptor()), grpc.WithStreamInterceptor(requestmeta.StreamClientInterceptor()), grpc.WithStatsHandler(platformtelemetry.GRPCClientStatsHandler()), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(value.GRPC.MaxReceiveBytes), grpc.MaxCallSendMsgSize(value.GRPC.MaxSendBytes)))
+	if err != nil {
+		return err
+	}
+	defer projectionConn.Close()
 	configurationConn, err := grpc.NewClient(
 		value.RuntimeConfig.ResolverAddress,
 		grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
@@ -188,6 +194,7 @@ func run(path string) error {
 	handler, err := gateway.NewWithPolicy(
 		enginev1.NewEngineCommandServiceClient(engineConn),
 		humanv1.NewHumanRuntimeServiceClient(humanConn),
+		projectionv1.NewProjectionQueryServiceClient(projectionConn),
 		rateLimiter,
 		configurationClient,
 		value,
@@ -198,10 +205,12 @@ func run(path string) error {
 	}
 	engineConn.Connect()
 	humanConn.Connect()
+	projectionConn.Connect()
 	healthHandler := platformhealth.Handler(
 		value.Health.ReadinessTimeout(),
 		connectionReady(engineConn),
 		connectionReady(humanConn),
+		connectionReady(projectionConn),
 		func(ctx context.Context) error { return redisClient.Ping(ctx).Err() },
 		httpReady(configurationClient, value.ConfigurationURL+"/readyz"),
 		func(context.Context) error { return configurationCache.Ready(tenantIDs) },

@@ -138,6 +138,10 @@ func mapError(err error) error {
 		return status.Error(codes.NotFound, err.Error())
 	case errors.Is(err, application.ErrInvalidEvent):
 		return status.Error(codes.InvalidArgument, err.Error())
+	case errors.Is(err, application.ErrInvalidQuery):
+		return status.Error(codes.InvalidArgument, err.Error())
+	case errors.Is(err, context.DeadlineExceeded):
+		return status.Error(codes.DeadlineExceeded, "projection query deadline exceeded")
 	default:
 		return status.Error(codes.FailedPrecondition, err.Error())
 	}

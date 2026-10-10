@@ -41,6 +41,56 @@ All business operations require a bearer JWT, `X-BPMP-Tenant-ID`, and
 `Idempotency-Key`. The API Gateway preserves these identities when forwarding
 to authoritative services.
 
+## Completed Process Query
+
+`POST /v1/process-instances/completed/query` queries the Projection Service's
+tenant-owned read models. It never scans the Engine event store and does not
+join another bounded context's database. Filters are a typed Boolean tree;
+field names and operators are Protobuf enums, and nested event conditions are
+compiled to parameterized `EXISTS` predicates.
+
+```powershell
+curl.exe -k -X POST "https://localhost:14173/v1/process-instances/completed/query" `
+  -H "Authorization: Bearer $token" `
+  -H "X-BPMP-Tenant-ID: tenant-e2e" `
+  -H "X-Correlation-ID: completed-query-1" `
+  -H "Content-Type: application/json" `
+  --data-binary '{
+    "filter": {
+      "group": {
+        "operator": "LOGICAL_OPERATOR_AND",
+        "expressions": [
+          {"predicate": {
+            "field": "PROCESS_FIELD_WORKFLOW_TYPE",
+            "operator": "COMPARISON_OPERATOR_EQUAL",
+            "values": [{"string_value": "approval"}]
+          }},
+          {"event_relation": {
+            "must_exist": true,
+            "expression": {"predicate": {
+              "field": "EVENT_FIELD_EVENT_TYPE",
+              "operator": "COMPARISON_OPERATOR_EQUAL",
+              "values": [{"string_value": "user_task_completed"}]
+            }}
+          }}
+        ]
+      }
+    },
+    "sort": [
+      {"field": "PROCESS_FIELD_COMPLETED_AT", "direction": "SORT_DIRECTION_DESCENDING"},
+      {"field": "PROCESS_FIELD_DURATION_MS", "direction": "SORT_DIRECTION_ASCENDING"}
+    ],
+    "page_size": 50
+  }'
+```
+
+Use the returned `next_page_token` unchanged on the next request. The token is
+bound to tenant, filter and sort fingerprint; changing any of them invalidates
+the token. Query limits are resolved per tenant from `ProjectionPolicy` at the
+start of each request: page size, timeout, filter depth, predicate count, sort
+count, relation joins, `IN` cardinality and string length. Raw SQL, arbitrary
+columns and cross-service joins are not part of this API.
+
 ## Internal gRPC APIs
 
 The canonical schemas remain under `contracts/proto`. Buf lint and breaking

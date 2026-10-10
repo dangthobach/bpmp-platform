@@ -46,6 +46,9 @@ func (s *Store) Apply(
 		if err = s.applyInstance(ctx, tx, event); err != nil {
 			return false, err
 		}
+		if err = s.appendEvent(ctx, tx, event); err != nil {
+			return false, err
+		}
 	}
 	if err = updateCheckpoint(ctx, tx, position, event.OccurredAt); err != nil {
 		return false, err
@@ -54,6 +57,17 @@ func (s *Store) Apply(
 		return false, err
 	}
 	return duplicate, nil
+}
+
+func (s *Store) appendEvent(ctx context.Context, tx pgx.Tx, event application.InstanceEvent) error {
+	_, err := tx.Exec(ctx, `INSERT INTO workflow_event_read_models
+		(tenant_id,instance_id,event_id,event_sequence,event_type,node_id,actor_id,
+		 occurred_at,config_version,policy_version)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+		event.TenantID, event.InstanceID, event.EventID, event.Sequence,
+		event.EventType, event.NodeID, event.ActorID, event.OccurredAt,
+		event.ConfigVersion, event.PolicyVersion)
+	return err
 }
 
 func (s *Store) applyInstance(

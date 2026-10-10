@@ -22,6 +22,7 @@ import (
 
 	enginev1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/engine/v1"
 	humanv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/human/v1"
+	projectionv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/projection/v1"
 	"github.com/dangthobach/bpmp-platform/go/platform/jwtauth"
 	"github.com/dangthobach/bpmp-platform/go/platform/requestmeta"
 )
@@ -68,6 +69,25 @@ type recordingHuman struct {
 	humanv1.HumanRuntimeServiceClient
 	listRequest *humanv1.ListWorkItemsRequest
 	metadata    metadata.MD
+}
+
+type recordingProjection struct {
+	projectionv1.ProjectionQueryServiceClient
+	request  *projectionv1.QueryCompletedProcessesRequest
+	metadata metadata.MD
+}
+
+func (c *recordingProjection) QueryCompletedProcesses(ctx context.Context, request *projectionv1.QueryCompletedProcessesRequest, _ ...grpc.CallOption) (*projectionv1.QueryCompletedProcessesResponse, error) {
+	c.request = request
+	c.metadata, _ = metadata.FromOutgoingContext(ctx)
+	return &projectionv1.QueryCompletedProcessesResponse{
+		Processes: []*projectionv1.CompletedProcessReadModel{{
+			Instance: &projectionv1.WorkflowInstanceReadModel{
+				TenantId: request.GetTenantId(), InstanceId: "instance-1", Status: "COMPLETED",
+			},
+			DurationMs: 250, EventCount: 5,
+		}},
+	}, nil
 }
 
 func (c *recordingHuman) ListWorkItems(ctx context.Context, request *humanv1.ListWorkItemsRequest, _ ...grpc.CallOption) (*humanv1.ListWorkItemsResponse, error) {
@@ -242,6 +262,49 @@ func TestListWorkItemsForwardsTenantActorAndCursor(t *testing.T) {
 		t.Fatalf("query scope was not forwarded: %+v", human.listRequest)
 	}
 	if values := human.metadata.Get("x-bpmp-correlation-id"); len(values) != 1 || values[0] != "correlation-1" {
+		t.Fatalf("correlation metadata was not preserved: %v", values)
+	}
+}
+
+func TestQueryCompletedProcessesForwardsTypedQueryAndAuthenticatedScope(t *testing.T) {
+	public, private, _ := ed25519.GenerateKey(nil)
+	now := time.Unix(1_000, 0).UTC()
+	claims := jwt.MapClaims{"iss": "issuer", "sub": "actor-1", "aud": []string{"gateway"}, "exp": now.Add(time.Hour).Unix(), "iat": now.Add(-time.Minute).Unix(), "tenant_id": "tenant-a"}
+	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
+	token.Header["kid"] = "actor-key"
+	raw, err := token.SignedString(private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection := &recordingProjection{}
+	handler, err := NewHandler(
+		&recordingEngine{}, &recordingHuman{}, testVerifier(t, public),
+		&workloadSigner{id: "api-gateway", keyID: "workload-key", key: private, ttl: time.Minute},
+		newModelRateLimiter(10, time.Minute), staticPolicyProvider{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler.projection = projection
+	handler.now = func() time.Time { return now }
+	body := `{"tenant_id":"attacker-tenant","filter":{"event_relation":{"must_exist":true,"expression":{"predicate":{"field":"EVENT_FIELD_EVENT_TYPE","operator":"COMPARISON_OPERATOR_EQUAL","values":[{"string_value":"user_task_completed"}]}}}},"sort":[{"field":"PROCESS_FIELD_COMPLETED_AT","direction":"SORT_DIRECTION_DESCENDING"}],"page_size":25}`
+	request := httptest.NewRequest(http.MethodPost, "/v1/process-instances/completed/query", strings.NewReader(body))
+	request.Header.Set("Authorization", "Bearer "+raw)
+	request.Header.Set("X-BPMP-Tenant-ID", "tenant-a")
+	request.Header.Set("X-Correlation-ID", "correlation-query-1")
+	response := httptest.NewRecorder()
+	handler.Routes().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d: %s", response.Code, response.Body.String())
+	}
+	if projection.request.GetTenantId() != "tenant-a" || projection.request.GetPageSize() != 25 ||
+		string(projection.request.GetActorProof().GetSignedProof()) != raw {
+		t.Fatalf("authenticated query scope was not forwarded: %+v", projection.request)
+	}
+	if projection.request.GetFilter().GetEventRelation() == nil {
+		t.Fatal("typed nested relation was not decoded")
+	}
+	if values := projection.metadata.Get("x-bpmp-correlation-id"); len(values) != 1 || values[0] != "correlation-query-1" {
 		t.Fatalf("correlation metadata was not preserved: %v", values)
 	}
 }

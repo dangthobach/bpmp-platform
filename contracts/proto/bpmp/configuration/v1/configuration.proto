@@ -151,6 +151,13 @@ message ProjectionPolicy {
   uint32 realtime_publish_batch_size = 5;
   uint64 checkpoint_flush_ms = 6;
   uint64 max_projection_lag_ms = 7;
+  uint32 query_max_filter_depth = 8;
+  uint32 query_max_predicates = 9;
+  uint32 query_max_sort_fields = 10;
+  uint32 query_max_relation_joins = 11;
+  uint32 query_max_in_values = 12;
+  uint64 query_timeout_ms = 13;
+  uint32 query_max_string_bytes = 14;
 }
 
 message GovernancePolicy {

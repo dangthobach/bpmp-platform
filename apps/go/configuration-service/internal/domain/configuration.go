@@ -343,7 +343,13 @@ func validateProjectionPolicy(policy *configurationv1.ProjectionPolicy) error {
 		policy.GetQueryMaxPageSize() < policy.GetQueryDefaultPageSize() ||
 		policy.GetRealtimePublishBatchSize() == 0 ||
 		policy.GetCheckpointFlushMs() == 0 ||
-		policy.GetMaxProjectionLagMs() == 0 {
+		policy.GetMaxProjectionLagMs() == 0 ||
+		policy.GetQueryMaxFilterDepth() == 0 ||
+		policy.GetQueryMaxPredicates() == 0 ||
+		policy.GetQueryMaxSortFields() == 0 ||
+		policy.GetQueryMaxInValues() == 0 ||
+		policy.GetQueryTimeoutMs() == 0 ||
+		policy.GetQueryMaxStringBytes() == 0 {
 		return ErrInvalid
 	}
 	return nil
