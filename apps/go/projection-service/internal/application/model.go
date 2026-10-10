@@ -79,6 +79,7 @@ type Instance struct {
 	CompletedAt       *time.Time
 	ConfigVersion     string
 	PolicyVersion     string
+	InitiatorActorID  string
 	IsDeleted         bool
 	Version           uint64
 }
@@ -105,6 +106,8 @@ type Store interface {
 }
 
 type RuntimePolicy struct {
+	ConfigVersion            string
+	PolicyVersion            string
 	ConsumeBatchSize         int
 	RebuildBatchSize         int
 	QueryDefaultPageSize     uint32
@@ -119,6 +122,9 @@ type RuntimePolicy struct {
 	QueryMaxInValues         uint32
 	QueryTimeout             time.Duration
 	QueryMaxStringBytes      uint32
+	QueryCursorSigningKeyID  string
+	QueryAllCapability       string
+	QueryOwnCapability       string
 }
 
 type RuntimePolicyProvider interface {
@@ -126,15 +132,37 @@ type RuntimePolicyProvider interface {
 }
 
 type Service struct {
-	store  Store
-	policy RuntimePolicyProvider
+	store      Store
+	policy     RuntimePolicyProvider
+	authorizer QueryAuthorizer
 }
 
-func NewService(store Store, policy RuntimePolicyProvider) (*Service, error) {
+type ServiceOption func(*Service) error
+
+func WithQueryAuthorizer(authorizer QueryAuthorizer) ServiceOption {
+	return func(service *Service) error {
+		if authorizer == nil {
+			return errors.New("projection query authorizer is required")
+		}
+		service.authorizer = authorizer
+		return nil
+	}
+}
+
+func NewService(store Store, policy RuntimePolicyProvider, options ...ServiceOption) (*Service, error) {
 	if store == nil || policy == nil {
 		return nil, errors.New("projection store and runtime policy are required")
 	}
-	return &Service{store: store, policy: policy}, nil
+	service := &Service{store: store, policy: policy, authorizer: denyQueryAuthorizer{}}
+	for _, option := range options {
+		if option == nil {
+			return nil, errors.New("projection service option is invalid")
+		}
+		if err := option(service); err != nil {
+			return nil, err
+		}
+	}
+	return service, nil
 }
 
 func (s *Service) Apply(ctx context.Context, position KafkaPosition, event InstanceEvent) (bool, error) {

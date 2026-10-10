@@ -15,7 +15,7 @@ func TestCompileCompletedQueryParameterizesNestedRelationAndSort(t *testing.T) {
 			Field: application.ProcessWorkflowType, Operator: application.CompareContains,
 			Values: []application.QueryValue{{Kind: application.ValueString, String: attack}},
 		}},
-		{EventRelation: &application.EventRelation{MustExist: true, Expression: application.EventExpression{
+		{EventRelation: &application.EventRelation{Quantifier: application.RelationExists, Expression: application.EventExpression{
 			Predicate: &application.EventPredicate{
 				Field: application.EventNodeID, Operator: application.CompareIn,
 				Values: []application.QueryValue{{Kind: application.ValueString, String: "approve"}, {Kind: application.ValueString, String: "review"}},

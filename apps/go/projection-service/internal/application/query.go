@@ -10,7 +10,44 @@ import (
 	"time"
 )
 
-var ErrInvalidQuery = errors.New("projection query is invalid")
+var (
+	ErrInvalidQuery   = errors.New("projection query is invalid")
+	ErrQueryForbidden = errors.New("projection query is forbidden")
+)
+
+type ActorProofType uint8
+
+const (
+	ActorProofOriginalJWT ActorProofType = iota + 1
+	ActorProofSignedInternalContext
+)
+
+type QueryCredential struct {
+	Type        ActorProofType
+	SignedProof []byte
+}
+
+type QueryAuthorizationRequest struct {
+	TenantID   string
+	Credential QueryCredential
+	Policy     RuntimePolicy
+}
+
+type QueryAuthorization struct {
+	SubjectID     string
+	PolicyVersion string
+	Filter        *ProcessExpression
+}
+
+type QueryAuthorizer interface {
+	AuthorizeQuery(context.Context, QueryAuthorizationRequest) (QueryAuthorization, error)
+}
+
+type denyQueryAuthorizer struct{}
+
+func (denyQueryAuthorizer) AuthorizeQuery(context.Context, QueryAuthorizationRequest) (QueryAuthorization, error) {
+	return QueryAuthorization{}, ErrQueryForbidden
+}
 
 type ValueKind uint8
 
@@ -62,6 +99,7 @@ const (
 	ProcessConfigVersion
 	ProcessPolicyVersion
 	ProcessVersion
+	ProcessInitiatorActorID
 )
 
 type EventField uint8
@@ -103,9 +141,16 @@ type EventExpression struct {
 }
 
 type EventRelation struct {
-	Expression EventExpression `json:"expression"`
-	MustExist  bool            `json:"must_exist"`
+	Expression EventExpression    `json:"expression"`
+	Quantifier RelationQuantifier `json:"quantifier"`
 }
+
+type RelationQuantifier uint8
+
+const (
+	RelationExists RelationQuantifier = iota + 1
+	RelationNotExists
+)
 
 type ProcessExpression struct {
 	Predicate     *ProcessPredicate   `json:"predicate,omitempty"`
@@ -133,12 +178,16 @@ type QueryCursor struct {
 }
 
 type ProcessQuery struct {
-	TenantID       string             `json:"tenant_id"`
-	Filter         *ProcessExpression `json:"filter,omitempty"`
-	Sort           []ProcessSort      `json:"sort"`
-	IncludeDeleted bool               `json:"include_deleted"`
-	Limit          int                `json:"-"`
-	After          *QueryCursor       `json:"-"`
+	TenantID                   string             `json:"tenant_id"`
+	Filter                     *ProcessExpression `json:"filter,omitempty"`
+	Sort                       []ProcessSort      `json:"sort"`
+	IncludeDeleted             bool               `json:"include_deleted"`
+	Limit                      int                `json:"-"`
+	After                      *QueryCursor       `json:"-"`
+	Credential                 QueryCredential    `json:"-"`
+	AuthorizationSubject       string             `json:"authorization_subject"`
+	AuthorizationPolicyVersion string             `json:"authorization_policy_version"`
+	CursorSigningKeyID         string             `json:"-"`
 }
 
 type CompletedProcess struct {
@@ -162,6 +211,21 @@ func (s *Service) QueryCompleted(
 	if err != nil {
 		return nil, 0, query, err
 	}
+	authorization, err := s.authorizer.AuthorizeQuery(ctx, QueryAuthorizationRequest{
+		TenantID:   query.TenantID,
+		Credential: query.Credential,
+		Policy:     policy,
+	})
+	if err != nil {
+		return nil, 0, query, err
+	}
+	if authorization.SubjectID == "" || authorization.PolicyVersion == "" {
+		return nil, 0, query, ErrQueryForbidden
+	}
+	query.AuthorizationSubject = authorization.SubjectID
+	query.AuthorizationPolicyVersion = authorization.PolicyVersion
+	query.CursorSigningKeyID = policy.QueryCursorSigningKeyID
+	query.Filter = intersectFilters(query.Filter, authorization.Filter)
 	if err = normalizeAndValidateQuery(&query, policy); err != nil {
 		return nil, 0, query, err
 	}
@@ -180,12 +244,29 @@ func (s *Service) QueryCompleted(
 	return processes, effectiveLimit, query, err
 }
 
+func intersectFilters(client, authorization *ProcessExpression) *ProcessExpression {
+	if client == nil {
+		return authorization
+	}
+	if authorization == nil {
+		return client
+	}
+	return &ProcessExpression{
+		Logical:  LogicalAnd,
+		Children: []ProcessExpression{*authorization, *client},
+	}
+}
+
 func normalizeAndValidateQuery(query *ProcessQuery, policy RuntimePolicy) error {
 	if policy.QueryMaxFilterDepth == 0 || policy.QueryMaxPredicates == 0 ||
 		policy.QueryMaxSortFields == 0 ||
 		policy.QueryMaxInValues == 0 || policy.QueryTimeout <= 0 ||
 		policy.QueryMaxStringBytes == 0 {
 		return fmt.Errorf("%w: dynamic query policy is incomplete", ErrInvalidQuery)
+	}
+	if policy.QueryCursorSigningKeyID == "" || policy.QueryAllCapability == "" ||
+		policy.QueryOwnCapability == "" || policy.QueryAllCapability == policy.QueryOwnCapability {
+		return fmt.Errorf("%w: query authorization policy is incomplete", ErrInvalidQuery)
 	}
 	if query.Limit == 0 {
 		query.Limit = int(policy.QueryDefaultPageSize)
@@ -272,6 +353,10 @@ func validateProcessExpression(
 		if budget.relationJoins > policy.QueryMaxRelationJoins {
 			return fmt.Errorf("%w: relation join count exceeds policy", ErrInvalidQuery)
 		}
+		if expression.EventRelation.Quantifier != RelationExists &&
+			expression.EventRelation.Quantifier != RelationNotExists {
+			return fmt.Errorf("%w: relation quantifier is invalid", ErrInvalidQuery)
+		}
 		return validateEventExpression(expression.EventRelation.Expression, depth+1, policy, budget)
 	default:
 		if (expression.Logical != LogicalAnd && expression.Logical != LogicalOr) || len(expression.Children) < 2 {
@@ -339,6 +424,9 @@ func validatePredicate(field ProcessField, operator Comparison, values []QueryVa
 }
 
 func validateValues(kind ValueKind, operator Comparison, values []QueryValue, policy RuntimePolicy) error {
+	if !operatorAllowed(kind, operator) {
+		return fmt.Errorf("%w: operator is incompatible with field type", ErrInvalidQuery)
+	}
 	wanted := 1
 	if operator == CompareIn || operator == CompareNotIn {
 		wanted = -1
@@ -363,8 +451,24 @@ func validateValues(kind ValueKind, operator Comparison, values []QueryValue, po
 	return nil
 }
 
+func operatorAllowed(kind ValueKind, operator Comparison) bool {
+	switch kind {
+	case ValueString:
+		return operator == CompareEqual || operator == CompareNotEqual ||
+			operator == CompareIn || operator == CompareNotIn ||
+			operator == CompareContains || operator == CompareStartsWith
+	case ValueInteger, ValueTimestamp:
+		return operator == CompareEqual || operator == CompareNotEqual ||
+			operator == CompareGreaterThan || operator == CompareGreaterThanOrEqual ||
+			operator == CompareLessThan || operator == CompareLessThanOrEqual ||
+			operator == CompareIn || operator == CompareNotIn
+	default:
+		return false
+	}
+}
+
 func validProcessField(field ProcessField) bool {
-	return field >= ProcessInstanceID && field <= ProcessVersion
+	return field >= ProcessInstanceID && field <= ProcessInitiatorActorID
 }
 
 func processFieldKind(field ProcessField) ValueKind {
@@ -433,6 +537,8 @@ func sortValue(field ProcessField, process CompletedProcess) (QueryValue, error)
 		return QueryValue{Kind: ValueString, String: instance.ConfigVersion}, nil
 	case ProcessPolicyVersion:
 		return QueryValue{Kind: ValueString, String: instance.PolicyVersion}, nil
+	case ProcessInitiatorActorID:
+		return QueryValue{Kind: ValueString, String: instance.InitiatorActorID}, nil
 	case ProcessLastEventSequence:
 		return QueryValue{Kind: ValueInteger, Integer: int64(instance.LastEventSequence)}, nil
 	case ProcessVersion:

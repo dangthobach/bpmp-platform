@@ -30,6 +30,8 @@ pub struct WorkflowInstanceReadModel {
     pub is_deleted: bool,
     #[prost(uint64, tag="14")]
     pub version: u64,
+    #[prost(string, tag="15")]
+    pub initiator_actor_id: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct GetWorkflowInstanceRequest {
@@ -130,8 +132,11 @@ pub struct EventExpressionGroup {
 pub struct EventRelationPredicate {
     #[prost(message, optional, tag="1")]
     pub expression: ::core::option::Option<EventExpression>,
+    #[deprecated]
     #[prost(bool, tag="2")]
     pub must_exist: bool,
+    #[prost(enumeration="RelationQuantifier", tag="3")]
+    pub quantifier: i32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ProcessExpression {
@@ -304,6 +309,7 @@ pub enum ProcessField {
     ConfigVersion = 11,
     PolicyVersion = 12,
     Version = 13,
+    InitiatorActorId = 14,
 }
 impl ProcessField {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -326,6 +332,7 @@ impl ProcessField {
             Self::ConfigVersion => "PROCESS_FIELD_CONFIG_VERSION",
             Self::PolicyVersion => "PROCESS_FIELD_POLICY_VERSION",
             Self::Version => "PROCESS_FIELD_VERSION",
+            Self::InitiatorActorId => "PROCESS_FIELD_INITIATOR_ACTOR_ID",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -345,6 +352,7 @@ impl ProcessField {
             "PROCESS_FIELD_CONFIG_VERSION" => Some(Self::ConfigVersion),
             "PROCESS_FIELD_POLICY_VERSION" => Some(Self::PolicyVersion),
             "PROCESS_FIELD_VERSION" => Some(Self::Version),
+            "PROCESS_FIELD_INITIATOR_ACTOR_ID" => Some(Self::InitiatorActorId),
             _ => None,
         }
     }
@@ -418,6 +426,35 @@ impl SortDirection {
             "SORT_DIRECTION_UNSPECIFIED" => Some(Self::Unspecified),
             "SORT_DIRECTION_ASCENDING" => Some(Self::Ascending),
             "SORT_DIRECTION_DESCENDING" => Some(Self::Descending),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum RelationQuantifier {
+    Unspecified = 0,
+    Exists = 1,
+    NotExists = 2,
+}
+impl RelationQuantifier {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "RELATION_QUANTIFIER_UNSPECIFIED",
+            Self::Exists => "RELATION_QUANTIFIER_EXISTS",
+            Self::NotExists => "RELATION_QUANTIFIER_NOT_EXISTS",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "RELATION_QUANTIFIER_UNSPECIFIED" => Some(Self::Unspecified),
+            "RELATION_QUANTIFIER_EXISTS" => Some(Self::Exists),
+            "RELATION_QUANTIFIER_NOT_EXISTS" => Some(Self::NotExists),
             _ => None,
         }
     }

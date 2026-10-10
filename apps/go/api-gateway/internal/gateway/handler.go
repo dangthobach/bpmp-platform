@@ -208,8 +208,12 @@ func (h *Handler) queryCompletedProcesses(w http.ResponseWriter, r *http.Request
 			return h.projection.QueryCompletedProcesses(ctx, request)
 		})
 	if err != nil {
-		if status.Code(err) == codes.InvalidArgument {
+		switch status.Code(err) {
+		case codes.InvalidArgument:
 			writeError(w, errInvalid)
+			return
+		case codes.PermissionDenied, codes.Unauthenticated:
+			writeError(w, errForbidden)
 			return
 		}
 		writeError(w, errUpstream)

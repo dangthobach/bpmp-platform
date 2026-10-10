@@ -349,7 +349,11 @@ func validateProjectionPolicy(policy *configurationv1.ProjectionPolicy) error {
 		policy.GetQueryMaxSortFields() == 0 ||
 		policy.GetQueryMaxInValues() == 0 ||
 		policy.GetQueryTimeoutMs() == 0 ||
-		policy.GetQueryMaxStringBytes() == 0 {
+		policy.GetQueryMaxStringBytes() == 0 ||
+		policy.GetQueryCursorSigningKeyId() == "" ||
+		policy.GetQueryAllCapability() == "" ||
+		policy.GetQueryOwnCapability() == "" ||
+		policy.GetQueryAllCapability() == policy.GetQueryOwnCapability() {
 		return ErrInvalid
 	}
 	return nil

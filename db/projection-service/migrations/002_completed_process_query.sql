@@ -18,6 +18,9 @@ CREATE TABLE IF NOT EXISTS workflow_event_read_models (
         ON DELETE RESTRICT
 );
 
+ALTER TABLE workflow_instance_read_models
+    ADD COLUMN IF NOT EXISTS initiator_actor_id TEXT NOT NULL DEFAULT '';
+
 CREATE INDEX IF NOT EXISTS idx_workflow_events_instance_sequence
     ON workflow_event_read_models (tenant_id, instance_id, event_sequence);
 
@@ -42,4 +45,9 @@ CREATE INDEX IF NOT EXISTS idx_workflow_instances_completed_type
     ON workflow_instance_read_models
         (tenant_id, workflow_type, workflow_version, completed_at DESC, instance_id ASC)
     WHERE status = 'COMPLETED' AND NOT is_deleted;
+
+CREATE INDEX IF NOT EXISTS idx_workflow_instances_completed_initiator
+    ON workflow_instance_read_models
+        (tenant_id, initiator_actor_id, completed_at DESC, instance_id ASC)
+    WHERE status = 'COMPLETED' AND NOT is_deleted AND initiator_actor_id <> '';
 

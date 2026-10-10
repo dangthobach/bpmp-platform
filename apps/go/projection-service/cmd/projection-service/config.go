@@ -23,6 +23,8 @@ type config struct {
 	Telemetry       telemetryConfig            `json:"telemetry"`
 	Kafka           kafkaconfig.Consumer       `json:"kafka"`
 	RuntimeConfig   dynamicConfigurationConfig `json:"runtime_configuration"`
+	Identity        identityConfig             `json:"identity"`
+	CursorSigning   cursorSigningConfig        `json:"cursor_signing"`
 }
 
 type tlsConfig struct {
@@ -70,6 +72,26 @@ type dynamicConfigurationConfig struct {
 	Kafka                kafkaconfig.Consumer `json:"kafka"`
 }
 
+type identityConfig struct {
+	JWKSPath         string   `json:"jwks_path"`
+	Issuers          []string `json:"issuers"`
+	Audiences        []string `json:"audiences"`
+	Algorithms       []string `json:"algorithms"`
+	MaxTokenBytes    int      `json:"max_token_bytes"`
+	MaxJWKSKeys      int      `json:"max_jwks_keys"`
+	MaxCapabilities  int      `json:"max_capabilities"`
+	ClockSkewSeconds int64    `json:"clock_skew_seconds"`
+}
+
+type cursorSigningConfig struct {
+	Keys []cursorSigningKeyConfig `json:"keys"`
+}
+
+type cursorSigningKeyConfig struct {
+	ID         string `json:"id"`
+	SecretPath string `json:"secret_path"`
+}
+
 func loadConfig(path string) (config, error) {
 	var value config
 	data, err := os.ReadFile(path)
@@ -105,8 +127,22 @@ func (c config) Validate() error {
 		c.Telemetry.ServiceName == "" || c.Telemetry.ServiceVersion == "" ||
 		c.Telemetry.Endpoint == "" || c.Telemetry.SampleRatio < 0 ||
 		c.Telemetry.SampleRatio > 1 || c.Telemetry.ExportTimeoutMS <= 0 ||
-		c.Kafka.Validate() != nil {
+		c.Kafka.Validate() != nil || c.Identity.JWKSPath == "" ||
+		len(c.Identity.Issuers) == 0 || len(c.Identity.Audiences) == 0 ||
+		len(c.Identity.Algorithms) == 0 || c.Identity.MaxTokenBytes <= 0 ||
+		c.Identity.MaxJWKSKeys <= 0 || c.Identity.MaxCapabilities <= 0 ||
+		c.Identity.ClockSkewSeconds < 0 || len(c.CursorSigning.Keys) == 0 {
 		return errors.New("projection service configuration is invalid")
+	}
+	cursorKeyIDs := make(map[string]struct{}, len(c.CursorSigning.Keys))
+	for _, key := range c.CursorSigning.Keys {
+		if key.ID == "" || key.SecretPath == "" {
+			return errors.New("projection cursor signing key is invalid")
+		}
+		if _, duplicate := cursorKeyIDs[key.ID]; duplicate {
+			return errors.New("projection cursor signing key is duplicated")
+		}
+		cursorKeyIDs[key.ID] = struct{}{}
 	}
 	runtime := c.RuntimeConfig
 	if runtime.ResolverAddress == "" || runtime.PlatformReference == "" ||

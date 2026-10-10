@@ -1,0 +1,83 @@
+package queryauth
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"github.com/dangthobach/bpmp-platform/apps/go/projection-service/internal/application"
+	"github.com/dangthobach/bpmp-platform/go/platform/jwtauth"
+)
+
+type Config struct {
+	MaxCapabilities int
+}
+
+type Authorizer struct {
+	verifier        *jwtauth.Verifier
+	maxCapabilities int
+	now             func() time.Time
+}
+
+func New(config Config, verifier *jwtauth.Verifier) (*Authorizer, error) {
+	if verifier == nil || config.MaxCapabilities <= 0 {
+		return nil, errors.New("projection query authorizer configuration is invalid")
+	}
+	return &Authorizer{
+		verifier: verifier, maxCapabilities: config.MaxCapabilities,
+		now: func() time.Time { return time.Now().UTC() },
+	}, nil
+}
+
+func (a *Authorizer) AuthorizeQuery(
+	_ context.Context,
+	request application.QueryAuthorizationRequest,
+) (application.QueryAuthorization, error) {
+	if request.Credential.Type != application.ActorProofOriginalJWT ||
+		len(request.Credential.SignedProof) == 0 || request.TenantID == "" ||
+		request.Policy.PolicyVersion == "" {
+		return application.QueryAuthorization{}, application.ErrQueryForbidden
+	}
+	identity, err := a.verifier.Verify(
+		string(request.Credential.SignedProof), request.TenantID, a.now(),
+	)
+	if err != nil || len(identity.Capabilities) > a.maxCapabilities {
+		return application.QueryAuthorization{}, application.ErrQueryForbidden
+	}
+	capabilities, valid := capabilitySet(identity.Capabilities)
+	if !valid {
+		return application.QueryAuthorization{}, application.ErrQueryForbidden
+	}
+	authorization := application.QueryAuthorization{
+		SubjectID: identity.Subject, PolicyVersion: request.Policy.PolicyVersion,
+	}
+	if _, allowed := capabilities[request.Policy.QueryAllCapability]; allowed {
+		return authorization, nil
+	}
+	if _, allowed := capabilities[request.Policy.QueryOwnCapability]; !allowed {
+		return application.QueryAuthorization{}, application.ErrQueryForbidden
+	}
+	authorization.Filter = &application.ProcessExpression{
+		Predicate: &application.ProcessPredicate{
+			Field: application.ProcessInitiatorActorID, Operator: application.CompareEqual,
+			Values: []application.QueryValue{{Kind: application.ValueString, String: identity.Subject}},
+		},
+	}
+	return authorization, nil
+}
+
+func capabilitySet(values []string) (map[string]struct{}, bool) {
+	result := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if value == "" {
+			return nil, false
+		}
+		if _, duplicate := result[value]; duplicate {
+			return nil, false
+		}
+		result[value] = struct{}{}
+	}
+	return result, true
+}
+
+var _ application.QueryAuthorizer = (*Authorizer)(nil)

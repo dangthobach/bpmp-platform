@@ -1,31 +1,28 @@
 package grpcapi
 
 import (
-	"bytes"
 	"context"
-	"encoding/base64"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"time"
 
 	"github.com/dangthobach/bpmp-platform/apps/go/projection-service/internal/application"
+	authorizationv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/authorization/v1"
 	projectionv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/projection/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-const (
-	maxQueryPageTokenBytes = 8192
-	maxWireExpressionDepth = 64
-)
+const maxWireExpressionDepth = 64
 
 func (s *Server) QueryCompletedProcesses(
 	ctx context.Context,
 	request *projectionv1.QueryCompletedProcessesRequest,
 ) (*projectionv1.QueryCompletedProcessesResponse, error) {
 	query, err := fromWireQuery(request)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	query.After, err = s.cursors.DecodeQuery(request.GetPageToken())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -39,7 +36,7 @@ func (s *Server) QueryCompletedProcesses(
 		if cursorErr != nil {
 			return nil, status.Error(codes.Internal, "build completed process cursor")
 		}
-		response.NextPageToken, cursorErr = encodeQueryCursor(cursor)
+		response.NextPageToken, cursorErr = s.cursors.EncodeQuery(normalized.CursorSigningKeyID, cursor)
 		if cursorErr != nil {
 			return nil, status.Error(codes.Internal, "encode completed process cursor")
 		}
@@ -63,14 +60,15 @@ func fromWireQuery(request *projectionv1.QueryCompletedProcessesRequest) (applic
 	if err != nil {
 		return application.ProcessQuery{}, err
 	}
-	after, err := decodeQueryCursor(request.GetPageToken())
+	credential, err := fromWireActorProof(request.GetActorProof())
 	if err != nil {
 		return application.ProcessQuery{}, err
 	}
 	query := application.ProcessQuery{
 		TenantID: request.GetTenantId(), Filter: filter,
-		IncludeDeleted: request.GetIncludeDeleted(), Limit: int(request.GetPageSize()), After: after,
-		Sort: make([]application.ProcessSort, 0, len(request.GetSort())),
+		IncludeDeleted: request.GetIncludeDeleted(), Limit: int(request.GetPageSize()),
+		Credential: credential,
+		Sort:       make([]application.ProcessSort, 0, len(request.GetSort())),
 	}
 	for _, sort := range request.GetSort() {
 		if sort == nil {
@@ -82,6 +80,22 @@ func fromWireQuery(request *projectionv1.QueryCompletedProcessesRequest) (applic
 		})
 	}
 	return query, nil
+}
+
+func fromWireActorProof(proof *authorizationv1.ActorProof) (application.QueryCredential, error) {
+	if proof == nil || len(proof.GetSignedProof()) == 0 {
+		return application.QueryCredential{}, application.ErrQueryForbidden
+	}
+	credential := application.QueryCredential{SignedProof: append([]byte(nil), proof.GetSignedProof()...)}
+	switch proof.GetType() {
+	case authorizationv1.ActorProofType_ACTOR_PROOF_TYPE_ORIGINAL_JWT:
+		credential.Type = application.ActorProofOriginalJWT
+	case authorizationv1.ActorProofType_ACTOR_PROOF_TYPE_SIGNED_INTERNAL_CONTEXT:
+		credential.Type = application.ActorProofSignedInternalContext
+	default:
+		return application.QueryCredential{}, application.ErrQueryForbidden
+	}
+	return credential, nil
 }
 
 func fromWireProcessExpression(
@@ -136,7 +150,8 @@ func fromWireProcessExpression(
 			return nil, application.ErrInvalidQuery
 		}
 		result.EventRelation = &application.EventRelation{
-			Expression: *mapped, MustExist: value.EventRelation.GetMustExist(),
+			Expression: *mapped,
+			Quantifier: application.RelationQuantifier(value.EventRelation.GetQuantifier()),
 		}
 	default:
 		return nil, application.ErrInvalidQuery
@@ -216,35 +231,4 @@ func fromWireValues(values []*projectionv1.QueryValue) ([]application.QueryValue
 		result = append(result, mapped)
 	}
 	return result, nil
-}
-
-func encodeQueryCursor(cursor *application.QueryCursor) (string, error) {
-	data, err := json.Marshal(cursor)
-	if err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(data), nil
-}
-
-func decodeQueryCursor(token string) (*application.QueryCursor, error) {
-	if token == "" {
-		return nil, nil
-	}
-	if len(token) > maxQueryPageTokenBytes {
-		return nil, errors.New("completed process page token exceeds size limit")
-	}
-	data, err := base64.RawURLEncoding.DecodeString(token)
-	if err != nil {
-		return nil, errors.New("completed process page token is malformed")
-	}
-	var cursor application.QueryCursor
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err = decoder.Decode(&cursor); err != nil || cursor.QueryHash == "" || len(cursor.Values) == 0 {
-		return nil, errors.New("completed process page token is invalid")
-	}
-	if err = decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return nil, errors.New("completed process page token contains trailing data")
-	}
-	return &cursor, nil
 }

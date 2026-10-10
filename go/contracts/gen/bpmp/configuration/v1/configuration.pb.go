@@ -1209,6 +1209,9 @@ type ProjectionPolicy struct {
 	QueryMaxInValues         uint32                 `protobuf:"varint,12,opt,name=query_max_in_values,json=queryMaxInValues,proto3" json:"query_max_in_values,omitempty"`
 	QueryTimeoutMs           uint64                 `protobuf:"varint,13,opt,name=query_timeout_ms,json=queryTimeoutMs,proto3" json:"query_timeout_ms,omitempty"`
 	QueryMaxStringBytes      uint32                 `protobuf:"varint,14,opt,name=query_max_string_bytes,json=queryMaxStringBytes,proto3" json:"query_max_string_bytes,omitempty"`
+	QueryCursorSigningKeyId  string                 `protobuf:"bytes,15,opt,name=query_cursor_signing_key_id,json=queryCursorSigningKeyId,proto3" json:"query_cursor_signing_key_id,omitempty"`
+	QueryAllCapability       string                 `protobuf:"bytes,16,opt,name=query_all_capability,json=queryAllCapability,proto3" json:"query_all_capability,omitempty"`
+	QueryOwnCapability       string                 `protobuf:"bytes,17,opt,name=query_own_capability,json=queryOwnCapability,proto3" json:"query_own_capability,omitempty"`
 	unknownFields            protoimpl.UnknownFields
 	sizeCache                protoimpl.SizeCache
 }
@@ -1339,6 +1342,27 @@ func (x *ProjectionPolicy) GetQueryMaxStringBytes() uint32 {
 		return x.QueryMaxStringBytes
 	}
 	return 0
+}
+
+func (x *ProjectionPolicy) GetQueryCursorSigningKeyId() string {
+	if x != nil {
+		return x.QueryCursorSigningKeyId
+	}
+	return ""
+}
+
+func (x *ProjectionPolicy) GetQueryAllCapability() string {
+	if x != nil {
+		return x.QueryAllCapability
+	}
+	return ""
+}
+
+func (x *ProjectionPolicy) GetQueryOwnCapability() string {
+	if x != nil {
+		return x.QueryOwnCapability
+	}
+	return ""
 }
 
 type GovernancePolicy struct {
@@ -2442,7 +2466,7 @@ const file_bpmp_configuration_v1_configuration_proto_rawDesc = "" +
 	"\fengine_retry\x18\v \x01(\v2\".bpmp.configuration.v1.RetryPolicyR\vengineRetry\x12V\n" +
 	"(engine_circuit_breaker_failure_threshold\x18\f \x01(\rR$engineCircuitBreakerFailureThreshold\x12B\n" +
 	"\x1eengine_circuit_breaker_open_ms\x18\r \x01(\x04R\x1aengineCircuitBreakerOpenMs\x124\n" +
-	"\x16engine_retryable_codes\x18\x0e \x03(\tR\x14engineRetryableCodes\"\xd7\x05\n" +
+	"\x16engine_retryable_codes\x18\x0e \x03(\tR\x14engineRetryableCodes\"\xf9\x06\n" +
 	"\x10ProjectionPolicy\x12,\n" +
 	"\x12consume_batch_size\x18\x01 \x01(\rR\x10consumeBatchSize\x12,\n" +
 	"\x12rebuild_batch_size\x18\x02 \x01(\rR\x10rebuildBatchSize\x125\n" +
@@ -2458,7 +2482,10 @@ const file_bpmp_configuration_v1_configuration_proto_rawDesc = "" +
 	"\x18query_max_relation_joins\x18\v \x01(\rR\x15queryMaxRelationJoins\x12-\n" +
 	"\x13query_max_in_values\x18\f \x01(\rR\x10queryMaxInValues\x12(\n" +
 	"\x10query_timeout_ms\x18\r \x01(\x04R\x0equeryTimeoutMs\x123\n" +
-	"\x16query_max_string_bytes\x18\x0e \x01(\rR\x13queryMaxStringBytes\"\xc8\x05\n" +
+	"\x16query_max_string_bytes\x18\x0e \x01(\rR\x13queryMaxStringBytes\x12<\n" +
+	"\x1bquery_cursor_signing_key_id\x18\x0f \x01(\tR\x17queryCursorSigningKeyId\x120\n" +
+	"\x14query_all_capability\x18\x10 \x01(\tR\x12queryAllCapability\x120\n" +
+	"\x14query_own_capability\x18\x11 \x01(\tR\x12queryOwnCapability\"\xc8\x05\n" +
 	"\x10GovernancePolicy\x12&\n" +
 	"\x0fapproval_ttl_ms\x18\x01 \x01(\x04R\rapprovalTtlMs\x12D\n" +
 	"\x1ffresh_authentication_max_age_ms\x18\x02 \x01(\x04R\x1bfreshAuthenticationMaxAgeMs\x123\n" +

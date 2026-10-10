@@ -19,6 +19,7 @@ message WorkflowInstanceReadModel {
   string policy_version = 12;
   bool is_deleted = 13;
   uint64 version = 14;
+  string initiator_actor_id = 15;
 }
 
 message GetWorkflowInstanceRequest {
@@ -81,6 +82,7 @@ enum ProcessField {
   PROCESS_FIELD_CONFIG_VERSION = 11;
   PROCESS_FIELD_POLICY_VERSION = 12;
   PROCESS_FIELD_VERSION = 13;
+  PROCESS_FIELD_INITIATOR_ACTOR_ID = 14;
 }
 
 enum EventField {
@@ -98,6 +100,12 @@ enum SortDirection {
   SORT_DIRECTION_UNSPECIFIED = 0;
   SORT_DIRECTION_ASCENDING = 1;
   SORT_DIRECTION_DESCENDING = 2;
+}
+
+enum RelationQuantifier {
+  RELATION_QUANTIFIER_UNSPECIFIED = 0;
+  RELATION_QUANTIFIER_EXISTS = 1;
+  RELATION_QUANTIFIER_NOT_EXISTS = 2;
 }
 
 message QueryValue {
@@ -136,7 +144,8 @@ message EventExpressionGroup {
 
 message EventRelationPredicate {
   EventExpression expression = 1;
-  bool must_exist = 2;
+  bool must_exist = 2 [deprecated = true];
+  RelationQuantifier quantifier = 3;
 }
 
 message ProcessExpression {

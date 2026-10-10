@@ -193,7 +193,7 @@ pub struct HumanRuntimePolicy {
     #[prost(string, repeated, tag="14")]
     pub engine_retryable_codes: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ProjectionPolicy {
     #[prost(uint32, tag="1")]
     pub consume_batch_size: u32,
@@ -223,6 +223,12 @@ pub struct ProjectionPolicy {
     pub query_timeout_ms: u64,
     #[prost(uint32, tag="14")]
     pub query_max_string_bytes: u32,
+    #[prost(string, tag="15")]
+    pub query_cursor_signing_key_id: ::prost::alloc::string::String,
+    #[prost(string, tag="16")]
+    pub query_all_capability: ::prost::alloc::string::String,
+    #[prost(string, tag="17")]
+    pub query_own_capability: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GovernancePolicy {

@@ -86,10 +86,11 @@ func (s *Store) applyInstance(
 		}
 		_, err = tx.Exec(ctx, `INSERT INTO workflow_instance_read_models
 			(tenant_id,instance_id,workflow_type,workflow_version,status,active_node_id,last_event_sequence,
-			 started_at,updated_at,config_version,policy_version)
-			VALUES($1,$2,$3,$4,'ACTIVE',$5,$6,$7,$7,$8,$9)`,
+			 started_at,updated_at,config_version,policy_version,initiator_actor_id)
+			VALUES($1,$2,$3,$4,'ACTIVE',$5,$6,$7,$7,$8,$9,$10)`,
 			event.TenantID, event.InstanceID, event.WorkflowType, event.WorkflowVersion,
-			event.NodeID, event.Sequence, event.OccurredAt, event.ConfigVersion, event.PolicyVersion)
+			event.NodeID, event.Sequence, event.OccurredAt, event.ConfigVersion, event.PolicyVersion,
+			event.ActorID)
 		return err
 	}
 	if err != nil {
@@ -195,7 +196,7 @@ func (s *Store) List(
 
 const instanceSelect = `SELECT tenant_id,instance_id,workflow_type,workflow_version,status,
 	active_node_id,last_event_sequence,started_at,updated_at,completed_at,
-	config_version,policy_version,is_deleted,version
+	config_version,policy_version,initiator_actor_id,is_deleted,version
 	FROM workflow_instance_read_models`
 
 type rowScanner interface{ Scan(...any) error }
@@ -207,7 +208,7 @@ func scanInstance(row rowScanner) (application.Instance, error) {
 		&instance.WorkflowVersion, &instance.Status, &instance.ActiveNodeID,
 		&instance.LastEventSequence, &instance.StartedAt, &instance.UpdatedAt,
 		&instance.CompletedAt, &instance.ConfigVersion, &instance.PolicyVersion,
-		&instance.IsDeleted, &instance.Version,
+		&instance.InitiatorActorID, &instance.IsDeleted, &instance.Version,
 	)
 	return instance, err
 }

@@ -158,6 +158,9 @@ message ProjectionPolicy {
   uint32 query_max_in_values = 12;
   uint64 query_timeout_ms = 13;
   uint32 query_max_string_bytes = 14;
+  string query_cursor_signing_key_id = 15;
+  string query_all_capability = 16;
+  string query_own_capability = 17;
 }
 
 message GovernancePolicy {

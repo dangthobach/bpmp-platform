@@ -287,7 +287,7 @@ func TestQueryCompletedProcessesForwardsTypedQueryAndAuthenticatedScope(t *testi
 	}
 	handler.projection = projection
 	handler.now = func() time.Time { return now }
-	body := `{"tenant_id":"attacker-tenant","filter":{"event_relation":{"must_exist":true,"expression":{"predicate":{"field":"EVENT_FIELD_EVENT_TYPE","operator":"COMPARISON_OPERATOR_EQUAL","values":[{"string_value":"user_task_completed"}]}}}},"sort":[{"field":"PROCESS_FIELD_COMPLETED_AT","direction":"SORT_DIRECTION_DESCENDING"}],"page_size":25}`
+	body := `{"tenant_id":"attacker-tenant","filter":{"event_relation":{"quantifier":"RELATION_QUANTIFIER_EXISTS","expression":{"predicate":{"field":"EVENT_FIELD_EVENT_TYPE","operator":"COMPARISON_OPERATOR_EQUAL","values":[{"string_value":"user_task_completed"}]}}}},"sort":[{"field":"PROCESS_FIELD_COMPLETED_AT","direction":"SORT_DIRECTION_DESCENDING"}],"page_size":25}`
 	request := httptest.NewRequest(http.MethodPost, "/v1/process-instances/completed/query", strings.NewReader(body))
 	request.Header.Set("Authorization", "Bearer "+raw)
 	request.Header.Set("X-BPMP-Tenant-ID", "tenant-a")

@@ -66,7 +66,7 @@ curl.exe -k -X POST "https://localhost:14173/v1/process-instances/completed/quer
             "values": [{"string_value": "approval"}]
           }},
           {"event_relation": {
-            "must_exist": true,
+            "quantifier": "RELATION_QUANTIFIER_EXISTS",
             "expression": {"predicate": {
               "field": "EVENT_FIELD_EVENT_TYPE",
               "operator": "COMPARISON_OPERATOR_EQUAL",
@@ -85,8 +85,14 @@ curl.exe -k -X POST "https://localhost:14173/v1/process-instances/completed/quer
 ```
 
 Use the returned `next_page_token` unchanged on the next request. The token is
-bound to tenant, filter and sort fingerprint; changing any of them invalidates
-the token. Query limits are resolved per tenant from `ProjectionPolicy` at the
+HMAC signed, key-versioned, and bound to the tenant, actor subject, effective
+authorization policy, filter and sort fingerprint; changing any of them
+invalidates the token. The Projection Service verifies the forwarded actor JWT
+again. The dynamic `query_all_capability` permits every matching row in the
+tenant; `query_own_capability` adds a typed
+`PROCESS_FIELD_INITIATOR_ACTOR_ID = actor_id` predicate. That authorization
+predicate is combined with the client filter using `AND` before validation and
+SQL compilation. Query limits are resolved per tenant from `ProjectionPolicy` at the
 start of each request: page size, timeout, filter depth, predicate count, sort
 count, relation joins, `IN` cardinality and string length. Raw SQL, arbitrary
 columns and cross-service joins are not part of this API.

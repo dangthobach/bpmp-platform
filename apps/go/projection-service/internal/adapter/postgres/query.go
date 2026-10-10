@@ -41,7 +41,8 @@ func (s *Store) QueryCompleted(
 			&process.Instance.LastEventSequence, &process.Instance.StartedAt,
 			&process.Instance.UpdatedAt, &process.Instance.CompletedAt,
 			&process.Instance.ConfigVersion, &process.Instance.PolicyVersion,
-			&process.Instance.IsDeleted, &process.Instance.Version,
+			&process.Instance.InitiatorActorID, &process.Instance.IsDeleted,
+			&process.Instance.Version,
 			&duration, &eventCount,
 		)
 		if err != nil {
@@ -97,7 +98,7 @@ func compileCompletedQuery(query application.ProcessQuery) (string, []any, error
 	limit := builder.bind(query.Limit)
 	statement := `SELECT p.tenant_id,p.instance_id,p.workflow_type,p.workflow_version,p.status,
 		p.active_node_id,p.last_event_sequence,p.started_at,p.updated_at,p.completed_at,
-		p.config_version,p.policy_version,p.is_deleted,p.version,` + durationExpression + `,
+		p.config_version,p.policy_version,p.initiator_actor_id,p.is_deleted,p.version,` + durationExpression + `,
 		(SELECT COUNT(*) FROM workflow_event_read_models ec
 		 WHERE ec.tenant_id=p.tenant_id AND ec.instance_id=p.instance_id AND NOT ec.is_deleted)::bigint
 		FROM workflow_instance_read_models p
@@ -126,7 +127,7 @@ func (b *sqlBuilder) processExpression(expression application.ProcessExpression)
 			return "", err
 		}
 		exists := "EXISTS"
-		if !expression.EventRelation.MustExist {
+		if expression.EventRelation.Quantifier == application.RelationNotExists {
 			exists = "NOT EXISTS"
 		}
 		return exists + " (SELECT 1 FROM workflow_event_read_models " + alias +
@@ -270,6 +271,7 @@ func processSQL(field application.ProcessField) (string, error) {
 		application.ProcessConfigVersion:     "p.config_version",
 		application.ProcessPolicyVersion:     "p.policy_version",
 		application.ProcessVersion:           "p.version",
+		application.ProcessInitiatorActorID:  "p.initiator_actor_id",
 	}
 	value, ok := values[field]
 	if !ok {

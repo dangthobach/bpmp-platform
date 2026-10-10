@@ -18,13 +18,14 @@ const maxPageTokenBytes = 1024
 type Server struct {
 	projectionv1.UnimplementedProjectionQueryServiceServer
 	service *application.Service
+	cursors *CursorCodec
 }
 
-func New(service *application.Service) (*Server, error) {
-	if service == nil {
-		return nil, errors.New("projection application service is required")
+func New(service *application.Service, cursors *CursorCodec) (*Server, error) {
+	if service == nil || cursors == nil {
+		return nil, errors.New("projection application service and cursor codec are required")
 	}
-	return &Server{service: service}, nil
+	return &Server{service: service, cursors: cursors}, nil
 }
 
 func (s *Server) GetWorkflowInstance(
@@ -123,6 +124,7 @@ func toWire(instance application.Instance) *projectionv1.WorkflowInstanceReadMod
 		UpdatedAtEpochMs:  uint64(instance.UpdatedAt.UnixMilli()),
 		ConfigVersion:     instance.ConfigVersion,
 		PolicyVersion:     instance.PolicyVersion,
+		InitiatorActorId:  instance.InitiatorActorID,
 		IsDeleted:         instance.IsDeleted,
 		Version:           instance.Version,
 	}
@@ -140,6 +142,8 @@ func mapError(err error) error {
 		return status.Error(codes.InvalidArgument, err.Error())
 	case errors.Is(err, application.ErrInvalidQuery):
 		return status.Error(codes.InvalidArgument, err.Error())
+	case errors.Is(err, application.ErrQueryForbidden):
+		return status.Error(codes.PermissionDenied, err.Error())
 	case errors.Is(err, context.DeadlineExceeded):
 		return status.Error(codes.DeadlineExceeded, "projection query deadline exceeded")
 	default:

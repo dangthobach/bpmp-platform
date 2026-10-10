@@ -40,10 +40,17 @@ func (p *Provider) Policy(tenantID string) (application.RuntimePolicy, error) {
 		value.GetQueryMaxSortFields() == 0 ||
 		value.GetQueryMaxInValues() == 0 ||
 		value.GetQueryTimeoutMs() == 0 ||
-		value.GetQueryMaxStringBytes() == 0 {
+		value.GetQueryMaxStringBytes() == 0 ||
+		value.GetQueryCursorSigningKeyId() == "" ||
+		value.GetQueryAllCapability() == "" ||
+		value.GetQueryOwnCapability() == "" ||
+		value.GetQueryAllCapability() == value.GetQueryOwnCapability() ||
+		snapshot.GetConfigVersion() == "" || snapshot.GetPolicyVersion() == "" {
 		return application.RuntimePolicy{}, errors.New("projection runtime policy is invalid")
 	}
 	return application.RuntimePolicy{
+		ConfigVersion:            snapshot.GetConfigVersion(),
+		PolicyVersion:            snapshot.GetPolicyVersion(),
 		ConsumeBatchSize:         int(value.GetConsumeBatchSize()),
 		RebuildBatchSize:         int(value.GetRebuildBatchSize()),
 		QueryDefaultPageSize:     value.GetQueryDefaultPageSize(),
@@ -58,6 +65,9 @@ func (p *Provider) Policy(tenantID string) (application.RuntimePolicy, error) {
 		QueryMaxInValues:         value.GetQueryMaxInValues(),
 		QueryTimeout:             time.Duration(value.GetQueryTimeoutMs()) * time.Millisecond,
 		QueryMaxStringBytes:      value.GetQueryMaxStringBytes(),
+		QueryCursorSigningKeyID:  value.GetQueryCursorSigningKeyId(),
+		QueryAllCapability:       value.GetQueryAllCapability(),
+		QueryOwnCapability:       value.GetQueryOwnCapability(),
 	}, nil
 }
 

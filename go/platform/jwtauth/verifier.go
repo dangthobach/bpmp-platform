@@ -25,12 +25,16 @@ type Config struct {
 }
 
 type Identity struct {
-	Subject  string
-	TenantID string
+	Subject      string
+	TenantID     string
+	Capabilities []string
+	RevokeEpoch  uint64
 }
 
 type claims struct {
-	TenantID string `json:"tenant_id"`
+	TenantID     string   `json:"tenant_id"`
+	Capabilities []string `json:"capabilities"`
+	RevokeEpoch  uint64   `json:"revoke_epoch"`
 	jwt.RegisteredClaims
 }
 
@@ -110,7 +114,11 @@ func (v *Verifier) Verify(raw, tenantID string, now time.Time) (Identity, error)
 		!audienceAllowed(value.Audience, v.audiences) {
 		return Identity{}, errors.New("JWT scope is invalid")
 	}
-	return Identity{Subject: value.Subject, TenantID: value.TenantID}, nil
+	return Identity{
+		Subject: value.Subject, TenantID: value.TenantID,
+		Capabilities: append([]string(nil), value.Capabilities...),
+		RevokeEpoch:  value.RevokeEpoch,
+	}, nil
 }
 
 type jwksDocument struct {

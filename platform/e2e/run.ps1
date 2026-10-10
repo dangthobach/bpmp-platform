@@ -721,7 +721,7 @@ url = "https://localhost:$cockpitGatewayPort/realtime/v1/events?names=workflow.c
                         values = @(@{ string_value = $instance })
                     } },
                     @{ event_relation = @{
-                        must_exist = $true
+						quantifier = "RELATION_QUANTIFIER_EXISTS"
                         expression = @{ predicate = @{
                             field = "EVENT_FIELD_EVENT_TYPE"
                             operator = "COMPARISON_OPERATOR_EQUAL"

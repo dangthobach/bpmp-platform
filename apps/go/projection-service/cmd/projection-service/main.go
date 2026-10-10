@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
@@ -22,12 +23,14 @@ import (
 	"github.com/dangthobach/bpmp-platform/apps/go/projection-service/internal/adapter/grpcapi"
 	"github.com/dangthobach/bpmp-platform/apps/go/projection-service/internal/adapter/kafkaconsumer"
 	postgresadapter "github.com/dangthobach/bpmp-platform/apps/go/projection-service/internal/adapter/postgres"
+	"github.com/dangthobach/bpmp-platform/apps/go/projection-service/internal/adapter/queryauth"
 	"github.com/dangthobach/bpmp-platform/apps/go/projection-service/internal/adapter/runtimepolicy"
 	"github.com/dangthobach/bpmp-platform/apps/go/projection-service/internal/application"
 	configurationv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/configuration/v1"
 	projectionv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/projection/v1"
 	platformgrpcserver "github.com/dangthobach/bpmp-platform/go/platform/grpcserver"
 	platformhealth "github.com/dangthobach/bpmp-platform/go/platform/health"
+	"github.com/dangthobach/bpmp-platform/go/platform/jwtauth"
 	"github.com/dangthobach/bpmp-platform/go/platform/requestmeta"
 	platformruntimeconfig "github.com/dangthobach/bpmp-platform/go/platform/runtimeconfig"
 	"github.com/dangthobach/bpmp-platform/go/platform/servermiddleware"
@@ -142,7 +145,24 @@ func run(configPath string) error {
 	if err != nil {
 		return err
 	}
-	service, err := application.NewService(store, policies)
+	actorVerifier, err := jwtauth.New(jwtauth.Config{
+		JWKSPath: value.Identity.JWKSPath, Issuers: value.Identity.Issuers,
+		Audiences: value.Identity.Audiences, Algorithms: value.Identity.Algorithms,
+		MaxTokenBytes: value.Identity.MaxTokenBytes, MaxJWKSKeys: value.Identity.MaxJWKSKeys,
+		ClockSkew: time.Duration(value.Identity.ClockSkewSeconds) * time.Second,
+	})
+	if err != nil {
+		return fmt.Errorf("create projection actor verifier: %w", err)
+	}
+	queryAuthorizer, err := queryauth.New(queryauth.Config{
+		MaxCapabilities: value.Identity.MaxCapabilities,
+	}, actorVerifier)
+	if err != nil {
+		return err
+	}
+	service, err := application.NewService(
+		store, policies, application.WithQueryAuthorizer(queryAuthorizer),
+	)
 	if err != nil {
 		return err
 	}
@@ -174,7 +194,11 @@ func run(configPath string) error {
 	if err != nil {
 		return err
 	}
-	query, err := grpcapi.New(service)
+	cursorCodec, err := loadCursorCodec(value.CursorSigning)
+	if err != nil {
+		return err
+	}
+	query, err := grpcapi.New(service, cursorCodec)
 	if err != nil {
 		return err
 	}
@@ -275,6 +299,22 @@ func run(configPath string) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), milliseconds(value.Health.ShutdownTimeoutMS))
 	defer cancel()
 	return errors.Join(err, healthServer.Shutdown(shutdownCtx))
+}
+
+func loadCursorCodec(config cursorSigningConfig) (*grpcapi.CursorCodec, error) {
+	keys := make([]grpcapi.CursorKey, 0, len(config.Keys))
+	for _, configured := range config.Keys {
+		secret, err := os.ReadFile(configured.SecretPath)
+		if err != nil {
+			return nil, fmt.Errorf("read projection cursor signing key %q: %w", configured.ID, err)
+		}
+		keys = append(keys, grpcapi.CursorKey{ID: configured.ID, Secret: secret})
+	}
+	codec, err := grpcapi.NewCursorCodec(keys)
+	if err != nil {
+		return nil, fmt.Errorf("create projection cursor codec: %w", err)
+	}
+	return codec, nil
 }
 
 func loadTLS(value tlsConfig) (*tls.Config, *tls.Config, error) {

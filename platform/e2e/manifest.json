@@ -48,6 +48,7 @@
   "human_listen_address": "0.0.0.0:7201",
   "human_health_address": "0.0.0.0:7202",
   "projection_listen_address": "0.0.0.0:7401",
+  "projection_address": "projection-service:7401",
   "projection_health_address": "0.0.0.0:7402",
   "cockpit_gateway_listen_address": "0.0.0.0:7601",
   "cockpit_gateway_health_address": "0.0.0.0:7602",

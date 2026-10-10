@@ -167,6 +167,7 @@ const (
 	ProcessField_PROCESS_FIELD_CONFIG_VERSION      ProcessField = 11
 	ProcessField_PROCESS_FIELD_POLICY_VERSION      ProcessField = 12
 	ProcessField_PROCESS_FIELD_VERSION             ProcessField = 13
+	ProcessField_PROCESS_FIELD_INITIATOR_ACTOR_ID  ProcessField = 14
 )
 
 // Enum value maps for ProcessField.
@@ -186,6 +187,7 @@ var (
 		11: "PROCESS_FIELD_CONFIG_VERSION",
 		12: "PROCESS_FIELD_POLICY_VERSION",
 		13: "PROCESS_FIELD_VERSION",
+		14: "PROCESS_FIELD_INITIATOR_ACTOR_ID",
 	}
 	ProcessField_value = map[string]int32{
 		"PROCESS_FIELD_UNSPECIFIED":         0,
@@ -202,6 +204,7 @@ var (
 		"PROCESS_FIELD_CONFIG_VERSION":      11,
 		"PROCESS_FIELD_POLICY_VERSION":      12,
 		"PROCESS_FIELD_VERSION":             13,
+		"PROCESS_FIELD_INITIATOR_ACTOR_ID":  14,
 	}
 )
 
@@ -345,6 +348,55 @@ func (SortDirection) EnumDescriptor() ([]byte, []int) {
 	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{4}
 }
 
+type RelationQuantifier int32
+
+const (
+	RelationQuantifier_RELATION_QUANTIFIER_UNSPECIFIED RelationQuantifier = 0
+	RelationQuantifier_RELATION_QUANTIFIER_EXISTS      RelationQuantifier = 1
+	RelationQuantifier_RELATION_QUANTIFIER_NOT_EXISTS  RelationQuantifier = 2
+)
+
+// Enum value maps for RelationQuantifier.
+var (
+	RelationQuantifier_name = map[int32]string{
+		0: "RELATION_QUANTIFIER_UNSPECIFIED",
+		1: "RELATION_QUANTIFIER_EXISTS",
+		2: "RELATION_QUANTIFIER_NOT_EXISTS",
+	}
+	RelationQuantifier_value = map[string]int32{
+		"RELATION_QUANTIFIER_UNSPECIFIED": 0,
+		"RELATION_QUANTIFIER_EXISTS":      1,
+		"RELATION_QUANTIFIER_NOT_EXISTS":  2,
+	}
+)
+
+func (x RelationQuantifier) Enum() *RelationQuantifier {
+	p := new(RelationQuantifier)
+	*p = x
+	return p
+}
+
+func (x RelationQuantifier) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (RelationQuantifier) Descriptor() protoreflect.EnumDescriptor {
+	return file_bpmp_projection_v1_projection_proto_enumTypes[5].Descriptor()
+}
+
+func (RelationQuantifier) Type() protoreflect.EnumType {
+	return &file_bpmp_projection_v1_projection_proto_enumTypes[5]
+}
+
+func (x RelationQuantifier) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use RelationQuantifier.Descriptor instead.
+func (RelationQuantifier) EnumDescriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{5}
+}
+
 type WorkflowInstanceReadModel struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	TenantId           string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
@@ -361,6 +413,7 @@ type WorkflowInstanceReadModel struct {
 	PolicyVersion      string                 `protobuf:"bytes,12,opt,name=policy_version,json=policyVersion,proto3" json:"policy_version,omitempty"`
 	IsDeleted          bool                   `protobuf:"varint,13,opt,name=is_deleted,json=isDeleted,proto3" json:"is_deleted,omitempty"`
 	Version            uint64                 `protobuf:"varint,14,opt,name=version,proto3" json:"version,omitempty"`
+	InitiatorActorId   string                 `protobuf:"bytes,15,opt,name=initiator_actor_id,json=initiatorActorId,proto3" json:"initiator_actor_id,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -491,6 +544,13 @@ func (x *WorkflowInstanceReadModel) GetVersion() uint64 {
 		return x.Version
 	}
 	return 0
+}
+
+func (x *WorkflowInstanceReadModel) GetInitiatorActorId() string {
+	if x != nil {
+		return x.InitiatorActorId
+	}
+	return ""
 }
 
 type GetWorkflowInstanceRequest struct {
@@ -1110,9 +1170,11 @@ func (x *EventExpressionGroup) GetExpressions() []*EventExpression {
 }
 
 type EventRelationPredicate struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Expression    *EventExpression       `protobuf:"bytes,1,opt,name=expression,proto3" json:"expression,omitempty"`
-	MustExist     bool                   `protobuf:"varint,2,opt,name=must_exist,json=mustExist,proto3" json:"must_exist,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Expression *EventExpression       `protobuf:"bytes,1,opt,name=expression,proto3" json:"expression,omitempty"`
+	// Deprecated: Marked as deprecated in bpmp/projection/v1/projection.proto.
+	MustExist     bool               `protobuf:"varint,2,opt,name=must_exist,json=mustExist,proto3" json:"must_exist,omitempty"`
+	Quantifier    RelationQuantifier `protobuf:"varint,3,opt,name=quantifier,proto3,enum=bpmp.projection.v1.RelationQuantifier" json:"quantifier,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1154,11 +1216,19 @@ func (x *EventRelationPredicate) GetExpression() *EventExpression {
 	return nil
 }
 
+// Deprecated: Marked as deprecated in bpmp/projection/v1/projection.proto.
 func (x *EventRelationPredicate) GetMustExist() bool {
 	if x != nil {
 		return x.MustExist
 	}
 	return false
+}
+
+func (x *EventRelationPredicate) GetQuantifier() RelationQuantifier {
+	if x != nil {
+		return x.Quantifier
+	}
+	return RelationQuantifier_RELATION_QUANTIFIER_UNSPECIFIED
 }
 
 type ProcessExpression struct {
@@ -1587,7 +1657,7 @@ var File_bpmp_projection_v1_projection_proto protoreflect.FileDescriptor
 
 const file_bpmp_projection_v1_projection_proto_rawDesc = "" +
 	"\n" +
-	"#bpmp/projection/v1/projection.proto\x12\x12bpmp.projection.v1\x1a)bpmp/authorization/v1/authorization.proto\"\xaf\x04\n" +
+	"#bpmp/projection/v1/projection.proto\x12\x12bpmp.projection.v1\x1a)bpmp/authorization/v1/authorization.proto\"\xdd\x04\n" +
 	"\x19WorkflowInstanceReadModel\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x1f\n" +
 	"\vinstance_id\x18\x02 \x01(\tR\n" +
@@ -1605,7 +1675,8 @@ const file_bpmp_projection_v1_projection_proto_rawDesc = "" +
 	"\x0epolicy_version\x18\f \x01(\tR\rpolicyVersion\x12\x1d\n" +
 	"\n" +
 	"is_deleted\x18\r \x01(\bR\tisDeleted\x12\x18\n" +
-	"\aversion\x18\x0e \x01(\x04R\aversion\"Z\n" +
+	"\aversion\x18\x0e \x01(\x04R\aversion\x12,\n" +
+	"\x12initiator_actor_id\x18\x0f \x01(\tR\x10initiatorActorId\"Z\n" +
 	"\x1aGetWorkflowInstanceRequest\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x1f\n" +
 	"\vinstance_id\x18\x02 \x01(\tR\n" +
@@ -1646,13 +1717,16 @@ const file_bpmp_projection_v1_projection_proto_rawDesc = "" +
 	"expression\"\x9e\x01\n" +
 	"\x14EventExpressionGroup\x12?\n" +
 	"\boperator\x18\x01 \x01(\x0e2#.bpmp.projection.v1.LogicalOperatorR\boperator\x12E\n" +
-	"\vexpressions\x18\x02 \x03(\v2#.bpmp.projection.v1.EventExpressionR\vexpressions\"|\n" +
+	"\vexpressions\x18\x02 \x03(\v2#.bpmp.projection.v1.EventExpressionR\vexpressions\"\xc8\x01\n" +
 	"\x16EventRelationPredicate\x12C\n" +
 	"\n" +
 	"expression\x18\x01 \x01(\v2#.bpmp.projection.v1.EventExpressionR\n" +
-	"expression\x12\x1d\n" +
+	"expression\x12!\n" +
 	"\n" +
-	"must_exist\x18\x02 \x01(\bR\tmustExist\"\xc3\x02\n" +
+	"must_exist\x18\x02 \x01(\bB\x02\x18\x01R\tmustExist\x12F\n" +
+	"\n" +
+	"quantifier\x18\x03 \x01(\x0e2&.bpmp.projection.v1.RelationQuantifierR\n" +
+	"quantifier\"\xc3\x02\n" +
 	"\x11ProcessExpression\x12D\n" +
 	"\tpredicate\x18\x01 \x01(\v2$.bpmp.projection.v1.ProcessPredicateH\x00R\tpredicate\x12B\n" +
 	"\x05group\x18\x02 \x01(\v2*.bpmp.projection.v1.ProcessExpressionGroupH\x00R\x05group\x12A\n" +
@@ -1703,7 +1777,7 @@ const file_bpmp_projection_v1_projection_proto_rawDesc = "" +
 	"\x1fCOMPARISON_OPERATOR_STARTS_WITH\x10\n" +
 	"\x12\x1f\n" +
 	"\x1bCOMPARISON_OPERATOR_IS_NULL\x10\v\x12#\n" +
-	"\x1fCOMPARISON_OPERATOR_IS_NOT_NULL\x10\f*\xce\x03\n" +
+	"\x1fCOMPARISON_OPERATOR_IS_NOT_NULL\x10\f*\xf4\x03\n" +
 	"\fProcessField\x12\x1d\n" +
 	"\x19PROCESS_FIELD_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19PROCESS_FIELD_INSTANCE_ID\x10\x01\x12\x1f\n" +
@@ -1719,7 +1793,8 @@ const file_bpmp_projection_v1_projection_proto_rawDesc = "" +
 	"\x12 \n" +
 	"\x1cPROCESS_FIELD_CONFIG_VERSION\x10\v\x12 \n" +
 	"\x1cPROCESS_FIELD_POLICY_VERSION\x10\f\x12\x19\n" +
-	"\x15PROCESS_FIELD_VERSION\x10\r*\xef\x01\n" +
+	"\x15PROCESS_FIELD_VERSION\x10\r\x12$\n" +
+	" PROCESS_FIELD_INITIATOR_ACTOR_ID\x10\x0e*\xef\x01\n" +
 	"\n" +
 	"EventField\x12\x1b\n" +
 	"\x17EVENT_FIELD_UNSPECIFIED\x10\x00\x12\x1a\n" +
@@ -1733,7 +1808,11 @@ const file_bpmp_projection_v1_projection_proto_rawDesc = "" +
 	"\rSortDirection\x12\x1e\n" +
 	"\x1aSORT_DIRECTION_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18SORT_DIRECTION_ASCENDING\x10\x01\x12\x1d\n" +
-	"\x19SORT_DIRECTION_DESCENDING\x10\x022\x93\x03\n" +
+	"\x19SORT_DIRECTION_DESCENDING\x10\x02*}\n" +
+	"\x12RelationQuantifier\x12#\n" +
+	"\x1fRELATION_QUANTIFIER_UNSPECIFIED\x10\x00\x12\x1e\n" +
+	"\x1aRELATION_QUANTIFIER_EXISTS\x10\x01\x12\"\n" +
+	"\x1eRELATION_QUANTIFIER_NOT_EXISTS\x10\x022\x93\x03\n" +
 	"\x16ProjectionQueryService\x12v\n" +
 	"\x13GetWorkflowInstance\x12..bpmp.projection.v1.GetWorkflowInstanceRequest\x1a/.bpmp.projection.v1.GetWorkflowInstanceResponse\x12|\n" +
 	"\x15ListWorkflowInstances\x120.bpmp.projection.v1.ListWorkflowInstancesRequest\x1a1.bpmp.projection.v1.ListWorkflowInstancesResponse\x12\x82\x01\n" +
@@ -1752,7 +1831,7 @@ func file_bpmp_projection_v1_projection_proto_rawDescGZIP() []byte {
 	return file_bpmp_projection_v1_projection_proto_rawDescData
 }
 
-var file_bpmp_projection_v1_projection_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
+var file_bpmp_projection_v1_projection_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
 var file_bpmp_projection_v1_projection_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_bpmp_projection_v1_projection_proto_goTypes = []any{
 	(LogicalOperator)(0),                    // 0: bpmp.projection.v1.LogicalOperator
@@ -1760,64 +1839,66 @@ var file_bpmp_projection_v1_projection_proto_goTypes = []any{
 	(ProcessField)(0),                       // 2: bpmp.projection.v1.ProcessField
 	(EventField)(0),                         // 3: bpmp.projection.v1.EventField
 	(SortDirection)(0),                      // 4: bpmp.projection.v1.SortDirection
-	(*WorkflowInstanceReadModel)(nil),       // 5: bpmp.projection.v1.WorkflowInstanceReadModel
-	(*GetWorkflowInstanceRequest)(nil),      // 6: bpmp.projection.v1.GetWorkflowInstanceRequest
-	(*GetWorkflowInstanceResponse)(nil),     // 7: bpmp.projection.v1.GetWorkflowInstanceResponse
-	(*ListWorkflowInstancesRequest)(nil),    // 8: bpmp.projection.v1.ListWorkflowInstancesRequest
-	(*ListWorkflowInstancesResponse)(nil),   // 9: bpmp.projection.v1.ListWorkflowInstancesResponse
-	(*QueryValue)(nil),                      // 10: bpmp.projection.v1.QueryValue
-	(*ProcessPredicate)(nil),                // 11: bpmp.projection.v1.ProcessPredicate
-	(*EventPredicate)(nil),                  // 12: bpmp.projection.v1.EventPredicate
-	(*EventExpression)(nil),                 // 13: bpmp.projection.v1.EventExpression
-	(*EventExpressionGroup)(nil),            // 14: bpmp.projection.v1.EventExpressionGroup
-	(*EventRelationPredicate)(nil),          // 15: bpmp.projection.v1.EventRelationPredicate
-	(*ProcessExpression)(nil),               // 16: bpmp.projection.v1.ProcessExpression
-	(*ProcessExpressionGroup)(nil),          // 17: bpmp.projection.v1.ProcessExpressionGroup
-	(*ProcessSort)(nil),                     // 18: bpmp.projection.v1.ProcessSort
-	(*QueryCompletedProcessesRequest)(nil),  // 19: bpmp.projection.v1.QueryCompletedProcessesRequest
-	(*CompletedProcessReadModel)(nil),       // 20: bpmp.projection.v1.CompletedProcessReadModel
-	(*QueryCompletedProcessesResponse)(nil), // 21: bpmp.projection.v1.QueryCompletedProcessesResponse
-	(*v1.ActorProof)(nil),                   // 22: bpmp.authorization.v1.ActorProof
+	(RelationQuantifier)(0),                 // 5: bpmp.projection.v1.RelationQuantifier
+	(*WorkflowInstanceReadModel)(nil),       // 6: bpmp.projection.v1.WorkflowInstanceReadModel
+	(*GetWorkflowInstanceRequest)(nil),      // 7: bpmp.projection.v1.GetWorkflowInstanceRequest
+	(*GetWorkflowInstanceResponse)(nil),     // 8: bpmp.projection.v1.GetWorkflowInstanceResponse
+	(*ListWorkflowInstancesRequest)(nil),    // 9: bpmp.projection.v1.ListWorkflowInstancesRequest
+	(*ListWorkflowInstancesResponse)(nil),   // 10: bpmp.projection.v1.ListWorkflowInstancesResponse
+	(*QueryValue)(nil),                      // 11: bpmp.projection.v1.QueryValue
+	(*ProcessPredicate)(nil),                // 12: bpmp.projection.v1.ProcessPredicate
+	(*EventPredicate)(nil),                  // 13: bpmp.projection.v1.EventPredicate
+	(*EventExpression)(nil),                 // 14: bpmp.projection.v1.EventExpression
+	(*EventExpressionGroup)(nil),            // 15: bpmp.projection.v1.EventExpressionGroup
+	(*EventRelationPredicate)(nil),          // 16: bpmp.projection.v1.EventRelationPredicate
+	(*ProcessExpression)(nil),               // 17: bpmp.projection.v1.ProcessExpression
+	(*ProcessExpressionGroup)(nil),          // 18: bpmp.projection.v1.ProcessExpressionGroup
+	(*ProcessSort)(nil),                     // 19: bpmp.projection.v1.ProcessSort
+	(*QueryCompletedProcessesRequest)(nil),  // 20: bpmp.projection.v1.QueryCompletedProcessesRequest
+	(*CompletedProcessReadModel)(nil),       // 21: bpmp.projection.v1.CompletedProcessReadModel
+	(*QueryCompletedProcessesResponse)(nil), // 22: bpmp.projection.v1.QueryCompletedProcessesResponse
+	(*v1.ActorProof)(nil),                   // 23: bpmp.authorization.v1.ActorProof
 }
 var file_bpmp_projection_v1_projection_proto_depIdxs = []int32{
-	5,  // 0: bpmp.projection.v1.GetWorkflowInstanceResponse.instance:type_name -> bpmp.projection.v1.WorkflowInstanceReadModel
-	5,  // 1: bpmp.projection.v1.ListWorkflowInstancesResponse.instances:type_name -> bpmp.projection.v1.WorkflowInstanceReadModel
+	6,  // 0: bpmp.projection.v1.GetWorkflowInstanceResponse.instance:type_name -> bpmp.projection.v1.WorkflowInstanceReadModel
+	6,  // 1: bpmp.projection.v1.ListWorkflowInstancesResponse.instances:type_name -> bpmp.projection.v1.WorkflowInstanceReadModel
 	2,  // 2: bpmp.projection.v1.ProcessPredicate.field:type_name -> bpmp.projection.v1.ProcessField
 	1,  // 3: bpmp.projection.v1.ProcessPredicate.operator:type_name -> bpmp.projection.v1.ComparisonOperator
-	10, // 4: bpmp.projection.v1.ProcessPredicate.values:type_name -> bpmp.projection.v1.QueryValue
+	11, // 4: bpmp.projection.v1.ProcessPredicate.values:type_name -> bpmp.projection.v1.QueryValue
 	3,  // 5: bpmp.projection.v1.EventPredicate.field:type_name -> bpmp.projection.v1.EventField
 	1,  // 6: bpmp.projection.v1.EventPredicate.operator:type_name -> bpmp.projection.v1.ComparisonOperator
-	10, // 7: bpmp.projection.v1.EventPredicate.values:type_name -> bpmp.projection.v1.QueryValue
-	12, // 8: bpmp.projection.v1.EventExpression.predicate:type_name -> bpmp.projection.v1.EventPredicate
-	14, // 9: bpmp.projection.v1.EventExpression.group:type_name -> bpmp.projection.v1.EventExpressionGroup
-	13, // 10: bpmp.projection.v1.EventExpression.negated:type_name -> bpmp.projection.v1.EventExpression
+	11, // 7: bpmp.projection.v1.EventPredicate.values:type_name -> bpmp.projection.v1.QueryValue
+	13, // 8: bpmp.projection.v1.EventExpression.predicate:type_name -> bpmp.projection.v1.EventPredicate
+	15, // 9: bpmp.projection.v1.EventExpression.group:type_name -> bpmp.projection.v1.EventExpressionGroup
+	14, // 10: bpmp.projection.v1.EventExpression.negated:type_name -> bpmp.projection.v1.EventExpression
 	0,  // 11: bpmp.projection.v1.EventExpressionGroup.operator:type_name -> bpmp.projection.v1.LogicalOperator
-	13, // 12: bpmp.projection.v1.EventExpressionGroup.expressions:type_name -> bpmp.projection.v1.EventExpression
-	13, // 13: bpmp.projection.v1.EventRelationPredicate.expression:type_name -> bpmp.projection.v1.EventExpression
-	11, // 14: bpmp.projection.v1.ProcessExpression.predicate:type_name -> bpmp.projection.v1.ProcessPredicate
-	17, // 15: bpmp.projection.v1.ProcessExpression.group:type_name -> bpmp.projection.v1.ProcessExpressionGroup
-	16, // 16: bpmp.projection.v1.ProcessExpression.negated:type_name -> bpmp.projection.v1.ProcessExpression
-	15, // 17: bpmp.projection.v1.ProcessExpression.event_relation:type_name -> bpmp.projection.v1.EventRelationPredicate
-	0,  // 18: bpmp.projection.v1.ProcessExpressionGroup.operator:type_name -> bpmp.projection.v1.LogicalOperator
-	16, // 19: bpmp.projection.v1.ProcessExpressionGroup.expressions:type_name -> bpmp.projection.v1.ProcessExpression
-	2,  // 20: bpmp.projection.v1.ProcessSort.field:type_name -> bpmp.projection.v1.ProcessField
-	4,  // 21: bpmp.projection.v1.ProcessSort.direction:type_name -> bpmp.projection.v1.SortDirection
-	16, // 22: bpmp.projection.v1.QueryCompletedProcessesRequest.filter:type_name -> bpmp.projection.v1.ProcessExpression
-	18, // 23: bpmp.projection.v1.QueryCompletedProcessesRequest.sort:type_name -> bpmp.projection.v1.ProcessSort
-	22, // 24: bpmp.projection.v1.QueryCompletedProcessesRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
-	5,  // 25: bpmp.projection.v1.CompletedProcessReadModel.instance:type_name -> bpmp.projection.v1.WorkflowInstanceReadModel
-	20, // 26: bpmp.projection.v1.QueryCompletedProcessesResponse.processes:type_name -> bpmp.projection.v1.CompletedProcessReadModel
-	6,  // 27: bpmp.projection.v1.ProjectionQueryService.GetWorkflowInstance:input_type -> bpmp.projection.v1.GetWorkflowInstanceRequest
-	8,  // 28: bpmp.projection.v1.ProjectionQueryService.ListWorkflowInstances:input_type -> bpmp.projection.v1.ListWorkflowInstancesRequest
-	19, // 29: bpmp.projection.v1.ProjectionQueryService.QueryCompletedProcesses:input_type -> bpmp.projection.v1.QueryCompletedProcessesRequest
-	7,  // 30: bpmp.projection.v1.ProjectionQueryService.GetWorkflowInstance:output_type -> bpmp.projection.v1.GetWorkflowInstanceResponse
-	9,  // 31: bpmp.projection.v1.ProjectionQueryService.ListWorkflowInstances:output_type -> bpmp.projection.v1.ListWorkflowInstancesResponse
-	21, // 32: bpmp.projection.v1.ProjectionQueryService.QueryCompletedProcesses:output_type -> bpmp.projection.v1.QueryCompletedProcessesResponse
-	30, // [30:33] is the sub-list for method output_type
-	27, // [27:30] is the sub-list for method input_type
-	27, // [27:27] is the sub-list for extension type_name
-	27, // [27:27] is the sub-list for extension extendee
-	0,  // [0:27] is the sub-list for field type_name
+	14, // 12: bpmp.projection.v1.EventExpressionGroup.expressions:type_name -> bpmp.projection.v1.EventExpression
+	14, // 13: bpmp.projection.v1.EventRelationPredicate.expression:type_name -> bpmp.projection.v1.EventExpression
+	5,  // 14: bpmp.projection.v1.EventRelationPredicate.quantifier:type_name -> bpmp.projection.v1.RelationQuantifier
+	12, // 15: bpmp.projection.v1.ProcessExpression.predicate:type_name -> bpmp.projection.v1.ProcessPredicate
+	18, // 16: bpmp.projection.v1.ProcessExpression.group:type_name -> bpmp.projection.v1.ProcessExpressionGroup
+	17, // 17: bpmp.projection.v1.ProcessExpression.negated:type_name -> bpmp.projection.v1.ProcessExpression
+	16, // 18: bpmp.projection.v1.ProcessExpression.event_relation:type_name -> bpmp.projection.v1.EventRelationPredicate
+	0,  // 19: bpmp.projection.v1.ProcessExpressionGroup.operator:type_name -> bpmp.projection.v1.LogicalOperator
+	17, // 20: bpmp.projection.v1.ProcessExpressionGroup.expressions:type_name -> bpmp.projection.v1.ProcessExpression
+	2,  // 21: bpmp.projection.v1.ProcessSort.field:type_name -> bpmp.projection.v1.ProcessField
+	4,  // 22: bpmp.projection.v1.ProcessSort.direction:type_name -> bpmp.projection.v1.SortDirection
+	17, // 23: bpmp.projection.v1.QueryCompletedProcessesRequest.filter:type_name -> bpmp.projection.v1.ProcessExpression
+	19, // 24: bpmp.projection.v1.QueryCompletedProcessesRequest.sort:type_name -> bpmp.projection.v1.ProcessSort
+	23, // 25: bpmp.projection.v1.QueryCompletedProcessesRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	6,  // 26: bpmp.projection.v1.CompletedProcessReadModel.instance:type_name -> bpmp.projection.v1.WorkflowInstanceReadModel
+	21, // 27: bpmp.projection.v1.QueryCompletedProcessesResponse.processes:type_name -> bpmp.projection.v1.CompletedProcessReadModel
+	7,  // 28: bpmp.projection.v1.ProjectionQueryService.GetWorkflowInstance:input_type -> bpmp.projection.v1.GetWorkflowInstanceRequest
+	9,  // 29: bpmp.projection.v1.ProjectionQueryService.ListWorkflowInstances:input_type -> bpmp.projection.v1.ListWorkflowInstancesRequest
+	20, // 30: bpmp.projection.v1.ProjectionQueryService.QueryCompletedProcesses:input_type -> bpmp.projection.v1.QueryCompletedProcessesRequest
+	8,  // 31: bpmp.projection.v1.ProjectionQueryService.GetWorkflowInstance:output_type -> bpmp.projection.v1.GetWorkflowInstanceResponse
+	10, // 32: bpmp.projection.v1.ProjectionQueryService.ListWorkflowInstances:output_type -> bpmp.projection.v1.ListWorkflowInstancesResponse
+	22, // 33: bpmp.projection.v1.ProjectionQueryService.QueryCompletedProcesses:output_type -> bpmp.projection.v1.QueryCompletedProcessesResponse
+	31, // [31:34] is the sub-list for method output_type
+	28, // [28:31] is the sub-list for method input_type
+	28, // [28:28] is the sub-list for extension type_name
+	28, // [28:28] is the sub-list for extension extendee
+	0,  // [0:28] is the sub-list for field type_name
 }
 
 func init() { file_bpmp_projection_v1_projection_proto_init() }
@@ -1847,7 +1928,7 @@ func file_bpmp_projection_v1_projection_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bpmp_projection_v1_projection_proto_rawDesc), len(file_bpmp_projection_v1_projection_proto_rawDesc)),
-			NumEnums:      5,
+			NumEnums:      6,
 			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   1,

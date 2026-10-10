@@ -33,7 +33,8 @@ func TestVerifierEnforcesTenantIssuerAudienceAndExpiry(t *testing.T) {
 	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, jwt.MapClaims{
 		"iss": "issuer", "sub": "actor-1", "aud": []string{"cockpit"},
 		"tenant_id": "tenant-a", "iat": now.Add(-time.Minute).Unix(),
-		"exp": now.Add(time.Hour).Unix(),
+		"exp": now.Add(time.Hour).Unix(), "capabilities": []string{"workflow.query.own"},
+		"revoke_epoch": 7,
 	})
 	token.Header["kid"] = "key-1"
 	signed, err := token.SignedString(private)
@@ -41,7 +42,8 @@ func TestVerifierEnforcesTenantIssuerAudienceAndExpiry(t *testing.T) {
 		t.Fatal(err)
 	}
 	identity, err := verifier.Verify(signed, "tenant-a", now)
-	if err != nil || identity.Subject != "actor-1" {
+	if err != nil || identity.Subject != "actor-1" || identity.RevokeEpoch != 7 ||
+		len(identity.Capabilities) != 1 || identity.Capabilities[0] != "workflow.query.own" {
 		t.Fatalf("valid identity rejected: %+v, %v", identity, err)
 	}
 	if _, err = verifier.Verify(signed, "tenant-b", now); err == nil {

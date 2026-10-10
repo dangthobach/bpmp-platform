@@ -82,6 +82,7 @@ struct Manifest {
     human_listen_address: String,
     human_health_address: String,
     projection_listen_address: String,
+    projection_address: String,
     projection_health_address: String,
     cockpit_gateway_listen_address: String,
     cockpit_gateway_health_address: String,
@@ -197,6 +198,10 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
             derive_key(manifest, &format!("payload-{scope}")),
         )?;
     }
+    write(
+        &secrets.join("projection-cursor-v1.key"),
+        derive_key(manifest, "projection-cursor-v1"),
+    )?;
 
     let jwt_key = SigningKey::from_bytes(&derive_key(manifest, "jwt"));
     let jwt_private = jwt_key.to_pkcs8_der()?;
@@ -224,6 +229,7 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
                 "workflow.complete",
                 "configuration.read",
                 "configuration.manage",
+                "workflow.query.all",
             ],
             revoke_epoch: 0,
             iat: now.saturating_sub(5),
@@ -701,7 +707,7 @@ fn gateway_config(manifest: &Manifest, mount: &str, workload: &AuthKey) -> Value
     json!({
         "listen_address": manifest.gateway_listen_address,
         "engine_address": manifest.engine_public_addresses[1], "human_address": manifest.human_address,
-        "projection_address": manifest.projection_listen_address,
+        "projection_address": manifest.projection_address,
         "configuration_url": manifest.configuration_url,
         "public_tls": {"certificate": path("secrets/tls.pem"), "private_key": path("secrets/tls-key.pem")},
         "upstream_tls": {"certificate": path("secrets/tls.pem"), "private_key": path("secrets/tls-key.pem"), "ca": path("secrets/ca.pem"), "engine_server_name": "engine2", "human_server_name": "human-runtime", "projection_server_name": "projection-service", "configuration_server_name": "configuration-service"},
@@ -814,6 +820,22 @@ fn projection_config(manifest: &Manifest, mount: &str, tls_fingerprint: &str) ->
                 "poll_timeout_ms": 250,
                 "session_timeout_ms": 6000
             }
+        },
+        "identity": {
+            "jwks_path": path("jwks.json"),
+            "issuers": [manifest.actor_issuer],
+            "audiences": [manifest.actor_audience],
+            "algorithms": ["EdDSA"],
+            "max_token_bytes": 16384,
+            "max_jwks_keys": 16,
+            "max_capabilities": 64,
+            "clock_skew_seconds": 30
+        },
+        "cursor_signing": {
+            "keys": [{
+                "id": "projection-cursor-v1",
+                "secret_path": path("secrets/projection-cursor-v1.key")
+            }]
         }
     })
 }
@@ -1329,7 +1351,10 @@ fn seeded_configuration_policies(
                 "query_max_relation_joins": 4,
                 "query_max_in_values": 100,
                 "query_timeout_ms": "3000",
-                "query_max_string_bytes": 512
+                "query_max_string_bytes": 512,
+                "query_cursor_signing_key_id": "projection-cursor-v1",
+                "query_all_capability": "workflow.query.all",
+                "query_own_capability": "workflow.query.own"
             }),
         ),
         (
@@ -1502,6 +1527,7 @@ fn validate_manifest(manifest: &Manifest) -> Result<()> {
         || manifest.cockpit_gateway_listen_address.trim().is_empty()
         || manifest.cockpit_gateway_health_address.trim().is_empty()
         || manifest.cockpit_web_public_origin.trim().is_empty()
+        || manifest.projection_address.trim().is_empty()
     {
         anyhow::bail!(
             "E2E manifest must define exactly three engines and non-empty brokers/TLS SANs"
