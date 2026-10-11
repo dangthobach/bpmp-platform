@@ -2,18 +2,13 @@ package grpcapi
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
-	"time"
 
 	"github.com/dangthobach/bpmp-platform/apps/go/projection-service/internal/application"
 	projectionv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/projection/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
-
-const maxPageTokenBytes = 1024
 
 type Server struct {
 	projectionv1.UnimplementedProjectionQueryServiceServer
@@ -32,38 +27,72 @@ func (s *Server) GetWorkflowInstance(
 	ctx context.Context,
 	request *projectionv1.GetWorkflowInstanceRequest,
 ) (*projectionv1.GetWorkflowInstanceResponse, error) {
-	instance, err := s.service.Get(ctx, request.GetTenantId(), request.GetInstanceId())
+	if request.GetInstanceId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "instance ID is required")
+	}
+	credential, err := fromWireActorProof(request.GetActorProof())
 	if err != nil {
 		return nil, mapError(err)
 	}
-	return &projectionv1.GetWorkflowInstanceResponse{Instance: toWire(instance)}, nil
+	processes, _, _, err := s.service.QueryInstances(ctx, application.ProcessQuery{
+		TenantID: request.GetTenantId(), Credential: credential, Limit: 1,
+		Filter: &application.ProcessExpression{Predicate: &application.ProcessPredicate{
+			Field: application.ProcessInstanceID, Operator: application.CompareEqual,
+			Values: []application.QueryValue{{Kind: application.ValueString, String: request.GetInstanceId()}},
+		}},
+	})
+	if err != nil {
+		return nil, mapError(err)
+	}
+	if len(processes) == 0 {
+		return nil, mapError(application.ErrNotFound)
+	}
+	return &projectionv1.GetWorkflowInstanceResponse{Instance: toWire(processes[0].Instance)}, nil
 }
 
 func (s *Server) ListWorkflowInstances(
 	ctx context.Context,
 	request *projectionv1.ListWorkflowInstancesRequest,
 ) (*projectionv1.ListWorkflowInstancesResponse, error) {
-	after, err := decodeCursor(request.GetPageToken())
+	credential, err := fromWireActorProof(request.GetActorProof())
+	if err != nil {
+		return nil, mapError(err)
+	}
+	after, err := s.cursors.DecodeQuery(request.GetPageToken())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	instances, limit, err := s.service.List(ctx, application.ListFilter{
-		TenantID:       request.GetTenantId(),
-		Statuses:       append([]string(nil), request.GetStatuses()...),
-		WorkflowType:   request.GetWorkflowType(),
-		IncludeDeleted: request.GetIncludeDeleted(),
-		Limit:          int(request.GetPageSize()),
-		After:          after,
-	})
+	query := application.ProcessQuery{TenantID: request.GetTenantId(), Credential: credential,
+		IncludeDeleted: request.GetIncludeDeleted(), Limit: int(request.GetPageSize()), After: after}
+	if request.GetWorkflowType() != "" {
+		query.Filter = &application.ProcessExpression{Predicate: &application.ProcessPredicate{
+			Field: application.ProcessWorkflowType, Operator: application.CompareEqual,
+			Values: []application.QueryValue{{Kind: application.ValueString, String: request.GetWorkflowType()}},
+		}}
+	}
+	if len(request.GetStatuses()) != 0 {
+		values := make([]application.QueryValue, 0, len(request.GetStatuses()))
+		for _, value := range request.GetStatuses() {
+			values = append(values, application.QueryValue{Kind: application.ValueString, String: value})
+		}
+		statuses := application.ProcessExpression{Predicate: &application.ProcessPredicate{Field: application.ProcessStatus, Operator: application.CompareIn, Values: values}}
+		if query.Filter == nil {
+			query.Filter = &statuses
+		} else {
+			query.Filter = &application.ProcessExpression{Logical: application.LogicalAnd, Children: []application.ProcessExpression{*query.Filter, statuses}}
+		}
+	}
+	instances, limit, normalized, err := s.service.QueryInstances(ctx, query)
 	if err != nil {
 		return nil, mapError(err)
 	}
 	response := &projectionv1.ListWorkflowInstancesResponse{}
 	if limit > 0 && len(instances) > limit {
-		last := instances[limit-1]
-		response.NextPageToken, err = encodeCursor(application.Cursor{
-			UpdatedAt: last.UpdatedAt, InstanceID: last.InstanceID,
-		})
+		cursor, cursorErr := application.CursorFor(normalized, instances[limit-1])
+		if cursorErr != nil {
+			return nil, status.Error(codes.Internal, "build projection cursor")
+		}
+		response.NextPageToken, err = s.cursors.EncodeQuery(normalized.CursorSigningKeyID, cursor)
 		if err != nil {
 			return nil, status.Error(codes.Internal, "encode projection cursor")
 		}
@@ -71,47 +100,9 @@ func (s *Server) ListWorkflowInstances(
 	}
 	response.Instances = make([]*projectionv1.WorkflowInstanceReadModel, 0, len(instances))
 	for _, instance := range instances {
-		response.Instances = append(response.Instances, toWire(instance))
+		response.Instances = append(response.Instances, toWire(instance.Instance))
 	}
 	return response, nil
-}
-
-type cursorPayload struct {
-	UpdatedAtEpochMs int64  `json:"updated_at_epoch_ms"`
-	InstanceID       string `json:"instance_id"`
-}
-
-func encodeCursor(cursor application.Cursor) (string, error) {
-	data, err := json.Marshal(cursorPayload{
-		UpdatedAtEpochMs: cursor.UpdatedAt.UnixMilli(),
-		InstanceID:       cursor.InstanceID,
-	})
-	if err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(data), nil
-}
-
-func decodeCursor(token string) (*application.Cursor, error) {
-	if token == "" {
-		return nil, nil
-	}
-	if len(token) > maxPageTokenBytes {
-		return nil, errors.New("projection page token exceeds size limit")
-	}
-	data, err := base64.RawURLEncoding.DecodeString(token)
-	if err != nil {
-		return nil, errors.New("projection page token is malformed")
-	}
-	var payload cursorPayload
-	decoderErr := json.Unmarshal(data, &payload)
-	if decoderErr != nil || payload.UpdatedAtEpochMs <= 0 || payload.InstanceID == "" {
-		return nil, errors.New("projection page token is invalid")
-	}
-	return &application.Cursor{
-		UpdatedAt:  time.UnixMilli(payload.UpdatedAtEpochMs).UTC(),
-		InstanceID: payload.InstanceID,
-	}, nil
 }
 
 func toWire(instance application.Instance) *projectionv1.WorkflowInstanceReadModel {

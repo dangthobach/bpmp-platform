@@ -39,6 +39,8 @@ pub struct GetWorkflowInstanceRequest {
     pub tenant_id: ::prost::alloc::string::String,
     #[prost(string, tag="2")]
     pub instance_id: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="3")]
+    pub actor_proof: ::core::option::Option<super::super::authorization::v1::ActorProof>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct GetWorkflowInstanceResponse {
@@ -59,6 +61,8 @@ pub struct ListWorkflowInstancesRequest {
     pub page_size: u32,
     #[prost(string, tag="6")]
     pub page_token: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="7")]
+    pub actor_proof: ::core::option::Option<super::super::authorization::v1::ActorProof>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListWorkflowInstancesResponse {

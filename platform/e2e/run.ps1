@@ -2,6 +2,7 @@
 param(
     [switch]$KeepRunning,
     [switch]$SkipBuild,
+    [string]$FixtureGeneratorPath,
     [ValidateRange(10, 600)]
     [int]$StartupTimeoutSeconds = 90
 )
@@ -189,7 +190,12 @@ try {
     }
 
     Invoke-TimedPhase -Name "Generate E2E fixtures" -Action {
-        Invoke-Compose --profile setup run --rm fixture-generator
+        if ($FixtureGeneratorPath) {
+            & $FixtureGeneratorPath --manifest (Join-Path $PSScriptRoot "manifest.json") --output $runtime
+            if ($LASTEXITCODE -ne 0) { throw "local fixture generator failed" }
+        } else {
+            Invoke-Compose --profile setup run --rm fixture-generator
+        }
     }
     try {
         Invoke-TimedPhase -Name "Start and health-check E2E infrastructure" -Action {
@@ -746,6 +752,25 @@ url = "https://localhost:$cockpitGatewayPort/realtime/v1/events?names=workflow.c
         $completedPage.processes[0].event_count -lt 3) {
         throw "completed process dynamic query did not return the projected instance"
     }
+
+    foreach ($probe in @(
+        @{ File = "query-own.jwt"; Count = 1 },
+        @{ File = "query-other.jwt"; Count = 0 }
+    )) {
+        $queryHeaders = $completeHeaders.Clone()
+        $queryHeaders.Authorization = "Bearer " + (Get-Content (Join-Path $runtime $probe.File) -Raw).Trim()
+        $queryPage = Invoke-JsonRequest -Path "/v1/process-instances/completed/query" -Headers $queryHeaders -Body $completedQuery
+        $returnedProcesses = @($queryPage.processes | Where-Object { $null -ne $_ })
+        if ($returnedProcesses.Count -ne $probe.Count) {
+            throw "query authorization failed for $($probe.File): expected=$($probe.Count) actual=$($returnedProcesses.Count)"
+        }
+    }
+    $deniedHeaders = $completeHeaders.Clone()
+    $deniedHeaders.Authorization = "Bearer " + (Get-Content (Join-Path $runtime "query-denied.jwt") -Raw).Trim()
+    $denied = Invoke-WebRequest -SkipCertificateCheck -SkipHttpErrorCheck -Method Post `
+        -Uri "https://localhost:$gatewayPort/v1/process-instances/completed/query" `
+        -Headers $deniedHeaders -ContentType "application/json" -Body $completedQuery
+    if ($denied.StatusCode -ne 403) { throw "missing query capability did not produce HTTP 403" }
 
     Write-Host "Broker-backed E2E passed with Projection, Governance and leader failover: config=$($configuration.id) governance=$governanceRequestId instance=$instance work_item=$workItem human_inbox=$inboxCount projection_inbox=$projectionInboxCount"
 } finally {

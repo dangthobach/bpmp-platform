@@ -20,7 +20,7 @@ func (s *Server) QueryCompletedProcesses(
 ) (*projectionv1.QueryCompletedProcessesResponse, error) {
 	query, err := fromWireQuery(request)
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return nil, mapError(err)
 	}
 	query.After, err = s.cursors.DecodeQuery(request.GetPageToken())
 	if err != nil {

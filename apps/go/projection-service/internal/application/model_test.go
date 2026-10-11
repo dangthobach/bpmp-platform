@@ -26,6 +26,10 @@ func (s *fakeStore) List(_ context.Context, filter ListFilter) ([]Instance, erro
 func (s *fakeStore) QueryCompleted(_ context.Context, query ProcessQuery) ([]CompletedProcess, error) {
 	return nil, nil
 }
+func (s *fakeStore) QueryInstances(_ context.Context, query ProcessQuery) ([]CompletedProcess, error) {
+	s.filter.Limit = query.Limit
+	return []CompletedProcess{{Instance: Instance{InstanceID: "one"}}, {Instance: Instance{InstanceID: "two"}}, {Instance: Instance{InstanceID: "three"}}}, nil
+}
 
 type fakePolicy struct{ value RuntimePolicy }
 
@@ -33,20 +37,17 @@ func (p fakePolicy) Policy(string) (RuntimePolicy, error) { return p.value, nil 
 
 func TestListAppliesTenantPolicyAndFetchesLookahead(t *testing.T) {
 	store := &fakeStore{}
-	service, err := NewService(store, fakePolicy{value: RuntimePolicy{
-		ConsumeBatchSize: 10, QueryDefaultPageSize: 2, QueryMaxPageSize: 5,
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	instances, limit, err := service.List(context.Background(), ListFilter{TenantID: "tenant-a"})
+	policy := completedQueryPolicy()
+	policy.QueryMaxPageSize = 5
+	service := newQueryService(t, store, policy, QueryAuthorization{SubjectID: "actor-1", PolicyVersion: "v1"})
+	instances, limit, _, err := service.QueryInstances(context.Background(), ProcessQuery{TenantID: "tenant-a"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if limit != 2 || store.filter.Limit != 3 || len(instances) != 3 {
 		t.Fatalf("default page lookahead was not applied: limit=%d filter=%+v", limit, store.filter)
 	}
-	if _, _, err = service.List(context.Background(), ListFilter{TenantID: "tenant-a", Limit: 6}); err == nil {
+	if _, _, _, err = service.QueryInstances(context.Background(), ProcessQuery{TenantID: "tenant-a", Limit: 6}); err == nil {
 		t.Fatal("page size above dynamic policy must be rejected")
 	}
 }

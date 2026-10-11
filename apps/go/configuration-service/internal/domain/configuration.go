@@ -353,8 +353,19 @@ func validateProjectionPolicy(policy *configurationv1.ProjectionPolicy) error {
 		policy.GetQueryCursorSigningKeyId() == "" ||
 		policy.GetQueryAllCapability() == "" ||
 		policy.GetQueryOwnCapability() == "" ||
-		policy.GetQueryAllCapability() == policy.GetQueryOwnCapability() {
+		policy.GetQueryAllCapability() == policy.GetQueryOwnCapability() ||
+		policy.GetQueryMaxTokenAgeMs() == 0 || policy.GetQueryMaxTokenAgeMs() > 9223372036854 {
 		return ErrInvalid
+	}
+	actors := make(map[string]struct{}, len(policy.GetQueryActorRevokeEpochs()))
+	for _, actor := range policy.GetQueryActorRevokeEpochs() {
+		if actor.GetActorId() == "" {
+			return ErrInvalid
+		}
+		if _, duplicate := actors[actor.GetActorId()]; duplicate {
+			return ErrInvalid
+		}
+		actors[actor.GetActorId()] = struct{}{}
 	}
 	return nil
 }

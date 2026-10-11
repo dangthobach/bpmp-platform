@@ -9,6 +9,7 @@ replace github.com/dangthobach/bpmp-platform/go/platform => ../../../go/platform
 require (
 	github.com/dangthobach/bpmp-platform/go/contracts v0.0.0
 	github.com/dangthobach/bpmp-platform/go/platform v0.0.0
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/twmb/franz-go v1.21.0
 	google.golang.org/grpc v1.82.1

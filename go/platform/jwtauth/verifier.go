@@ -29,6 +29,7 @@ type Identity struct {
 	TenantID     string
 	Capabilities []string
 	RevokeEpoch  uint64
+	IssuedAt     time.Time
 }
 
 type claims struct {
@@ -118,6 +119,12 @@ func (v *Verifier) Verify(raw, tenantID string, now time.Time) (Identity, error)
 		Subject: value.Subject, TenantID: value.TenantID,
 		Capabilities: append([]string(nil), value.Capabilities...),
 		RevokeEpoch:  value.RevokeEpoch,
+		IssuedAt: func() time.Time {
+			if value.IssuedAt == nil {
+				return time.Time{}
+			}
+			return value.IssuedAt.Time
+		}(),
 	}, nil
 }
 

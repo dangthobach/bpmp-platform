@@ -15,7 +15,7 @@ var (
 	ErrQueryForbidden = errors.New("projection query is forbidden")
 )
 
-type ActorProofType uint8
+type ActorProofType int32
 
 const (
 	ActorProofOriginalJWT ActorProofType = iota + 1
@@ -66,7 +66,7 @@ type QueryValue struct {
 	Time    time.Time `json:"time,omitempty"`
 }
 
-type Comparison uint8
+type Comparison int32
 
 const (
 	CompareEqual Comparison = iota + 1
@@ -83,7 +83,7 @@ const (
 	CompareIsNotNull
 )
 
-type ProcessField uint8
+type ProcessField int32
 
 const (
 	ProcessInstanceID ProcessField = iota + 1
@@ -102,7 +102,7 @@ const (
 	ProcessInitiatorActorID
 )
 
-type EventField uint8
+type EventField int32
 
 const (
 	EventType EventField = iota + 1
@@ -114,7 +114,7 @@ const (
 	EventPolicyVersion
 )
 
-type Logical uint8
+type Logical int32
 
 const (
 	LogicalAnd Logical = iota + 1
@@ -145,7 +145,7 @@ type EventRelation struct {
 	Quantifier RelationQuantifier `json:"quantifier"`
 }
 
-type RelationQuantifier uint8
+type RelationQuantifier int32
 
 const (
 	RelationExists RelationQuantifier = iota + 1
@@ -160,7 +160,7 @@ type ProcessExpression struct {
 	EventRelation *EventRelation      `json:"event_relation,omitempty"`
 }
 
-type SortDirection uint8
+type SortDirection int32
 
 const (
 	SortAscending SortDirection = iota + 1
@@ -188,7 +188,15 @@ type ProcessQuery struct {
 	AuthorizationSubject       string             `json:"authorization_subject"`
 	AuthorizationPolicyVersion string             `json:"authorization_policy_version"`
 	CursorSigningKeyID         string             `json:"-"`
+	Scope                      QueryScope         `json:"scope"`
 }
+
+type QueryScope uint8
+
+const (
+	QueryScopeCompleted QueryScope = iota + 1
+	QueryScopeInstances
+)
 
 type CompletedProcess struct {
 	Instance   Instance
@@ -204,6 +212,19 @@ func (s *Service) QueryCompleted(
 	ctx context.Context,
 	query ProcessQuery,
 ) ([]CompletedProcess, int, ProcessQuery, error) {
+	query.Scope = QueryScopeCompleted
+	return s.queryProcesses(ctx, query)
+}
+
+func (s *Service) QueryInstances(ctx context.Context, query ProcessQuery) ([]CompletedProcess, int, ProcessQuery, error) {
+	query.Scope = QueryScopeInstances
+	if len(query.Sort) == 0 {
+		query.Sort = []ProcessSort{{Field: ProcessUpdatedAt, Direction: SortDescending}, {Field: ProcessInstanceID, Direction: SortDescending}}
+	}
+	return s.queryProcesses(ctx, query)
+}
+
+func (s *Service) queryProcesses(ctx context.Context, query ProcessQuery) ([]CompletedProcess, int, ProcessQuery, error) {
 	if query.TenantID == "" {
 		return nil, 0, query, fmt.Errorf("%w: tenant is required", ErrInvalidQuery)
 	}
@@ -240,7 +261,12 @@ func (s *Service) QueryCompleted(
 	query.Limit++
 	queryCtx, cancel := context.WithTimeout(ctx, policy.QueryTimeout)
 	defer cancel()
-	processes, err := s.store.QueryCompleted(queryCtx, query)
+	var processes []CompletedProcess
+	if query.Scope == QueryScopeInstances {
+		processes, err = s.store.QueryInstances(queryCtx, query)
+	} else {
+		processes, err = s.store.QueryCompleted(queryCtx, query)
+	}
 	return processes, effectiveLimit, query, err
 }
 

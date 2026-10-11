@@ -25,6 +25,7 @@ message WorkflowInstanceReadModel {
 message GetWorkflowInstanceRequest {
   string tenant_id = 1;
   string instance_id = 2;
+  bpmp.authorization.v1.ActorProof actor_proof = 3;
 }
 
 message GetWorkflowInstanceResponse {
@@ -38,6 +39,7 @@ message ListWorkflowInstancesRequest {
   bool include_deleted = 4;
   uint32 page_size = 5;
   string page_token = 6;
+  bpmp.authorization.v1.ActorProof actor_proof = 7;
 }
 
 message ListWorkflowInstancesResponse {

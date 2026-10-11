@@ -38,10 +38,15 @@ func (a *Authorizer) AuthorizeQuery(
 		request.Policy.PolicyVersion == "" {
 		return application.QueryAuthorization{}, application.ErrQueryForbidden
 	}
+	now := a.now()
 	identity, err := a.verifier.Verify(
-		string(request.Credential.SignedProof), request.TenantID, a.now(),
+		string(request.Credential.SignedProof), request.TenantID, now,
 	)
 	if err != nil || len(identity.Capabilities) > a.maxCapabilities {
+		return application.QueryAuthorization{}, application.ErrQueryForbidden
+	}
+	requiredEpoch := max(request.Policy.QueryMinRevokeEpoch, request.Policy.QueryActorRevokeEpochs[identity.Subject])
+	if identity.RevokeEpoch < requiredEpoch || request.Policy.QueryMaxTokenAge <= 0 || identity.IssuedAt.IsZero() || now.Sub(identity.IssuedAt) > request.Policy.QueryMaxTokenAge {
 		return application.QueryAuthorization{}, application.ErrQueryForbidden
 	}
 	capabilities, valid := capabilitySet(identity.Capabilities)

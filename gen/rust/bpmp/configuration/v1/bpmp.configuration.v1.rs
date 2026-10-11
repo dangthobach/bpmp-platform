@@ -193,7 +193,7 @@ pub struct HumanRuntimePolicy {
     #[prost(string, repeated, tag="14")]
     pub engine_retryable_codes: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ProjectionPolicy {
     #[prost(uint32, tag="1")]
     pub consume_batch_size: u32,
@@ -229,6 +229,19 @@ pub struct ProjectionPolicy {
     pub query_all_capability: ::prost::alloc::string::String,
     #[prost(string, tag="17")]
     pub query_own_capability: ::prost::alloc::string::String,
+    #[prost(uint64, tag="18")]
+    pub query_min_revoke_epoch: u64,
+    #[prost(message, repeated, tag="19")]
+    pub query_actor_revoke_epochs: ::prost::alloc::vec::Vec<QueryActorRevokeEpoch>,
+    #[prost(uint64, tag="20")]
+    pub query_max_token_age_ms: u64,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct QueryActorRevokeEpoch {
+    #[prost(string, tag="1")]
+    pub actor_id: ::prost::alloc::string::String,
+    #[prost(uint64, tag="2")]
+    pub revoke_epoch: u64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GovernancePolicy {

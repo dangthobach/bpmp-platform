@@ -103,6 +103,7 @@ type Store interface {
 	Get(context.Context, string, string) (Instance, error)
 	List(context.Context, ListFilter) ([]Instance, error)
 	QueryCompleted(context.Context, ProcessQuery) ([]CompletedProcess, error)
+	QueryInstances(context.Context, ProcessQuery) ([]CompletedProcess, error)
 }
 
 type RuntimePolicy struct {
@@ -125,6 +126,9 @@ type RuntimePolicy struct {
 	QueryCursorSigningKeyID  string
 	QueryAllCapability       string
 	QueryOwnCapability       string
+	QueryMinRevokeEpoch      uint64
+	QueryActorRevokeEpochs   map[string]uint64
+	QueryMaxTokenAge         time.Duration
 }
 
 type RuntimePolicyProvider interface {
@@ -173,31 +177,4 @@ func (s *Service) Apply(ctx context.Context, position KafkaPosition, event Insta
 		return false, err
 	}
 	return s.store.Apply(ctx, position, event)
-}
-
-func (s *Service) Get(ctx context.Context, tenantID, instanceID string) (Instance, error) {
-	if tenantID == "" || instanceID == "" {
-		return Instance{}, ErrNotFound
-	}
-	return s.store.Get(ctx, tenantID, instanceID)
-}
-
-func (s *Service) List(ctx context.Context, filter ListFilter) ([]Instance, int, error) {
-	policy, err := s.policy.Policy(filter.TenantID)
-	if err != nil {
-		return nil, 0, err
-	}
-	if filter.TenantID == "" {
-		return nil, 0, errors.New("tenant is required")
-	}
-	if filter.Limit == 0 {
-		filter.Limit = int(policy.QueryDefaultPageSize)
-	}
-	if filter.Limit < 0 || uint32(filter.Limit) > policy.QueryMaxPageSize {
-		return nil, 0, errors.New("projection query page size exceeds policy")
-	}
-	effectiveLimit := filter.Limit
-	filter.Limit++
-	instances, err := s.store.List(ctx, filter)
-	return instances, effectiveLimit, err
 }

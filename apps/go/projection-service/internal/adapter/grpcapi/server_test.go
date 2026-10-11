@@ -9,21 +9,23 @@ import (
 )
 
 func TestCursorRoundTripAndBound(t *testing.T) {
-	expected := application.Cursor{
-		UpdatedAt: time.UnixMilli(1234).UTC(), InstanceID: "instance-1",
-	}
-	token, err := encodeCursor(expected)
+	codec, err := NewCursorCodec([]CursorKey{{ID: "v1", Secret: []byte(strings.Repeat("s", 32))}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	actual, err := decodeCursor(token)
+	expected := &application.QueryCursor{QueryHash: "hash", Values: []application.QueryValue{{Kind: application.ValueTimestamp, Time: time.UnixMilli(1234).UTC()}}}
+	token, err := codec.EncodeQuery("v1", expected)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !actual.UpdatedAt.Equal(expected.UpdatedAt) || actual.InstanceID != expected.InstanceID {
+	actual, err := codec.DecodeQuery(token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !actual.Values[0].Time.Equal(expected.Values[0].Time) || actual.QueryHash != expected.QueryHash {
 		t.Fatalf("cursor changed: expected=%+v actual=%+v", expected, actual)
 	}
-	if _, err = decodeCursor(strings.Repeat("a", maxPageTokenBytes+1)); err == nil {
+	if _, err = codec.DecodeQuery(strings.Repeat("a", maxQueryPageTokenBytes+1)); err == nil {
 		t.Fatal("oversized cursor must be rejected before decoding")
 	}
 }

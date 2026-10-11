@@ -45,10 +45,23 @@ func (p *Provider) Policy(tenantID string) (application.RuntimePolicy, error) {
 		value.GetQueryAllCapability() == "" ||
 		value.GetQueryOwnCapability() == "" ||
 		value.GetQueryAllCapability() == value.GetQueryOwnCapability() ||
-		snapshot.GetConfigVersion() == "" || snapshot.GetPolicyVersion() == "" {
+		snapshot.GetConfigVersion() == "" || snapshot.GetPolicyVersion() == "" ||
+		value.GetQueryMaxTokenAgeMs() == 0 || value.GetQueryMaxTokenAgeMs() > uint64((1<<63-1)/int64(time.Millisecond)) {
 		return application.RuntimePolicy{}, errors.New("projection runtime policy is invalid")
 	}
+	epochs := make(map[string]uint64, len(value.GetQueryActorRevokeEpochs()))
+	for _, actor := range value.GetQueryActorRevokeEpochs() {
+		if actor.GetActorId() == "" {
+			return application.RuntimePolicy{}, errors.New("query revoke actor is required")
+		}
+		if _, duplicate := epochs[actor.GetActorId()]; duplicate {
+			return application.RuntimePolicy{}, errors.New("query revoke actor is duplicated")
+		}
+		epochs[actor.GetActorId()] = actor.GetRevokeEpoch()
+	}
 	return application.RuntimePolicy{
+		QueryMinRevokeEpoch: value.GetQueryMinRevokeEpoch(), QueryActorRevokeEpochs: epochs,
+		QueryMaxTokenAge:         time.Duration(value.GetQueryMaxTokenAgeMs()) * time.Millisecond,
 		ConfigVersion:            snapshot.GetConfigVersion(),
 		PolicyVersion:            snapshot.GetPolicyVersion(),
 		ConsumeBatchSize:         int(value.GetConsumeBatchSize()),

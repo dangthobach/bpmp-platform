@@ -97,6 +97,32 @@ start of each request: page size, timeout, filter depth, predicate count, sort
 count, relation joins, `IN` cardinality and string length. Raw SQL, arbitrary
 columns and cross-service joins are not part of this API.
 
+`GetWorkflowInstance` and `ListWorkflowInstances` also require `actor_proof` and
+use the same authorizer and typed filter pipeline. An instance outside the
+actor's row scope returns `NOT_FOUND`; missing or invalid proof returns
+`PERMISSION_DENIED`. List pagination now uses signed cursors; previously issued
+unsigned list cursors are intentionally rejected. Query scope (all instances
+versus completed instances) is part of the cursor fingerprint.
+
+Publish these ProjectionPolicy fields through Configuration Service, backed by
+its database and versioned publication lifecycle:
+
+- `query_max_token_age_ms`: required positive maximum age measured from JWT `iat`.
+- `query_min_revoke_epoch`: tenant-wide minimum acceptable token epoch.
+- `query_actor_revoke_epochs`: unique actor IDs with their minimum token epochs.
+
+The effective minimum is the maximum of tenant and actor epochs. Missing `iat`,
+stale tokens and lower epochs fail closed. A request keeps its initial policy
+snapshot; a newly published epoch takes effect on subsequent requests after
+cache installation. Existing Projection profiles must explicitly provide the
+maximum token age before deploying the updated reader. Cursor and authz key
+material remains deployment secret configuration, not browser configuration.
+
+This is capability-based all/own row authorization, not yet a full query PDP.
+Signed internal context, RBAC/ReBAC/ABAC-derived typed query constraints,
+field-level masking and a live Authz Control Plane revocation feed remain
+separate integration work; unsupported actor-proof modes fail closed.
+
 ## Internal gRPC APIs
 
 The canonical schemas remain under `contracts/proto`. Buf lint and breaking

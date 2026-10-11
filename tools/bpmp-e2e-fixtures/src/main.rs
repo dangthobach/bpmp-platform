@@ -239,6 +239,41 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
         &EncodingKey::from_ed_der(jwt_private.as_bytes()),
     )?;
     write(&output.join("actor.jwt"), token.as_bytes())?;
+    for (file, actor, capability) in [
+        (
+            "query-own.jwt",
+            manifest.actor_id.as_str(),
+            "workflow.query.own",
+        ),
+        (
+            "query-other.jwt",
+            "00000000-0000-4000-8000-000000000099",
+            "workflow.query.own",
+        ),
+        (
+            "query-denied.jwt",
+            manifest.actor_id.as_str(),
+            "workflow.complete",
+        ),
+    ] {
+        let query_token = encode(
+            &header,
+            &JwtClaims {
+                iss: &manifest.actor_issuer,
+                sub: actor,
+                aud: &manifest.actor_audience,
+                tenant_id: &manifest.tenant_id,
+                roles: Vec::new(),
+                capabilities: vec![capability],
+                revoke_epoch: 0,
+                iat: now.saturating_sub(5),
+                nbf: now.saturating_sub(5),
+                exp: now.saturating_add(7_200),
+            },
+            &EncodingKey::from_ed_der(jwt_private.as_bytes()),
+        )?;
+        write(&output.join(file), query_token.as_bytes())?;
+    }
     let service_token = encode(
         &header,
         &JwtClaims {
@@ -1354,7 +1389,8 @@ fn seeded_configuration_policies(
                 "query_max_string_bytes": 512,
                 "query_cursor_signing_key_id": "projection-cursor-v1",
                 "query_all_capability": "workflow.query.all",
-                "query_own_capability": "workflow.query.own"
+                "query_own_capability": "workflow.query.own",
+                "query_max_token_age_ms": "7200000"
             }),
         ),
         (

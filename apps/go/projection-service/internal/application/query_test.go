@@ -23,6 +23,9 @@ func (s *queryStore) QueryCompleted(_ context.Context, query ProcessQuery) ([]Co
 	s.received = query
 	return []CompletedProcess{{}, {}, {}}, nil
 }
+func (s *queryStore) QueryInstances(ctx context.Context, query ProcessQuery) ([]CompletedProcess, error) {
+	return s.QueryCompleted(ctx, query)
+}
 
 func completedQueryPolicy() RuntimePolicy {
 	return RuntimePolicy{
@@ -35,6 +38,23 @@ func completedQueryPolicy() RuntimePolicy {
 		QueryCursorSigningKeyID: "cursor-v1",
 		QueryAllCapability:      "workflow.query.all",
 		QueryOwnCapability:      "workflow.query.own",
+	}
+}
+
+func TestQueryRejectsOutOfRangeWireEnums(t *testing.T) {
+	store := &queryStore{}
+	service := newQueryService(t, store, completedQueryPolicy(), QueryAuthorization{SubjectID: "actor-1", PolicyVersion: "policy-v1"})
+	for _, field := range []ProcessField{257, -255} {
+		_, _, _, err := service.QueryCompleted(context.Background(), ProcessQuery{
+			TenantID: "tenant-a",
+			Filter: &ProcessExpression{Predicate: &ProcessPredicate{
+				Field: field, Operator: CompareEqual,
+				Values: []QueryValue{{Kind: ValueString, String: "i1"}},
+			}},
+		})
+		if err == nil {
+			t.Fatalf("unknown protobuf field %d was accepted", field)
+		}
 	}
 }
 

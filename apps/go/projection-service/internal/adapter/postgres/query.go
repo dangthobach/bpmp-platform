@@ -21,6 +21,16 @@ func (s *Store) QueryCompleted(
 	ctx context.Context,
 	query application.ProcessQuery,
 ) ([]application.CompletedProcess, error) {
+	query.Scope = application.QueryScopeCompleted
+	return s.queryProcesses(ctx, query)
+}
+
+func (s *Store) QueryInstances(ctx context.Context, query application.ProcessQuery) ([]application.CompletedProcess, error) {
+	query.Scope = application.QueryScopeInstances
+	return s.queryProcesses(ctx, query)
+}
+
+func (s *Store) queryProcesses(ctx context.Context, query application.ProcessQuery) ([]application.CompletedProcess, error) {
 	statement, arguments, err := compileCompletedQuery(query)
 	if err != nil {
 		return nil, err
@@ -63,8 +73,9 @@ func compileCompletedQuery(query application.ProcessQuery) (string, []any, error
 	tenant := builder.bind(query.TenantID)
 	conditions := []string{
 		"p.tenant_id=" + tenant,
-		"p.status='COMPLETED'",
-		"p.completed_at IS NOT NULL",
+	}
+	if query.Scope != application.QueryScopeInstances {
+		conditions = append(conditions, "p.status='COMPLETED'", "p.completed_at IS NOT NULL")
 	}
 	if !query.IncludeDeleted {
 		conditions = append(conditions, "NOT p.is_deleted")
