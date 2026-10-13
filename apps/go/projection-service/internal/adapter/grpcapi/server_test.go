@@ -29,3 +29,10 @@ func TestCursorRoundTripAndBound(t *testing.T) {
 		t.Fatal("oversized cursor must be rejected before decoding")
 	}
 }
+
+func TestResponseClearsUnauthorizedFields(t *testing.T) {
+	result := toWireAuthorized(application.Instance{InstanceID: "id", TenantID: "tenant", InitiatorActorID: "secret", Status: "COMPLETED"}, &application.FieldAuthorization{ReadFields: []string{"instance_id", "status"}})
+	if result.InstanceId != "id" || result.Status != "COMPLETED" || result.TenantId != "" || result.InitiatorActorId != "" || result.StartedAtEpochMs != 0 {
+		t.Fatalf("field leaked: %+v", result)
+	}
+}

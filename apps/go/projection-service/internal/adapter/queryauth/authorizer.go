@@ -17,6 +17,19 @@ type Authorizer struct {
 	verifier        *jwtauth.Verifier
 	maxCapabilities int
 	now             func() time.Time
+	pdp             PDP
+}
+
+func WithPDP(config Config, verifier *jwtauth.Verifier, pdp PDP) (*Authorizer, error) {
+	if pdp == nil {
+		return nil, errors.New("query PDP required")
+	}
+	authorizer, err := New(config, verifier)
+	if err != nil {
+		return nil, err
+	}
+	authorizer.pdp = pdp
+	return authorizer, nil
 }
 
 func New(config Config, verifier *jwtauth.Verifier) (*Authorizer, error) {
@@ -30,7 +43,7 @@ func New(config Config, verifier *jwtauth.Verifier) (*Authorizer, error) {
 }
 
 func (a *Authorizer) AuthorizeQuery(
-	_ context.Context,
+	ctx context.Context,
 	request application.QueryAuthorizationRequest,
 ) (application.QueryAuthorization, error) {
 	if request.Credential.Type != application.ActorProofOriginalJWT ||
@@ -52,6 +65,26 @@ func (a *Authorizer) AuthorizeQuery(
 	capabilities, valid := capabilitySet(identity.Capabilities)
 	if !valid {
 		return application.QueryAuthorization{}, application.ErrQueryForbidden
+	}
+	if a.pdp != nil {
+		_, all := capabilities[request.Policy.QueryAllCapability]
+		_, own := capabilities[request.Policy.QueryOwnCapability]
+		if !all && !own {
+			return application.QueryAuthorization{}, application.ErrQueryForbidden
+		}
+		authorization, err := a.pdp.Evaluate(ctx, request, identity.Subject)
+		if err != nil {
+			return application.QueryAuthorization{}, err
+		}
+		if !all {
+			ceiling := application.ProcessExpression{Predicate: &application.ProcessPredicate{Field: application.ProcessInitiatorActorID, Operator: application.CompareEqual, Values: []application.QueryValue{{Kind: application.ValueString, String: identity.Subject}}}}
+			if authorization.Filter == nil {
+				authorization.Filter = &ceiling
+			} else {
+				authorization.Filter = &application.ProcessExpression{Logical: application.LogicalAnd, Children: []application.ProcessExpression{ceiling, *authorization.Filter}}
+			}
+		}
+		return authorization, nil
 	}
 	authorization := application.QueryAuthorization{
 		SubjectID: identity.Subject, PolicyVersion: request.Policy.PolicyVersion,

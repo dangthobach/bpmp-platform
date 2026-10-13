@@ -34,7 +34,7 @@ func (s *Server) GetWorkflowInstance(
 	if err != nil {
 		return nil, mapError(err)
 	}
-	processes, _, _, err := s.service.QueryInstances(ctx, application.ProcessQuery{
+	processes, _, normalized, err := s.service.QueryInstances(ctx, application.ProcessQuery{
 		TenantID: request.GetTenantId(), Credential: credential, Limit: 1,
 		Filter: &application.ProcessExpression{Predicate: &application.ProcessPredicate{
 			Field: application.ProcessInstanceID, Operator: application.CompareEqual,
@@ -47,7 +47,7 @@ func (s *Server) GetWorkflowInstance(
 	if len(processes) == 0 {
 		return nil, mapError(application.ErrNotFound)
 	}
-	return &projectionv1.GetWorkflowInstanceResponse{Instance: toWire(processes[0].Instance)}, nil
+	return &projectionv1.GetWorkflowInstanceResponse{Instance: toWireAuthorized(processes[0].Instance, normalized.Fields)}, nil
 }
 
 func (s *Server) ListWorkflowInstances(
@@ -100,7 +100,7 @@ func (s *Server) ListWorkflowInstances(
 	}
 	response.Instances = make([]*projectionv1.WorkflowInstanceReadModel, 0, len(instances))
 	for _, instance := range instances {
-		response.Instances = append(response.Instances, toWire(instance.Instance))
+		response.Instances = append(response.Instances, toWireAuthorized(instance.Instance, normalized.Fields))
 	}
 	return response, nil
 }
@@ -121,6 +121,19 @@ func toWire(instance application.Instance) *projectionv1.WorkflowInstanceReadMod
 	}
 	if instance.CompletedAt != nil {
 		result.CompletedAtEpochMs = uint64(instance.CompletedAt.UnixMilli())
+	}
+	return result
+}
+
+func toWireAuthorized(instance application.Instance, fields *application.FieldAuthorization) *projectionv1.WorkflowInstanceReadModel {
+	result := toWire(instance)
+	message := result.ProtoReflect()
+	descriptors := message.Descriptor().Fields()
+	for i := 0; i < descriptors.Len(); i++ {
+		field := descriptors.Get(i)
+		if !fields.CanRead(string(field.Name())) {
+			message.Clear(field)
+		}
 	}
 	return result
 }

@@ -39,6 +39,12 @@ were counted as a single PowerShell null. The corrected probe passed on rerun.
 
 ## Remaining Ordered Work
 
+Update 2026-10-14: the typed remote PDP, database RBAC/ABAC, live ReBAC,
+field authorization and durable ordered HTTP revoke feed are implemented.
+Production Projection has no capability-only fallback. See [Query PDP](query-pdp.md).
+The list below records the original plan; signed internal context, Kafka push
+revocation and remaining performance/rebuild work are still pending.
+
 1. Define a versioned typed query-PDP response owned by Authz, including row
    constraints, allowed fields and revocation freshness. Bind its effective
    version into cursors and reject unsupported constraints without fallback.

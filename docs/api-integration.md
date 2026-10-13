@@ -88,8 +88,8 @@ Use the returned `next_page_token` unchanged on the next request. The token is
 HMAC signed, key-versioned, and bound to the tenant, actor subject, effective
 authorization policy, filter and sort fingerprint; changing any of them
 invalidates the token. The Projection Service verifies the forwarded actor JWT
-again. The dynamic `query_all_capability` permits every matching row in the
-tenant; `query_own_capability` adds a typed
+again. The dynamic `query_all_capability` permits the caller to request the
+PDP's row scope, not unrestricted tenant access; `query_own_capability` adds a typed
 `PROCESS_FIELD_INITIATOR_ACTOR_ID = actor_id` predicate. That authorization
 predicate is combined with the client filter using `AND` before validation and
 SQL compilation. Query limits are resolved per tenant from `ProjectionPolicy` at the
@@ -118,10 +118,14 @@ cache installation. Existing Projection profiles must explicitly provide the
 maximum token age before deploying the updated reader. Cursor and authz key
 material remains deployment secret configuration, not browser configuration.
 
-This is capability-based all/own row authorization, not yet a full query PDP.
-Signed internal context, RBAC/ReBAC/ABAC-derived typed query constraints,
-field-level masking and a live Authz Control Plane revocation feed remain
-separate integration work; unsupported actor-proof modes fail closed.
+Production query authorization also calls the Authz Control Plane typed PDP.
+Database RBAC, role-permission ABAC conditions and live ReBAC determine row and
+field scope. Masked fields are cleared from responses and cannot be used for
+client filters or sorting. Capability ceilings and PDP predicates are combined
+using AND. The effective PDP version, field policy and durable revoke revision
+participate in cursor binding. See [Query PDP](query-pdp.md) for deployment and
+the ordered HTTP pull feed; this is not a Kafka consumer. Signed internal
+context remains unsupported on query ingress and fails closed.
 
 ## Internal gRPC APIs
 

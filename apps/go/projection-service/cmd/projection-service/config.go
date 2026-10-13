@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/dangthobach/bpmp-platform/apps/go/projection-service/internal/adapter/queryauth"
 	"github.com/dangthobach/bpmp-platform/go/platform/kafkaconfig"
 )
 
@@ -25,6 +26,7 @@ type config struct {
 	RuntimeConfig   dynamicConfigurationConfig `json:"runtime_configuration"`
 	Identity        identityConfig             `json:"identity"`
 	CursorSigning   cursorSigningConfig        `json:"cursor_signing"`
+	QueryPDP        queryauth.PDPConfig        `json:"query_pdp"`
 }
 
 type tlsConfig struct {
@@ -133,6 +135,9 @@ func (c config) Validate() error {
 		c.Identity.MaxJWKSKeys <= 0 || c.Identity.MaxCapabilities <= 0 ||
 		c.Identity.ClockSkewSeconds < 0 || len(c.CursorSigning.Keys) == 0 {
 		return errors.New("projection service configuration is invalid")
+	}
+	if c.QueryPDP.WorkloadTokenPath == "" {
+		return errors.New("PDP workload token path required")
 	}
 	cursorKeyIDs := make(map[string]struct{}, len(c.CursorSigning.Keys))
 	for _, key := range c.CursorSigning.Keys {

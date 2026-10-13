@@ -354,7 +354,7 @@ func validateProjectionPolicy(policy *configurationv1.ProjectionPolicy) error {
 		policy.GetQueryAllCapability() == "" ||
 		policy.GetQueryOwnCapability() == "" ||
 		policy.GetQueryAllCapability() == policy.GetQueryOwnCapability() ||
-		policy.GetQueryMaxTokenAgeMs() == 0 || policy.GetQueryMaxTokenAgeMs() > 9223372036854 {
+		policy.GetQueryMaxTokenAgeMs() == 0 || policy.GetQueryMaxTokenAgeMs() > 9223372036854 || policy.GetQueryPdpResourceType() == "" || policy.GetQueryPdpAction() == "" {
 		return ErrInvalid
 	}
 	actors := make(map[string]struct{}, len(policy.GetQueryActorRevokeEpochs()))

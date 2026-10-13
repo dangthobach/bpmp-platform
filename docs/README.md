@@ -11,3 +11,6 @@ Architecture decisions are in `docs/adr/`. Operational and contribution
 documents are linked from the root (`SECURITY.md`, `CONTRIBUTING.md`, and
 `CODE_OF_CONDUCT.md`). New topic-specific documentation should be added under
 `docs/`; moving the baseline files requires a separate link-migration change.
+
+- [Typed query PDP and revocation](query-pdp.md)
+- [Query authorization progress](query-authorization-progress.md)

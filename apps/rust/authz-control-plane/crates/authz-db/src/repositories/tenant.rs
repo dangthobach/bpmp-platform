@@ -225,6 +225,7 @@ pub async fn find_user_by_id(
         WHERE  id        = $1
           AND  tenant_id = $2
           AND  is_deleted = false
+          AND  query_revoked = false
         "#,
     )
     .bind(user_id.into_uuid())

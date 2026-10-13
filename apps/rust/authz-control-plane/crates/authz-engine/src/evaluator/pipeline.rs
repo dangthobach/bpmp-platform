@@ -27,7 +27,7 @@ use authz_core::{
         },
         filter::RowFilterResult,
         policy::{AuthzDecision, ConditionNode, ValueSource},
-        rbac::{FieldFilterConfig, PolicyEffect, ResolvedPermission},
+        rbac::{FieldFilterConfig, PermissionScope, PolicyEffect, ResolvedPermission},
         tenant::FailMode,
     },
     AuthzError,
@@ -67,6 +67,7 @@ pub struct AuthzResponse {
     pub deny_reason: Option<String>,
     /// Row filter for the requesting backend (SQL/ES/Mongo predicate).
     pub row_filter: Option<RowFilterResult>,
+    pub row_filter_ast: Option<ConditionNode>,
     /// Field filter configuration (applied by the calling service).
     pub field_filter: Option<FieldFilterConfig>,
     /// Full eval trace (only included when `include_trace = true`).
@@ -81,6 +82,7 @@ impl AuthzResponse {
             decision: AuthzDecision::Deny,
             deny_reason: Some(reason.into()),
             row_filter: None,
+            row_filter_ast: None,
             field_filter: None,
             eval_trace: None,
             decision_id,
@@ -92,6 +94,7 @@ impl AuthzResponse {
             decision: AuthzDecision::Allow,
             deny_reason: None,
             row_filter: None,
+            row_filter_ast: None,
             field_filter: None,
             eval_trace: None,
             decision_id,
@@ -161,6 +164,19 @@ impl AuthzEvaluationPipeline {
         resource_type = %req.context.resource.resource_type,
     ))]
     pub async fn evaluate(&self, req: &AuthzRequest) -> Result<AuthzResponse, AuthzError> {
+        self.evaluate_inner(req, false).await
+    }
+
+    /// Query readers consume a typed AST and cannot accept raw backend predicates.
+    pub async fn evaluate_query(&self, req: &AuthzRequest) -> Result<AuthzResponse, AuthzError> {
+        self.evaluate_inner(req, true).await
+    }
+
+    async fn evaluate_inner(
+        &self,
+        req: &AuthzRequest,
+        typed_query: bool,
+    ) -> Result<AuthzResponse, AuthzError> {
         let decision_id = AuditLogId::new();
         let mut trace_layers = EvalLayers::default();
 
@@ -195,9 +211,10 @@ impl AuthzEvaluationPipeline {
         // O(1) probabilistic check: If false, it's 100% certain user doesn't have it.
         // If true, we continue to normal evaluation (might be false positive ~0.1%).
         let perm_code = format!("{}:{}", req.context.resource.resource_type, req.action);
-        if !self
-            .cuckoo_filter
-            .might_have_permission(req.tenant_id, req.user_id, &perm_code)
+        if !typed_query
+            && !self
+                .cuckoo_filter
+                .might_have_permission(req.tenant_id, req.user_id, &perm_code)
         {
             debug!(user_id = %req.user_id, action = %req.action, "[Cuckoo Filter] Fast Rejection applied");
             let response = self.build_deny_response(
@@ -230,20 +247,41 @@ impl AuthzEvaluationPipeline {
         self.note_temporal_layer(req, &mut trace_layers).await;
 
         // ── Layer 2: RBAC — Fetch effective permissions ───────────────────────
-        let effective_perms = match authz_db::fetch_effective_permissions(
+        let query_permission_limit = if typed_query {
+            let limit:Option<i64>=sqlx::query_scalar("SELECT (config->>'query_max_permissions')::bigint FROM tenant WHERE id=$1 AND NOT is_deleted").bind(req.tenant_id.into_uuid()).fetch_one(&self.pool).await?;
+            Some(limit.filter(|v| *v > 0 && *v <= 10000).ok_or_else(|| {
+                AuthzError::InvalidRequest {
+                    reason: "query_max_permissions must be configured for tenant".into(),
+                }
+            })?)
+        } else {
+            None
+        };
+        let effective_perms = match authz_db::fetch_effective_permissions_bounded(
             &self.pool,
             req.user_id,
             req.tenant_id,
             &req.context.resource.resource_type,
+            query_permission_limit.map(|v| v + 1),
         )
         .await
         {
             Ok(perms) => perms,
             Err(e) => {
                 warn!(error = %e, "Failed to load effective permissions — applying fail mode");
+                if typed_query {
+                    return Err(e);
+                }
                 return self.handle_fail_mode(decision_id, req, trace_layers).await;
             }
         };
+        if query_permission_limit
+            .is_some_and(|limit| effective_perms.permissions.len() as i64 > limit)
+        {
+            return Err(AuthzError::InvalidRequest {
+                reason: "query permission cardinality exceeds tenant policy".into(),
+            });
+        }
 
         // Check if any permission grants the requested action
         let matching_perms: Vec<_> = effective_perms
@@ -287,18 +325,30 @@ impl AuthzEvaluationPipeline {
         let mut abac_trace: Option<AstNodeTrace> = None;
         let mut matched_row_filter = None;
         let mut matched_field_filter = None;
+        let mut selected_permission = None;
 
         for perm in &matching_perms {
             // Per-permission temporal gate (uses bundle's O(log N) pre-filter)
             if !self
-                .evaluate_temporal_for_permission(req, perm.permission.id, &mut trace_layers)
+                .evaluate_temporal_for_permission(
+                    req,
+                    perm.permission.id,
+                    &mut trace_layers,
+                    typed_query,
+                )
                 .await?
             {
                 continue;
             }
 
             let permission_matches = self
-                .evaluate_permission_conditions(perm, req, &mut trace_layers, &mut abac_trace)
+                .evaluate_permission_conditions(
+                    perm,
+                    req,
+                    &mut trace_layers,
+                    &mut abac_trace,
+                    typed_query,
+                )
                 .await?;
 
             if !permission_matches {
@@ -326,9 +376,48 @@ impl AuthzEvaluationPipeline {
             }
 
             if !allow_passed {
+                if typed_query
+                    && perm.permission.scope != PermissionScope::All
+                    && perm.row_filter_exprs.is_empty()
+                {
+                    continue;
+                }
                 allow_passed = true;
+                selected_permission = Some(perm.permission.id);
                 matched_row_filter = perm.row_filter_exprs.first().cloned();
                 matched_field_filter = perm.field_filter.clone();
+            } else if typed_query && selected_permission == Some(perm.permission.id) {
+                if let Some(next) = perm.row_filter_exprs.first() {
+                    matched_row_filter = Some(match matched_row_filter.take() {
+                        Some(previous) => {
+                            serde_json::json!({"operator":"AND","conditions":[previous,next]})
+                        }
+                        None => next.clone(),
+                    });
+                }
+                if let Some(next) = &perm.field_filter {
+                    matched_field_filter = Some(match matched_field_filter.take() {
+                        None => next.clone(),
+                        Some(mut previous) => {
+                            if previous.allowed_fields.is_empty() {
+                                previous.allowed_fields = next.allowed_fields.clone();
+                            } else if !next.allowed_fields.is_empty() {
+                                previous
+                                    .allowed_fields
+                                    .retain(|f| next.allowed_fields.contains(f));
+                                if previous.allowed_fields.is_empty() {
+                                    return Err(AuthzError::InvalidRequest {
+                                        reason: "disjoint field grants".into(),
+                                    });
+                                }
+                            }
+                            previous.masked_fields.extend(next.masked_fields.clone());
+                            previous.masked_fields.sort();
+                            previous.masked_fields.dedup();
+                            previous
+                        }
+                    });
+                }
             }
         }
 
@@ -351,13 +440,15 @@ impl AuthzEvaluationPipeline {
         }
 
         // ── Layer 5: Row Filter Translation ──────────────────────────────────
-        let row_filter = if let Some(filter_expr) = matched_row_filter {
-            match serde_json::from_value::<authz_core::models::policy::ConditionNode>(filter_expr) {
-                Ok(filter_ast) => Some(self.translate_row_filter(&filter_ast, req).await?),
-                Err(_) => None,
-            }
-        } else {
-            None
+        let row_filter_ast = matched_row_filter
+            .map(serde_json::from_value::<ConditionNode>)
+            .transpose()
+            .map_err(|_| AuthzError::InvalidRequest {
+                reason: "Invalid row filter AST".to_owned(),
+            })?;
+        let row_filter = match &row_filter_ast {
+            Some(ast) if !typed_query => Some(self.translate_row_filter(ast, req).await?),
+            _ => None,
         };
 
         // ── Decision: ALLOW ───────────────────────────────────────────────────
@@ -371,6 +462,7 @@ impl AuthzEvaluationPipeline {
 
         let mut response = AuthzResponse::allow(decision_id);
         response.row_filter = row_filter;
+        response.row_filter_ast = row_filter_ast;
         response.field_filter = matched_field_filter;
         if req.include_trace {
             response.eval_trace = Some(eval_trace.clone());
@@ -406,19 +498,39 @@ impl AuthzEvaluationPipeline {
         req: &AuthzRequest,
         trace_layers: &mut EvalLayers,
         abac_trace: &mut Option<AstNodeTrace>,
+        fresh: bool,
     ) -> Result<bool, AuthzError> {
-        let Some(condition) = &perm.policy_condition else {
+        let conditions = [
+            perm.policy_condition.as_ref(),
+            perm.extra_conditions.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+        .cloned()
+        .collect::<Vec<_>>();
+        if conditions.is_empty() {
             return Ok(true);
-        };
+        }
+        let condition = serde_json::json!({"operator":"AND","conditions":conditions});
 
-        let ast = match serde_json::from_value::<ConditionNode>(condition.clone()) {
+        let ast = match serde_json::from_value::<ConditionNode>(condition) {
             Ok(ast) => ast,
             Err(e) => {
+                if fresh {
+                    return Err(AuthzError::InvalidRequest {
+                        reason: "Invalid query authorization condition".into(),
+                    });
+                }
                 warn!(error = %e, "Failed to parse condition AST — skipping permission");
                 return Ok(false);
             }
         };
 
+        let ast = if fresh {
+            self.resolve_query_relations(ast, req, 0).await?
+        } else {
+            ast
+        };
         let result = evaluate_abac(&ast, &req.context, self.jit_fetcher.as_ref()).await?;
         *abac_trace = Some(result.trace.clone());
         if !result.allowed {
@@ -426,10 +538,79 @@ impl AuthzEvaluationPipeline {
         }
 
         if ast.has_relation_nodes() {
-            return self.evaluate_rebac_layer(&ast, req, trace_layers).await;
+            return self
+                .evaluate_rebac_layer(&ast, req, trace_layers, fresh)
+                .await;
         }
 
         Ok(true)
+    }
+
+    fn resolve_query_relations<'a>(
+        &'a self,
+        node: ConditionNode,
+        req: &'a AuthzRequest,
+        depth: usize,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<ConditionNode, AuthzError>> + Send + 'a>,
+    > {
+        Box::pin(async move {
+            if depth > 32 {
+                return Err(AuthzError::InvalidRequest {
+                    reason: "query condition depth exceeded".into(),
+                });
+            }
+            match node {
+                ConditionNode::And { conditions } => {
+                    let mut result = Vec::with_capacity(conditions.len());
+                    for child in conditions {
+                        result.push(self.resolve_query_relations(child, req, depth + 1).await?);
+                    }
+                    Ok(ConditionNode::And { conditions: result })
+                }
+                ConditionNode::Or { conditions } => {
+                    let mut result = Vec::with_capacity(conditions.len());
+                    for child in conditions {
+                        result.push(self.resolve_query_relations(child, req, depth + 1).await?);
+                    }
+                    Ok(ConditionNode::Or { conditions: result })
+                }
+                ConditionNode::Leaf(mut leaf) => {
+                    if let ValueSource::Relation { key, target } = &leaf.left {
+                        if leaf.op != authz_core::models::policy::ComparisonOperator::Exists {
+                            return Err(AuthzError::InvalidRequest {
+                                reason: "query condition relation must use exists".into(),
+                            });
+                        }
+                        let object = resolve_relation_target(target, req);
+                        let allowed = match object {
+                            Some(object) => self
+                                .rebac_engine
+                                .resolve_objects_live(
+                                    req.tenant_id,
+                                    &format!("user:{}", req.user_id),
+                                    key,
+                                )
+                                .await?
+                                .contains(&object),
+                            None => false,
+                        };
+                        leaf.left = ValueSource::Literal {
+                            value: serde_json::json!(allowed),
+                        };
+                        leaf.right = ValueSource::Literal {
+                            value: serde_json::json!(true),
+                        };
+                        leaf.op = authz_core::models::policy::ComparisonOperator::Eq;
+                    } else if matches!(leaf.right, ValueSource::Relation { .. }) {
+                        return Err(AuthzError::InvalidRequest {
+                            reason: "unsupported right-side query relation".into(),
+                        });
+                    }
+                    Ok(ConditionNode::Leaf(leaf))
+                }
+            }
+        })
     }
 
     /// Records the tenant-level temporal trace. Per-permission gating happens
@@ -460,7 +641,30 @@ impl AuthzEvaluationPipeline {
         req: &AuthzRequest,
         permission_id: PermissionId,
         trace_layers: &mut EvalLayers,
+        fresh: bool,
     ) -> Result<bool, AuthzError> {
+        if fresh {
+            let policies = authz_db::list_permission_temporal_policies(&self.pool, permission_id)
+                .await?
+                .into_iter()
+                .filter(|(tenant, policy)| {
+                    *tenant == req.tenant_id && policy.permission_id == permission_id
+                })
+                .map(|(_, policy)| policy)
+                .collect::<Vec<_>>();
+            if policies.iter().any(|policy| policy.require_shift) {
+                return Err(AuthzError::InvalidRequest {
+                    reason: "query shift verification provider is not configured".into(),
+                });
+            }
+            return Ok(crate::evaluator::temporal::evaluate_temporal_gate(
+                permission_id,
+                &policies,
+                &req.context.env,
+            )
+            .await?
+            .allowed);
+        }
         let Some(bundle) = self.policy_bundle_cache.get(req.tenant_id).await else {
             return Ok(true);
         };
@@ -483,6 +687,7 @@ impl AuthzEvaluationPipeline {
         ast: &ConditionNode,
         req: &AuthzRequest,
         trace_layers: &mut EvalLayers,
+        fresh: bool,
     ) -> Result<bool, AuthzError> {
         let mut relations = Vec::new();
         collect_relation_leaves(ast, &mut relations);
@@ -503,10 +708,16 @@ impl AuthzEvaluationPipeline {
                 });
                 return Ok(false);
             };
-            let ok = self
-                .rebac_engine
-                .check(req.tenant_id, &subject, key, &object)
-                .await?;
+            let ok = if fresh {
+                self.rebac_engine
+                    .resolve_objects_live(req.tenant_id, &subject, key)
+                    .await?
+                    .contains(&object)
+            } else {
+                self.rebac_engine
+                    .check(req.tenant_id, &subject, key, &object)
+                    .await?
+            };
             if !ok {
                 trace_layers.rebac = Some(LayerTrace {
                     passed: false,
@@ -597,6 +808,7 @@ impl AuthzEvaluationPipeline {
             decision: AuthzDecision::Deny,
             deny_reason: Some(reason.to_owned()),
             row_filter: None,
+            row_filter_ast: None,
             field_filter: None,
             eval_trace: if include_trace {
                 Some(eval_trace)
@@ -734,6 +946,14 @@ fn resolve_relation_target(target: &str, req: &AuthzRequest) -> Option<String> {
 
     if target == "resource" {
         return resource_ref.map(|r| format!("{resource_type}:{r}"));
+    }
+    if let Some(field) = target.strip_prefix("user.") {
+        return req
+            .context
+            .user_attributes
+            .get(field)
+            .and_then(|v| v.as_str())
+            .map(str::to_owned);
     }
     if let Some(field) = target.strip_prefix("resource.") {
         return req

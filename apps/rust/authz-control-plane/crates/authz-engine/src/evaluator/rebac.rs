@@ -186,6 +186,34 @@ impl ReBacEngine {
         Ok(objects)
     }
     // ── Graph Provider for IDDFS ──────────────────────────────────────────────
+    pub async fn resolve_objects_live(
+        &self,
+        tenant_id: TenantId,
+        subject: &str,
+        relation: &str,
+    ) -> Result<Vec<String>, AuthzError> {
+        let objects = timeout(
+            Duration::from_millis(self.config.traversal_timeout_ms),
+            authz_db::resolve_reachable_objects_live(
+                &self.pool,
+                tenant_id,
+                subject,
+                relation,
+                self.config.max_terms_filter_size + 1,
+                self.config.max_depth,
+            ),
+        )
+        .await
+        .map_err(|_| AuthzError::InvalidRequest {
+            reason: "query relation traversal timeout".into(),
+        })??;
+        if objects.len() as i64 > self.config.max_terms_filter_size {
+            return Err(AuthzError::InvalidRequest {
+                reason: "query relation cardinality exceeds configured bound".into(),
+            });
+        }
+        Ok(objects)
+    }
 }
 
 struct PgGraphProvider {

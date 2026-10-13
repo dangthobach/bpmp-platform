@@ -14,6 +14,7 @@ const ALL_MIGRATIONS: &str = concat!(
     include_str!("../migrations/011_entity_metadata.sql"),
     include_str!("../migrations/012_tenant_registry.sql"),
     include_str!("../migrations/013_tenant_lifecycle_outbox.sql"),
+    include_str!("../migrations/014_query_pdp_revocation.sql"),
 );
 
 const TENANT_REGISTRY: &str = include_str!("../migrations/012_tenant_registry.sql");

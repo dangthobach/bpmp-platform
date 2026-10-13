@@ -84,7 +84,14 @@ fn build_test_pipeline(
     cuckoo_filter: Arc<PermissionCuckooFilter>,
     policy_bundle_cache: Arc<PolicyBundleCache>,
 ) -> AuthzEvaluationPipeline {
-    let rebac_engine = Arc::new(ReBacEngine::new(pool.clone(), ReBacConfig::default()));
+    let rebac_engine = Arc::new(ReBacEngine::new(
+        pool.clone(),
+        ReBacConfig {
+            // Cross-host test transport is slower than the in-container production path.
+            traversal_timeout_ms: 10000,
+            ..ReBacConfig::default()
+        },
+    ));
     let filter_registry = Arc::new(FilterTranslatorRegistry::new(
         Box::new(NoOpTranslator),
         Box::new(NoOpTranslator),
@@ -141,6 +148,9 @@ async fn seed_tenant(pool: &PgPool, tenant_id: TenantId, code: &str, name: &str)
         .execute(pool)
         .await
         .unwrap();
+    // Isolated fixtures explicitly activate; production activation uses readiness gates.
+    sqlx::query("UPDATE tenant SET is_active=true, config=config || '{\"query_max_permissions\":128}'::jsonb WHERE id=$1")
+        .bind(tenant_id.into_uuid()).execute(pool).await.unwrap();
 }
 
 async fn seed_user(pool: &PgPool, user_id: UserId, tenant_id: TenantId, username: &str) {
@@ -203,6 +213,81 @@ async fn seed_user_role(pool: &PgPool, user_id: UserId, role_id: uuid::Uuid, ten
 }
 
 // ─── Test 1: Allow path via RBAC + Bitmap fast-path ─────────────────────────
+
+#[sqlx::test(migrations = "../authz-db/migrations")]
+async fn typed_query_enforces_rbac_abac_rebac_and_field_constraints(pool: PgPool) {
+    let tenant = TenantId::new();
+    let actor = UserId::new();
+    let role = uuid::Uuid::new_v4();
+    let permission = uuid::Uuid::new_v4();
+    seed_tenant(&pool, tenant, "query-test", "Query Test").await;
+    seed_user(&pool, actor, tenant, "alice").await;
+    seed_role(&pool, role, tenant, "query-reader", "Query Reader").await;
+    seed_permission(
+        &pool,
+        permission,
+        tenant,
+        "workflow:query",
+        "workflow",
+        "query",
+    )
+    .await;
+    seed_role_permission(&pool, role, permission).await;
+    seed_user_role(&pool, actor, role, tenant).await;
+    sqlx::query("UPDATE role_permission SET conditions=$1 WHERE role_id=$2 AND permission_id=$3")
+        .bind(serde_json::json!({"operator":"AND","conditions":[{"operator":"LEAF","left":{"type":"user_attr","key":"grade"},"op":"gte","right":{"type":"literal","value":3}},{"operator":"LEAF","left":{"type":"relation","key":"member_of","target":"user.team"},"op":"exists","right":{"type":"literal","value":true}}]}))
+        .bind(role).bind(permission).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO field_filter(permission_id,resource_type,allowed_fields,masked_fields) VALUES($1,'workflow',ARRAY[]::varchar[],ARRAY['initiator_actor_id'])").bind(permission).execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO relation_type(tenant_id,relation,max_fanout) VALUES($1,'member_of',100)",
+    )
+    .bind(tenant.into_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO relation_tuple(tenant_id,subject,relation,object) VALUES($1,$2,'member_of','group:team')").bind(tenant.into_uuid()).bind(format!("user:{actor}")).execute(&pool).await.unwrap();
+    let pipeline = build_test_pipeline(
+        pool.clone(),
+        Arc::new(PermissionBitmapEngine::default()),
+        Arc::new(PermissionCuckooFilter::new()),
+        Arc::new(PolicyBundleCache::new()),
+    );
+    let mut request = make_request(tenant, actor, "query", "workflow");
+    request.context.user_attributes = serde_json::json!({"grade":4,"team":"group:team"});
+    let objects = authz_db::resolve_reachable_objects_live(
+        &pool,
+        tenant,
+        &format!("user:{actor}"),
+        "member_of",
+        1001,
+        10,
+    )
+    .await
+    .unwrap();
+    assert_eq!(objects, vec!["group:team"]);
+    let decision = pipeline.evaluate_query(&request).await.unwrap();
+    assert_eq!(decision.decision, AuthzDecision::Allow);
+    assert!(decision.row_filter.is_none());
+    assert_eq!(
+        decision.field_filter.unwrap().masked_fields,
+        vec!["initiator_actor_id"]
+    );
+    request.context.user_attributes["grade"] = serde_json::json!(2);
+    assert_eq!(
+        pipeline.evaluate_query(&request).await.unwrap().decision,
+        AuthzDecision::Deny
+    );
+    request.context.user_attributes["grade"] = serde_json::json!(4);
+    sqlx::query("UPDATE relation_tuple SET is_deleted=true WHERE tenant_id=$1")
+        .bind(tenant.into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        pipeline.evaluate_query(&request).await.unwrap().decision,
+        AuthzDecision::Deny
+    );
+}
 
 #[sqlx::test(migrations = "../authz-db/migrations")]
 async fn test_allow_path_via_bitmap_fast_path(pool: PgPool) {

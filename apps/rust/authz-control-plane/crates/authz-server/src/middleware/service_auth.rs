@@ -17,11 +17,20 @@ struct ServiceClaims {
     sub: String,
     #[allow(dead_code)]
     exp: usize,
+    #[serde(default)]
+    capabilities: Vec<String>,
+    tenant_id: Option<String>,
+    revoke_epoch: Option<u64>,
+    iat: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
 pub struct ServicePrincipal {
     pub subject: String,
+    pub capabilities: Vec<String>,
+    pub tenant_id: Option<String>,
+    pub revoke_epoch: Option<u64>,
+    pub issued_at: Option<i64>,
 }
 
 pub async fn require_service_jwt(
@@ -88,6 +97,10 @@ pub async fn verify_jwt(
     }
     Ok(ServicePrincipal {
         subject: token.claims.sub,
+        capabilities: token.claims.capabilities,
+        tenant_id: token.claims.tenant_id,
+        revoke_epoch: token.claims.revoke_epoch,
+        issued_at: token.claims.iat,
     })
 }
 

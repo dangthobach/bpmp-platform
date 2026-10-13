@@ -37,6 +37,12 @@ type QueryAuthorization struct {
 	SubjectID     string
 	PolicyVersion string
 	Filter        *ProcessExpression
+	Fields        *FieldAuthorization
+}
+
+type FieldAuthorization struct {
+	ReadFields  []string `json:"read_fields"`
+	QueryFields []string `json:"query_fields"`
 }
 
 type QueryAuthorizer interface {
@@ -178,17 +184,18 @@ type QueryCursor struct {
 }
 
 type ProcessQuery struct {
-	TenantID                   string             `json:"tenant_id"`
-	Filter                     *ProcessExpression `json:"filter,omitempty"`
-	Sort                       []ProcessSort      `json:"sort"`
-	IncludeDeleted             bool               `json:"include_deleted"`
-	Limit                      int                `json:"-"`
-	After                      *QueryCursor       `json:"-"`
-	Credential                 QueryCredential    `json:"-"`
-	AuthorizationSubject       string             `json:"authorization_subject"`
-	AuthorizationPolicyVersion string             `json:"authorization_policy_version"`
-	CursorSigningKeyID         string             `json:"-"`
-	Scope                      QueryScope         `json:"scope"`
+	TenantID                   string              `json:"tenant_id"`
+	Filter                     *ProcessExpression  `json:"filter,omitempty"`
+	Sort                       []ProcessSort       `json:"sort"`
+	IncludeDeleted             bool                `json:"include_deleted"`
+	Limit                      int                 `json:"-"`
+	After                      *QueryCursor        `json:"-"`
+	Credential                 QueryCredential     `json:"-"`
+	AuthorizationSubject       string              `json:"authorization_subject"`
+	AuthorizationPolicyVersion string              `json:"authorization_policy_version"`
+	CursorSigningKeyID         string              `json:"-"`
+	Scope                      QueryScope          `json:"scope"`
+	Fields                     *FieldAuthorization `json:"fields,omitempty"`
 }
 
 type QueryScope uint8
@@ -232,7 +239,9 @@ func (s *Service) queryProcesses(ctx context.Context, query ProcessQuery) ([]Com
 	if err != nil {
 		return nil, 0, query, err
 	}
-	authorization, err := s.authorizer.AuthorizeQuery(ctx, QueryAuthorizationRequest{
+	queryCtx, cancel := context.WithTimeout(ctx, policy.QueryTimeout)
+	defer cancel()
+	authorization, err := s.authorizer.AuthorizeQuery(queryCtx, QueryAuthorizationRequest{
 		TenantID:   query.TenantID,
 		Credential: query.Credential,
 		Policy:     policy,
@@ -246,6 +255,10 @@ func (s *Service) queryProcesses(ctx context.Context, query ProcessQuery) ([]Com
 	query.AuthorizationSubject = authorization.SubjectID
 	query.AuthorizationPolicyVersion = authorization.PolicyVersion
 	query.CursorSigningKeyID = policy.QueryCursorSigningKeyID
+	query.Fields = authorization.Fields
+	if err = validateFieldAccess(query); err != nil {
+		return nil, 0, query, err
+	}
 	query.Filter = intersectFilters(query.Filter, authorization.Filter)
 	if err = normalizeAndValidateQuery(&query, policy); err != nil {
 		return nil, 0, query, err
@@ -259,8 +272,6 @@ func (s *Service) queryProcesses(ctx context.Context, query ProcessQuery) ([]Com
 	}
 	effectiveLimit := query.Limit
 	query.Limit++
-	queryCtx, cancel := context.WithTimeout(ctx, policy.QueryTimeout)
-	defer cancel()
 	var processes []CompletedProcess
 	if query.Scope == QueryScopeInstances {
 		processes, err = s.store.QueryInstances(queryCtx, query)

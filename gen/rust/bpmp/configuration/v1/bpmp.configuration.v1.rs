@@ -235,6 +235,10 @@ pub struct ProjectionPolicy {
     pub query_actor_revoke_epochs: ::prost::alloc::vec::Vec<QueryActorRevokeEpoch>,
     #[prost(uint64, tag="20")]
     pub query_max_token_age_ms: u64,
+    #[prost(string, tag="21")]
+    pub query_pdp_resource_type: ::prost::alloc::string::String,
+    #[prost(string, tag="22")]
+    pub query_pdp_action: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct QueryActorRevokeEpoch {

@@ -110,7 +110,17 @@ pub async fn resolve_reachable_objects(
         return Ok(rows);
     }
 
-    // Fallback: live traversal with CTE (bounded)
+    resolve_reachable_objects_live(pool, tenant_id, subject, relation, max_results, 10).await
+}
+
+pub async fn resolve_reachable_objects_live(
+    pool: &PgPool,
+    tenant_id: TenantId,
+    subject: &str,
+    relation: &str,
+    max_results: i64,
+    max_depth: u32,
+) -> Result<Vec<String>, AuthzError> {
     let rows: Vec<String> = sqlx::query_scalar(
         r#"
         WITH RECURSIVE reachable AS (
@@ -131,7 +141,7 @@ pub async fn resolve_reachable_objects(
               AND  rt.relation  = $3
               AND  rt.is_deleted = false
               AND  (rt.expires_at IS NULL OR rt.expires_at > NOW())
-              AND  r.depth < 10  -- Hard depth limit: EC-2
+              AND  r.depth < $5::bigint
         )
         SELECT DISTINCT object
         FROM   reachable
@@ -142,6 +152,7 @@ pub async fn resolve_reachable_objects(
     .bind(subject)
     .bind(relation)
     .bind(max_results)
+    .bind(i64::from(max_depth))
     .fetch_all(pool)
     .await?;
 

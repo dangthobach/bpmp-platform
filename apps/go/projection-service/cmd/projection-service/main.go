@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -154,9 +155,24 @@ func run(configPath string) error {
 	if err != nil {
 		return fmt.Errorf("create projection actor verifier: %w", err)
 	}
-	queryAuthorizer, err := queryauth.New(queryauth.Config{
+	pdp, err := queryauth.NewHTTPPDP(value.QueryPDP, func() (string, error) {
+		file, readErr := os.Open(value.QueryPDP.WorkloadTokenPath)
+		if readErr != nil {
+			return "", readErr
+		}
+		defer file.Close()
+		raw, readErr := io.ReadAll(io.LimitReader(file, int64(value.Identity.MaxTokenBytes)+1))
+		if len(raw) > value.Identity.MaxTokenBytes {
+			return "", errors.New("PDP workload token exceeds limit")
+		}
+		return string(raw), readErr
+	})
+	if err != nil {
+		return err
+	}
+	queryAuthorizer, err := queryauth.WithPDP(queryauth.Config{
 		MaxCapabilities: value.Identity.MaxCapabilities,
-	}, actorVerifier)
+	}, actorVerifier, pdp)
 	if err != nil {
 		return err
 	}

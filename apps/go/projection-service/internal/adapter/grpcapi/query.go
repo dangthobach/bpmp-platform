@@ -44,10 +44,14 @@ func (s *Server) QueryCompletedProcesses(
 	}
 	response.Processes = make([]*projectionv1.CompletedProcessReadModel, 0, len(processes))
 	for _, process := range processes {
-		response.Processes = append(response.Processes, &projectionv1.CompletedProcessReadModel{
-			Instance: toWire(process.Instance), DurationMs: process.DurationMS,
-			EventCount: process.EventCount,
-		})
+		row := &projectionv1.CompletedProcessReadModel{Instance: toWireAuthorized(process.Instance, normalized.Fields)}
+		if normalized.Fields.CanRead("duration_ms") {
+			row.DurationMs = process.DurationMS
+		}
+		if normalized.Fields.CanRead("event_count") {
+			row.EventCount = process.EventCount
+		}
+		response.Processes = append(response.Processes, row)
 	}
 	return response, nil
 }

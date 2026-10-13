@@ -153,3 +153,22 @@ func testPolicy() application.RuntimePolicy {
 		QueryOwnCapability: "workflow.query.own",
 	}
 }
+
+type broadPDP struct{}
+
+func (broadPDP) Evaluate(_ context.Context, request application.QueryAuthorizationRequest, subject string) (application.QueryAuthorization, error) {
+	return application.QueryAuthorization{SubjectID: subject, PolicyVersion: request.Policy.PolicyVersion}, nil
+}
+func TestPDPDoesNotWidenOwnTokenCeiling(t *testing.T) {
+	now := time.Now().UTC()
+	authorizer, private := testAuthorizer(t, now)
+	authorizer.pdp = broadPDP{}
+	token := signToken(t, private, now, "tenant-a", "actor-1", []string{"workflow.query.own"})
+	authorization, err := authorizer.AuthorizeQuery(context.Background(), application.QueryAuthorizationRequest{TenantID: "tenant-a", Policy: testPolicy(), Credential: application.QueryCredential{Type: application.ActorProofOriginalJWT, SignedProof: []byte(token)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if authorization.Filter == nil || authorization.Filter.Predicate == nil || authorization.Filter.Predicate.Field != application.ProcessInitiatorActorID || authorization.Filter.Predicate.Values[0].String != "actor-1" {
+		t.Fatal("PDP widened JWT own ceiling")
+	}
+}

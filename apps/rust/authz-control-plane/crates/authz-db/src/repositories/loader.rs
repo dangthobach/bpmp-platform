@@ -146,6 +146,20 @@ struct TemporalRow {
 pub async fn list_active_temporal_policies(
     pool: &PgPool,
 ) -> Result<Vec<(TenantId, TemporalPolicy)>, AuthzError> {
+    load_temporal_policies(pool, None).await
+}
+
+pub async fn list_permission_temporal_policies(
+    pool: &PgPool,
+    permission: PermissionId,
+) -> Result<Vec<(TenantId, TemporalPolicy)>, AuthzError> {
+    load_temporal_policies(pool, Some(permission)).await
+}
+
+async fn load_temporal_policies(
+    pool: &PgPool,
+    permission: Option<PermissionId>,
+) -> Result<Vec<(TenantId, TemporalPolicy)>, AuthzError> {
     let rows: Vec<TemporalRow> = sqlx::query_as(
         r#"
         SELECT tp.id, tp.permission_id, p.tenant_id, tp.name,
@@ -160,8 +174,10 @@ pub async fn list_active_temporal_policies(
         WHERE  tp.is_active = true
           AND  tp.is_deleted = false
           AND  p.is_deleted = false
+          AND  ($1::uuid IS NULL OR p.id = $1)
         "#,
     )
+    .bind(permission.map(|id| id.into_uuid()))
     .fetch_all(pool)
     .await?;
 

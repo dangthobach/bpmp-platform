@@ -1215,6 +1215,8 @@ type ProjectionPolicy struct {
 	QueryMinRevokeEpoch      uint64                   `protobuf:"varint,18,opt,name=query_min_revoke_epoch,json=queryMinRevokeEpoch,proto3" json:"query_min_revoke_epoch,omitempty"`
 	QueryActorRevokeEpochs   []*QueryActorRevokeEpoch `protobuf:"bytes,19,rep,name=query_actor_revoke_epochs,json=queryActorRevokeEpochs,proto3" json:"query_actor_revoke_epochs,omitempty"`
 	QueryMaxTokenAgeMs       uint64                   `protobuf:"varint,20,opt,name=query_max_token_age_ms,json=queryMaxTokenAgeMs,proto3" json:"query_max_token_age_ms,omitempty"`
+	QueryPdpResourceType     string                   `protobuf:"bytes,21,opt,name=query_pdp_resource_type,json=queryPdpResourceType,proto3" json:"query_pdp_resource_type,omitempty"`
+	QueryPdpAction           string                   `protobuf:"bytes,22,opt,name=query_pdp_action,json=queryPdpAction,proto3" json:"query_pdp_action,omitempty"`
 	unknownFields            protoimpl.UnknownFields
 	sizeCache                protoimpl.SizeCache
 }
@@ -1387,6 +1389,20 @@ func (x *ProjectionPolicy) GetQueryMaxTokenAgeMs() uint64 {
 		return x.QueryMaxTokenAgeMs
 	}
 	return 0
+}
+
+func (x *ProjectionPolicy) GetQueryPdpResourceType() string {
+	if x != nil {
+		return x.QueryPdpResourceType
+	}
+	return ""
+}
+
+func (x *ProjectionPolicy) GetQueryPdpAction() string {
+	if x != nil {
+		return x.QueryPdpAction
+	}
+	return ""
 }
 
 type QueryActorRevokeEpoch struct {
@@ -2542,7 +2558,7 @@ const file_bpmp_configuration_v1_configuration_proto_rawDesc = "" +
 	"\fengine_retry\x18\v \x01(\v2\".bpmp.configuration.v1.RetryPolicyR\vengineRetry\x12V\n" +
 	"(engine_circuit_breaker_failure_threshold\x18\f \x01(\rR$engineCircuitBreakerFailureThreshold\x12B\n" +
 	"\x1eengine_circuit_breaker_open_ms\x18\r \x01(\x04R\x1aengineCircuitBreakerOpenMs\x124\n" +
-	"\x16engine_retryable_codes\x18\x0e \x03(\tR\x14engineRetryableCodes\"\xcb\b\n" +
+	"\x16engine_retryable_codes\x18\x0e \x03(\tR\x14engineRetryableCodes\"\xac\t\n" +
 	"\x10ProjectionPolicy\x12,\n" +
 	"\x12consume_batch_size\x18\x01 \x01(\rR\x10consumeBatchSize\x12,\n" +
 	"\x12rebuild_batch_size\x18\x02 \x01(\rR\x10rebuildBatchSize\x125\n" +
@@ -2564,7 +2580,9 @@ const file_bpmp_configuration_v1_configuration_proto_rawDesc = "" +
 	"\x14query_own_capability\x18\x11 \x01(\tR\x12queryOwnCapability\x123\n" +
 	"\x16query_min_revoke_epoch\x18\x12 \x01(\x04R\x13queryMinRevokeEpoch\x12g\n" +
 	"\x19query_actor_revoke_epochs\x18\x13 \x03(\v2,.bpmp.configuration.v1.QueryActorRevokeEpochR\x16queryActorRevokeEpochs\x122\n" +
-	"\x16query_max_token_age_ms\x18\x14 \x01(\x04R\x12queryMaxTokenAgeMs\"U\n" +
+	"\x16query_max_token_age_ms\x18\x14 \x01(\x04R\x12queryMaxTokenAgeMs\x125\n" +
+	"\x17query_pdp_resource_type\x18\x15 \x01(\tR\x14queryPdpResourceType\x12(\n" +
+	"\x10query_pdp_action\x18\x16 \x01(\tR\x0equeryPdpAction\"U\n" +
 	"\x15QueryActorRevokeEpoch\x12\x19\n" +
 	"\bactor_id\x18\x01 \x01(\tR\aactorId\x12!\n" +
 	"\frevoke_epoch\x18\x02 \x01(\x04R\vrevokeEpoch\"\xc8\x05\n" +

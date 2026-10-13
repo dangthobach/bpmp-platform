@@ -52,7 +52,9 @@ impl JitAttributeFetcher for NoopJitFetcher {
         _key: &str,
         _tenant_id: &str,
     ) -> Result<JsonValue, AuthzError> {
-        Ok(JsonValue::Null)
+        Err(AuthzError::InvalidRequest {
+            reason: "External attribute provider is not configured".into(),
+        })
     }
 }
 
@@ -61,6 +63,15 @@ pub fn build_router(state: AppState, transport: TransportConfig) -> Result<Route
     let protected_routes = Router::new()
         .route("/authz/v1/check", post(crate::handlers::check_handler))
         .route("/authz/v1/filter", post(crate::handlers::filter_handler))
+        .route("/authz/v1/query", post(crate::handlers::query::query))
+        .route(
+            "/authz/v1/query-revoke-feed",
+            post(crate::handlers::query_revoke::feed),
+        )
+        .route(
+            "/admin/v1/query-revoke",
+            post(crate::handlers::query_revoke::change),
+        )
         .route("/authz/v1/explain", post(crate::handlers::explain_handler))
         .nest("/admin/v1", crate::handlers::admin::admin_routes())
         .layer(middleware::from_fn_with_state(

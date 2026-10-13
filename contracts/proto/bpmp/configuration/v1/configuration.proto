@@ -164,6 +164,8 @@ message ProjectionPolicy {
   uint64 query_min_revoke_epoch = 18;
   repeated QueryActorRevokeEpoch query_actor_revoke_epochs = 19;
   uint64 query_max_token_age_ms = 20;
+  string query_pdp_resource_type = 21;
+  string query_pdp_action = 22;
 }
 
 message QueryActorRevokeEpoch {

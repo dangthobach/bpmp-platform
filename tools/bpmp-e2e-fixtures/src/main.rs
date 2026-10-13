@@ -282,7 +282,12 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
             aud: &manifest.actor_audience,
             tenant_id: &manifest.tenant_id,
             roles: vec!["workload"],
-            capabilities: vec!["authz.check", "authz.filter", "authz.explain"],
+            capabilities: vec![
+                "authz.check",
+                "authz.filter",
+                "authz.explain",
+                "authz.revoke",
+            ],
             revoke_epoch: 0,
             iat: now.saturating_sub(5),
             nbf: now.saturating_sub(5),
@@ -291,6 +296,26 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
         &EncodingKey::from_ed_der(jwt_private.as_bytes()),
     )?;
     write(&secrets.join("authz-app.jwt"), service_token.as_bytes())?;
+    let projection_token = encode(
+        &header,
+        &JwtClaims {
+            iss: &manifest.actor_issuer,
+            sub: "projection-service",
+            aud: &manifest.actor_audience,
+            tenant_id: &manifest.tenant_id,
+            roles: vec!["workload"],
+            capabilities: vec!["authz.filter"],
+            revoke_epoch: 0,
+            iat: now.saturating_sub(5),
+            nbf: now.saturating_sub(5),
+            exp: now.saturating_add(7200),
+        },
+        &EncodingKey::from_ed_der(jwt_private.as_bytes()),
+    )?;
+    write(
+        &secrets.join("projection-pdp.jwt"),
+        projection_token.as_bytes(),
+    )?;
     for label in ["governance-requester", "governance-approver"] {
         let key = SigningKey::from_bytes(&derive_key(manifest, label));
         write(
@@ -872,6 +897,7 @@ fn projection_config(manifest: &Manifest, mount: &str, tls_fingerprint: &str) ->
                 "secret_path": path("secrets/projection-cursor-v1.key")
             }]
         }
+        ,"query_pdp": {"url":"http://authz-server:8080/authz/v1/query", "workload_token_path":path("secrets/projection-pdp.jwt"),"timeout_ms":5000,"max_response_bytes":1048576,"allow_insecure":true}
     })
 }
 
@@ -1059,6 +1085,8 @@ INSERT INTO user_account (id, tenant_id, username, external_id)
 VALUES ('{actor}', '{tenant}', 'e2e-user', '{actor}')
 ON CONFLICT (id) DO NOTHING;
 
+UPDATE tenant SET config=config || '{{"query_max_permissions":128}}'::jsonb WHERE id='{tenant}';
+
 INSERT INTO role (id, tenant_id, code, name)
 VALUES ('00000000-0000-4000-8000-000000000003', '{tenant}', 'organization-admin', 'Organization administrator')
 ON CONFLICT (id) DO NOTHING;
@@ -1079,6 +1107,23 @@ ON CONFLICT DO NOTHING;
 INSERT INTO user_role (user_id, role_id, tenant_id)
 VALUES ('{actor}', '00000000-0000-4000-8000-000000000003', '{tenant}')
 ON CONFLICT DO NOTHING;
+
+UPDATE user_account SET attributes=jsonb_build_object('actor_id',id::text,'grade',4,'team','group:query-reviewers') WHERE id='{actor}';
+INSERT INTO user_account (id,tenant_id,username,external_id,attributes) VALUES
+('00000000-0000-4000-8000-000000000099','{tenant}','query-other','00000000-0000-4000-8000-000000000099','{{"actor_id":"00000000-0000-4000-8000-000000000099","grade":4,"team":"group:query-reviewers"}}') ON CONFLICT DO NOTHING;
+INSERT INTO permission (id,tenant_id,code,resource_type,action,scope) VALUES
+('00000000-0000-4000-8000-000000000015','{tenant}','workflow_instance:query','workflow_instance','query','own') ON CONFLICT DO NOTHING;
+INSERT INTO role_permission(role_id,permission_id) VALUES ('00000000-0000-4000-8000-000000000003','00000000-0000-4000-8000-000000000015') ON CONFLICT DO NOTHING;
+INSERT INTO user_role(user_id,role_id,tenant_id) VALUES ('00000000-0000-4000-8000-000000000099','00000000-0000-4000-8000-000000000003','{tenant}') ON CONFLICT DO NOTHING;
+INSERT INTO row_filter(permission_id,resource_type,filter_expr) VALUES
+('00000000-0000-4000-8000-000000000015','workflow_instance','{{"operator":"LEAF","left":{{"type":"resource_field","key":"initiator_actor_id"}},"op":"eq","right":{{"type":"user_attr","key":"actor_id"}}}}');
+INSERT INTO field_filter(permission_id,resource_type,allowed_fields,masked_fields) VALUES
+('00000000-0000-4000-8000-000000000015','workflow_instance',ARRAY[]::varchar[],ARRAY['initiator_actor_id','event_actor_id']);
+UPDATE role_permission SET conditions='{{"operator":"AND","conditions":[{{"operator":"LEAF","left":{{"type":"user_attr","key":"grade"}},"op":"gte","right":{{"type":"literal","value":3}}}},{{"operator":"LEAF","left":{{"type":"relation","key":"member_of","target":"user.team"}},"op":"exists","right":{{"type":"literal","value":true}}}}]}}' WHERE role_id='00000000-0000-4000-8000-000000000003' AND permission_id='00000000-0000-4000-8000-000000000015';
+INSERT INTO relation_type(tenant_id,relation,max_fanout) VALUES ('{tenant}','member_of',100);
+INSERT INTO relation_tuple(tenant_id,subject,relation,object) VALUES
+('{tenant}','user:{actor}','member_of','group:query-reviewers'),
+('{tenant}','user:00000000-0000-4000-8000-000000000099','member_of','group:query-reviewers');
 "#,
         tenant = manifest.tenant_id,
         actor = manifest.actor_id,
@@ -1390,7 +1435,9 @@ fn seeded_configuration_policies(
                 "query_cursor_signing_key_id": "projection-cursor-v1",
                 "query_all_capability": "workflow.query.all",
                 "query_own_capability": "workflow.query.own",
-                "query_max_token_age_ms": "7200000"
+                "query_max_token_age_ms": "7200000",
+                "query_pdp_resource_type":"workflow_instance",
+                "query_pdp_action":"query"
             }),
         ),
         (

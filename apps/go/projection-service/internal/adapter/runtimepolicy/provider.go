@@ -46,7 +46,7 @@ func (p *Provider) Policy(tenantID string) (application.RuntimePolicy, error) {
 		value.GetQueryOwnCapability() == "" ||
 		value.GetQueryAllCapability() == value.GetQueryOwnCapability() ||
 		snapshot.GetConfigVersion() == "" || snapshot.GetPolicyVersion() == "" ||
-		value.GetQueryMaxTokenAgeMs() == 0 || value.GetQueryMaxTokenAgeMs() > uint64((1<<63-1)/int64(time.Millisecond)) {
+		value.GetQueryMaxTokenAgeMs() == 0 || value.GetQueryMaxTokenAgeMs() > uint64((1<<63-1)/int64(time.Millisecond)) || value.GetQueryPdpResourceType() == "" || value.GetQueryPdpAction() == "" {
 		return application.RuntimePolicy{}, errors.New("projection runtime policy is invalid")
 	}
 	epochs := make(map[string]uint64, len(value.GetQueryActorRevokeEpochs()))
@@ -60,6 +60,7 @@ func (p *Provider) Policy(tenantID string) (application.RuntimePolicy, error) {
 		epochs[actor.GetActorId()] = actor.GetRevokeEpoch()
 	}
 	return application.RuntimePolicy{
+		QueryPDPResourceType: value.GetQueryPdpResourceType(), QueryPDPAction: value.GetQueryPdpAction(),
 		QueryMinRevokeEpoch: value.GetQueryMinRevokeEpoch(), QueryActorRevokeEpochs: epochs,
 		QueryMaxTokenAge:         time.Duration(value.GetQueryMaxTokenAgeMs()) * time.Millisecond,
 		ConfigVersion:            snapshot.GetConfigVersion(),

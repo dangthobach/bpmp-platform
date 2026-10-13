@@ -5,6 +5,8 @@ pub mod check;
 pub mod explain;
 pub mod filter;
 pub mod health;
+pub mod query;
+pub mod query_revoke;
 pub mod relations;
 
 pub use check::check_handler;

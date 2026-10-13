@@ -50,6 +50,16 @@ pub async fn fetch_effective_permissions(
     tenant_id: TenantId,
     resource_type: &str,
 ) -> Result<EffectivePermissions, AuthzError> {
+    fetch_effective_permissions_bounded(pool, user_id, tenant_id, resource_type, None).await
+}
+
+pub async fn fetch_effective_permissions_bounded(
+    pool: &PgPool,
+    user_id: UserId,
+    tenant_id: TenantId,
+    resource_type: &str,
+    limit: Option<i64>,
+) -> Result<EffectivePermissions, AuthzError> {
     let rows: Vec<RbacRow> = sqlx::query_as(
         r#"
         SELECT
@@ -112,6 +122,7 @@ pub async fn fetch_effective_permissions(
         LEFT JOIN policy_rule pr ON pr.resource_type = $3
             AND pr.action = p.action
             AND pr.is_deleted = false
+            AND EXISTS (SELECT 1 FROM policy active_policy WHERE active_policy.id=pr.policy_id AND active_policy.tenant_id=$2 AND active_policy.is_active AND NOT active_policy.is_deleted)
 
         LEFT JOIN policy pol ON pol.id = pr.policy_id
             AND pol.is_active = true
@@ -124,11 +135,13 @@ pub async fn fetch_effective_permissions(
           AND (ur.expires_at IS NULL OR ur.expires_at > NOW())
 
         ORDER BY pol.priority DESC
+        LIMIT $4
         "#,
     )
     .bind(user_id.into_uuid())
     .bind(tenant_id.into_uuid())
     .bind(resource_type)
+    .bind(limit)
     .fetch_all(pool)
     .await?;
 

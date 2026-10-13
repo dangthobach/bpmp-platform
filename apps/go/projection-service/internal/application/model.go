@@ -129,6 +129,8 @@ type RuntimePolicy struct {
 	QueryMinRevokeEpoch      uint64
 	QueryActorRevokeEpochs   map[string]uint64
 	QueryMaxTokenAge         time.Duration
+	QueryPDPResourceType     string
+	QueryPDPAction           string
 }
 
 type RuntimePolicyProvider interface {

@@ -772,6 +772,38 @@ url = "https://localhost:$cockpitGatewayPort/realtime/v1/events?names=workflow.c
         -Headers $deniedHeaders -ContentType "application/json" -Body $completedQuery
     if ($denied.StatusCode -ne 403) { throw "missing query capability did not produce HTTP 403" }
 
+    if ($completedPage.processes[0].instance.initiator_actor_id) {
+        throw "PDP field mask leaked initiator actor"
+    }
+    $hiddenFieldQuery = @{filter=@{predicate=@{field="PROCESS_FIELD_INITIATOR_ACTOR_ID";operator="COMPARISON_OPERATOR_EQUAL";values=@(@{string_value=$bootstrapManifest.actor_id})}};page_size=10}|ConvertTo-Json -Depth 8 -Compress
+    $hiddenFieldResponse = Invoke-WebRequest -SkipCertificateCheck -SkipHttpErrorCheck -Method Post -Uri "https://localhost:$gatewayPort/v1/process-instances/completed/query" -Headers $completeHeaders -ContentType "application/json" -Body $hiddenFieldQuery
+    if ($hiddenFieldResponse.StatusCode -ne 403) {throw "query inferred hidden initiator actor"}
+    function Invoke-AuthzJson {
+        param([string]$Path, [string]$Body)
+        $result = Invoke-Compose exec -T authz-server bash -ec 'curl --fail --silent --show-error -H "Authorization: Bearer $(cat /runtime/secrets/authz-app.jwt)" -H "Content-Type: application/json" --data-binary "$1" "http://localhost:8080$2"' pdp-probe $Body $Path
+        ($result -join "`n") | ConvertFrom-Json
+    }
+    $actorVersion = [long](Invoke-Compose exec -T authz-postgres psql -U $settings.POSTGRES_USER -d authz -Atc "SELECT version FROM user_account WHERE id='$($bootstrapManifest.actor_id)' AND tenant_id='$tenantId'").Trim()
+    $revokeCommand = @{tenant_id=$tenantId;actor_id=$bootstrapManifest.actor_id;expected_version=$actorVersion;revoked=$true;reason="E2E query revocation"} | ConvertTo-Json -Compress
+    $revokeResult = Invoke-AuthzJson -Path "/admin/v1/query-revoke" -Body $revokeCommand
+    if ($revokeResult.revoke_epoch -ne 1) { throw "durable actor epoch did not advance" }
+    $feed = Invoke-AuthzJson -Path "/authz/v1/query-revoke-feed" -Body (@{tenant_id=$tenantId;after=0;limit=10}|ConvertTo-Json -Compress)
+    if (@($feed.events).Count -ne 1 -or -not $feed.events[0].revoked -or $feed.events[0].revoke_epoch -ne 1) {throw "ordered revoke feed missing durable event"}
+    $afterRevoke = Invoke-WebRequest -SkipCertificateCheck -SkipHttpErrorCheck -Method Post -Uri "https://localhost:$gatewayPort/v1/process-instances/completed/query" -Headers $completeHeaders -ContentType "application/json" -Body $completedQuery
+    if ($afterRevoke.StatusCode -ne 403) {throw "PDP accepted revoked actor"}
+    $restoreCommand = @{tenant_id=$tenantId;actor_id=$bootstrapManifest.actor_id;expected_version=$revokeResult.version;revoked=$false;reason="E2E query restore"}|ConvertTo-Json -Compress
+    $restoreResult = Invoke-AuthzJson -Path "/admin/v1/query-revoke" -Body $restoreCommand
+    if ($restoreResult.revoke_epoch -ne 2) {throw "restore rolled back revoke epoch"}
+    $afterRestore = Invoke-WebRequest -SkipCertificateCheck -SkipHttpErrorCheck -Method Post -Uri "https://localhost:$gatewayPort/v1/process-instances/completed/query" -Headers $completeHeaders -ContentType "application/json" -Body $completedQuery
+    if ($afterRestore.StatusCode -ne 403) {throw "restore resurrected old actor token"}
+    Invoke-Compose restart authz-server
+    Invoke-Compose up -d --no-deps --wait --wait-timeout $StartupTimeoutSeconds authz-server
+    $afterRestart = Invoke-WebRequest -SkipCertificateCheck -SkipHttpErrorCheck -Method Post -Uri "https://localhost:$gatewayPort/v1/process-instances/completed/query" -Headers $completeHeaders -ContentType "application/json" -Body $completedQuery
+    if ($afterRestart.StatusCode -ne 403) {throw "PDP restart forgot persisted revoke epochs"}
+    $feedAfter = Invoke-AuthzJson -Path "/authz/v1/query-revoke-feed" -Body (@{tenant_id=$tenantId;after=$feed.next_sequence;limit=10}|ConvertTo-Json -Compress)
+    if (@($feedAfter.events).Count -ne 1 -or $feedAfter.events[0].revoked -or $feedAfter.events[0].revoke_epoch -ne 2) {throw "feed replay did not resume at restored epoch"}
+    Write-Host "Typed query PDP, field authorization and durable revoke feed probes passed"
+
     Write-Host "Broker-backed E2E passed with Projection, Governance and leader failover: config=$($configuration.id) governance=$governanceRequestId instance=$instance work_item=$workItem human_inbox=$inboxCount projection_inbox=$projectionInboxCount"
 } finally {
     if ($null -ne $realtimeProcess -and -not $realtimeProcess.HasExited) {
