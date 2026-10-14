@@ -6,7 +6,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
 use std::path::Path;
-#[cfg(target_os="linux")]
+#[cfg(target_os = "linux")]
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -35,17 +35,23 @@ impl Config {
         let parts = self.topic.split('.').collect::<Vec<_>>();
         if parts.len() != 5
             || parts[0] != "bpmp"
-            || !parts[3].starts_with('v')
+            || parts[3]
+                .strip_prefix('v')
+                .and_then(|v| v.parse::<u32>().ok())
+                .is_none_or(|v| v == 0)
             || parts.iter().any(|p| {
                 p.is_empty()
+                    || !p.as_bytes()[0].is_ascii_alphanumeric()
                     || !p
                         .bytes()
                         .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
             })
             || self.topic.len() > 249
             || self.worker_id.is_empty()
+            || self.worker_id.len() > 128
             || !(1..=1000).contains(&self.batch_size)
             || self.lease_ms <= 0
+            || self.lease_ms > 600000
             || self.poll_ms == 0
             || self.poll_ms > 300000
             || self.delivery_timeout_ms == 0
@@ -55,6 +61,7 @@ impl Config {
             || self.retry_backoff_ms > 300000
             || !(1..=20).contains(&self.max_retry_attempts)
             || self.signing_key_id.is_empty()
+            || self.signing_key_id.len() > 128
             || self.signing_key_path.is_empty()
         {
             anyhow::bail!("invalid bounded query revoke publisher configuration");
@@ -157,6 +164,7 @@ pub fn payload(record: &Record, key: &SigningKey, key_id: &str) -> Result<Vec<u8
 #[cfg(target_os = "linux")]
 pub async fn run(pool: PgPool, server: crate::config::ServerConfig) -> Result<()> {
     use rdkafka::{
+        message::{Header, OwnedHeaders},
         producer::{FutureProducer, FutureRecord},
         util::Timeout,
     };
@@ -209,7 +217,11 @@ pub async fn run(pool: PgPool, server: crate::config::ServerConfig) -> Result<()
                     .send(
                         FutureRecord::to(&config.topic)
                             .key(&record.tenant_id.to_string())
-                            .payload(&bytes),
+                            .payload(&bytes)
+                            .headers(OwnedHeaders::new().insert(Header {
+                                key: "x-bpmp-correlation-id",
+                                value: Some(&record.event_id.to_string()),
+                            })),
                         Timeout::After(Duration::from_millis(config.delivery_timeout_ms)),
                     )
                     .await;
@@ -263,5 +275,67 @@ mod tests {
         assert_eq!(a, payload(&record, &key, "k1").unwrap());
         let event = AuthorizationQueryRevokeEvent::decode(a.as_slice()).unwrap();
         assert_eq!(event.signature.len(), 64);
+    }
+
+    #[sqlx::test(migrations = false)]
+    async fn expired_lease_fences_checkpoint_and_replays_unacknowledged_events(pool: PgPool) {
+        sqlx::query("CREATE TABLE query_revoke_feed(sequence BIGINT PRIMARY KEY,tenant_id UUID,actor_id UUID,revoke_epoch BIGINT,revoked BOOLEAN,occurred_at TIMESTAMPTZ DEFAULT now())").execute(&pool).await.unwrap();
+        sqlx::raw_sql(include_str!(
+            "../../authz-db/migrations/015_query_revoke_kafka.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+        let config = Config {
+            topic: "bpmp.authz.query-revocations.v1.test".into(),
+            worker_id: "worker-a".into(),
+            batch_size: 2,
+            lease_ms: 10000,
+            poll_ms: 250,
+            delivery_timeout_ms: 2000,
+            retry_backoff_ms: 500,
+            max_retry_attempts: 3,
+            signing_key_id: "k1".into(),
+            signing_key_path: "test.key".into(),
+        };
+        config.validate().unwrap();
+        let tenant = Uuid::new_v4();
+        let actor = Uuid::new_v4();
+        sqlx::query("INSERT INTO query_revoke_feed(sequence,tenant_id,actor_id,revoke_epoch,revoked) VALUES(7,$1,$2,1,true),(11,$1,$2,2,false)").bind(tenant).bind(actor).execute(&pool).await.unwrap();
+        let first = claim(&pool, &config).await.unwrap().unwrap();
+        assert_eq!(
+            first.records.iter().map(|r| r.sequence).collect::<Vec<_>>(),
+            vec![7, 11]
+        );
+        assert!(claim(&pool, &config).await.unwrap().is_none());
+        checkpoint(&pool, &config, first.generation, 7)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE query_revoke_publish_state SET lease_until=now()-interval '1 second'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(renew(&pool, &config, first.generation).await.is_err());
+        assert!(checkpoint(&pool, &config, first.generation, 11)
+            .await
+            .is_err());
+        let mut successor = config.clone();
+        successor.worker_id = "worker-b".into();
+        let replay = claim(&pool, &successor).await.unwrap().unwrap();
+        assert_eq!(replay.records.len(), 1);
+        assert_eq!(replay.records[0].sequence, 11);
+        assert!(replay.generation > first.generation);
+        assert!(checkpoint(&pool, &config, first.generation, 11)
+            .await
+            .is_err());
+        checkpoint(&pool, &successor, replay.generation, 11)
+            .await
+            .unwrap();
+        let persisted: i64 =
+            sqlx::query_scalar("SELECT checkpoint FROM query_revoke_publish_state")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(persisted, 11);
     }
 }

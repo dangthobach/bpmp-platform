@@ -239,6 +239,9 @@ func run(configPath string) error {
 				RealtimePublishBatchSize: policy.RealtimePublishBatchSize,
 				CheckpointFlush:          policy.CheckpointFlush,
 				MaxLag:                   policy.MaxProjectionLag,
+				CommitRetryAttempts:      policy.QueryRevokeRetryAttempts,
+				CommitBackoff:            policy.QueryRevokeRetryBackoff,
+				CommitTimeout:            policy.QueryRevokeOperationTimeout,
 			}, policyErr
 		},
 	)

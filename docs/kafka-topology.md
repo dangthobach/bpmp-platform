@@ -44,6 +44,14 @@ runtime safe point and replaces all affected registry entries as one batch.
 Invalid or unavailable configuration stops the reloader and fails the process
 rather than skipping a publication.
 
+Recoverable Kafka transport/group-session failures are different from invalid
+configuration: Go readers keep their client and rejoin/reconnect using shared
+classification and configured poll backoff. Records from successful partitions
+in the same fetch are still processed. Query-revoke offset commits additionally
+retry within the database-backed worker policy without polling a newer batch.
+See [Signed Query Revoke Kafka Feed](query-revoke-kafka.md) for signed source,
+durable DLQ and incident recovery.
+
 Configuration publications are broadcast invalidations, not work queue items.
 Every process replica requires a distinct stable reloader group. The three E2E
 Engine nodes therefore use three node-specific groups. API Gateway and Human

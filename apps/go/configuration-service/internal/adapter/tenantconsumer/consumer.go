@@ -12,6 +12,7 @@ import (
 
 	postgresadapter "github.com/dangthobach/bpmp-platform/apps/go/configuration-service/internal/adapter/postgres"
 	tenancyv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/tenancy/v1"
+	"github.com/dangthobach/bpmp-platform/go/platform/kafkaconfig"
 	"github.com/dangthobach/bpmp-platform/go/platform/requestmeta"
 )
 
@@ -48,7 +49,9 @@ func (c *Consumer) Run(ctx context.Context) error {
 			if ctx.Err() != nil {
 				return nil
 			}
-			return fetchErrors[0].Err
+			if err := kafkaconfig.CheckFetchErrors(ctx, fetchErrors); err != nil {
+				return err
+			}
 		}
 		for _, record := range fetches.Records() {
 			recordCtx, span := requestmeta.StartKafkaConsumerSpan(ctx, record)

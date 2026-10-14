@@ -85,6 +85,14 @@ func TestDurableEpochReplayAndQuarantine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err = store.Quarantine(ctx, bad, "invalid"); err != nil {
+		t.Fatal(err)
+	}
+	changed := *bad
+	changed.Value = []byte("different-payload")
+	if _, err = store.Quarantine(ctx, &changed, "invalid"); err == nil {
+		t.Fatal("reused coordinates with a different hash accepted")
+	}
 	if !errors.Is(store.Check(ctx, event.TenantId, event.ActorId, 2), application.ErrQueryForbidden) {
 		t.Fatal("poison fence absent")
 	}
@@ -103,5 +111,11 @@ func TestDurableEpochReplayAndQuarantine(t *testing.T) {
 	}
 	if err = store.Check(ctx, event.TenantId, event.ActorId, 2); err != nil {
 		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, "UPDATE query_revoke_incidents SET reason_code='changed'"); err == nil {
+		t.Fatal("incident audit is mutable")
+	}
+	if _, err = pool.Exec(ctx, "DELETE FROM query_revoke_incident_resolutions"); err == nil {
+		t.Fatal("resolution audit is mutable")
 	}
 }

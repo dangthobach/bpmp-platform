@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/dangthobach/bpmp-platform/go/platform/kafkaconfig"
 	"github.com/dangthobach/bpmp-platform/go/platform/requestmeta"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
@@ -31,6 +32,9 @@ type RuntimePolicy struct {
 	RealtimePublishBatchSize int
 	CheckpointFlush          time.Duration
 	MaxLag                   time.Duration
+	CommitRetryAttempts      uint32
+	CommitBackoff            time.Duration
+	CommitTimeout            time.Duration
 }
 
 func (p RuntimePolicy) validate() error {
@@ -38,7 +42,8 @@ func (p RuntimePolicy) validate() error {
 		p.RebuildBatchSize <= 0 ||
 		p.RealtimePublishBatchSize <= 0 ||
 		p.CheckpointFlush <= 0 ||
-		p.MaxLag <= 0 {
+		p.MaxLag <= 0 || p.CommitRetryAttempts == 0 || p.CommitRetryAttempts > 20 ||
+		p.CommitBackoff <= 0 || p.CommitBackoff > 5*time.Minute || p.CommitTimeout <= 0 || p.CommitTimeout > 5*time.Minute {
 		return errors.New("projection Kafka runtime policy is invalid")
 	}
 	return nil
@@ -73,12 +78,27 @@ func (c *Consumer) Run(ctx context.Context) error {
 		pending := make([]*kgo.Record, 0, batchSize)
 		nextCatchingUp := false
 		for len(pending) < batchSize && ctx.Err() == nil {
-			fetches := c.client.PollRecords(ctx, batchSize-len(pending))
-			if errs := fetches.Errors(); len(errs) > 0 {
+			pollCtx, cancelPoll := context.WithDeadline(ctx, deadline)
+			fetches := c.client.PollRecords(pollCtx, batchSize-len(pending))
+			pollExpired := errors.Is(pollCtx.Err(), context.DeadlineExceeded)
+			cancelPoll()
+			faults := fetches.Errors()
+			if pollExpired {
+				filtered := faults[:0]
+				for _, fault := range faults {
+					if !errors.Is(fault.Err, context.DeadlineExceeded) {
+						filtered = append(filtered, fault)
+					}
+				}
+				faults = filtered
+			}
+			if errs := faults; len(errs) > 0 {
 				if ctx.Err() != nil {
 					return nil
 				}
-				return errs[0].Err
+				if err := kafkaconfig.CheckFetchErrors(ctx, errs); err != nil {
+					return err
+				}
 			}
 			for _, record := range fetches.Records() {
 				if !record.Timestamp.IsZero() &&
@@ -97,12 +117,12 @@ func (c *Consumer) Run(ctx context.Context) error {
 				}
 				pending = append(pending, record)
 			}
-			if len(pending) > 0 && !time.Now().Before(deadline) {
+			if !time.Now().Before(deadline) {
 				break
 			}
 		}
 		if len(pending) > 0 {
-			if err = c.client.CommitRecords(ctx, pending...); err != nil {
+			if err = kafkaconfig.RetryOffsetCommit(ctx, c.client, policy.CommitRetryAttempts, policy.CommitBackoff, policy.CommitTimeout, pending...); err != nil {
 				return err
 			}
 		}

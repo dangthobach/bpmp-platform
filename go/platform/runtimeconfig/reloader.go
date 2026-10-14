@@ -90,7 +90,9 @@ func (r *Reloader) Run(ctx context.Context) error {
 			if ctx.Err() != nil {
 				return nil
 			}
-			return errs[0].Err
+			if err := kafkaconfig.CheckFetchErrors(ctx, errs); err != nil {
+				return err
+			}
 		}
 		for _, record := range fetches.Records() {
 			if err := r.HandleRecord(ctx, record); err != nil {
@@ -251,6 +253,7 @@ func NewKafkaClient(config kafkaconfig.Consumer) (*kgo.Client, error) {
 		kgo.DisableAutoCommit(),
 		kgo.DialTimeout(config.DialTimeout()),
 		kgo.RequestTimeoutOverhead(config.RequestTimeout()),
+		kgo.RetryBackoffFn(func(int) time.Duration { return config.PollTimeout() }),
 		kgo.FetchMaxBytes(int32(config.MaxMessageBytes)),
 		kgo.SessionTimeout(time.Duration(config.SessionTimeoutMS) * time.Millisecond),
 	}

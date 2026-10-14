@@ -42,8 +42,15 @@ were counted as a single PowerShell null. The corrected probe passed on rerun.
 Update 2026-10-14: the typed remote PDP, database RBAC/ABAC, live ReBAC,
 field authorization and durable ordered HTTP revoke feed are implemented.
 Production Projection has no capability-only fallback. See [Query PDP](query-pdp.md).
-The list below records the original plan; signed internal context, Kafka push
-revocation and remaining performance/rebuild work are still pending.
+The list below records the original plan. Signed Kafka push revocation and
+durable DLQ are now implemented; see [Kafka Revoke Operations](query-revoke-kafka.md).
+Signed internal context and remaining performance/rebuild work are still pending.
+
+Update 2026-10-15: broker-backed signed Kafka revoke/DLQ E2E passed, including
+broker outage, ACK checkpoint preservation, crash/replay, durable poison fence
+after Projection restart and reviewed incident resolution. Shared Go fetch
+recovery and bounded Projection offset retries now handle group rejoin; partial
+workflow batches flush on their deadline even when no further event arrives.
 
 1. Define a versioned typed query-PDP response owned by Authz, including row
    constraints, allowed fields and revocation freshness. Bind its effective

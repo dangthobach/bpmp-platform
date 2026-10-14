@@ -1,6 +1,7 @@
 package revokefeed
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"errors"
@@ -88,6 +89,9 @@ func (s *PostgresStore) Quarantine(ctx context.Context, r *kgo.Record, reason st
 	err = tx.QueryRow(ctx, `SELECT created_at,source_sha256,source_size,reason_code FROM query_revoke_incidents WHERE incident_id=$1`, id).Scan(&created, &digest, &size, &reason)
 	if err != nil {
 		return nil, err
+	}
+	if !bytes.Equal(digest, hash[:]) || size != int64(len(r.Value)) {
+		return nil, errors.New("revoke source coordinates reused with different payload")
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return nil, err

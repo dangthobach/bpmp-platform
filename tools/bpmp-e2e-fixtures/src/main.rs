@@ -1610,6 +1610,79 @@ fn derive_key(manifest: &Manifest, label: &str) -> [u8; 32] {
 }
 
 fn validate_manifest(manifest: &Manifest) -> Result<()> {
+    let mut topic_names = std::collections::BTreeSet::new();
+    for topic in [
+        &manifest.kafka.topics.engine_committed_events,
+        &manifest.kafka.topics.configuration_publications,
+        &manifest.kafka.topics.human_escalations,
+        &manifest.kafka.topics.tenant_lifecycle,
+        &manifest.kafka.topics.tenant_configuration_readiness,
+        &manifest.kafka.topics.authorization_query_revocations,
+        &manifest.kafka.topics.authorization_query_revocations_dlq,
+    ] {
+        let parts = topic.split('.').collect::<Vec<_>>();
+        if parts.len() != 5
+            || parts[0] != "bpmp"
+            || topic.len() > 249
+            || parts.iter().any(|p| {
+                p.is_empty()
+                    || !p.as_bytes()[0].is_ascii_alphanumeric()
+                    || !p
+                        .bytes()
+                        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+            })
+            || parts[3]
+                .strip_prefix('v')
+                .and_then(|v| v.parse::<u32>().ok())
+                .is_none_or(|v| v == 0)
+            || !topic_names.insert(topic)
+        {
+            anyhow::bail!("invalid or duplicate canonical Kafka topic name");
+        }
+    }
+    for broker in &manifest.kafka.brokers {
+        let (host, port) = broker
+            .rsplit_once(':')
+            .context("Kafka broker requires host:port")?;
+        if host.is_empty()
+            || !host
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b".-[]:".contains(&b))
+            || port.parse::<u16>().ok().is_none_or(|p| p == 0)
+        {
+            anyhow::bail!("invalid Kafka bootstrap broker");
+        }
+    }
+    let properties = &manifest.kafka.topic_properties;
+    if properties.partitions == 0
+        || properties.partitions > 1024
+        || properties.replicas == 0
+        || properties.replicas > 9
+        || properties.min_in_sync_replicas == 0
+        || properties.min_in_sync_replicas > properties.replicas
+        || properties.retention_ms == 0
+        || properties.max_message_bytes < 1024
+        || properties.max_message_bytes > 100 * 1024 * 1024
+        || manifest
+            .kafka
+            .topics
+            .authorization_query_revocations
+            .is_empty()
+        || manifest
+            .kafka
+            .topics
+            .authorization_query_revocations_dlq
+            .is_empty()
+        || manifest.kafka.topics.authorization_query_revocations
+            == manifest.kafka.topics.authorization_query_revocations_dlq
+        || manifest
+            .kafka
+            .consumer_groups
+            .projection_query_revocations
+            .is_empty()
+    {
+        anyhow::bail!("invalid bounded Kafka topic properties or revoke topology");
+    }
     if manifest.engine_public_addresses.len() != 3
         || manifest.engine_peer_addresses.len() != 3
         || manifest.engine_peer_listen_addresses.len() != 3
@@ -1707,4 +1780,36 @@ fn quote_ident(value: &str) -> String {
 
 fn write_json(path: &Path, value: &Value) -> Result<()> {
     write(path, serde_json::to_vec_pretty(value)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn manifest() -> Manifest {
+        serde_json::from_str(include_str!("../../../platform/e2e/manifest.json")).unwrap()
+    }
+    #[test]
+    fn canonical_manifest_is_valid() {
+        validate_manifest(&manifest()).unwrap();
+    }
+    #[test]
+    fn rejects_duplicate_topics_and_unsafe_shell_names() {
+        let mut value = manifest();
+        value.kafka.topics.authorization_query_revocations_dlq =
+            value.kafka.topics.authorization_query_revocations.clone();
+        assert!(validate_manifest(&value).is_err());
+        value = manifest();
+        value.kafka.topics.authorization_query_revocations = "bpmp.authz.';evil.v1.test".into();
+        assert!(validate_manifest(&value).is_err());
+    }
+    #[test]
+    fn rejects_impossible_isr_and_unbounded_payload() {
+        let mut value = manifest();
+        value.kafka.topic_properties.min_in_sync_replicas =
+            value.kafka.topic_properties.replicas + 1;
+        assert!(validate_manifest(&value).is_err());
+        value = manifest();
+        value.kafka.topic_properties.max_message_bytes = u32::MAX;
+        assert!(validate_manifest(&value).is_err());
+    }
 }

@@ -96,11 +96,12 @@ writes and other tenants share the global security revision. Revision locking
 serializes administrative writes so a committed feed checkpoint cannot skip
 an earlier uncommitted event. Feed entries cannot be updated or deleted.
 
-Projection does not maintain a background revoke cache: every PDP response
-reads the authoritative actor epoch. The HTTP feed supports direct subscribers
-and replay; Kafka push publication/signing/offline query bundles are not part
-of this implementation. This favors immediate freshness and fail-closed
-availability over a disconnected query path.
+Projection installs signed Kafka revoke events into its own PostgreSQL epoch
+projection and checks that durable gate before the remote PDP. Every PDP
+response still reads the authoritative actor epoch: Kafka lag never enables an
+offline/capability-only allow fallback. The HTTP feed remains a diagnostic and
+replay API. See [Kafka Revoke Operations](query-revoke-kafka.md) for transport,
+DLQ, checkpoint, key rotation and incident recovery contracts.
 
 ## Verification and Remaining Work
 

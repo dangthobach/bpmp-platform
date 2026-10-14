@@ -8,6 +8,7 @@ import (
 
 	"github.com/dangthobach/bpmp-platform/apps/go/cockpit-gateway/subscription"
 	enginev1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/engine/v1"
+	"github.com/dangthobach/bpmp-platform/go/platform/kafkaconfig"
 	"github.com/dangthobach/bpmp-platform/go/platform/requestmeta"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"google.golang.org/protobuf/proto"
@@ -59,7 +60,9 @@ func (c *Consumer) Run(ctx context.Context) error {
 			if ctx.Err() != nil {
 				return nil
 			}
-			return values[0].Err
+			if err := kafkaconfig.CheckFetchErrors(ctx, values); err != nil {
+				return err
+			}
 		}
 		for _, record := range fetches.Records() {
 			recordCtx, span := requestmeta.StartKafkaConsumerSpan(ctx, record)

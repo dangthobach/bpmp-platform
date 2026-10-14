@@ -106,6 +106,26 @@ function Invoke-JsonRequestEventually {
     throw "request did not succeed before its retry deadline"
 }
 
+function Assert-QueryDeniedEventually {
+    param([hashtable]$Headers, [string]$Body, [string]$Name)
+    $deadline = (Get-Date).AddSeconds(45)
+    do {
+        $response = $null
+        try {
+            $response = Invoke-WebRequest -TimeoutSec 10 -SkipCertificateCheck -SkipHttpErrorCheck -Method Post -Uri "https://localhost:$gatewayPort/v1/process-instances/completed/query" -Headers $Headers -ContentType "application/json" -Body $Body
+        } catch {
+            if ((Get-Date) -ge $deadline) { throw }
+        }
+        if ($null -ne $response) {
+            if ($response.StatusCode -eq 403) { Write-Host "Query denial probe passed: $Name"; return }
+            if ($response.StatusCode -notin 502,503,504) { throw "$Name returned unexpected status $($response.StatusCode)" }
+        }
+        Start-Sleep -Milliseconds 500
+    } while ((Get-Date) -lt $deadline)
+    Invoke-Compose logs --no-color --tail 40 api-gateway projection-service
+    throw "Query denial probe timed out: $Name"
+}
+
 function Invoke-GetRequestEventually {
     param(
         [Parameter(Mandatory)][string]$Path,
@@ -785,24 +805,83 @@ url = "https://localhost:$cockpitGatewayPort/realtime/v1/events?names=workflow.c
     }
     $actorVersion = [long](Invoke-Compose exec -T authz-postgres psql -U $settings.POSTGRES_USER -d authz -Atc "SELECT version FROM user_account WHERE id='$($bootstrapManifest.actor_id)' AND tenant_id='$tenantId'").Trim()
     $revokeCommand = @{tenant_id=$tenantId;actor_id=$bootstrapManifest.actor_id;expected_version=$actorVersion;revoked=$true;reason="E2E query revocation"} | ConvertTo-Json -Compress
-    $revokeResult = Invoke-AuthzJson -Path "/admin/v1/query-revoke" -Body $revokeCommand
+    # Authz commits locally while the broker is unavailable; no publisher checkpoint may advance.
+    $checkpointBeforeOutage = (Invoke-Compose exec -T authz-postgres psql -U $settings.POSTGRES_USER -d authz -Atc "SELECT checkpoint FROM query_revoke_publish_state WHERE singleton").Trim()
+    Invoke-Compose pause redpanda
+    try {
+        $revokeResult = Invoke-AuthzJson -Path "/admin/v1/query-revoke" -Body $revokeCommand
+        Start-Sleep -Seconds 10
+        $checkpointDuringOutage = (Invoke-Compose exec -T authz-postgres psql -U $settings.POSTGRES_USER -d authz -Atc "SELECT checkpoint FROM query_revoke_publish_state WHERE singleton").Trim()
+        if ($checkpointDuringOutage -ne $checkpointBeforeOutage) { throw "publisher checkpoint advanced without broker ACK" }
+    } finally {
+        Invoke-Compose unpause redpanda
+    }
+    Write-Host "Authz durable revoke committed during broker outage; checkpoint retained"
     if ($revokeResult.revoke_epoch -ne 1) { throw "durable actor epoch did not advance" }
     $feed = Invoke-AuthzJson -Path "/authz/v1/query-revoke-feed" -Body (@{tenant_id=$tenantId;after=0;limit=10}|ConvertTo-Json -Compress)
     if (@($feed.events).Count -ne 1 -or -not $feed.events[0].revoked -or $feed.events[0].revoke_epoch -ne 1) {throw "ordered revoke feed missing durable event"}
-    $afterRevoke = Invoke-WebRequest -SkipCertificateCheck -SkipHttpErrorCheck -Method Post -Uri "https://localhost:$gatewayPort/v1/process-instances/completed/query" -Headers $completeHeaders -ContentType "application/json" -Body $completedQuery
-    if ($afterRevoke.StatusCode -ne 403) {throw "PDP accepted revoked actor"}
+    Assert-QueryDeniedEventually -Headers $completeHeaders -Body $completedQuery -Name "revoked actor after broker recovery"
     $restoreCommand = @{tenant_id=$tenantId;actor_id=$bootstrapManifest.actor_id;expected_version=$revokeResult.version;revoked=$false;reason="E2E query restore"}|ConvertTo-Json -Compress
     $restoreResult = Invoke-AuthzJson -Path "/admin/v1/query-revoke" -Body $restoreCommand
     if ($restoreResult.revoke_epoch -ne 2) {throw "restore rolled back revoke epoch"}
-    $afterRestore = Invoke-WebRequest -SkipCertificateCheck -SkipHttpErrorCheck -Method Post -Uri "https://localhost:$gatewayPort/v1/process-instances/completed/query" -Headers $completeHeaders -ContentType "application/json" -Body $completedQuery
-    if ($afterRestore.StatusCode -ne 403) {throw "restore resurrected old actor token"}
+    Assert-QueryDeniedEventually -Headers $completeHeaders -Body $completedQuery -Name "restore cannot resurrect old token"
     Invoke-Compose restart authz-server
     Invoke-Compose up -d --no-deps --wait --wait-timeout $StartupTimeoutSeconds authz-server
-    $afterRestart = Invoke-WebRequest -SkipCertificateCheck -SkipHttpErrorCheck -Method Post -Uri "https://localhost:$gatewayPort/v1/process-instances/completed/query" -Headers $completeHeaders -ContentType "application/json" -Body $completedQuery
-    if ($afterRestart.StatusCode -ne 403) {throw "PDP restart forgot persisted revoke epochs"}
+    Assert-QueryDeniedEventually -Headers $completeHeaders -Body $completedQuery -Name "PDP restart retains epoch"
     $feedAfter = Invoke-AuthzJson -Path "/authz/v1/query-revoke-feed" -Body (@{tenant_id=$tenantId;after=$feed.next_sequence;limit=10}|ConvertTo-Json -Compress)
     if (@($feedAfter.events).Count -ne 1 -or $feedAfter.events[0].revoked -or $feedAfter.events[0].revoke_epoch -ne 2) {throw "feed replay did not resume at restored epoch"}
-    Write-Host "Typed query PDP, field authorization and durable revoke feed probes passed"
+    function Wait-RevokeProbe {
+        param([string]$Name, [scriptblock]$Probe)
+        $deadline = (Get-Date).AddSeconds(45)
+        do {
+            if (& $Probe) { Write-Host "Revoke probe passed: $Name"; return }
+            Start-Sleep -Milliseconds 500
+        } while ((Get-Date) -lt $deadline)
+        Invoke-Compose logs --no-color --tail 80 authz-server projection-service
+        throw "Revoke probe timed out: $Name"
+    }
+    Wait-RevokeProbe "Kafka signed restore installed durably" {
+        $epoch = (Invoke-Compose exec -T postgres psql -U $settings.POSTGRES_USER -d $settings.POSTGRES_DB -Atc "SELECT revoke_epoch FROM projection.query_actor_revoke_epochs WHERE tenant_id='$tenantId' AND actor_id='$($bootstrapManifest.actor_id)' AND NOT revoked").Trim()
+        $epoch -eq '2'
+    }
+    Wait-RevokeProbe "Publisher broker ACK checkpoint" {
+        $pending = (Invoke-Compose exec -T authz-postgres psql -U $settings.POSTGRES_USER -d authz -Atc "SELECT count(*) FROM query_revoke_feed WHERE sequence>(SELECT checkpoint FROM query_revoke_publish_state WHERE singleton)").Trim()
+        $pending -eq '0'
+    }
+    $restoredHeaders = $completeHeaders.Clone()
+    $restoredHeaders.Authorization = "Bearer " + (Get-Content (Join-Path $runtime "query-restored.jwt") -Raw).Trim()
+    $restoredPage = Invoke-JsonRequest -Path "/v1/process-instances/completed/query" -Headers $restoredHeaders -Body $completedQuery
+    if (@($restoredPage.processes | Where-Object { $null -ne $_ }).Count -ne 1) { throw "fresh restored token cannot query" }
+
+    # Replay the durable outbox from the beginning; previously delivered epochs must not regress.
+    Invoke-Compose stop authz-server
+    $null = Invoke-Compose exec -T authz-postgres psql -U $settings.POSTGRES_USER -d authz -v ON_ERROR_STOP=1 -c "UPDATE query_revoke_publish_state SET checkpoint=0,lease_owner=NULL,lease_until=NULL WHERE singleton"
+    Invoke-Compose up -d --no-deps --wait --wait-timeout $StartupTimeoutSeconds authz-server
+    Wait-RevokeProbe "Publisher crash/replay drained" {
+        $pending = (Invoke-Compose exec -T authz-postgres psql -U $settings.POSTGRES_USER -d authz -Atc "SELECT count(*) FROM query_revoke_feed WHERE sequence>(SELECT checkpoint FROM query_revoke_publish_state WHERE singleton)").Trim()
+        $pending -eq '0'
+    }
+    $null = Invoke-JsonRequest -Path "/v1/process-instances/completed/query" -Headers $restoredHeaders -Body $completedQuery
+    $revokeTopic = $bootstrapManifest.kafka.topics.authorization_query_revocations
+    $dlqTopic = $bootstrapManifest.kafka.topics.authorization_query_revocations_dlq
+    Invoke-Compose exec -T redpanda sh -ec 'printf "invalid-revoke-e2e\n" | rpk topic produce "$1" -k "$2" --delivery-timeout 10s' revoke-poison $revokeTopic $tenantId
+    Wait-RevokeProbe "Poison incident durably ACKed to DLQ" {
+        $count = (Invoke-Compose exec -T postgres psql -U $settings.POSTGRES_USER -d $settings.POSTGRES_DB -Atc "SELECT count(*) FROM projection.query_revoke_incidents i JOIN projection.query_revoke_dlq_state d USING(incident_id) JOIN projection.query_revoke_checkpoints c ON c.topic=i.source_topic AND c.partition=i.source_partition AND c.last_offset>=i.source_offset WHERE d.acknowledged_at IS NOT NULL").Trim()
+        $count -eq '1'
+    }
+    $dlqRecord = Invoke-Compose exec -T redpanda rpk topic consume $dlqTopic -n 1 --format '%k\n'
+    if (($dlqRecord -join '').Trim() -notmatch '^[0-9a-f]{64}$') { throw "broker DLQ record missing incident key" }
+    Invoke-Compose restart projection-service
+    Invoke-Compose up -d --no-deps --wait --wait-timeout $StartupTimeoutSeconds projection-service
+    Wait-RevokeProbe "Poison fence survives Projection restart and gRPC reconnect" {
+        $fenced = Invoke-WebRequest -TimeoutSec 10 -SkipCertificateCheck -SkipHttpErrorCheck -Method Post -Uri "https://localhost:$gatewayPort/v1/process-instances/completed/query" -Headers $restoredHeaders -ContentType "application/json" -Body $completedQuery
+        if ($fenced.StatusCode -eq 200) { throw "poison fence allowed query after restart" }
+        if ($fenced.StatusCode -notin 403,502,503,504) { throw "unexpected poison query status: $($fenced.StatusCode)" }
+        $fenced.StatusCode -eq 403
+    }
+    $null = Invoke-Compose exec -T postgres psql -U $settings.POSTGRES_USER -d $settings.POSTGRES_DB -v ON_ERROR_STOP=1 -c "SET search_path TO projection; SELECT resolve_query_revoke_incident(incident_id,source_sha256,'e2e-operator','source reviewed; authoritative signed epochs replayed') FROM query_revoke_incidents"
+    $null = Invoke-JsonRequestEventually -Path "/v1/process-instances/completed/query" -Headers $restoredHeaders -Body $completedQuery
+    Write-Host "Signed Kafka revoke, ACK checkpoints, replay, broker DLQ and durable fail-closed recovery probes passed"
 
     Write-Host "Broker-backed E2E passed with Projection, Governance and leader failover: config=$($configuration.id) governance=$governanceRequestId instance=$instance work_item=$workItem human_inbox=$inboxCount projection_inbox=$projectionInboxCount"
 } finally {

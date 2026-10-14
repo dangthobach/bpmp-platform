@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
@@ -64,6 +65,8 @@ func TestPolicyChangesOnlyAfterCheckpoint(t *testing.T) {
 		cancel: cancel,
 	}
 	handler := &recordingHandler{}
+	// A recoverable fault on another partition must not discard fetched records.
+	client.fetches[0][0].Topics[0].Partitions = append(client.fetches[0][0].Topics[0].Partitions, kgo.FetchPartition{Partition: 1, Err: kerr.UnknownMemberID})
 	policyCalls := 0
 	consumer, err := New(client, handler, func() (RuntimePolicy, error) {
 		policyCalls++
@@ -73,6 +76,9 @@ func TestPolicyChangesOnlyAfterCheckpoint(t *testing.T) {
 			RealtimePublishBatchSize: 2,
 			CheckpointFlush:          time.Second,
 			MaxLag:                   time.Hour,
+			CommitRetryAttempts:      3,
+			CommitBackoff:            time.Millisecond,
+			CommitTimeout:            time.Second,
 		}
 		if policyCalls > 1 {
 			policy.ConsumeBatchSize = 5
@@ -109,6 +115,32 @@ func record(offset int64) *kgo.Record {
 		Partition: 0,
 		Offset:    offset,
 		Timestamp: time.Now().Add(-2 * time.Hour),
+	}
+}
+
+type idleFlushClient struct{ *recordingClient }
+
+func (c *idleFlushClient) CommitRecords(_ context.Context, records ...*kgo.Record) error {
+	c.commits = append(c.commits, append([]*kgo.Record(nil), records...))
+	c.cancel()
+	return nil
+}
+
+func TestPartialBatchFlushesWithoutAnotherEvent(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	client := &idleFlushClient{&recordingClient{fetches: []kgo.Fetches{fetchWithRecords(record(1))}, cancel: cancel}}
+	consumer, err := New(client, &recordingHandler{}, func() (RuntimePolicy, error) {
+		return RuntimePolicy{ConsumeBatchSize: 10, RebuildBatchSize: 10, RealtimePublishBatchSize: 10, CheckpointFlush: 10 * time.Millisecond, MaxLag: time.Hour, CommitRetryAttempts: 3, CommitBackoff: time.Millisecond, CommitTimeout: time.Second}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = consumer.Run(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(client.commits) != 1 || len(client.commits[0]) != 1 {
+		t.Fatal("partial batch was never checkpointed while input was idle")
 	}
 }
 

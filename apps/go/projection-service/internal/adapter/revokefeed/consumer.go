@@ -9,10 +9,12 @@ import (
 	"errors"
 	"fmt"
 	authorizationv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/authorization/v1"
+	"github.com/dangthobach/bpmp-platform/go/platform/kafkaconfig"
 	"github.com/dangthobach/bpmp-platform/go/platform/requestmeta"
 	"github.com/google/uuid"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"google.golang.org/protobuf/proto"
+	"log/slog"
 	"math"
 	"time"
 )
@@ -121,6 +123,7 @@ func (c *Consumer) Handle(ctx context.Context, record *kgo.Record) error {
 		err = quarantineErr
 		return err
 	}
+	slog.WarnContext(ctx, "query revoke quarantined; query authorization fenced", "incident_id", incident.IncidentId, "topic", record.Topic, "partition", record.Partition, "offset", record.Offset, "reason", incident.ReasonCode)
 	payload, encodeErr := proto.MarshalOptions{Deterministic: true}.Marshal(incident)
 	if encodeErr != nil {
 		err = encodeErr
@@ -153,7 +156,9 @@ func (c *Consumer) Run(ctx context.Context) error {
 			if ctx.Err() != nil {
 				return nil
 			}
-			return faults[0].Err
+			if err := kafkaconfig.CheckFetchErrors(ctx, faults); err != nil {
+				return err
+			}
 		}
 		for _, record := range fetched.Records() {
 			if record.Topic != c.topic {
@@ -180,9 +185,7 @@ func (c *Consumer) Run(ctx context.Context) error {
 			if err != nil {
 				return fmt.Errorf("revoke processing retries exhausted: %w", err)
 			}
-			commit, cancel := context.WithTimeout(ctx, policy.OperationTimeout)
-			err = c.client.CommitRecords(commit, record)
-			cancel()
+			err = kafkaconfig.RetryOffsetCommit(ctx, c.client, policy.RetryAttempts, policy.RetryBackoff, policy.OperationTimeout, record)
 			if err != nil {
 				return err
 			}

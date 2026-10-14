@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/dangthobach/bpmp-platform/go/platform/kafkaconfig"
 	"github.com/dangthobach/bpmp-platform/go/platform/requestmeta"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
@@ -52,7 +53,9 @@ func (c *Consumer) Run(ctx context.Context) error {
 		}
 		fetches := c.client.PollRecords(ctx, batchSize)
 		if errs := fetches.Errors(); len(errs) > 0 {
-			return errs[0].Err
+			if err := kafkaconfig.CheckFetchErrors(ctx, errs); err != nil {
+				return err
+			}
 		}
 		records := fetches.Records()
 		for _, record := range records {

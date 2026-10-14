@@ -40,6 +40,45 @@ func TestSignedEventVerification(t *testing.T) {
 	}
 }
 
+func TestVerifierRejectsUntrustedEnvelope(t *testing.T) {
+	for _, scenario := range []string{"wrong-key", "unknown-signing-key", "oversized", "unknown-field", "empty", "negative-sequence-wire"} {
+		t.Run(scenario, func(t *testing.T) {
+			r, keys := signedRecord(t)
+			bound := 4096
+			switch scenario {
+			case "wrong-key":
+				r.Key = []byte(uuid.NewString())
+			case "unknown-signing-key":
+				keys = map[string]ed25519.PublicKey{}
+			case "oversized":
+				bound = len(r.Value) - 1
+			case "unknown-field":
+				r.Value = append(r.Value, 0x98, 0x06, 0x01)
+			case "empty":
+				r.Value = nil
+			case "negative-sequence-wire":
+				e := &authorizationv1.AuthorizationQueryRevokeEvent{}
+				if err := proto.Unmarshal(r.Value, e); err != nil {
+					t.Fatal(err)
+				}
+				e.EventSequence = ^uint64(0)
+				r.Value, _ = proto.Marshal(e)
+			}
+			if _, err := Verify(r, keys, bound); !errors.Is(err, ErrInvalidEvent) {
+				t.Fatalf("accepted %s: %v", scenario, err)
+			}
+		})
+	}
+}
+
+func FuzzVerifySignedEvent(f *testing.F) {
+	f.Add([]byte("malformed"), []byte("tenant"))
+	f.Fuzz(func(t *testing.T, value, key []byte) {
+		public := ed25519.NewKeyFromSeed(make([]byte, 32)).Public().(ed25519.PublicKey)
+		_, _ = Verify(&kgo.Record{Value: value, Key: key}, map[string]ed25519.PublicKey{"k1": public}, 4096)
+	})
+}
+
 type fakeStore struct {
 	applied, quarantined, acknowledged int
 	failAck                            bool

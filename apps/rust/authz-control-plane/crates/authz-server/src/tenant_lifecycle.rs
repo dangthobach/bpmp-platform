@@ -109,7 +109,14 @@ pub(crate) fn kafka_client(config: &ServerConfig) -> ClientConfig {
     client
         .set("bootstrap.servers", config.kafka_brokers.join(","))
         .set("client.id", &config.kafka_client_id)
-        .set("security.protocol", if config.kafka_security_protocol=="TLS" {"SSL"}else{&config.kafka_security_protocol})
+        .set(
+            "security.protocol",
+            if config.kafka_security_protocol == "TLS" {
+                "SSL"
+            } else {
+                &config.kafka_security_protocol
+            },
+        )
         .set(
             "message.max.bytes",
             config.kafka_max_message_bytes.to_string(),
