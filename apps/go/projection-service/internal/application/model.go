@@ -107,30 +107,33 @@ type Store interface {
 }
 
 type RuntimePolicy struct {
-	ConfigVersion            string
-	PolicyVersion            string
-	ConsumeBatchSize         int
-	RebuildBatchSize         int
-	QueryDefaultPageSize     uint32
-	QueryMaxPageSize         uint32
-	RealtimePublishBatchSize int
-	CheckpointFlush          time.Duration
-	MaxProjectionLag         time.Duration
-	QueryMaxFilterDepth      uint32
-	QueryMaxPredicates       uint32
-	QueryMaxSortFields       uint32
-	QueryMaxRelationJoins    uint32
-	QueryMaxInValues         uint32
-	QueryTimeout             time.Duration
-	QueryMaxStringBytes      uint32
-	QueryCursorSigningKeyID  string
-	QueryAllCapability       string
-	QueryOwnCapability       string
-	QueryMinRevokeEpoch      uint64
-	QueryActorRevokeEpochs   map[string]uint64
-	QueryMaxTokenAge         time.Duration
-	QueryPDPResourceType     string
-	QueryPDPAction           string
+	ConfigVersion               string
+	PolicyVersion               string
+	ConsumeBatchSize            int
+	RebuildBatchSize            int
+	QueryDefaultPageSize        uint32
+	QueryMaxPageSize            uint32
+	RealtimePublishBatchSize    int
+	CheckpointFlush             time.Duration
+	MaxProjectionLag            time.Duration
+	QueryMaxFilterDepth         uint32
+	QueryMaxPredicates          uint32
+	QueryMaxSortFields          uint32
+	QueryMaxRelationJoins       uint32
+	QueryMaxInValues            uint32
+	QueryTimeout                time.Duration
+	QueryMaxStringBytes         uint32
+	QueryCursorSigningKeyID     string
+	QueryAllCapability          string
+	QueryOwnCapability          string
+	QueryMinRevokeEpoch         uint64
+	QueryActorRevokeEpochs      map[string]uint64
+	QueryMaxTokenAge            time.Duration
+	QueryPDPResourceType        string
+	QueryPDPAction              string
+	QueryRevokeRetryAttempts    uint32
+	QueryRevokeRetryBackoff     time.Duration
+	QueryRevokeOperationTimeout time.Duration
 }
 
 type RuntimePolicyProvider interface {

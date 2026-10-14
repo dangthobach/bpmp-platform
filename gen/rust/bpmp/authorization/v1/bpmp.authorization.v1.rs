@@ -240,6 +240,54 @@ pub struct AuthorizationRevokeEpochUpdate {
     #[prost(bytes="vec", tag="9")]
     pub signature: ::prost::alloc::vec::Vec<u8>,
 }
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct AuthorizationQueryRevokeEvent {
+    #[prost(uint32, tag="1")]
+    pub schema_version: u32,
+    #[prost(string, tag="2")]
+    pub event_id: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub tenant_id: ::prost::alloc::string::String,
+    #[prost(string, tag="4")]
+    pub actor_id: ::prost::alloc::string::String,
+    #[prost(uint64, tag="5")]
+    pub revoke_epoch: u64,
+    #[prost(uint64, tag="6")]
+    pub event_sequence: u64,
+    #[prost(bool, tag="7")]
+    pub revoked: bool,
+    #[prost(uint64, tag="8")]
+    pub occurred_at_epoch_ms: u64,
+    #[prost(string, tag="9")]
+    pub correlation_id: ::prost::alloc::string::String,
+    #[prost(string, tag="10")]
+    pub signing_key_id: ::prost::alloc::string::String,
+    #[prost(bytes="vec", tag="11")]
+    pub content_hash: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes="vec", tag="12")]
+    pub signature: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct AuthorizationQueryRevokeDeadLetter {
+    #[prost(uint32, tag="1")]
+    pub schema_version: u32,
+    #[prost(string, tag="2")]
+    pub incident_id: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub source_topic: ::prost::alloc::string::String,
+    #[prost(int32, tag="4")]
+    pub source_partition: i32,
+    #[prost(int64, tag="5")]
+    pub source_offset: i64,
+    #[prost(bytes="vec", tag="6")]
+    pub source_sha256: ::prost::alloc::vec::Vec<u8>,
+    #[prost(uint64, tag="7")]
+    pub source_size_bytes: u64,
+    #[prost(string, tag="8")]
+    pub reason_code: ::prost::alloc::string::String,
+    #[prost(uint64, tag="9")]
+    pub quarantined_at_epoch_ms: u64,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum ActorProofType {

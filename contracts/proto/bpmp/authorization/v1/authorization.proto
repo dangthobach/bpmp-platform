@@ -157,3 +157,30 @@ message AuthorizationRevokeEpochUpdate {
   bytes content_hash = 8;
   bytes signature = 9;
 }
+
+message AuthorizationQueryRevokeEvent {
+  uint32 schema_version = 1;
+  string event_id = 2;
+  string tenant_id = 3;
+  string actor_id = 4;
+  uint64 revoke_epoch = 5;
+  uint64 event_sequence = 6;
+  bool revoked = 7;
+  uint64 occurred_at_epoch_ms = 8;
+  string correlation_id = 9;
+  string signing_key_id = 10;
+  bytes content_hash = 11;
+  bytes signature = 12;
+}
+
+message AuthorizationQueryRevokeDeadLetter {
+  uint32 schema_version = 1;
+  string incident_id = 2;
+  string source_topic = 3;
+  int32 source_partition = 4;
+  int64 source_offset = 5;
+  bytes source_sha256 = 6;
+  uint64 source_size_bytes = 7;
+  string reason_code = 8;
+  uint64 quarantined_at_epoch_ms = 9;
+}

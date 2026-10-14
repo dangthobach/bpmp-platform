@@ -18,6 +18,22 @@ type Authorizer struct {
 	maxCapabilities int
 	now             func() time.Time
 	pdp             PDP
+	epochs          EpochStore
+}
+type EpochStore interface {
+	Check(context.Context, string, string, uint64) error
+}
+
+func WithDurableRevoke(config Config, verifier *jwtauth.Verifier, pdp PDP, epochs EpochStore) (*Authorizer, error) {
+	if epochs == nil {
+		return nil, errors.New("durable revoke store required")
+	}
+	a, err := WithPDP(config, verifier, pdp)
+	if err != nil {
+		return nil, err
+	}
+	a.epochs = epochs
+	return a, nil
 }
 
 func WithPDP(config Config, verifier *jwtauth.Verifier, pdp PDP) (*Authorizer, error) {
@@ -63,6 +79,11 @@ func (a *Authorizer) AuthorizeQuery(
 		return application.QueryAuthorization{}, application.ErrQueryForbidden
 	}
 	capabilities, valid := capabilitySet(identity.Capabilities)
+	if a.epochs != nil {
+		if err := a.epochs.Check(ctx, request.TenantID, identity.Subject, identity.RevokeEpoch); err != nil {
+			return application.QueryAuthorization{}, err
+		}
+	}
 	if !valid {
 		return application.QueryAuthorization{}, application.ErrQueryForbidden
 	}

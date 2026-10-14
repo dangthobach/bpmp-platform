@@ -104,12 +104,12 @@ pub async fn run_readiness_consumer(pool: PgPool, config: ServerConfig) -> Resul
     }
 }
 
-fn kafka_client(config: &ServerConfig) -> ClientConfig {
+pub(crate) fn kafka_client(config: &ServerConfig) -> ClientConfig {
     let mut client = ClientConfig::new();
     client
         .set("bootstrap.servers", config.kafka_brokers.join(","))
         .set("client.id", &config.kafka_client_id)
-        .set("security.protocol", &config.kafka_security_protocol)
+        .set("security.protocol", if config.kafka_security_protocol=="TLS" {"SSL"}else{&config.kafka_security_protocol})
         .set(
             "message.max.bytes",
             config.kafka_max_message_bytes.to_string(),
@@ -118,7 +118,7 @@ fn kafka_client(config: &ServerConfig) -> ClientConfig {
             "fetch.message.max.bytes",
             config.kafka_max_message_bytes.to_string(),
         );
-    if config.kafka_security_protocol == "SSL" {
+    if config.kafka_security_protocol == "SSL" || config.kafka_security_protocol == "TLS" {
         client
             .set(
                 "ssl.ca.location",

@@ -194,11 +194,14 @@ pub async fn run(config: ServerConfig) -> Result<()> {
             config.clone(),
         ));
         let readiness_consumer = tokio::spawn(crate::tenant_lifecycle::run_readiness_consumer(
-            pool, config,
+            pool.clone(),
+            config.clone(),
         ));
+        let revoke_publisher = tokio::spawn(crate::query_revoke_publisher::run(pool, config));
         let server = axum::serve(listener, build_router(state, transport)?).into_future();
         tokio::pin!(server);
         tokio::select! {
+            result=revoke_publisher=>match result {Ok(Ok(()))=>anyhow::bail!("query revoke publisher stopped"),Ok(Err(error))=>Err(error).context("query revoke publisher failed"),Err(error)=>Err(anyhow::Error::from(error)).context("query revoke publisher panicked")},
             result = &mut server => result.context("serve AuthZ HTTP"),
             result = lifecycle_publisher => match result {
                 Ok(Ok(())) => anyhow::bail!("tenant lifecycle publisher stopped unexpectedly"),

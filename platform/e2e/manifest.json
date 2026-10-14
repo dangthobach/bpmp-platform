@@ -8,7 +8,10 @@
   "kafka": {
     "brokers": ["redpanda:9092"],
     "security_protocol": "PLAINTEXT",
+    "topic_properties":{"partitions":3,"replicas":1,"min_in_sync_replicas":1,"retention_ms":604800000,"max_message_bytes":1048576},
     "topics": {
+      "authorization_query_revocations":"bpmp.authz.query-revocations.v1.e2e",
+      "authorization_query_revocations_dlq":"bpmp.authz.query-revocations-dlq.v1.e2e",
       "engine_committed_events": "bpmp.engine.committed-events.v1.e2e",
       "configuration_publications": "bpmp.configuration.publications.v1.e2e",
       "human_escalations": "bpmp.human.escalations.v1.e2e",
@@ -16,6 +19,7 @@
       "tenant_configuration_readiness": "bpmp.tenant.configuration-readiness.v1.e2e"
     },
     "consumer_groups": {
+      "projection_query_revocations":"bpmp.projection.query-revocations.v1.e2e",
       "engine_configuration_reloaders": [
         "bpmp.engine.configuration-reloader-node-1.v1.e2e",
         "bpmp.engine.configuration-reloader-node-2.v1.e2e",

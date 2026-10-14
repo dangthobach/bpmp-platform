@@ -17,6 +17,7 @@ pub mod grpc;
 pub mod handlers;
 pub mod job;
 pub mod middleware;
+pub mod query_revoke_publisher;
 pub mod state;
 #[cfg(target_os = "linux")]
 pub mod tenant_lifecycle;

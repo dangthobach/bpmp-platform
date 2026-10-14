@@ -28,6 +28,9 @@ func (p *Provider) Policy(tenantID string) (application.RuntimePolicy, error) {
 		return application.RuntimePolicy{}, err
 	}
 	value := snapshot.GetProjection()
+	if value.GetQueryRevokeRetryAttempts() == 0 || value.GetQueryRevokeRetryAttempts() > 20 || value.GetQueryRevokeRetryBackoffMs() == 0 || value.GetQueryRevokeRetryBackoffMs() > 300000 || value.GetQueryRevokeOperationTimeoutMs() == 0 || value.GetQueryRevokeOperationTimeoutMs() > 300000 {
+		return application.RuntimePolicy{}, errors.New("invalid query revoke runtime policy")
+	}
 	if value == nil || value.GetConsumeBatchSize() == 0 ||
 		value.GetRebuildBatchSize() == 0 ||
 		value.GetQueryDefaultPageSize() == 0 ||
@@ -60,6 +63,7 @@ func (p *Provider) Policy(tenantID string) (application.RuntimePolicy, error) {
 		epochs[actor.GetActorId()] = actor.GetRevokeEpoch()
 	}
 	return application.RuntimePolicy{
+		QueryRevokeRetryAttempts: value.GetQueryRevokeRetryAttempts(), QueryRevokeRetryBackoff: time.Duration(value.GetQueryRevokeRetryBackoffMs()) * time.Millisecond, QueryRevokeOperationTimeout: time.Duration(value.GetQueryRevokeOperationTimeoutMs()) * time.Millisecond,
 		QueryPDPResourceType: value.GetQueryPdpResourceType(), QueryPDPAction: value.GetQueryPdpAction(),
 		QueryMinRevokeEpoch: value.GetQueryMinRevokeEpoch(), QueryActorRevokeEpochs: epochs,
 		QueryMaxTokenAge:         time.Duration(value.GetQueryMaxTokenAgeMs()) * time.Millisecond,
@@ -118,6 +122,15 @@ func (p *Provider) MinimumWorkerPolicy(
 		if minimum.MaxProjectionLag == 0 ||
 			policy.MaxProjectionLag < minimum.MaxProjectionLag {
 			minimum.MaxProjectionLag = policy.MaxProjectionLag
+		}
+		if minimum.QueryRevokeRetryAttempts == 0 || policy.QueryRevokeRetryAttempts < minimum.QueryRevokeRetryAttempts {
+			minimum.QueryRevokeRetryAttempts = policy.QueryRevokeRetryAttempts
+		}
+		if minimum.QueryRevokeRetryBackoff == 0 || policy.QueryRevokeRetryBackoff < minimum.QueryRevokeRetryBackoff {
+			minimum.QueryRevokeRetryBackoff = policy.QueryRevokeRetryBackoff
+		}
+		if minimum.QueryRevokeOperationTimeout == 0 || policy.QueryRevokeOperationTimeout < minimum.QueryRevokeOperationTimeout {
+			minimum.QueryRevokeOperationTimeout = policy.QueryRevokeOperationTimeout
 		}
 	}
 	if minimum.ConsumeBatchSize == 0 {

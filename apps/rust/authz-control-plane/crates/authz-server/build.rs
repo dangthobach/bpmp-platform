@@ -10,6 +10,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &[
                 "../../../../../contracts/proto/bpmp/configuration/v1/configuration.proto",
                 "../../../../../contracts/proto/bpmp/tenancy/v1/tenancy.proto",
+                "../../../../../contracts/proto/bpmp/authorization/v1/authorization.proto",
             ],
             &["../../../../../contracts/proto"],
         )?;

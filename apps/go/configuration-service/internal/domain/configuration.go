@@ -337,6 +337,9 @@ func validateHumanRuntimePolicy(policy *configurationv1.HumanRuntimePolicy) erro
 }
 
 func validateProjectionPolicy(policy *configurationv1.ProjectionPolicy) error {
+	if policy.GetQueryRevokeRetryAttempts() == 0 || policy.GetQueryRevokeRetryAttempts() > 20 || policy.GetQueryRevokeRetryBackoffMs() == 0 || policy.GetQueryRevokeRetryBackoffMs() > 300000 || policy.GetQueryRevokeOperationTimeoutMs() == 0 || policy.GetQueryRevokeOperationTimeoutMs() > 300000 {
+		return ErrInvalid
+	}
 	if policy.GetConsumeBatchSize() == 0 ||
 		policy.GetRebuildBatchSize() == 0 ||
 		policy.GetQueryDefaultPageSize() == 0 ||

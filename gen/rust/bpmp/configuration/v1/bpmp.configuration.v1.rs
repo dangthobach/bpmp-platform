@@ -239,6 +239,12 @@ pub struct ProjectionPolicy {
     pub query_pdp_resource_type: ::prost::alloc::string::String,
     #[prost(string, tag="22")]
     pub query_pdp_action: ::prost::alloc::string::String,
+    #[prost(uint32, tag="23")]
+    pub query_revoke_retry_attempts: u32,
+    #[prost(uint64, tag="24")]
+    pub query_revoke_retry_backoff_ms: u64,
+    #[prost(uint64, tag="25")]
+    pub query_revoke_operation_timeout_ms: u64,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct QueryActorRevokeEpoch {

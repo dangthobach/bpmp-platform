@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -25,6 +26,7 @@ import (
 	"github.com/dangthobach/bpmp-platform/apps/go/projection-service/internal/adapter/kafkaconsumer"
 	postgresadapter "github.com/dangthobach/bpmp-platform/apps/go/projection-service/internal/adapter/postgres"
 	"github.com/dangthobach/bpmp-platform/apps/go/projection-service/internal/adapter/queryauth"
+	"github.com/dangthobach/bpmp-platform/apps/go/projection-service/internal/adapter/revokefeed"
 	"github.com/dangthobach/bpmp-platform/apps/go/projection-service/internal/adapter/runtimepolicy"
 	"github.com/dangthobach/bpmp-platform/apps/go/projection-service/internal/application"
 	configurationv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/configuration/v1"
@@ -32,6 +34,7 @@ import (
 	platformgrpcserver "github.com/dangthobach/bpmp-platform/go/platform/grpcserver"
 	platformhealth "github.com/dangthobach/bpmp-platform/go/platform/health"
 	"github.com/dangthobach/bpmp-platform/go/platform/jwtauth"
+	"github.com/dangthobach/bpmp-platform/go/platform/kafkaconfig"
 	"github.com/dangthobach/bpmp-platform/go/platform/requestmeta"
 	platformruntimeconfig "github.com/dangthobach/bpmp-platform/go/platform/runtimeconfig"
 	"github.com/dangthobach/bpmp-platform/go/platform/servermiddleware"
@@ -170,9 +173,41 @@ func run(configPath string) error {
 	if err != nil {
 		return err
 	}
-	queryAuthorizer, err := queryauth.WithPDP(queryauth.Config{
+	revokeStore, err := revokefeed.NewPostgresStore(pool)
+	if err != nil {
+		return err
+	}
+	revokeKafka, err := platformruntimeconfig.NewKafkaClient(value.QueryRevoke.Consumer)
+	if err != nil {
+		return err
+	}
+	defer revokeKafka.Close()
+	dlqKafka, err := kafkaconfig.NewProducerClient(value.QueryRevoke.DLQ)
+	if err != nil {
+		return err
+	}
+	defer dlqKafka.Close()
+	trust := make(map[string]ed25519.PublicKey, len(value.QueryRevoke.TrustKeys))
+	for id, path := range value.QueryRevoke.TrustKeys {
+		raw, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		if len(raw) != ed25519.PublicKeySize {
+			return errors.New("revoke public key must contain 32 bytes")
+		}
+		trust[id] = ed25519.PublicKey(raw)
+	}
+	revokeConsumer, err := revokefeed.New(revokeKafka, dlqKafka, revokeStore, trust, value.QueryRevoke.Consumer.Topic, value.QueryRevoke.DLQ.Topic, value.QueryRevoke.Consumer.MaxMessageBytes, func() (revokefeed.Policy, error) {
+		p, policyErr := policies.MinimumWorkerPolicy(value.RuntimeConfig.InitialTenantIDs)
+		return revokefeed.Policy{BatchSize: min(p.ConsumeBatchSize, value.QueryRevoke.Consumer.BatchSize), RetryAttempts: p.QueryRevokeRetryAttempts, RetryBackoff: p.QueryRevokeRetryBackoff, OperationTimeout: p.QueryRevokeOperationTimeout}, policyErr
+	})
+	if err != nil {
+		return err
+	}
+	queryAuthorizer, err := queryauth.WithDurableRevoke(queryauth.Config{
 		MaxCapabilities: value.Identity.MaxCapabilities,
-	}, actorVerifier, pdp)
+	}, actorVerifier, pdp, revokeStore)
 	if err != nil {
 		return err
 	}
@@ -277,6 +312,8 @@ func run(configPath string) error {
 		func(ctx context.Context) error { return pool.Ping(ctx) },
 		func(ctx context.Context) error { return eventKafka.Ping(ctx) },
 		func(ctx context.Context) error { return configurationKafka.Ping(ctx) },
+		func(ctx context.Context) error { return revokeKafka.Ping(ctx) },
+		func(ctx context.Context) error { return dlqKafka.Ping(ctx) },
 		func(context.Context) error { return cache.Ready(value.RuntimeConfig.InitialTenantIDs) },
 	)
 	healthTransport, err := servermiddleware.NewHTTP(servermiddleware.HTTPConfig{
@@ -298,7 +335,8 @@ func run(configPath string) error {
 		IdleTimeout:       milliseconds(value.Health.ReadinessTimeoutMS),
 		MaxHeaderBytes:    value.Health.MaxHeaderBytes,
 	}
-	errs := make(chan error, 4)
+	errs := make(chan error, 5)
+	go func() { errs <- revokeConsumer.Run(ctx) }()
 	go func() { errs <- consumer.Run(ctx) }()
 	go func() { errs <- reloader.Run(ctx) }()
 	go func() { errs <- grpcServer.Serve(listener) }()

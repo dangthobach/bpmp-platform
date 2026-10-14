@@ -6,6 +6,7 @@ use std::net::SocketAddr;
 /// Full server configuration.
 #[derive(Debug, Clone)]
 pub struct ServerConfig {
+    pub query_revoke_kafka_config: String,
     pub service_name: String,
     pub host: String,
     pub port: u16,
@@ -60,7 +61,7 @@ impl ServerConfig {
         }
         let kafka_security_protocol = required("KAFKA_SECURITY_PROTOCOL")?;
         let (kafka_ca_file, kafka_certificate_file, kafka_private_key_file) =
-            if kafka_security_protocol == "SSL" {
+            if kafka_security_protocol == "SSL" || kafka_security_protocol == "TLS" {
                 (
                     Some(required("KAFKA_CA_FILE")?),
                     Some(required("KAFKA_CERTIFICATE_FILE")?),
@@ -72,6 +73,7 @@ impl ServerConfig {
                 anyhow::bail!("KAFKA_SECURITY_PROTOCOL must be PLAINTEXT or SSL");
             };
         let config = Self {
+            query_revoke_kafka_config: required("QUERY_REVOKE_KAFKA_CONFIG")?,
             service_name: required("SERVICE_NAME")?,
             host: std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_owned()),
             port: std::env::var("PORT")

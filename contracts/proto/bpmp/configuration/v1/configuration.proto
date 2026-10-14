@@ -166,6 +166,9 @@ message ProjectionPolicy {
   uint64 query_max_token_age_ms = 20;
   string query_pdp_resource_type = 21;
   string query_pdp_action = 22;
+  uint32 query_revoke_retry_attempts = 23;
+  uint64 query_revoke_retry_backoff_ms = 24;
+  uint64 query_revoke_operation_timeout_ms = 25;
 }
 
 message QueryActorRevokeEpoch {

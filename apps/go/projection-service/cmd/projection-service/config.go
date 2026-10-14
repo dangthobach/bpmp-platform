@@ -27,6 +27,12 @@ type config struct {
 	Identity        identityConfig             `json:"identity"`
 	CursorSigning   cursorSigningConfig        `json:"cursor_signing"`
 	QueryPDP        queryauth.PDPConfig        `json:"query_pdp"`
+	QueryRevoke     queryRevokeConfig          `json:"query_revoke"`
+}
+type queryRevokeConfig struct {
+	Consumer  kafkaconfig.Consumer `json:"consumer"`
+	DLQ       kafkaconfig.Producer `json:"dlq"`
+	TrustKeys map[string]string    `json:"trust_keys"`
 }
 
 type tlsConfig struct {
@@ -138,6 +144,14 @@ func (c config) Validate() error {
 	}
 	if c.QueryPDP.WorkloadTokenPath == "" {
 		return errors.New("PDP workload token path required")
+	}
+	if c.QueryRevoke.Consumer.Validate() != nil || c.QueryRevoke.DLQ.Validate() != nil || c.QueryRevoke.Consumer.Topic == c.QueryRevoke.DLQ.Topic || len(c.QueryRevoke.TrustKeys) == 0 || len(c.QueryRevoke.TrustKeys) > c.Identity.MaxJWKSKeys {
+		return errors.New("invalid centralized query revoke Kafka configuration")
+	}
+	for id, path := range c.QueryRevoke.TrustKeys {
+		if id == "" || path == "" {
+			return errors.New("invalid revoke signing trust reference")
+		}
 	}
 	cursorKeyIDs := make(map[string]struct{}, len(c.CursorSigning.Keys))
 	for _, key := range c.CursorSigning.Keys {

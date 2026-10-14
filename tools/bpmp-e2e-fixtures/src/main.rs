@@ -44,6 +44,8 @@ const PROJECTION_MIGRATION: &str =
     include_str!("../../../db/projection-service/migrations/001_projection.sql");
 const PROJECTION_QUERY_MIGRATION: &str =
     include_str!("../../../db/projection-service/migrations/002_completed_process_query.sql");
+const PROJECTION_REVOKE_MIGRATION: &str =
+    include_str!("../../../db/projection-service/migrations/003_query_revoke_kafka.sql");
 const GOVERNANCE_MIGRATION: &str =
     include_str!("../../../db/governance-service/migrations/001_governance.sql");
 
@@ -104,11 +106,23 @@ struct KafkaTopology {
     security_protocol: String,
     topics: KafkaTopics,
     consumer_groups: KafkaConsumerGroups,
+    topic_properties: KafkaTopicProperties,
+}
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct KafkaTopicProperties {
+    partitions: u32,
+    replicas: u32,
+    min_in_sync_replicas: u32,
+    retention_ms: u64,
+    max_message_bytes: u32,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct KafkaTopics {
+    authorization_query_revocations: String,
+    authorization_query_revocations_dlq: String,
     engine_committed_events: String,
     configuration_publications: String,
     human_escalations: String,
@@ -119,6 +133,7 @@ struct KafkaTopics {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct KafkaConsumerGroups {
+    projection_query_revocations: String,
     engine_configuration_reloaders: Vec<String>,
     human_committed_events: String,
     projection_committed_events: String,
@@ -202,6 +217,16 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
         &secrets.join("projection-cursor-v1.key"),
         derive_key(manifest, "projection-cursor-v1"),
     )?;
+    let revoke_key = SigningKey::from_bytes(&derive_key(manifest, "query-revoke-feed"));
+    write(&secrets.join("query-revoke-v1.key"), revoke_key.to_bytes())?;
+    write(
+        &secrets.join("query-revoke-v1.pub"),
+        revoke_key.verifying_key().to_bytes(),
+    )?;
+    write_json(
+        &output.join("authz-revoke-kafka.json"),
+        &json!({"topic":manifest.kafka.topics.authorization_query_revocations,"worker_id":"authz-query-revoke-e2e-1","batch_size":64,"lease_ms":10000,"poll_ms":250,"delivery_timeout_ms":2000,"retry_backoff_ms":500,"max_retry_attempts":3,"signing_key_id":"query-revoke-v1","signing_key_path":format!("{mount}/secrets/query-revoke-v1.key")}),
+    )?;
 
     let jwt_key = SigningKey::from_bytes(&derive_key(manifest, "jwt"));
     let jwt_private = jwt_key.to_pkcs8_der()?;
@@ -239,21 +264,30 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
         &EncodingKey::from_ed_der(jwt_private.as_bytes()),
     )?;
     write(&output.join("actor.jwt"), token.as_bytes())?;
-    for (file, actor, capability) in [
+    for (file, actor, capability, epoch) in [
         (
             "query-own.jwt",
             manifest.actor_id.as_str(),
             "workflow.query.own",
+            0,
         ),
         (
             "query-other.jwt",
             "00000000-0000-4000-8000-000000000099",
             "workflow.query.own",
+            0,
         ),
         (
             "query-denied.jwt",
             manifest.actor_id.as_str(),
             "workflow.complete",
+            0,
+        ),
+        (
+            "query-restored.jwt",
+            manifest.actor_id.as_str(),
+            "workflow.query.own",
+            2,
         ),
     ] {
         let query_token = encode(
@@ -265,7 +299,7 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
                 tenant_id: &manifest.tenant_id,
                 roles: Vec::new(),
                 capabilities: vec![capability],
-                revoke_epoch: 0,
+                revoke_epoch: epoch,
                 iat: now.saturating_sub(5),
                 nbf: now.saturating_sub(5),
                 exp: now.saturating_add(7_200),
@@ -385,7 +419,11 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
     )?;
     write(
         &output.join("authz-server.env"),
-        authz_server_env(manifest).as_bytes(),
+        format!(
+            "{}QUERY_REVOKE_KAFKA_CONFIG={mount}/authz-revoke-kafka.json\n",
+            authz_server_env(manifest)
+        )
+        .as_bytes(),
     )?;
     write(
         &output.join("authz-app.env"),
@@ -411,7 +449,9 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
         &output.join("projection-service.sql"),
         schema_migration(
             "projection",
-            &format!("{PROJECTION_MIGRATION}\n{PROJECTION_QUERY_MIGRATION}"),
+            &format!(
+                "{PROJECTION_MIGRATION}\n{PROJECTION_QUERY_MIGRATION}\n{PROJECTION_REVOKE_MIGRATION}"
+            ),
         ),
     )?;
     write(
@@ -897,7 +937,12 @@ fn projection_config(manifest: &Manifest, mount: &str, tls_fingerprint: &str) ->
                 "secret_path": path("secrets/projection-cursor-v1.key")
             }]
         }
-        ,"query_pdp": {"url":"http://authz-server:8080/authz/v1/query", "workload_token_path":path("secrets/projection-pdp.jwt"),"timeout_ms":5000,"max_response_bytes":1048576,"allow_insecure":true}
+        ,"query_pdp": {"url":"http://authz-server:8080/authz/v1/query", "workload_token_path":path("secrets/projection-pdp.jwt"),"timeout_ms":5000,"max_response_bytes":1048576,"allow_insecure":true},
+        "query_revoke": {
+            "consumer":{"brokers":manifest.kafka.brokers,"client_id":"bpmp-projection-revoke-e2e","security_protocol":manifest.kafka.security_protocol,"dial_timeout_ms":2000,"request_timeout_ms":3000,"topic":manifest.kafka.topics.authorization_query_revocations,"consumer_group":manifest.kafka.consumer_groups.projection_query_revocations,"batch_size":64,"max_message_bytes":1048576,"poll_timeout_ms":250,"session_timeout_ms":6000},
+            "dlq":{"brokers":manifest.kafka.brokers,"client_id":"bpmp-projection-revoke-dlq-e2e","security_protocol":manifest.kafka.security_protocol,"dial_timeout_ms":2000,"request_timeout_ms":3000,"topic":manifest.kafka.topics.authorization_query_revocations_dlq,"message_timeout_ms":2000,"max_inflight":1,"max_message_bytes":1048576,"required_acks":"ALL","enable_idempotence":true},
+            "trust_keys":{"query-revoke-v1":path("secrets/query-revoke-v1.pub")}
+        }
     })
 }
 
@@ -1437,7 +1482,10 @@ fn seeded_configuration_policies(
                 "query_own_capability": "workflow.query.own",
                 "query_max_token_age_ms": "7200000",
                 "query_pdp_resource_type":"workflow_instance",
-                "query_pdp_action":"query"
+                "query_pdp_action":"query",
+                "query_revoke_retry_attempts":3,
+                "query_revoke_retry_backoff_ms":"250",
+                "query_revoke_operation_timeout_ms":"3000"
             }),
         ),
         (
@@ -1627,11 +1675,14 @@ fn kafka_topics_script(manifest: &Manifest) -> String {
         &manifest.kafka.topics.human_escalations,
         &manifest.kafka.topics.tenant_lifecycle,
         &manifest.kafka.topics.tenant_configuration_readiness,
+        &manifest.kafka.topics.authorization_query_revocations,
+        &manifest.kafka.topics.authorization_query_revocations_dlq,
     ]
     .into_iter()
     .map(|topic| {
         format!(
-            "rpk topic create '{topic}' --brokers '{brokers}' --partitions 3 --replicas 1 || rpk topic describe '{topic}' --brokers '{brokers}'"
+            "rpk topic create '{topic}' --brokers '{brokers}' --partitions {} --replicas {} -c retention.ms={} -c max.message.bytes={} -c min.insync.replicas={} || rpk topic describe '{topic}' --brokers '{brokers}'",
+            manifest.kafka.topic_properties.partitions,manifest.kafka.topic_properties.replicas,manifest.kafka.topic_properties.retention_ms,manifest.kafka.topic_properties.max_message_bytes,manifest.kafka.topic_properties.min_in_sync_replicas
         )
     })
     .collect::<Vec<_>>()

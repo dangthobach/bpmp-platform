@@ -1194,31 +1194,34 @@ func (x *HumanRuntimePolicy) GetEngineRetryableCodes() []string {
 }
 
 type ProjectionPolicy struct {
-	state                    protoimpl.MessageState   `protogen:"open.v1"`
-	ConsumeBatchSize         uint32                   `protobuf:"varint,1,opt,name=consume_batch_size,json=consumeBatchSize,proto3" json:"consume_batch_size,omitempty"`
-	RebuildBatchSize         uint32                   `protobuf:"varint,2,opt,name=rebuild_batch_size,json=rebuildBatchSize,proto3" json:"rebuild_batch_size,omitempty"`
-	QueryDefaultPageSize     uint32                   `protobuf:"varint,3,opt,name=query_default_page_size,json=queryDefaultPageSize,proto3" json:"query_default_page_size,omitempty"`
-	QueryMaxPageSize         uint32                   `protobuf:"varint,4,opt,name=query_max_page_size,json=queryMaxPageSize,proto3" json:"query_max_page_size,omitempty"`
-	RealtimePublishBatchSize uint32                   `protobuf:"varint,5,opt,name=realtime_publish_batch_size,json=realtimePublishBatchSize,proto3" json:"realtime_publish_batch_size,omitempty"`
-	CheckpointFlushMs        uint64                   `protobuf:"varint,6,opt,name=checkpoint_flush_ms,json=checkpointFlushMs,proto3" json:"checkpoint_flush_ms,omitempty"`
-	MaxProjectionLagMs       uint64                   `protobuf:"varint,7,opt,name=max_projection_lag_ms,json=maxProjectionLagMs,proto3" json:"max_projection_lag_ms,omitempty"`
-	QueryMaxFilterDepth      uint32                   `protobuf:"varint,8,opt,name=query_max_filter_depth,json=queryMaxFilterDepth,proto3" json:"query_max_filter_depth,omitempty"`
-	QueryMaxPredicates       uint32                   `protobuf:"varint,9,opt,name=query_max_predicates,json=queryMaxPredicates,proto3" json:"query_max_predicates,omitempty"`
-	QueryMaxSortFields       uint32                   `protobuf:"varint,10,opt,name=query_max_sort_fields,json=queryMaxSortFields,proto3" json:"query_max_sort_fields,omitempty"`
-	QueryMaxRelationJoins    uint32                   `protobuf:"varint,11,opt,name=query_max_relation_joins,json=queryMaxRelationJoins,proto3" json:"query_max_relation_joins,omitempty"`
-	QueryMaxInValues         uint32                   `protobuf:"varint,12,opt,name=query_max_in_values,json=queryMaxInValues,proto3" json:"query_max_in_values,omitempty"`
-	QueryTimeoutMs           uint64                   `protobuf:"varint,13,opt,name=query_timeout_ms,json=queryTimeoutMs,proto3" json:"query_timeout_ms,omitempty"`
-	QueryMaxStringBytes      uint32                   `protobuf:"varint,14,opt,name=query_max_string_bytes,json=queryMaxStringBytes,proto3" json:"query_max_string_bytes,omitempty"`
-	QueryCursorSigningKeyId  string                   `protobuf:"bytes,15,opt,name=query_cursor_signing_key_id,json=queryCursorSigningKeyId,proto3" json:"query_cursor_signing_key_id,omitempty"`
-	QueryAllCapability       string                   `protobuf:"bytes,16,opt,name=query_all_capability,json=queryAllCapability,proto3" json:"query_all_capability,omitempty"`
-	QueryOwnCapability       string                   `protobuf:"bytes,17,opt,name=query_own_capability,json=queryOwnCapability,proto3" json:"query_own_capability,omitempty"`
-	QueryMinRevokeEpoch      uint64                   `protobuf:"varint,18,opt,name=query_min_revoke_epoch,json=queryMinRevokeEpoch,proto3" json:"query_min_revoke_epoch,omitempty"`
-	QueryActorRevokeEpochs   []*QueryActorRevokeEpoch `protobuf:"bytes,19,rep,name=query_actor_revoke_epochs,json=queryActorRevokeEpochs,proto3" json:"query_actor_revoke_epochs,omitempty"`
-	QueryMaxTokenAgeMs       uint64                   `protobuf:"varint,20,opt,name=query_max_token_age_ms,json=queryMaxTokenAgeMs,proto3" json:"query_max_token_age_ms,omitempty"`
-	QueryPdpResourceType     string                   `protobuf:"bytes,21,opt,name=query_pdp_resource_type,json=queryPdpResourceType,proto3" json:"query_pdp_resource_type,omitempty"`
-	QueryPdpAction           string                   `protobuf:"bytes,22,opt,name=query_pdp_action,json=queryPdpAction,proto3" json:"query_pdp_action,omitempty"`
-	unknownFields            protoimpl.UnknownFields
-	sizeCache                protoimpl.SizeCache
+	state                         protoimpl.MessageState   `protogen:"open.v1"`
+	ConsumeBatchSize              uint32                   `protobuf:"varint,1,opt,name=consume_batch_size,json=consumeBatchSize,proto3" json:"consume_batch_size,omitempty"`
+	RebuildBatchSize              uint32                   `protobuf:"varint,2,opt,name=rebuild_batch_size,json=rebuildBatchSize,proto3" json:"rebuild_batch_size,omitempty"`
+	QueryDefaultPageSize          uint32                   `protobuf:"varint,3,opt,name=query_default_page_size,json=queryDefaultPageSize,proto3" json:"query_default_page_size,omitempty"`
+	QueryMaxPageSize              uint32                   `protobuf:"varint,4,opt,name=query_max_page_size,json=queryMaxPageSize,proto3" json:"query_max_page_size,omitempty"`
+	RealtimePublishBatchSize      uint32                   `protobuf:"varint,5,opt,name=realtime_publish_batch_size,json=realtimePublishBatchSize,proto3" json:"realtime_publish_batch_size,omitempty"`
+	CheckpointFlushMs             uint64                   `protobuf:"varint,6,opt,name=checkpoint_flush_ms,json=checkpointFlushMs,proto3" json:"checkpoint_flush_ms,omitempty"`
+	MaxProjectionLagMs            uint64                   `protobuf:"varint,7,opt,name=max_projection_lag_ms,json=maxProjectionLagMs,proto3" json:"max_projection_lag_ms,omitempty"`
+	QueryMaxFilterDepth           uint32                   `protobuf:"varint,8,opt,name=query_max_filter_depth,json=queryMaxFilterDepth,proto3" json:"query_max_filter_depth,omitempty"`
+	QueryMaxPredicates            uint32                   `protobuf:"varint,9,opt,name=query_max_predicates,json=queryMaxPredicates,proto3" json:"query_max_predicates,omitempty"`
+	QueryMaxSortFields            uint32                   `protobuf:"varint,10,opt,name=query_max_sort_fields,json=queryMaxSortFields,proto3" json:"query_max_sort_fields,omitempty"`
+	QueryMaxRelationJoins         uint32                   `protobuf:"varint,11,opt,name=query_max_relation_joins,json=queryMaxRelationJoins,proto3" json:"query_max_relation_joins,omitempty"`
+	QueryMaxInValues              uint32                   `protobuf:"varint,12,opt,name=query_max_in_values,json=queryMaxInValues,proto3" json:"query_max_in_values,omitempty"`
+	QueryTimeoutMs                uint64                   `protobuf:"varint,13,opt,name=query_timeout_ms,json=queryTimeoutMs,proto3" json:"query_timeout_ms,omitempty"`
+	QueryMaxStringBytes           uint32                   `protobuf:"varint,14,opt,name=query_max_string_bytes,json=queryMaxStringBytes,proto3" json:"query_max_string_bytes,omitempty"`
+	QueryCursorSigningKeyId       string                   `protobuf:"bytes,15,opt,name=query_cursor_signing_key_id,json=queryCursorSigningKeyId,proto3" json:"query_cursor_signing_key_id,omitempty"`
+	QueryAllCapability            string                   `protobuf:"bytes,16,opt,name=query_all_capability,json=queryAllCapability,proto3" json:"query_all_capability,omitempty"`
+	QueryOwnCapability            string                   `protobuf:"bytes,17,opt,name=query_own_capability,json=queryOwnCapability,proto3" json:"query_own_capability,omitempty"`
+	QueryMinRevokeEpoch           uint64                   `protobuf:"varint,18,opt,name=query_min_revoke_epoch,json=queryMinRevokeEpoch,proto3" json:"query_min_revoke_epoch,omitempty"`
+	QueryActorRevokeEpochs        []*QueryActorRevokeEpoch `protobuf:"bytes,19,rep,name=query_actor_revoke_epochs,json=queryActorRevokeEpochs,proto3" json:"query_actor_revoke_epochs,omitempty"`
+	QueryMaxTokenAgeMs            uint64                   `protobuf:"varint,20,opt,name=query_max_token_age_ms,json=queryMaxTokenAgeMs,proto3" json:"query_max_token_age_ms,omitempty"`
+	QueryPdpResourceType          string                   `protobuf:"bytes,21,opt,name=query_pdp_resource_type,json=queryPdpResourceType,proto3" json:"query_pdp_resource_type,omitempty"`
+	QueryPdpAction                string                   `protobuf:"bytes,22,opt,name=query_pdp_action,json=queryPdpAction,proto3" json:"query_pdp_action,omitempty"`
+	QueryRevokeRetryAttempts      uint32                   `protobuf:"varint,23,opt,name=query_revoke_retry_attempts,json=queryRevokeRetryAttempts,proto3" json:"query_revoke_retry_attempts,omitempty"`
+	QueryRevokeRetryBackoffMs     uint64                   `protobuf:"varint,24,opt,name=query_revoke_retry_backoff_ms,json=queryRevokeRetryBackoffMs,proto3" json:"query_revoke_retry_backoff_ms,omitempty"`
+	QueryRevokeOperationTimeoutMs uint64                   `protobuf:"varint,25,opt,name=query_revoke_operation_timeout_ms,json=queryRevokeOperationTimeoutMs,proto3" json:"query_revoke_operation_timeout_ms,omitempty"`
+	unknownFields                 protoimpl.UnknownFields
+	sizeCache                     protoimpl.SizeCache
 }
 
 func (x *ProjectionPolicy) Reset() {
@@ -1403,6 +1406,27 @@ func (x *ProjectionPolicy) GetQueryPdpAction() string {
 		return x.QueryPdpAction
 	}
 	return ""
+}
+
+func (x *ProjectionPolicy) GetQueryRevokeRetryAttempts() uint32 {
+	if x != nil {
+		return x.QueryRevokeRetryAttempts
+	}
+	return 0
+}
+
+func (x *ProjectionPolicy) GetQueryRevokeRetryBackoffMs() uint64 {
+	if x != nil {
+		return x.QueryRevokeRetryBackoffMs
+	}
+	return 0
+}
+
+func (x *ProjectionPolicy) GetQueryRevokeOperationTimeoutMs() uint64 {
+	if x != nil {
+		return x.QueryRevokeOperationTimeoutMs
+	}
+	return 0
 }
 
 type QueryActorRevokeEpoch struct {
@@ -2558,7 +2582,8 @@ const file_bpmp_configuration_v1_configuration_proto_rawDesc = "" +
 	"\fengine_retry\x18\v \x01(\v2\".bpmp.configuration.v1.RetryPolicyR\vengineRetry\x12V\n" +
 	"(engine_circuit_breaker_failure_threshold\x18\f \x01(\rR$engineCircuitBreakerFailureThreshold\x12B\n" +
 	"\x1eengine_circuit_breaker_open_ms\x18\r \x01(\x04R\x1aengineCircuitBreakerOpenMs\x124\n" +
-	"\x16engine_retryable_codes\x18\x0e \x03(\tR\x14engineRetryableCodes\"\xac\t\n" +
+	"\x16engine_retryable_codes\x18\x0e \x03(\tR\x14engineRetryableCodes\"\xf7\n" +
+	"\n" +
 	"\x10ProjectionPolicy\x12,\n" +
 	"\x12consume_batch_size\x18\x01 \x01(\rR\x10consumeBatchSize\x12,\n" +
 	"\x12rebuild_batch_size\x18\x02 \x01(\rR\x10rebuildBatchSize\x125\n" +
@@ -2582,7 +2607,10 @@ const file_bpmp_configuration_v1_configuration_proto_rawDesc = "" +
 	"\x19query_actor_revoke_epochs\x18\x13 \x03(\v2,.bpmp.configuration.v1.QueryActorRevokeEpochR\x16queryActorRevokeEpochs\x122\n" +
 	"\x16query_max_token_age_ms\x18\x14 \x01(\x04R\x12queryMaxTokenAgeMs\x125\n" +
 	"\x17query_pdp_resource_type\x18\x15 \x01(\tR\x14queryPdpResourceType\x12(\n" +
-	"\x10query_pdp_action\x18\x16 \x01(\tR\x0equeryPdpAction\"U\n" +
+	"\x10query_pdp_action\x18\x16 \x01(\tR\x0equeryPdpAction\x12=\n" +
+	"\x1bquery_revoke_retry_attempts\x18\x17 \x01(\rR\x18queryRevokeRetryAttempts\x12@\n" +
+	"\x1dquery_revoke_retry_backoff_ms\x18\x18 \x01(\x04R\x19queryRevokeRetryBackoffMs\x12H\n" +
+	"!query_revoke_operation_timeout_ms\x18\x19 \x01(\x04R\x1dqueryRevokeOperationTimeoutMs\"U\n" +
 	"\x15QueryActorRevokeEpoch\x12\x19\n" +
 	"\bactor_id\x18\x01 \x01(\tR\aactorId\x12!\n" +
 	"\frevoke_epoch\x18\x02 \x01(\x04R\vrevokeEpoch\"\xc8\x05\n" +
