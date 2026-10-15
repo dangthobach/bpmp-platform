@@ -57,7 +57,7 @@ tracing-subscriber = { version = "0.3.22", features = ["env-filter", "fmt", "jso
 http = "1.4.0"
 tower = "0.5.3"
 uuid = { version = "1.24.0", features = ["v4"] }
-jsonwebtoken = "9.3.1"
+jsonwebtoken = "11.0.0"
 openraft = { version = "=0.9.24", features = ["serde", "storage-v2"] }
 sha2 = "0.11.0"
 thiserror = "2.0.17"
