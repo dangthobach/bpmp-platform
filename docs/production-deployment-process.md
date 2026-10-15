@@ -111,6 +111,8 @@ single-node profile into `production-ha`.
    from the centrally managed environment topology.
 3. Provision persistent volumes for every engine member. For HA, place members
    in separate failure domains and create the headless peer-discovery service.
+   Follow [RocksDB Operations](rocksdb-operations.md) for proposal admission
+   limits, offline checks, checkpoint backup, restore and disk-full handling.
 4. Issue separate TLS identities for API Gateway, Human Runtime, Projection,
    Governance, Configuration and every engine member. Internal gRPC servers
    require and verify client certificates.

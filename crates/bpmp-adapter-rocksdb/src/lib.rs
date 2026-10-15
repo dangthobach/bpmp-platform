@@ -10,5 +10,6 @@ mod rocks;
 pub use raft_log::RocksDbRaftLogStorage;
 #[cfg(target_os = "linux")]
 pub use rocks::{
-    RocksDbAtomicStateStorage, RocksDbConfig, RocksDbWorkflowStore, WorkflowCommitPreparation,
+    RocksDbAtomicStateStorage, RocksDbConfig, RocksDbDiagnostics, RocksDbWorkflowStore,
+    WorkflowCommitPreparation,
 };

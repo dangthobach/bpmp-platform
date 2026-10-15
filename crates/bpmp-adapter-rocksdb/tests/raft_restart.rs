@@ -106,6 +106,8 @@ fn rocks_config(path: &Path) -> RocksDbConfig {
 fn state_machine_limits() -> StateMachineLimits {
     StateMachineLimits {
         max_conditions: 16,
+        max_snapshot_bytes: 1024 * 1024,
+        snapshot_directory: std::env::temp_dir(),
         max_mutations: 16,
         max_batch_bytes: 64 * 1024,
         append_only_column_families: BTreeSet::new(),

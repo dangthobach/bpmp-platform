@@ -60,5 +60,16 @@ jobs:
           key: rust-linux-authoritative-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
       - name: Check authoritative engine server
         run: cargo check -p bpmp-engine-server -p bpmp-adapter-rocksdb
+      - name: Lint authoritative persistence and engine
+        run: cargo clippy --locked -p bpmp-adapter-rocksdb -p bpmp-raft-state-machine -p bpmp-engine-server --all-targets -- -D warnings
       - name: Test authoritative RocksDB and remote worker runtime
-        run: cargo test -p bpmp-adapter-rocksdb -p bpmp-engine-server
+        run: cargo test --locked -p bpmp-adapter-rocksdb -p bpmp-raft-state-machine -p bpmp-engine-server
+      - name: Verify atomic storage failure on a full filesystem
+        shell: bash
+        run: |
+          set -euo pipefail
+          fault_dir="$(mktemp -d)"
+          trap 'sudo umount "$fault_dir"; rmdir "$fault_dir"' EXIT
+          sudo mount -t tmpfs -o size=16m tmpfs "$fault_dir"
+          sudo chmod 1777 "$fault_dir"
+          BPMP_ROCKSDB_FAULT_DIR="$fault_dir" cargo test --locked -p bpmp-adapter-rocksdb --lib disk_full_write_batch_preserves_state_and_applied_metadata -- --ignored

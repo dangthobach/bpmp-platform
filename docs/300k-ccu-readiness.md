@@ -2,6 +2,14 @@
 
 Date: 2026-07-28
 
+Implementation update 2026-10-15: the Engine proposal mutex described in
+section 1 has been replaced by bounded fail-fast admission and outbox-specific
+CAS re-preparation. RocksDB log/state locks are separate, and snapshot export
+uses MVCC without holding the write lock. Sections 1-2 below retain the original
+review context, not the current implementation. Global outbox cursor contention,
+in-memory snapshot transport, measured capacity and sharding remain relevant.
+See [RocksDB Operations](rocksdb-operations.md).
+
 ## Verdict
 
 The repository cannot currently claim 300,000 concurrent users on one

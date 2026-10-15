@@ -1,0 +1,9 @@
+# Local E2E only: consume Linux artifacts built from this checkout with --locked.
+# The build context must be the ignored artifact directory, never the repository.
+FROM debian:bookworm-slim
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY --chmod=755 bpmp-engine /usr/local/bin/bpmp-engine
+COPY --chmod=755 bpmp-e2e-fixtures /usr/local/bin/bpmp-e2e-fixtures
+ENTRYPOINT ["/usr/local/bin/bpmp-engine"]

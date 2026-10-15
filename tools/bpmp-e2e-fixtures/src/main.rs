@@ -719,6 +719,11 @@ fn engine_config(
                 "/bpmp.raft.v1.RaftPeerService/ChangeMembership"
             ],
             "max_conditions": 512, "max_mutations": 512, "max_batch_bytes": 4_194_304, "max_snapshot_bytes": 67_108_864,
+            "max_inflight_proposals": 16, "max_prepare_attempts": 8,
+            "proposal_timeout_ms": 4000,
+            "snapshot_directory": format!("/data/engine-{}-snapshots", index + 1),
+            "max_snapshot_transfer_bytes": 268_500_992,
+            "snapshot_chunk_bytes": 131_072, "peer_max_message_bytes": 33_554_432,
             "append_only_column_families": ["events","dedup","outbox","idempotency","authorization_audit","compensation_ledger","governance_audit","raft_applied_commands"]
         },
         "grpc": {"max_decoding_bytes": 1_048_576, "max_encoding_bytes": 1_048_576, "request_timeout_ms": 5000, "admission_rate_rps": 5000, "admission_burst": 500, "reflection_enabled": true},

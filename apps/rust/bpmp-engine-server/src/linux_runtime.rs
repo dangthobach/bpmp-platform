@@ -63,6 +63,54 @@ use tonic::transport::{
 use tracing::{error, info, warn};
 use zeroize::Zeroizing;
 
+fn open_workflow_store(
+    config: &RuntimeConfig,
+) -> Result<RocksDbWorkflowStore<AesGcmPayloadCrypto<FileDataKeyResolver>>> {
+    let crypto = AesGcmPayloadCrypto::new(FileDataKeyResolver::load(&config.payload_keys)?);
+    let rocks = &config.rocksdb;
+    Ok(RocksDbWorkflowStore::open(
+        RocksDbConfig {
+            path: config.data_path.clone(),
+            max_open_files: rocks.max_open_files,
+            write_buffer_size_bytes: rocks.write_buffer_size_bytes,
+            max_background_jobs: rocks.max_background_jobs,
+            max_replay_events: rocks.max_replay_events,
+        },
+        crypto,
+    )?)
+}
+
+pub fn storage_maintenance(path: &Path, checkpoint: Option<&Path>) -> Result<()> {
+    use bpmp_raft_state_machine::AtomicStateStorage;
+    let config = RuntimeConfig::load(path)?;
+    anyhow::ensure!(
+        config.data_path.join("CURRENT").is_file(),
+        "existing RocksDB CURRENT file required; maintenance will not create an empty database"
+    );
+    let store = open_workflow_store(&config)?;
+    let metadata = store
+        .authoritative_state_storage(config.raft.max_snapshot_bytes)?
+        .load_metadata()?;
+    let diagnostics = store.diagnostics()?;
+    anyhow::ensure!(
+        !diagnostics.values().any(
+            |value| value.background_errors.is_some_and(|count| count > 0)
+                || value.write_stopped.is_some_and(|value| value > 0)
+        ),
+        "RocksDB reports a background error or write stall"
+    );
+    if let Some(destination) = checkpoint {
+        store.create_checkpoint(destination)?;
+    }
+    println!(
+        "{}",
+        serde_json::to_string(
+            &serde_json::json!({"raft_metadata":metadata,"column_families":diagnostics})
+        )?
+    );
+    Ok(())
+}
+
 use crate::config::{
     BoundaryWorkerConfig, ConfigurationResolverConfig, KafkaConfig, PayloadKeyConfig,
     RuntimeConfig, VerificationKeyConfig, WasmModuleConfig,
@@ -90,18 +138,7 @@ pub async fn run(path: PathBuf) -> Result<()> {
         LocalTaskRetryPolicyHandle::new(local_task_retry_policy(&worker_policy.snapshot()?))?;
     let safe_point_gate = RuntimeSafePointGate::default();
     let authorization = Arc::new(load_authorization(&config)?);
-    let crypto = AesGcmPayloadCrypto::new(FileDataKeyResolver::load(&config.payload_keys)?);
-    let rocks = &config.rocksdb;
-    let store = Arc::new(RocksDbWorkflowStore::open(
-        RocksDbConfig {
-            path: config.data_path.clone(),
-            max_open_files: rocks.max_open_files,
-            write_buffer_size_bytes: rocks.write_buffer_size_bytes,
-            max_background_jobs: rocks.max_background_jobs,
-            max_replay_events: rocks.max_replay_events,
-        },
-        crypto,
-    )?);
+    let store = Arc::new(open_workflow_store(&config)?);
     let server_certificate = fs::read(&config.tls.server_certificate)?;
     let server_private_key = fs::read(&config.tls.server_private_key)?;
     let client_ca = fs::read(&config.tls.client_ca)?;
@@ -115,6 +152,7 @@ pub async fn run(path: PathBuf) -> Result<()> {
         server_certificate.clone(),
         server_private_key.clone(),
         Duration::from_millis(config.raft.rpc_timeout_ms),
+        config.raft.peer_max_message_bytes,
     )
     .map_err(anyhow::Error::msg)?;
     let raft_config = Arc::new(
@@ -123,6 +161,8 @@ pub async fn run(path: PathBuf) -> Result<()> {
             heartbeat_interval: config.raft.heartbeat_interval_ms,
             election_timeout_min: config.raft.election_timeout_min_ms,
             election_timeout_max: config.raft.election_timeout_max_ms,
+            snapshot_max_chunk_size: config.raft.snapshot_chunk_bytes,
+            max_payload_entries: 1,
             ..Default::default()
         }
         .validate()?,
@@ -138,6 +178,11 @@ pub async fn run(path: PathBuf) -> Result<()> {
                 max_conditions: config.raft.max_conditions,
                 max_mutations: config.raft.max_mutations,
                 max_batch_bytes: config.raft.max_batch_bytes,
+                max_snapshot_bytes: config.raft.max_snapshot_transfer_bytes,
+                snapshot_directory: {
+                    fs::create_dir_all(&config.raft.snapshot_directory)?;
+                    config.raft.snapshot_directory.clone()
+                },
                 append_only_column_families: config.raft.append_only_column_families.clone(),
             },
         )?,
@@ -147,7 +192,10 @@ pub async fn run(path: PathBuf) -> Result<()> {
         store.clone(),
         raft.clone(),
         tokio::runtime::Handle::current(),
-    ));
+        config.raft.max_inflight_proposals,
+        config.raft.max_prepare_attempts,
+        Duration::from_millis(config.raft.proposal_timeout_ms),
+    )?);
 
     let command_engine = Engine::new(registry.clone(), raft_store.clone(), authorization.clone());
     let local_handler = Arc::new(SafePointCommandHandler::new(
@@ -174,8 +222,8 @@ pub async fn run(path: PathBuf) -> Result<()> {
     );
     let peer_grpc = TonicRaftPeerService::new(raft.clone(), local_handler, peer_directory.clone())
         .into_server(
-            config.grpc.max_decoding_bytes,
-            config.grpc.max_encoding_bytes,
+            config.raft.peer_max_message_bytes,
+            config.raft.peer_max_message_bytes,
         );
     let peer_tls = ServerTlsConfig::new()
         .identity(Identity::from_pem(
@@ -459,14 +507,20 @@ pub async fn run(path: PathBuf) -> Result<()> {
             }
             let workers = remote_task_workers.clone();
             match tokio::task::spawn_blocking(move || {
-                let reclaimed = workers.reap_once()?;
-                let dispatched = workers.dispatch_once()?;
-                Ok::<_, bpmp_engine::RemoteWorkerTransportError>((reclaimed, dispatched))
+                let expired_count = workers.reap_once()?;
+                let assigned_count = workers.dispatch_once()?;
+                Ok::<_, bpmp_engine::RemoteWorkerTransportError>((expired_count, assigned_count))
             })
             .await
             {
-                Ok(Ok((reclaimed, dispatched))) if reclaimed > 0 || dispatched > 0 => {
-                    info!(reclaimed, dispatched, "processed remote task leases")
+                Ok(Ok((expired_count, assigned_count)))
+                    if expired_count > 0 || assigned_count > 0 =>
+                {
+                    info!(
+                        reclaimed = expired_count,
+                        dispatched = assigned_count,
+                        "processed remote task leases"
+                    );
                 }
                 Ok(Ok(_)) => {}
                 Ok(Err(error)) => error!(%error, "process remote task batch"),
@@ -1100,6 +1154,7 @@ async fn run_configuration_reloader(
     }
 }
 
+#[allow(clippy::too_many_lines)]
 async fn reconcile_configuration_event(
     event: &configurationv1::ConfigurationPublicationEvent,
     client: &mut ConfigurationResolverClient,
@@ -1337,6 +1392,7 @@ async fn load_runtime_registry(config: &RuntimeConfig) -> Result<RuntimeRegistry
     Ok(registry)
 }
 
+#[allow(clippy::too_many_lines)]
 fn configuration_snapshot_from_proto(
     snapshot: configurationv1::ResolvedConfigurationSnapshot,
 ) -> Result<ResolvedConfigSnapshot> {

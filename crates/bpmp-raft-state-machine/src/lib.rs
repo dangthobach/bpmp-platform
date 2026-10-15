@@ -5,7 +5,8 @@
 //! atomic local apply. External I/O is deliberately excluded from `apply()`.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::Cursor;
+use std::io::{BufReader, BufWriter, Write as _};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use openraft::storage::{RaftStateMachine, Snapshot};
@@ -17,6 +18,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use thiserror::Error;
 
+mod snapshot;
+pub use snapshot::SnapshotFile;
+
 pub type NodeId = u64;
 pub type ValueDigest = [u8; 32];
 
@@ -25,6 +29,7 @@ openraft::declare_raft_types!(
         D = PreparedAtomicBatch,
         R = ApplyResponse,
         Node = BasicNode,
+        SnapshotData = SnapshotFile,
 );
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -32,6 +37,8 @@ pub struct StateMachineLimits {
     pub max_conditions: u32,
     pub max_mutations: u32,
     pub max_batch_bytes: u64,
+    pub max_snapshot_bytes: u64,
+    pub snapshot_directory: PathBuf,
     pub append_only_column_families: BTreeSet<String>,
 }
 
@@ -43,7 +50,12 @@ impl StateMachineLimits {
     /// Returns [`BatchValidationError`] when any bound is zero or a configured
     /// column-family name is empty.
     pub fn validate(&self) -> Result<(), BatchValidationError> {
-        if self.max_conditions == 0 || self.max_mutations == 0 || self.max_batch_bytes == 0 {
+        if self.max_conditions == 0
+            || self.max_mutations == 0
+            || self.max_batch_bytes == 0
+            || self.max_snapshot_bytes == 0
+            || self.snapshot_directory.as_os_str().is_empty()
+        {
             return Err(BatchValidationError::InvalidLimits);
         }
         if self
@@ -307,7 +319,17 @@ pub trait AtomicStateStorage: Clone + Send + Sync + 'static {
     /// # Errors
     ///
     /// Returns [`AtomicStorageError`] when state cannot be read or encoded.
-    fn export_snapshot(&self) -> Result<Vec<u8>, AtomicStorageError>;
+    fn export_snapshot(&self) -> Result<Vec<u8>, AtomicStorageError> {
+        self.export_snapshot_with_metadata().map(|(bytes, _)| bytes)
+    }
+
+    /// Captures application bytes and Raft metadata at the same atomic read point.
+    ///
+    /// # Errors
+    /// Returns [`AtomicStorageError`] if the consistent snapshot cannot be exported.
+    fn export_snapshot_with_metadata(
+        &self,
+    ) -> Result<(Vec<u8>, StateMachineMetadata), AtomicStorageError>;
 
     /// Replaces application state atomically from a verified Raft snapshot.
     ///
@@ -451,7 +473,9 @@ impl AtomicStateStorage for InMemoryAtomicStateStorage {
         })
     }
 
-    fn export_snapshot(&self) -> Result<Vec<u8>, AtomicStorageError> {
+    fn export_snapshot_with_metadata(
+        &self,
+    ) -> Result<(Vec<u8>, StateMachineMetadata), AtomicStorageError> {
         let state = self.inner.lock().map_err(lock_error)?;
         let serializable = SerializableInMemoryState {
             records: state
@@ -465,7 +489,9 @@ impl AtomicStateStorage for InMemoryAtomicStateStorage {
                 .map(|(key, value)| (key.clone(), value.clone()))
                 .collect(),
         };
-        serde_json::to_vec(&serializable).map_err(|error| AtomicStorageError(error.to_string()))
+        let bytes = serde_json::to_vec(&serializable)
+            .map_err(|error| AtomicStorageError(error.to_string()))?;
+        Ok((bytes, state.metadata.clone()))
     }
 
     fn install_snapshot(
@@ -495,7 +521,7 @@ struct PersistedSnapshot {
 #[derive(Debug, Clone)]
 struct CurrentSnapshot {
     meta: SnapshotMeta<NodeId, BasicNode>,
-    bytes: Vec<u8>,
+    file: Arc<tempfile::NamedTempFile>,
 }
 
 #[derive(Debug, Clone)]
@@ -505,7 +531,7 @@ pub struct AuthoritativeStateMachine<S> {
     last_applied: Option<LogId<NodeId>>,
     membership: StoredMembership<NodeId, BasicNode>,
     snapshot_index: u64,
-    current_snapshot: Option<CurrentSnapshot>,
+    current_snapshot: Arc<Mutex<Option<CurrentSnapshot>>>,
 }
 
 impl<S: AtomicStateStorage> AuthoritativeStateMachine<S> {
@@ -527,7 +553,7 @@ impl<S: AtomicStateStorage> AuthoritativeStateMachine<S> {
             last_applied: metadata.last_applied,
             membership: metadata.membership,
             snapshot_index: 0,
-            current_snapshot: None,
+            current_snapshot: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -538,19 +564,36 @@ impl<S: AtomicStateStorage> AuthoritativeStateMachine<S> {
 
 impl<S: AtomicStateStorage> RaftSnapshotBuilder<TypeConfig> for AuthoritativeStateMachine<S> {
     async fn build_snapshot(&mut self) -> Result<Snapshot<TypeConfig>, StorageError<NodeId>> {
-        let persisted = PersistedSnapshot {
-            metadata: StateMachineMetadata {
-                last_applied: self.last_applied,
-                membership: self.membership.clone(),
-            },
-            application_state: self
-                .storage
-                .export_snapshot()
-                .map_err(|error| StorageIOError::read_state_machine(&error))?,
-        };
-        let bytes = serde_json::to_vec(&persisted)
+        let storage = self.storage.clone();
+        let directory = self.limits.snapshot_directory.clone();
+        let limit = self.limits.max_snapshot_bytes;
+        let (file, metadata) =
+            tokio::task::spawn_blocking(move || -> Result<_, AtomicStorageError> {
+                let (application_state, metadata) = storage.export_snapshot_with_metadata()?;
+                let file = tempfile::NamedTempFile::new_in(directory)
+                    .map_err(|error| AtomicStorageError(error.to_string()))?;
+                let mut writer = snapshot::BoundedWriter {
+                    inner: BufWriter::new(file.as_file()),
+                    remaining: limit,
+                };
+                serde_json::to_writer(
+                    &mut writer,
+                    &PersistedSnapshot {
+                        metadata: metadata.clone(),
+                        application_state,
+                    },
+                )
+                .map_err(|error| AtomicStorageError(error.to_string()))?;
+                writer
+                    .flush()
+                    .map_err(|error| AtomicStorageError(error.to_string()))?;
+                drop(writer);
+                Ok((Arc::new(file), metadata))
+            })
+            .await
+            .map_err(|error| StorageIOError::read_state_machine(&error))?
             .map_err(|error| StorageIOError::read_state_machine(&error))?;
-        let snapshot_id = match self.last_applied {
+        let snapshot_id = match metadata.last_applied {
             Some(log_id) => format!(
                 "{}-{}-{}",
                 log_id.leader_id, log_id.index, self.snapshot_index
@@ -558,17 +601,22 @@ impl<S: AtomicStateStorage> RaftSnapshotBuilder<TypeConfig> for AuthoritativeSta
             None => format!("empty-{}", self.snapshot_index),
         };
         let meta = SnapshotMeta {
-            last_log_id: self.last_applied,
-            last_membership: self.membership.clone(),
+            last_log_id: metadata.last_applied,
+            last_membership: metadata.membership,
             snapshot_id,
         };
-        self.current_snapshot = Some(CurrentSnapshot {
+        *self.current_snapshot.lock().map_err(|error| {
+            StorageIOError::read_state_machine(&AtomicStorageError(error.to_string()))
+        })? = Some(CurrentSnapshot {
             meta: meta.clone(),
-            bytes: bytes.clone(),
+            file: file.clone(),
         });
         Ok(Snapshot {
             meta,
-            snapshot: Box::new(Cursor::new(bytes)),
+            snapshot: Box::new(
+                SnapshotFile::open(file, limit)
+                    .map_err(|error| StorageIOError::read_state_machine(&error))?,
+            ),
         })
     }
 }
@@ -638,35 +686,52 @@ impl<S: AtomicStateStorage> RaftStateMachine<TypeConfig> for AuthoritativeStateM
 
     async fn begin_receiving_snapshot(
         &mut self,
-    ) -> Result<Box<Cursor<Vec<u8>>>, StorageError<NodeId>> {
-        Ok(Box::new(Cursor::new(Vec::new())))
+    ) -> Result<Box<SnapshotFile>, StorageError<NodeId>> {
+        let directory = self.limits.snapshot_directory.clone();
+        let limit = self.limits.max_snapshot_bytes;
+        let snapshot = tokio::task::spawn_blocking(move || SnapshotFile::create(&directory, limit))
+            .await
+            .map_err(|error| StorageIOError::write_state_machine(&error))?
+            .map_err(|error| StorageIOError::write_state_machine(&error))?;
+        Ok(Box::new(snapshot))
     }
 
     async fn install_snapshot(
         &mut self,
         meta: &SnapshotMeta<NodeId, BasicNode>,
-        snapshot: Box<Cursor<Vec<u8>>>,
+        mut snapshot: Box<SnapshotFile>,
     ) -> Result<(), StorageError<NodeId>> {
-        let bytes = snapshot.into_inner();
-        let persisted: PersistedSnapshot = serde_json::from_slice(&bytes)
-            .map_err(|error| StorageIOError::read_snapshot(Some(meta.signature()), &error))?;
-        if persisted.metadata.last_applied != meta.last_log_id
-            || persisted.metadata.membership != meta.last_membership
-        {
-            return Err(StorageIOError::read_snapshot(
-                Some(meta.signature()),
-                &AtomicStorageError("snapshot metadata mismatch".into()),
-            )
-            .into());
-        }
-        self.storage
-            .install_snapshot(&persisted.application_state, &persisted.metadata)
+        tokio::io::AsyncWriteExt::flush(&mut snapshot)
+            .await
             .map_err(|error| StorageIOError::write_snapshot(Some(meta.signature()), &error))?;
-        self.last_applied = persisted.metadata.last_applied;
-        self.membership = persisted.metadata.membership;
-        self.current_snapshot = Some(CurrentSnapshot {
+        let file = snapshot.backing();
+        let input = file.clone();
+        let expected = meta.clone();
+        let storage = self.storage.clone();
+        let metadata = tokio::task::spawn_blocking(move || -> Result<_, AtomicStorageError> {
+            let reader = input
+                .reopen()
+                .map_err(|error| AtomicStorageError(error.to_string()))?;
+            let persisted: PersistedSnapshot = serde_json::from_reader(BufReader::new(reader))
+                .map_err(|error| AtomicStorageError(error.to_string()))?;
+            if persisted.metadata.last_applied != expected.last_log_id
+                || persisted.metadata.membership != expected.last_membership
+            {
+                return Err(AtomicStorageError("snapshot metadata mismatch".into()));
+            }
+            storage.install_snapshot(&persisted.application_state, &persisted.metadata)?;
+            Ok(persisted.metadata)
+        })
+        .await
+        .map_err(|error| StorageIOError::write_snapshot(Some(meta.signature()), &error))?
+        .map_err(|error| StorageIOError::write_snapshot(Some(meta.signature()), &error))?;
+        self.last_applied = metadata.last_applied;
+        self.membership = metadata.membership;
+        *self.current_snapshot.lock().map_err(|error| {
+            StorageIOError::write_state_machine(&AtomicStorageError(error.to_string()))
+        })? = Some(CurrentSnapshot {
             meta: meta.clone(),
-            bytes,
+            file,
         });
         Ok(())
     }
@@ -674,10 +739,27 @@ impl<S: AtomicStateStorage> RaftStateMachine<TypeConfig> for AuthoritativeStateM
     async fn get_current_snapshot(
         &mut self,
     ) -> Result<Option<Snapshot<TypeConfig>>, StorageError<NodeId>> {
-        Ok(self.current_snapshot.as_ref().map(|snapshot| Snapshot {
-            meta: snapshot.meta.clone(),
-            snapshot: Box::new(Cursor::new(snapshot.bytes.clone())),
-        }))
+        let current = self
+            .current_snapshot
+            .lock()
+            .map_err(|error| {
+                StorageIOError::read_state_machine(&AtomicStorageError(error.to_string()))
+            })?
+            .clone();
+        current
+            .as_ref()
+            .map(|snapshot| {
+                Ok(Snapshot {
+                    meta: snapshot.meta.clone(),
+                    snapshot: Box::new(
+                        SnapshotFile::open(snapshot.file.clone(), self.limits.max_snapshot_bytes)
+                            .map_err(|error| {
+                            StorageIOError::read_snapshot(Some(snapshot.meta.signature()), &error)
+                        })?,
+                    ),
+                })
+            })
+            .transpose()
     }
 }
 
@@ -730,6 +812,8 @@ mod tests {
     fn limits() -> StateMachineLimits {
         StateMachineLimits {
             max_conditions: 16,
+            max_snapshot_bytes: 1024 * 1024,
+            snapshot_directory: std::env::temp_dir(),
             max_mutations: 16,
             max_batch_bytes: 64 * 1024,
             append_only_column_families: BTreeSet::from(["events".into(), "audit".into()]),
@@ -864,6 +948,114 @@ mod tests {
                 .outcome,
             ApplyOutcome::Duplicate
         );
+    }
+
+    #[tokio::test]
+    async fn delayed_snapshot_builder_uses_metadata_from_its_actual_read_point() {
+        let storage = InMemoryAtomicStateStorage::default();
+        let mut machine = AuthoritativeStateMachine::new(storage.clone(), limits()).unwrap();
+        let mut builder = RaftStateMachine::get_snapshot_builder(&mut machine).await;
+        let log_id = LogId::new(openraft::CommittedLeaderId::new(4, 1), 12);
+        let batch = PreparedAtomicBatch::new(
+            "later".into(),
+            b"later".to_vec(),
+            Vec::new(),
+            vec![Mutation::Put {
+                storage_key: key("stream_meta", b"later"),
+                value: b"new-state".to_vec(),
+            }],
+            Vec::new(),
+        );
+        RaftStateMachine::apply(
+            &mut machine,
+            [openraft::Entry::<TypeConfig> {
+                log_id,
+                payload: EntryPayload::Normal(batch),
+            }],
+        )
+        .await
+        .unwrap();
+        let snapshot = RaftSnapshotBuilder::build_snapshot(&mut builder)
+            .await
+            .unwrap();
+        assert_eq!(snapshot.meta.last_log_id, Some(log_id));
+        let current = RaftStateMachine::get_current_snapshot(&mut machine)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(current.meta, snapshot.meta);
+        let restored = InMemoryAtomicStateStorage::default();
+        let mut follower = AuthoritativeStateMachine::new(restored.clone(), limits()).unwrap();
+        RaftStateMachine::install_snapshot(&mut follower, &snapshot.meta, snapshot.snapshot)
+            .await
+            .unwrap();
+        assert_eq!(
+            restored.get(&key("stream_meta", b"later")).unwrap(),
+            Some(b"new-state".to_vec())
+        );
+        assert_eq!(restored.load_metadata().unwrap().last_applied, Some(log_id));
+    }
+
+    #[tokio::test]
+    async fn corrupt_or_mismatched_snapshot_never_changes_authoritative_state() {
+        use tokio::io::AsyncWriteExt as _;
+        let storage = InMemoryAtomicStateStorage::default();
+        let mut machine = AuthoritativeStateMachine::new(storage.clone(), limits()).unwrap();
+        let meta = SnapshotMeta {
+            last_log_id: None,
+            last_membership: StoredMembership::default(),
+            snapshot_id: "invalid".into(),
+        };
+        for payload in [
+            b"not-json".to_vec(),
+            serde_json::to_vec(&PersistedSnapshot {
+                metadata: StateMachineMetadata {
+                    last_applied: Some(LogId::new(openraft::CommittedLeaderId::new(1, 1), 1)),
+                    membership: StoredMembership::default(),
+                },
+                application_state: Vec::new(),
+            })
+            .unwrap(),
+        ] {
+            let before = storage.export_snapshot().unwrap();
+            let mut received = RaftStateMachine::begin_receiving_snapshot(&mut machine)
+                .await
+                .unwrap();
+            received.write_all(&payload).await.unwrap();
+            assert!(
+                RaftStateMachine::install_snapshot(&mut machine, &meta, received)
+                    .await
+                    .is_err()
+            );
+            assert_eq!(storage.export_snapshot().unwrap(), before);
+            assert_eq!(
+                storage.load_metadata().unwrap(),
+                StateMachineMetadata::default()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn snapshot_builder_enforces_outer_wire_budget_and_cleans_failed_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut bounds = limits();
+        bounds.max_snapshot_bytes = 1;
+        bounds.snapshot_directory = directory.path().to_owned();
+        let mut machine =
+            AuthoritativeStateMachine::new(InMemoryAtomicStateStorage::default(), bounds).unwrap();
+        let mut builder = RaftStateMachine::get_snapshot_builder(&mut machine).await;
+        assert!(
+            RaftSnapshotBuilder::build_snapshot(&mut builder)
+                .await
+                .is_err()
+        );
+        assert!(
+            RaftStateMachine::get_current_snapshot(&mut machine)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
     }
 
     #[tokio::test]

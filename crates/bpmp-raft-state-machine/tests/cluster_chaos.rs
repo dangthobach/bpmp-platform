@@ -260,6 +260,8 @@ impl RaftNetwork<TypeConfig> for Connection {
 fn limits() -> StateMachineLimits {
     StateMachineLimits {
         max_conditions: 32,
+        max_snapshot_bytes: 1024 * 1024,
+        snapshot_directory: std::env::temp_dir(),
         max_mutations: 32,
         max_batch_bytes: 64 * 1024,
         append_only_column_families: BTreeSet::new(),

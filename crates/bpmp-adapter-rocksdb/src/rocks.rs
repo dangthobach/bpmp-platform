@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::{self, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -37,6 +38,7 @@ use prost::Message;
 use rocksdb::{
     ColumnFamilyDescriptor, DB, Direction, IteratorMode, Options, WriteBatch, WriteOptions,
 };
+use serde::ser::{Error as _, SerializeSeq};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -106,6 +108,14 @@ pub struct RocksDbConfig {
     pub max_replay_events: usize,
 }
 
+#[derive(Debug, Serialize)]
+pub struct RocksDbDiagnostics {
+    pub background_errors: Option<u64>,
+    pub write_stopped: Option<u64>,
+    pub pending_compaction_bytes: Option<u64>,
+    pub memtable_bytes: Option<u64>,
+}
+
 impl RocksDbConfig {
     /// Validates operational `RocksDB` settings supplied by configuration.
     ///
@@ -138,6 +148,7 @@ pub struct RocksDbWorkflowStore<C> {
     max_replay_events: usize,
     // P0 single-node commits serialize here so version/dedup checks and WriteBatch are atomic.
     commit_lock: Arc<Mutex<()>>,
+    raft_log_lock: Arc<Mutex<()>>,
 }
 
 #[derive(Clone)]
@@ -155,6 +166,66 @@ pub enum WorkflowCommitPreparation {
 }
 
 impl<C: PayloadCryptoPort> RocksDbWorkflowStore<C> {
+    /// Reads native storage health counters without scanning workflow events.
+    ///
+    /// # Errors
+    /// Returns [`StoreError`] when `RocksDB` cannot read its diagnostic properties.
+    pub fn diagnostics(&self) -> Result<BTreeMap<String, RocksDbDiagnostics>, StoreError> {
+        let mut result = BTreeMap::new();
+        for name in authoritative_column_families().iter().copied().chain([
+            RAFT_LOG_CF,
+            RAFT_META_CF,
+            RAFT_STATE_META_CF,
+        ]) {
+            let family = cf(&self.db, name)?;
+            let property = |key| {
+                self.db
+                    .property_int_value_cf(family, key)
+                    .map_err(unavailable)
+            };
+            result.insert(
+                name.to_owned(),
+                RocksDbDiagnostics {
+                    background_errors: property("rocksdb.background-errors")?,
+                    write_stopped: property("rocksdb.is-write-stopped")?,
+                    pending_compaction_bytes: property(
+                        "rocksdb.estimate-pending-compaction-bytes",
+                    )?,
+                    memtable_bytes: property("rocksdb.cur-size-all-mem-tables")?,
+                },
+            );
+        }
+        Ok(result)
+    }
+
+    /// Creates a consistent native checkpoint in a new directory outside the live DB.
+    ///
+    /// # Errors
+    /// Returns [`StoreError`] for unsafe paths, existing destinations or storage failures.
+    pub fn create_checkpoint(&self, destination: &std::path::Path) -> Result<(), StoreError> {
+        let source = std::fs::canonicalize(self.db.path())
+            .map_err(|error| StoreError::Unavailable(error.to_string()))?;
+        let parent = destination
+            .parent()
+            .filter(|path| !path.as_os_str().is_empty())
+            .unwrap_or_else(|| std::path::Path::new("."));
+        let parent = std::fs::canonicalize(parent)
+            .map_err(|error| StoreError::Unavailable(error.to_string()))?;
+        let name = destination.file_name().ok_or_else(|| {
+            StoreError::Unavailable("checkpoint destination requires a directory name".into())
+        })?;
+        let target = parent.join(name);
+        if target.starts_with(source) || target.exists() {
+            return Err(StoreError::Unavailable(
+                "checkpoint destination must be new and outside the live database".into(),
+            ));
+        }
+        rocksdb::checkpoint::Checkpoint::new(&self.db)
+            .map_err(unavailable)?
+            .create_checkpoint(target)
+            .map_err(unavailable)
+    }
+
     /// Opens the authoritative local `RocksDB` with all required column families.
     ///
     /// # Errors
@@ -196,7 +267,11 @@ impl<C: PayloadCryptoPort> RocksDbWorkflowStore<C> {
             RAFT_META_CF,
         ]
         .into_iter()
-        .map(|name| ColumnFamilyDescriptor::new(name, Options::default()));
+        .map(|name| {
+            let mut family_options = Options::default();
+            family_options.set_write_buffer_size(config.write_buffer_size_bytes);
+            ColumnFamilyDescriptor::new(name, family_options)
+        });
         let db = DB::open_cf_descriptors(&options, &config.path, descriptors)
             .map_err(|error| RocksDbOpenError::Open(error.to_string()))?;
         Ok(Self {
@@ -204,6 +279,7 @@ impl<C: PayloadCryptoPort> RocksDbWorkflowStore<C> {
             crypto,
             max_replay_events: config.max_replay_events,
             commit_lock: Arc::new(Mutex::new(())),
+            raft_log_lock: Arc::new(Mutex::new(())),
         })
     }
 
@@ -240,7 +316,7 @@ impl<C: PayloadCryptoPort> RocksDbWorkflowStore<C> {
     /// Creates the persistent `OpenRaft` log half backed by this node's `RocksDB`.
     #[must_use]
     pub fn raft_log_storage(&self) -> crate::RocksDbRaftLogStorage {
-        crate::RocksDbRaftLogStorage::new(Arc::clone(&self.db), Arc::clone(&self.commit_lock))
+        crate::RocksDbRaftLogStorage::new(Arc::clone(&self.db), Arc::clone(&self.raft_log_lock))
     }
 
     /// Prepares one complete workflow commit for authoritative Raft proposal.
@@ -271,6 +347,12 @@ impl<C: PayloadCryptoPort> RocksDbWorkflowStore<C> {
         let prepared_events = prepare_encrypted_events(&self.crypto, request)?;
         let prepared_snapshot = prepare_encrypted_snapshot(&self.crypto, request)?;
         let prepared_audit = prepare_encrypted_authorization_audit(&self.crypto, request)?;
+        // Read the shared cursor and all CAS inputs from one local state boundary;
+        // encryption stays outside the lock and consensus is never awaited here.
+        let _guard = self
+            .commit_lock
+            .lock()
+            .map_err(|error| StoreError::Unavailable(error.to_string()))?;
         build_prepared_workflow_batch(
             &self.db,
             request,
@@ -791,6 +873,10 @@ impl<C: PayloadCryptoPort> RocksDbWorkflowStore<C> {
 
 impl<C> RocksDbWorkflowStore<C> {
     /// Prepares an idempotent ready-task insertion for Raft replication.
+    /// Prepares a durable remote-task enqueue with duplicate detection.
+    ///
+    /// # Errors
+    /// Returns [`RemoteTaskError`] for invalid activation or unavailable/corrupt storage.
     pub fn prepare_remote_task_enqueue(
         &self,
         task: &RemoteTask,
@@ -828,6 +914,10 @@ impl<C> RocksDbWorkflowStore<C> {
     }
 
     /// Reads a bounded ordered ready-task page.
+    /// Reads a bounded ordered set of available remote tasks.
+    ///
+    /// # Errors
+    /// Returns [`RemoteTaskError`] for invalid bounds or unavailable/corrupt storage.
     pub fn ready_remote_tasks(
         &self,
         now_epoch_ms: u64,
@@ -870,6 +960,10 @@ impl<C> RocksDbWorkflowStore<C> {
     }
 
     /// Prepares one compare-and-set lease acquisition.
+    /// Prepares a compare-and-set assignment and durable lease.
+    ///
+    /// # Errors
+    /// Returns [`RemoteTaskError`] for invalid claim, conflict or storage failure.
     pub fn prepare_remote_task_claim(
         &self,
         request: &RemoteTaskClaimRequest,
@@ -933,6 +1027,10 @@ impl<C> RocksDbWorkflowStore<C> {
         )))
     }
 
+    /// Loads the current durable assignment for a tenant-scoped task.
+    ///
+    /// # Errors
+    /// Returns [`RemoteTaskError`] when the task record cannot be read or decoded.
     pub fn load_remote_task_claim(
         &self,
         tenant_id: &TenantId,
@@ -954,6 +1052,10 @@ impl<C> RocksDbWorkflowStore<C> {
             .map(Option::flatten)
     }
 
+    /// Prepares completion fenced by the original task lease.
+    ///
+    /// # Errors
+    /// Returns [`RemoteTaskError`] for stale assignment or storage failure.
     pub fn prepare_remote_task_complete(
         &self,
         claim: &RemoteTaskClaim,
@@ -961,6 +1063,10 @@ impl<C> RocksDbWorkflowStore<C> {
         self.prepare_remote_task_terminal_mutation(claim, None, false)
     }
 
+    /// Prepares a fenced retry or dead-letter transition.
+    ///
+    /// # Errors
+    /// Returns [`RemoteTaskError`] for invalid retry time, stale lease or storage failure.
     pub fn prepare_remote_task_failure(
         &self,
         claim: &RemoteTaskClaim,
@@ -1049,6 +1155,10 @@ impl<C> RocksDbWorkflowStore<C> {
     }
 
     /// Reads expired leases in deterministic expiry order.
+    /// Reads a bounded set of expired durable task leases.
+    ///
+    /// # Errors
+    /// Returns [`RemoteTaskError`] for invalid bounds or unavailable/corrupt storage.
     pub fn expired_remote_task_claims(
         &self,
         now_epoch_ms: u64,
@@ -1238,6 +1348,57 @@ struct RocksStateSnapshotRecord {
     value: Vec<u8>,
 }
 
+struct SnapshotRecords<'a, 'db> {
+    db: &'a DB,
+    snapshot: &'a rocksdb::Snapshot<'db>,
+    families: &'a [String],
+}
+
+impl Serialize for SnapshotRecords<'_, '_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        #[derive(Serialize)]
+        struct Record<'a> {
+            column_family: &'a str,
+            key: &'a [u8],
+            value: &'a [u8],
+        }
+        let mut sequence = serializer.serialize_seq(None)?;
+        for name in self.families {
+            let family = self
+                .db
+                .cf_handle(name)
+                .ok_or_else(|| S::Error::custom("snapshot column family missing"))?;
+            for item in self.snapshot.iterator_cf(family, IteratorMode::Start) {
+                let (key, value) = item.map_err(S::Error::custom)?;
+                sequence.serialize_element(&Record {
+                    column_family: name,
+                    key: &key,
+                    value: &value,
+                })?;
+            }
+        }
+        sequence.end()
+    }
+}
+
+struct BoundedSnapshotWriter {
+    bytes: Vec<u8>,
+    limit: u64,
+}
+
+impl Write for BoundedSnapshotWriter {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        if bytes.len() as u64 > self.limit.saturating_sub(self.bytes.len() as u64) {
+            return Err(io::Error::other("snapshot exceeds configured byte limit"));
+        }
+        self.bytes.extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
 impl AtomicStateStorage for RocksDbAtomicStateStorage {
     fn load_metadata(&self) -> Result<StateMachineMetadata, AtomicStorageError> {
         let family = raft_cf(&self.db, RAFT_STATE_META_CF)?;
@@ -1346,44 +1507,46 @@ impl AtomicStateStorage for RocksDbAtomicStateStorage {
         Ok(response)
     }
 
-    fn export_snapshot(&self) -> Result<Vec<u8>, AtomicStorageError> {
-        let _guard = self.write_lock.lock().map_err(raft_lock_error)?;
-        let mut estimated_bytes = 0_u64;
-        let mut records = Vec::new();
-        for family_name in self.snapshot_column_families.iter() {
-            let family = raft_cf(&self.db, family_name)?;
-            for item in self.db.iterator_cf(family, IteratorMode::Start) {
-                let (key, value) = item.map_err(raft_unavailable)?;
-                estimated_bytes = estimated_bytes
-                    .checked_add(family_name.len() as u64)
-                    .and_then(|size| size.checked_add(key.len() as u64))
-                    .and_then(|size| size.checked_add(value.len() as u64))
-                    .ok_or_else(|| AtomicStorageError("snapshot size overflow".into()))?;
-                if estimated_bytes > self.max_snapshot_bytes {
-                    return Err(AtomicStorageError(format!(
-                        "snapshot exceeds configured byte limit {}",
-                        self.max_snapshot_bytes
-                    )));
-                }
-                records.push(RocksStateSnapshotRecord {
-                    column_family: family_name.clone(),
-                    key: key.to_vec(),
-                    value: value.to_vec(),
-                });
-            }
+    fn export_snapshot_with_metadata(
+        &self,
+    ) -> Result<(Vec<u8>, StateMachineMetadata), AtomicStorageError> {
+        #[derive(Serialize)]
+        struct Export<'a, 'db> {
+            column_families: &'a [String],
+            records: SnapshotRecords<'a, 'db>,
         }
-        let snapshot = serde_json::to_vec(&RocksStateSnapshot {
-            column_families: self.snapshot_column_families.to_vec(),
-            records,
-        })
+        // One MVCC sequence covers every CF and its applied metadata. Export does
+        // not hold the write mutex; normal Raft log/apply writes can continue.
+        let snapshot = self.db.snapshot();
+        let metadata = snapshot
+            .get_cf(
+                raft_cf(&self.db, RAFT_STATE_META_CF)?,
+                RAFT_STATE_METADATA_KEY,
+            )
+            .map_err(raft_unavailable)?
+            .map(|bytes| {
+                serde_json::from_slice(&bytes)
+                    .map_err(|error| AtomicStorageError(error.to_string()))
+            })
+            .transpose()?
+            .unwrap_or_default();
+        let mut writer = BoundedSnapshotWriter {
+            bytes: Vec::new(),
+            limit: self.max_snapshot_bytes,
+        };
+        serde_json::to_writer(
+            &mut writer,
+            &Export {
+                column_families: &self.snapshot_column_families,
+                records: SnapshotRecords {
+                    db: &self.db,
+                    snapshot: &snapshot,
+                    families: &self.snapshot_column_families,
+                },
+            },
+        )
         .map_err(|error| AtomicStorageError(error.to_string()))?;
-        if snapshot.len() as u64 > self.max_snapshot_bytes {
-            return Err(AtomicStorageError(format!(
-                "serialized snapshot exceeds configured byte limit {}",
-                self.max_snapshot_bytes
-            )));
-        }
-        Ok(snapshot)
+        Ok((writer.bytes, metadata))
     }
 
     fn install_snapshot(
@@ -2828,6 +2991,7 @@ fn load_snapshot<C: PayloadCryptoPort>(
     Ok(Some(snapshot))
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn map_runtime_payload_read_error(error: CryptoError, payload: &EncryptedPayload) -> StoreError {
     match error {
         CryptoError::KeyRevoked => StoreError::DataUnavailableForCompliance {
@@ -3382,6 +3546,7 @@ fn remote_named_cf<'a>(
         .ok_or_else(|| RemoteTaskError::Store(format!("missing RocksDB column family {name}")))
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn remote_store_error(error: rocksdb::Error) -> RemoteTaskError {
     RemoteTaskError::Store(error.to_string())
 }
@@ -3590,9 +3755,200 @@ mod tests {
         }
     }
 
+    #[test]
+    fn configured_write_buffer_is_persisted_for_every_named_column_family() {
+        let directory = tempfile::tempdir().unwrap();
+        let settings = config(directory.path());
+        let _store =
+            RocksDbWorkflowStore::open(settings.clone(), TestCrypto { fail: false }).unwrap();
+        let latest = std::fs::read_dir(directory.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| {
+                path.file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with("OPTIONS-")
+            })
+            .max()
+            .unwrap();
+        let options = std::fs::read_to_string(latest).unwrap();
+        let expected = format!("write_buffer_size={}", settings.write_buffer_size_bytes);
+        for name in authoritative_column_families().iter().copied().chain([
+            RAFT_LOG_CF,
+            RAFT_META_CF,
+            RAFT_STATE_META_CF,
+        ]) {
+            let section = format!("[CFOptions \"{name}\"]");
+            let (_, tail) = options.split_once(&section).unwrap();
+            let body = tail.split("\n[").next().unwrap();
+            assert!(
+                body.lines().any(|line| line.trim() == expected),
+                "buffer setting missing for {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn native_checkpoint_restores_encrypted_state_and_original_idempotency() {
+        let directory = tempfile::tempdir().unwrap();
+        let backup = directory.path().join("checkpoint");
+        let store = RocksDbWorkflowStore::open(
+            config(&directory.path().join("live")),
+            TestCrypto { fail: false },
+        )
+        .unwrap();
+        store.commit(request()).unwrap();
+        let health = store.diagnostics().unwrap();
+        assert_eq!(health[EVENTS_CF].background_errors, Some(0));
+        store.create_checkpoint(&backup).unwrap();
+        assert!(store.create_checkpoint(&backup).is_err());
+        assert!(
+            store
+                .create_checkpoint(&directory.path().join("live/nested"))
+                .is_err()
+        );
+        let restored =
+            RocksDbWorkflowStore::open(config(&backup), TestCrypto { fail: false }).unwrap();
+        assert!(matches!(
+            restored.commit(request()).unwrap(),
+            CommitOutcome::Duplicate(_)
+        ));
+        assert_eq!(
+            restored.publisher_checkpoint().unwrap(),
+            store.publisher_checkpoint().unwrap()
+        );
+    }
+
+    #[test]
+    fn corrupted_manifest_fails_closed_instead_of_creating_empty_store() {
+        let directory = tempfile::tempdir().unwrap();
+        let store =
+            RocksDbWorkflowStore::open(config(directory.path()), TestCrypto { fail: false })
+                .unwrap();
+        store.commit(request()).unwrap();
+        drop(store);
+        std::fs::write(
+            directory.path().join("CURRENT"),
+            b"MANIFEST-does-not-exist\n",
+        )
+        .unwrap();
+        assert!(
+            RocksDbWorkflowStore::open(config(directory.path()), TestCrypto { fail: false })
+                .is_err()
+        );
+    }
+
+    #[test]
+    #[ignore = "requires a dedicated small BPMP_ROCKSDB_FAULT_DIR filesystem"]
+    fn disk_full_write_batch_preserves_state_and_applied_metadata() {
+        let root = std::env::var_os("BPMP_ROCKSDB_FAULT_DIR")
+            .expect("dedicated fault filesystem required");
+        let directory = tempfile::tempdir_in(root).unwrap();
+        let store =
+            RocksDbWorkflowStore::open(config(directory.path()), TestCrypto { fail: false })
+                .unwrap();
+        let state = store
+            .authoritative_state_storage(128 * 1024 * 1024)
+            .unwrap();
+        let reservation = directory.path().join("fault-space-reservation");
+        std::fs::write(&reservation, vec![0; 8 * 1024 * 1024]).unwrap();
+        let key = StorageKey {
+            column_family: EVENTS_CF.into(),
+            key: b"disk-full".to_vec(),
+        };
+        let batch = PreparedAtomicBatch::new(
+            "disk-full".into(),
+            b"disk-full".to_vec(),
+            vec![Precondition {
+                storage_key: key.clone(),
+                expected: ExpectedValue::Missing,
+            }],
+            vec![Mutation::Put {
+                storage_key: key.clone(),
+                value: vec![0; 20 * 1024 * 1024],
+            }],
+            Vec::new(),
+        );
+        let mut limits = raft_limits();
+        limits.max_batch_bytes = 128 * 1024 * 1024;
+        let metadata = StateMachineMetadata {
+            last_applied: Some(openraft::LogId::new(
+                openraft::CommittedLeaderId::new(1, 1),
+                1,
+            )),
+            ..Default::default()
+        };
+        assert!(state.apply(&batch, &limits, &metadata).is_err());
+        assert_eq!(state.load_metadata().unwrap().last_applied, None);
+        assert!(
+            store
+                .db
+                .get_cf(cf(&store.db, EVENTS_CF).unwrap(), &key.key)
+                .unwrap()
+                .is_none()
+        );
+        drop(state);
+        drop(store);
+        std::fs::remove_file(reservation).unwrap();
+        let reopened =
+            RocksDbWorkflowStore::open(config(directory.path()), TestCrypto { fail: false })
+                .unwrap();
+        assert!(
+            reopened
+                .db
+                .get_cf(cf(&reopened.db, EVENTS_CF).unwrap(), &key.key)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn snapshot_export_and_raft_log_do_not_wait_for_state_write_lock() {
+        let directory = tempfile::tempdir().unwrap();
+        let store =
+            RocksDbWorkflowStore::open(config(directory.path()), TestCrypto { fail: false })
+                .unwrap();
+        let state = store.authoritative_state_storage(1024 * 1024).unwrap();
+        let guard = store.commit_lock.lock().unwrap();
+        assert!(store.raft_log_lock.try_lock().is_ok());
+        let (tx, rx) = std::sync::mpsc::channel();
+        let worker =
+            std::thread::spawn(move || tx.send(state.export_snapshot_with_metadata()).unwrap());
+        let result = rx.recv_timeout(std::time::Duration::from_secs(2));
+        drop(guard);
+        worker.join().unwrap();
+        assert!(result.unwrap().is_ok());
+    }
+
+    #[test]
+    fn snapshot_bound_is_enforced_on_serialized_bytes_before_buffer_growth() {
+        let directory = tempfile::tempdir().unwrap();
+        let store =
+            RocksDbWorkflowStore::open(config(directory.path()), TestCrypto { fail: false })
+                .unwrap();
+        let state = store.authoritative_state_storage(64).unwrap();
+        assert!(
+            state
+                .export_snapshot()
+                .unwrap_err()
+                .0
+                .contains("configured byte limit")
+        );
+        let mut writer = BoundedSnapshotWriter {
+            bytes: Vec::new(),
+            limit: 3,
+        };
+        writer.write_all(b"abc").unwrap();
+        assert!(writer.write_all(b"d").is_err());
+        assert_eq!(writer.bytes, b"abc");
+    }
+
     fn raft_limits() -> StateMachineLimits {
         StateMachineLimits {
             max_conditions: 64,
+            max_snapshot_bytes: 64 * 1024 * 1024,
+            snapshot_directory: std::env::temp_dir(),
             max_mutations: 64,
             max_batch_bytes: 1024 * 1024,
             append_only_column_families: BTreeSet::from([
@@ -4229,6 +4585,8 @@ mod tests {
         let raft = store.authoritative_state_storage(1024 * 1024).unwrap();
         let limits = StateMachineLimits {
             max_conditions: 16,
+            max_snapshot_bytes: 1024 * 1024,
+            snapshot_directory: std::env::temp_dir(),
             max_mutations: 16,
             max_batch_bytes: 64 * 1024,
             append_only_column_families: BTreeSet::from([

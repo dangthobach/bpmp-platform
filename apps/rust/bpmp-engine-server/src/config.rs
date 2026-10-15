@@ -34,6 +34,7 @@ impl RuntimeConfig {
         Ok(config)
     }
 
+    #[allow(clippy::too_many_lines)]
     fn validate(&self) -> Result<(), RuntimeConfigError> {
         if self.wir.artifacts.is_empty()
             || self.authorization.policy_bundles.is_empty()
@@ -344,6 +345,13 @@ pub struct RocksDbRuntimeConfig {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RaftRuntimeConfig {
+    pub max_inflight_proposals: usize,
+    pub max_prepare_attempts: u32,
+    pub proposal_timeout_ms: u64,
+    pub snapshot_directory: PathBuf,
+    pub max_snapshot_transfer_bytes: u64,
+    pub snapshot_chunk_bytes: u64,
+    pub peer_max_message_bytes: usize,
     pub cluster_name: String,
     pub node_id: u64,
     pub peer_listen_addr: SocketAddr,
@@ -363,7 +371,11 @@ pub struct RaftRuntimeConfig {
 
 impl RaftRuntimeConfig {
     fn validate(&self) -> Result<(), RuntimeConfigError> {
-        if self.cluster_name.trim().is_empty()
+        if self.max_inflight_proposals == 0
+            || self.max_inflight_proposals > 4096
+            || !(1..=20).contains(&self.max_prepare_attempts)
+            || self.proposal_timeout_ms == 0
+            || self.cluster_name.trim().is_empty()
             || self.node_id == 0
             || self.heartbeat_interval_ms == 0
             || self.election_timeout_min_ms <= self.heartbeat_interval_ms
@@ -373,6 +385,11 @@ impl RaftRuntimeConfig {
             || self.max_mutations == 0
             || self.max_batch_bytes == 0
             || self.max_snapshot_bytes == 0
+            || self.max_snapshot_transfer_bytes == 0
+            || self.snapshot_directory.as_os_str().is_empty()
+            || self.snapshot_chunk_bytes == 0
+            || !raft_payload_fits(self.snapshot_chunk_bytes, self.peer_max_message_bytes)
+            || !raft_payload_fits(self.max_batch_bytes, self.peer_max_message_bytes)
             || self.authorized_methods.is_empty()
             || self.peers.is_empty()
         {
@@ -431,6 +448,14 @@ impl RaftRuntimeConfig {
         }
         Ok(())
     }
+}
+
+fn raft_payload_fits(bytes: u64, message_limit: usize) -> bool {
+    // JSON byte arrays need up to four bytes per source byte, plus the envelope.
+    bytes
+        .checked_mul(4)
+        .and_then(|size| size.checked_add(65_536))
+        .is_some_and(|size| size <= message_limit as u64)
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -629,6 +654,14 @@ mod tests {
     fn incomplete_configuration_fails_closed() {
         let decoded = serde_json::from_slice::<RuntimeConfig>(br"{}");
         assert!(decoded.is_err());
+    }
+
+    #[test]
+    fn peer_wire_budget_covers_json_expansion_and_rejects_overflow() {
+        assert!(raft_payload_fits(131_072, 1_048_576));
+        assert!(!raft_payload_fits(3 * 1024 * 1024, 1_048_576));
+        assert!(raft_payload_fits(4_194_304, 33_554_432));
+        assert!(!raft_payload_fits(u64::MAX, usize::MAX));
     }
 
     #[test]

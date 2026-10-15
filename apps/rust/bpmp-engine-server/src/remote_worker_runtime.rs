@@ -220,10 +220,16 @@ mod tests {
                 allowed_protocol_versions: vec!["1.0".into()],
                 identities: vec![RemoteWorkerIdentityConfig {
                     workload_id: "worker-a".into(),
-                    certificate_sha256_hex: Sha256::digest(certificate)
-                        .iter()
-                        .map(|byte| format!("{byte:02x}"))
-                        .collect(),
+                    certificate_sha256_hex: {
+                        use std::fmt::Write as _;
+                        Sha256::digest(certificate).iter().fold(
+                            String::with_capacity(64),
+                            |mut output, byte| {
+                                write!(output, "{byte:02x}").unwrap();
+                                output
+                            },
+                        )
+                    },
                     tenant_ids: vec!["tenant-a".into()],
                 }],
                 assignment_signing_key: "unused".into(),
@@ -276,7 +282,7 @@ mod tests {
         let certificate = b"test-certificate-der";
         let signer = Ed25519Signer::from_bytes(&[7; 32]);
         let verifier = verifier_fixture(certificate, &signer);
-        let verified = verifier
+        let registration_identity = verifier
             .verify(
                 certificate,
                 "session-a",
@@ -284,7 +290,7 @@ mod tests {
                 1_500,
             )
             .unwrap();
-        assert_eq!(verified.worker_id, "worker-a");
+        assert_eq!(registration_identity.worker_id, "worker-a");
 
         assert_eq!(
             verifier.verify(

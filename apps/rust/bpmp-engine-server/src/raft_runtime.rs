@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use bpmp_adapter_rocksdb::{RocksDbWorkflowStore, WorkflowCommitPreparation};
@@ -24,7 +24,7 @@ use bpmp_engine::{
 };
 use bpmp_payload_crypto::PayloadCryptoPort;
 use bpmp_raft_state_machine::{ApplyOutcome, ApplyResponse, PreparedAtomicBatch, TypeConfig};
-use bpmp_transport_observability::{RequestMetadataLayer, inject_tonic_metadata};
+use bpmp_transport_observability::inject_tonic_metadata;
 use openraft::error::{NetworkError, RPCError, RaftError, RemoteError};
 use openraft::network::RPCOption;
 use openraft::raft::{
@@ -48,7 +48,9 @@ pub struct RaftWorkflowStore<C> {
     local: Arc<RocksDbWorkflowStore<C>>,
     raft: Raft<TypeConfig>,
     runtime: Handle,
-    proposal_lock: Mutex<()>,
+    proposal_admission: Arc<tokio::sync::Semaphore>,
+    max_prepare_attempts: u32,
+    proposal_timeout: Duration,
 }
 
 const RAFT_RPC_SCHEMA_VERSION: u32 = 1;
@@ -68,6 +70,7 @@ pub struct PeerDirectory {
     peers: Arc<BTreeMap<u64, RaftPeer>>,
     tls: Arc<PeerClientTls>,
     rpc_timeout: Duration,
+    max_message_bytes: usize,
     #[cfg(test)]
     insecure_test_transport: bool,
 }
@@ -91,11 +94,13 @@ impl PeerDirectory {
         certificate: Vec<u8>,
         private_key: Vec<u8>,
         rpc_timeout: Duration,
+        max_message_bytes: usize,
     ) -> Result<Self, String> {
         if ca.is_empty()
             || certificate.is_empty()
             || private_key.is_empty()
             || rpc_timeout.is_zero()
+            || max_message_bytes == 0
         {
             return Err("Raft peer TLS material and timeout must be configured".into());
         }
@@ -120,6 +125,7 @@ impl PeerDirectory {
                 private_key,
             }),
             rpc_timeout,
+            max_message_bytes,
             #[cfg(test)]
             insecure_test_transport: false,
         })
@@ -148,7 +154,7 @@ impl PeerDirectory {
                 .timeout(self.rpc_timeout)
                 .connect()
                 .await
-                .map(RaftPeerServiceClient::new)
+                .map(|channel| self.configured_client(channel))
                 .map_err(io_other);
         }
         let endpoint = Endpoint::from_shared(format!("https://{}", peer.address))
@@ -168,8 +174,14 @@ impl PeerDirectory {
         endpoint
             .connect()
             .await
-            .map(RaftPeerServiceClient::new)
+            .map(|channel| self.configured_client(channel))
             .map_err(io_other)
+    }
+
+    fn configured_client(&self, channel: Channel) -> RaftPeerServiceClient<Channel> {
+        RaftPeerServiceClient::new(channel)
+            .max_decoding_message_size(self.max_message_bytes)
+            .max_encoding_message_size(self.max_message_bytes)
     }
 
     async fn forward_command(
@@ -235,7 +247,7 @@ impl RaftNetwork<TypeConfig> for TonicRaftConnection {
     async fn append_entries(
         &mut self,
         request: AppendEntriesRequest<TypeConfig>,
-        _option: RPCOption,
+        option: RPCOption,
     ) -> Result<AppendEntriesResponse<u64>, RaftRpcError> {
         let payload_json = encode_request(&request)?;
         let mut client = self.client().await?;
@@ -245,6 +257,7 @@ impl RaftNetwork<TypeConfig> for TonicRaftConnection {
             payload_json,
         });
         inject_tonic_metadata(&mut outbound);
+        outbound.set_timeout(option.hard_ttl().min(self.peers.rpc_timeout));
         let response = client
             .append_entries(outbound)
             .await
@@ -256,7 +269,7 @@ impl RaftNetwork<TypeConfig> for TonicRaftConnection {
     async fn install_snapshot(
         &mut self,
         request: InstallSnapshotRequest<TypeConfig>,
-        _option: RPCOption,
+        option: RPCOption,
     ) -> Result<InstallSnapshotResponse<u64>, RaftRpcError<openraft::error::InstallSnapshotError>>
     {
         let payload_json = encode_request(&request)?;
@@ -267,6 +280,7 @@ impl RaftNetwork<TypeConfig> for TonicRaftConnection {
             payload_json,
         });
         inject_tonic_metadata(&mut outbound);
+        outbound.set_timeout(option.hard_ttl().min(self.peers.rpc_timeout));
         let response = client
             .install_snapshot(outbound)
             .await
@@ -278,7 +292,7 @@ impl RaftNetwork<TypeConfig> for TonicRaftConnection {
     async fn vote(
         &mut self,
         request: VoteRequest<u64>,
-        _option: RPCOption,
+        option: RPCOption,
     ) -> Result<VoteResponse<u64>, RaftRpcError> {
         let payload_json = encode_request(&request)?;
         let mut client = self.client().await?;
@@ -288,6 +302,7 @@ impl RaftNetwork<TypeConfig> for TonicRaftConnection {
             payload_json,
         });
         inject_tonic_metadata(&mut outbound);
+        outbound.set_timeout(option.hard_ttl().min(self.peers.rpc_timeout));
         let response = client
             .vote(outbound)
             .await
@@ -585,13 +600,27 @@ impl<C> RaftWorkflowStore<C> {
         local: Arc<RocksDbWorkflowStore<C>>,
         raft: Raft<TypeConfig>,
         runtime: Handle,
-    ) -> Self {
-        Self {
+        max_inflight_proposals: usize,
+        max_prepare_attempts: u32,
+        proposal_timeout: Duration,
+    ) -> Result<Self, StoreError> {
+        if max_inflight_proposals == 0
+            || max_inflight_proposals > 4096
+            || !(1..=20).contains(&max_prepare_attempts)
+            || proposal_timeout.is_zero()
+        {
+            return Err(StoreError::Unavailable(
+                "invalid bounded Raft proposal configuration".into(),
+            ));
+        }
+        Ok(Self {
             local,
             raft,
             runtime,
-            proposal_lock: Mutex::new(()),
-        }
+            proposal_admission: Arc::new(tokio::sync::Semaphore::new(max_inflight_proposals)),
+            max_prepare_attempts,
+            proposal_timeout,
+        })
     }
 
     /// Proposes a pre-materialized authoritative batch through the local Raft
@@ -604,11 +633,54 @@ impl<C> RaftWorkflowStore<C> {
         &self,
         batch: PreparedAtomicBatch,
     ) -> Result<ApplyResponse, StoreError> {
-        let _proposal_guard = self.proposal_lock.lock().map_err(|error| {
-            StoreError::Unavailable(format!("Raft proposal lock failed: {error}"))
-        })?;
+        self.submit(batch, tokio::time::Instant::now() + self.proposal_timeout)
+    }
+
+    fn submit(
+        &self,
+        batch: PreparedAtomicBatch,
+        deadline: tokio::time::Instant,
+    ) -> Result<ApplyResponse, StoreError> {
+        let permit = self.admit()?;
+        self.submit_admitted(batch, deadline, permit)
+    }
+
+    fn admit(&self) -> Result<tokio::sync::OwnedSemaphorePermit, StoreError> {
+        self.proposal_admission
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| StoreError::Unavailable("Raft proposal admission exhausted".into()))
+    }
+
+    fn submit_admitted(
+        &self,
+        batch: PreparedAtomicBatch,
+        deadline: tokio::time::Instant,
+        permit: tokio::sync::OwnedSemaphorePermit,
+    ) -> Result<ApplyResponse, StoreError> {
+        if tokio::time::Instant::now() >= deadline {
+            return Err(StoreError::Unavailable(
+                "Raft proposal deadline exceeded before submission".into(),
+            ));
+        }
+        let raft = self.raft.clone();
+        // A caller deadline is not a rollback. Retain admission until consensus
+        // completes, including while the caller retries an indeterminate result.
+        let pending = self.runtime.spawn(async move {
+            let _permit = permit;
+            raft.client_write(batch).await
+        });
         self.runtime
-            .block_on(self.raft.client_write(batch))
+            .block_on(async { tokio::time::timeout_at(deadline, pending).await })
+            .map_err(|_| {
+                StoreError::Unavailable(
+                    "Raft proposal timed out; outcome unknown, retry with the same idempotency key"
+                        .into(),
+                )
+            })?
+            .map_err(|error| {
+                StoreError::Unavailable(format!("Raft proposal task failed: {error}"))
+            })?
             .map(|response| response.data)
             .map_err(|error| {
                 if let Some(forward) = error.forward_to_leader() {
@@ -654,29 +726,33 @@ where
     }
 
     fn commit(&self, request: CommitRequest) -> Result<CommitOutcome, StoreError> {
-        let _proposal_guard = self.proposal_lock.lock().map_err(|error| {
-            StoreError::Unavailable(format!("Raft proposal lock failed: {error}"))
-        })?;
-        let batch = match self.local.prepare_workflow_batch(&request)? {
-            WorkflowCommitPreparation::AlreadyCommitted(result) => {
-                return Ok(CommitOutcome::Duplicate(result));
-            }
-            WorkflowCommitPreparation::Proposal(batch) => batch,
-        };
-        let response = self
-            .runtime
-            .block_on(self.raft.client_write(batch))
-            .map_err(|error| {
-                if let Some(forward) = error.forward_to_leader() {
-                    StoreError::NotLeader {
-                        leader_id: forward.leader_id,
-                        leader_address: forward.leader_node.as_ref().map(|node| node.addr.clone()),
-                    }
-                } else {
-                    StoreError::Unavailable(format!("Raft client write failed: {error}"))
+        let deadline = tokio::time::Instant::now() + self.proposal_timeout;
+        for attempt in 0..self.max_prepare_attempts {
+            let permit = self.admit()?;
+            let batch = match self.local.prepare_workflow_batch(&request)? {
+                WorkflowCommitPreparation::AlreadyCommitted(result) => {
+                    return Ok(CommitOutcome::Duplicate(result));
                 }
-            })?;
-        self.local.resolve_workflow_apply(&request, &response.data)
+                WorkflowCommitPreparation::Proposal(batch) => batch,
+            };
+            let outbox_condition = batch.preconditions.iter().position(|condition| {
+                condition.storage_key.column_family == "outbox_meta"
+                    && condition.storage_key.key == b"tail"
+            });
+            let response = self.submit_admitted(batch, deadline, permit)?;
+            // Only a globally allocated outbox cursor can be transparently rebased.
+            // Stream version, event identity, audit and idempotency conflicts are final.
+            if matches!(response.outcome, ApplyOutcome::PreconditionFailed {condition_index}
+            if outbox_condition == Some(condition_index as usize))
+                && attempt + 1 < self.max_prepare_attempts
+            {
+                continue;
+            }
+            return self.local.resolve_workflow_apply(&request, &response);
+        }
+        Err(StoreError::Unavailable(
+            "Raft workflow prepare budget exhausted".into(),
+        ))
     }
 }
 
@@ -798,12 +874,15 @@ mod tests {
 
     use bpmp_adapter_rocksdb::{RocksDbConfig, RocksDbWorkflowStore};
     use bpmp_contracts::engine::v1::{CommandEnvelope, CommandReceipt};
-    use bpmp_engine::{EngineCommandHandlerPort, EngineError, StoreError, TransportError};
+    use bpmp_engine::{
+        CommitOutcome, EngineCommandHandlerPort, EngineError, OutboxStorePort, StoreError,
+        TransportError, WorkflowStorePort,
+    };
     use bpmp_payload_crypto::{
         CryptoError, EncryptedPayload, EncryptionContext, PayloadCryptoPort,
     };
     use bpmp_raft_state_machine::{
-        AtomicStateStorage, AuthoritativeStateMachine, Mutation, PreparedAtomicBatch,
+        ApplyOutcome, AtomicStateStorage, AuthoritativeStateMachine, Mutation, PreparedAtomicBatch,
         StateMachineLimits, StorageKey,
     };
     use openraft::Raft;
@@ -813,11 +892,94 @@ mod tests {
     use tonic::transport::Server;
 
     use super::{
-        ForwardingCommandHandler, PeerClientTls, PeerDirectory, RaftPeer, TonicRaftNetworkFactory,
-        TonicRaftPeerService, TypeConfig,
+        ForwardingCommandHandler, PeerClientTls, PeerDirectory, RaftPeer, RaftWorkflowStore,
+        TonicRaftNetworkFactory, TonicRaftPeerService, TypeConfig,
     };
+    use bpmp_transport_observability::RequestMetadataLayer;
 
     struct TestCrypto;
+
+    fn workflow_request(index: usize) -> bpmp_engine::CommitRequest {
+        use bpmp_domain_core::{
+            ActorId, CommandId, ConfigVersion, CorrelationId, DomainEvent, IdempotencyKey,
+            InstanceId, KeyScope, NodeId, PolicyVersion, TenantId, WorkflowType, WorkflowVersion,
+        };
+        use bpmp_engine::{
+            AuthorizationAudit, CommitRequest, CommittedResult, EventEnvelope, EventMetadata,
+        };
+        let tenant = TenantId::new("tenant-pipeline").unwrap();
+        let instance = InstanceId::new(format!("instance-{index}")).unwrap();
+        let actor = ActorId::new("actor-pipeline").unwrap();
+        let command = CommandId::new(format!("start-{index}")).unwrap();
+        let event_id = format!("start-{index}:1");
+        let config = ConfigVersion::new("config-pipeline").unwrap();
+        let policy = PolicyVersion::new("policy-pipeline").unwrap();
+        let workflow = WorkflowType::new("approval").unwrap();
+        let version = WorkflowVersion::new("1").unwrap();
+        let scope = KeyScope::new("tenant-pipeline/operational").unwrap();
+        let correlation = CorrelationId::new(format!("correlation-{index}")).unwrap();
+        CommitRequest {
+            tenant_id: tenant.clone(),
+            instance_id: instance.clone(),
+            actor_id: actor.clone(),
+            idempotency_key: IdempotencyKey::new(format!("idem-{index}")).unwrap(),
+            command_id: command.clone(),
+            expected_version: 0,
+            events: vec![EventEnvelope {
+                metadata: EventMetadata {
+                    event_id: event_id.clone(),
+                    tenant_id: tenant.clone(),
+                    instance_id: instance.clone(),
+                    sequence: 1,
+                    schema_version: 1,
+                    correlation_id: correlation.clone(),
+                    causation_command_id: command.clone(),
+                    occurred_at_epoch_ms: 42,
+                    config_version: config.clone(),
+                    policy_version: policy.clone(),
+                    actor_id: actor.clone(),
+                    encryption_key_scope: scope.clone(),
+                    workflow_type: workflow.clone(),
+                    workflow_version: version.clone(),
+                },
+                event: DomainEvent::WorkflowStarted {
+                    tenant_id: tenant.clone(),
+                    workflow_type: workflow.clone(),
+                    workflow_version: version.clone(),
+                    start_node_id: NodeId::new("start").unwrap(),
+                    occurred_at_epoch_ms: 42,
+                },
+            }],
+            snapshot: None,
+            authorization_audit: AuthorizationAudit {
+                decision_id: format!("allow-{index}"),
+                tenant_id: tenant,
+                actor_id: actor,
+                workload_id: "api-gateway".into(),
+                roles: vec!["operator".into()],
+                action: "START".into(),
+                workflow_type: workflow,
+                workflow_version: version,
+                instance_id: instance,
+                active_node_id: "start".into(),
+                policy_version: policy.clone(),
+                config_version: config.clone(),
+                bundle_sequence: 1,
+                revoke_epoch: 1,
+                occurred_at_epoch_ms: 42,
+                command_id: command,
+                correlation_id: correlation,
+                matched_grant_ids: vec!["allow-start".into()],
+                encryption_key_scope: scope,
+            },
+            result: CommittedResult {
+                version: 1,
+                event_ids: vec![event_id],
+                config_version: config,
+                policy_version: policy,
+            },
+        }
+    }
 
     impl PayloadCryptoPort for TestCrypto {
         fn encrypt(
@@ -878,12 +1040,15 @@ mod tests {
                 private_key: Vec::new(),
             }),
             rpc_timeout: Duration::from_secs(2),
+            max_message_bytes: 32 * 1024 * 1024,
             insecure_test_transport: true,
         }
     }
 
     fn limits() -> StateMachineLimits {
         StateMachineLimits {
+            max_snapshot_bytes: 64 * 1024 * 1024,
+            snapshot_directory: std::env::temp_dir(),
             max_conditions: 16,
             max_mutations: 16,
             max_batch_bytes: 64 * 1024,
@@ -933,6 +1098,7 @@ mod tests {
             .unwrap(),
         );
         let mut nodes = Vec::new();
+        let mut workflow_stores = Vec::new();
         let mut state_stores = Vec::new();
         let mut data_directories = Vec::new();
         for node_id in 1..=3 {
@@ -963,6 +1129,7 @@ mod tests {
             .await
             .unwrap();
             nodes.push(raft);
+            workflow_stores.push(workflow_store);
             state_stores.push(state_store);
             data_directories.push(data_directory);
         }
@@ -1009,6 +1176,112 @@ mod tests {
         })
         .await
         .unwrap();
+        let leader_index = usize::try_from(leader_id - 1).unwrap();
+        let pipeline = Arc::new(
+            RaftWorkflowStore::new(
+                workflow_stores[leader_index].clone(),
+                nodes[leader_index].clone(),
+                tokio::runtime::Handle::current(),
+                4,
+                4,
+                Duration::from_secs(5),
+            )
+            .unwrap(),
+        );
+        let permits = pipeline.proposal_admission.try_acquire_many(4).unwrap();
+        assert!(pipeline.propose_prepared(batch()).is_err());
+        drop(permits);
+        let mut proposals = Vec::new();
+        for index in 0..4 {
+            let pipeline = pipeline.clone();
+            proposals.push(tokio::task::spawn_blocking(move || {
+                let command = format!("concurrent-{index}");
+                let prepared = PreparedAtomicBatch::new(
+                    command.clone(),
+                    command.as_bytes().to_vec(),
+                    Vec::new(),
+                    vec![Mutation::Put {
+                        storage_key: StorageKey {
+                            column_family: "stream_meta".into(),
+                            key: command.as_bytes().to_vec(),
+                        },
+                        value: command.as_bytes().to_vec(),
+                    }],
+                    Vec::new(),
+                );
+                pipeline.propose_prepared(prepared).unwrap()
+            }));
+        }
+        for proposal in proposals {
+            assert_eq!(proposal.await.unwrap().outcome, ApplyOutcome::Applied);
+        }
+        let mut commands = Vec::new();
+        for index in 0..4 {
+            let pipeline = pipeline.clone();
+            commands.push(tokio::task::spawn_blocking(move || {
+                pipeline.commit(workflow_request(index)).unwrap()
+            }));
+        }
+        for command in commands {
+            assert!(matches!(
+                command.await.unwrap(),
+                CommitOutcome::Committed(_)
+            ));
+        }
+        let records = workflow_stores[leader_index].read_after(0, 10).unwrap();
+        assert_eq!(records.len(), 4);
+        for index in 0..4 {
+            let pipeline = pipeline.clone();
+            assert!(matches!(
+                tokio::task::spawn_blocking(move || pipeline
+                    .commit(workflow_request(index))
+                    .unwrap())
+                .await
+                .unwrap(),
+                CommitOutcome::Duplicate(_)
+            ));
+        }
+        assert_eq!(
+            workflow_stores[leader_index]
+                .read_after(0, 10)
+                .unwrap()
+                .len(),
+            4
+        );
+        let mut contenders = Vec::new();
+        for index in 10..12 {
+            let pipeline = pipeline.clone();
+            let mut request = workflow_request(index);
+            request.instance_id = bpmp_domain_core::InstanceId::new("contended-instance").unwrap();
+            request.events[0].metadata.instance_id = request.instance_id.clone();
+            request.authorization_audit.instance_id = request.instance_id.clone();
+            contenders.push(tokio::task::spawn_blocking(move || {
+                pipeline.commit(request)
+            }));
+        }
+        let left = contenders.remove(0).await.unwrap();
+        let right = contenders.remove(0).await.unwrap();
+        assert_eq!(
+            [&left, &right]
+                .iter()
+                .filter(|result| matches!(result, Ok(CommitOutcome::Committed(_))))
+                .count(),
+            1
+        );
+        assert_eq!(
+            [&left, &right]
+                .iter()
+                .filter(|result| matches!(result, Err(StoreError::VersionConflict { .. })))
+                .count(),
+            1
+        );
+        assert_eq!(
+            workflow_stores[leader_index]
+                .read_after(0, 10)
+                .unwrap()
+                .len(),
+            5
+        );
         for state_store in state_stores {
             let snapshot = state_store.export_snapshot().unwrap();
             assert!(contains_bytes(
@@ -1016,10 +1289,190 @@ mod tests {
                 b"quorum"
             ));
         }
+        let deadline_pipeline = Arc::new(
+            RaftWorkflowStore::new(
+                workflow_stores[leader_index].clone(),
+                nodes[leader_index].clone(),
+                tokio::runtime::Handle::current(),
+                1,
+                1,
+                Duration::from_millis(50),
+            )
+            .unwrap(),
+        );
+        let before = workflow_stores[leader_index]
+            .read_after(0, 10)
+            .unwrap()
+            .len();
+        let expired = deadline_pipeline.submit(
+            batch(),
+            tokio::time::Instant::now() - Duration::from_millis(1),
+        );
+        assert!(
+            matches!(expired, Err(StoreError::Unavailable(message)) if message.contains("before submission"))
+        );
+        assert_eq!(
+            workflow_stores[leader_index]
+                .read_after(0, 10)
+                .unwrap()
+                .len(),
+            before
+        );
+        for (index, node) in nodes.iter().enumerate() {
+            if index != leader_index {
+                node.shutdown().await.unwrap();
+            }
+        }
+        let caller = deadline_pipeline.clone();
+        let outcome = tokio::task::spawn_blocking(move || caller.propose_prepared(batch()))
+            .await
+            .unwrap();
+        assert!(
+            matches!(outcome, Err(StoreError::Unavailable(message)) if message.contains("outcome unknown"))
+        );
+        assert_eq!(deadline_pipeline.proposal_admission.available_permits(), 0);
+        assert!(matches!(deadline_pipeline.propose_prepared(batch()),
+            Err(StoreError::Unavailable(message)) if message.contains("admission exhausted")));
+        nodes[leader_index].shutdown().await.unwrap();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while deadline_pipeline.proposal_admission.available_permits() == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
         for server in servers {
             server.abort();
         }
         drop(data_directories);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[allow(clippy::too_many_lines)]
+    async fn large_snapshot_crosses_bounded_peer_rpc_chunks_into_rocksdb() {
+        use bpmp_raft_state_machine::StateMachineMetadata;
+        use openraft::{RaftNetwork as _, RaftNetworkFactory as _, RaftSnapshotBuilder as _};
+        use tokio::io::AsyncReadExt as _;
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut directory = insecure_directory(vec![
+            RaftPeer {
+                node_id: 1,
+                address: "127.0.0.1:1".into(),
+                tls_domain: "localhost".into(),
+            },
+            RaftPeer {
+                node_id: 2,
+                address: listener.local_addr().unwrap().to_string(),
+                tls_domain: "localhost".into(),
+            },
+        ]);
+        directory.max_message_bytes = 512 * 1024;
+        let data = tempfile::tempdir().unwrap();
+        let store = Arc::new(
+            RocksDbWorkflowStore::open(
+                RocksDbConfig {
+                    path: data.path().to_owned(),
+                    max_open_files: 64,
+                    write_buffer_size_bytes: 1024 * 1024,
+                    max_background_jobs: 2,
+                    max_replay_events: 100,
+                },
+                TestCrypto,
+            )
+            .unwrap(),
+        );
+        let state_store = store.authoritative_state_storage(16 * 1024 * 1024).unwrap();
+        let raft = Raft::<TypeConfig>::new(
+            2,
+            Arc::new(openraft::Config::default().validate().unwrap()),
+            TonicRaftNetworkFactory::new(2, directory.clone()),
+            store.raft_log_storage(),
+            AuthoritativeStateMachine::new(state_store.clone(), limits()).unwrap(),
+        )
+        .await
+        .unwrap();
+        let service =
+            TonicRaftPeerService::new(raft.clone(), Arc::new(ReceiptHandler), directory.clone())
+                .into_server(directory.max_message_bytes, directory.max_message_bytes);
+        let server = tokio::spawn(async move {
+            Server::builder()
+                .layer(RequestMetadataLayer::new("bpmp-snapshot-test"))
+                .add_service(service)
+                .serve_with_incoming(TcpListenerStream::new(listener))
+                .await
+        });
+        let source_directory = tempfile::tempdir().unwrap();
+        let source_store = RocksDbWorkflowStore::open(
+            RocksDbConfig {
+                path: source_directory.path().to_owned(),
+                max_open_files: 64,
+                write_buffer_size_bytes: 1024 * 1024,
+                max_background_jobs: 2,
+                max_replay_events: 100,
+            },
+            TestCrypto,
+        )
+        .unwrap();
+        let source = source_store
+            .authoritative_state_storage(16 * 1024 * 1024)
+            .unwrap();
+        let log_id = openraft::LogId::new(openraft::CommittedLeaderId::new(1, 1), 1);
+        let metadata = StateMachineMetadata {
+            last_applied: Some(log_id),
+            membership: openraft::StoredMembership::new(
+                Some(log_id),
+                openraft::Membership::new(vec![BTreeSet::from([1, 2])], directory.membership()),
+            ),
+        };
+        let mut bounds = limits();
+        bounds.max_batch_bytes = 2 * 1024 * 1024;
+        let prepared = PreparedAtomicBatch::new(
+            "snapshot-large".into(),
+            b"snapshot-large".to_vec(),
+            Vec::new(),
+            vec![Mutation::Put {
+                storage_key: StorageKey {
+                    column_family: "stream_meta".into(),
+                    key: b"large".to_vec(),
+                },
+                value: vec![255; 400_000],
+            }],
+            Vec::new(),
+        );
+        source.apply(&prepared, &bounds, &metadata).unwrap();
+        let mut machine = AuthoritativeStateMachine::new(source, bounds).unwrap();
+        let mut snapshot = machine.build_snapshot().await.unwrap();
+        let mut bytes = Vec::new();
+        snapshot.snapshot.read_to_end(&mut bytes).await.unwrap();
+        assert!(bytes.len() > directory.max_message_bytes);
+        let mut factory = TonicRaftNetworkFactory::new(1, directory);
+        let mut network = factory
+            .new_client(2, &openraft::BasicNode::new("unused"))
+            .await;
+        let mut offset = 0;
+        for chunk in bytes.chunks(64 * 1024) {
+            let end = offset + chunk.len();
+            network
+                .install_snapshot(
+                    openraft::raft::InstallSnapshotRequest {
+                        vote: openraft::Vote::new_committed(1, 1),
+                        meta: snapshot.meta.clone(),
+                        offset: offset as u64,
+                        data: chunk.to_vec(),
+                        done: end == bytes.len(),
+                    },
+                    openraft::network::RPCOption::new(Duration::from_secs(5)),
+                )
+                .await
+                .unwrap();
+            offset = end;
+        }
+        assert_eq!(state_store.load_metadata().unwrap(), metadata);
+        let restored: serde_json::Value =
+            serde_json::from_slice(&state_store.export_snapshot().unwrap()).unwrap();
+        assert!(contains_bytes(&restored, &vec![255; 400_000]));
+        raft.shutdown().await.unwrap();
+        server.abort();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
