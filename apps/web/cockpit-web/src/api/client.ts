@@ -27,6 +27,8 @@ import type {
   StartWorkflowInput,
   WorkItemPage,
   WorkItemResponse,
+  CompletedProcessPage,
+  CompletedProcessQueryInput,
 } from "./types";
 
 export interface RequestIdentity {
@@ -149,6 +151,17 @@ export class BpmpApiClient {
     if (filters.caseId) query.set("case_id", filters.caseId);
     if (pageToken) query.set("page_token", pageToken);
     return this.request(`/v1/audit-records?${query.toString()}`);
+  }
+
+  async queryCompletedProcesses(input: CompletedProcessQueryInput): Promise<CompletedProcessPage> {
+    const response = await this.request<Partial<CompletedProcessPage>>(
+      "/v1/process-instances/completed/query",
+      { method: "POST", body: input },
+    );
+    return {
+      processes: Array.isArray(response.processes) ? response.processes : [],
+      next_page_token: typeof response.next_page_token === "string" ? response.next_page_token : "",
+    };
   }
 
   listOrganizations(offset = 0, limit = this.config.defaultPageSize) {

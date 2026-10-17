@@ -87,6 +87,9 @@ const (
 	ComparisonOperator_COMPARISON_OPERATOR_STARTS_WITH           ComparisonOperator = 10
 	ComparisonOperator_COMPARISON_OPERATOR_IS_NULL               ComparisonOperator = 11
 	ComparisonOperator_COMPARISON_OPERATOR_IS_NOT_NULL           ComparisonOperator = 12
+	ComparisonOperator_COMPARISON_OPERATOR_ENDS_WITH             ComparisonOperator = 13
+	ComparisonOperator_COMPARISON_OPERATOR_BETWEEN               ComparisonOperator = 14
+	ComparisonOperator_COMPARISON_OPERATOR_NOT_BETWEEN           ComparisonOperator = 15
 )
 
 // Enum value maps for ComparisonOperator.
@@ -105,6 +108,9 @@ var (
 		10: "COMPARISON_OPERATOR_STARTS_WITH",
 		11: "COMPARISON_OPERATOR_IS_NULL",
 		12: "COMPARISON_OPERATOR_IS_NOT_NULL",
+		13: "COMPARISON_OPERATOR_ENDS_WITH",
+		14: "COMPARISON_OPERATOR_BETWEEN",
+		15: "COMPARISON_OPERATOR_NOT_BETWEEN",
 	}
 	ComparisonOperator_value = map[string]int32{
 		"COMPARISON_OPERATOR_UNSPECIFIED":           0,
@@ -120,6 +126,9 @@ var (
 		"COMPARISON_OPERATOR_STARTS_WITH":           10,
 		"COMPARISON_OPERATOR_IS_NULL":               11,
 		"COMPARISON_OPERATOR_IS_NOT_NULL":           12,
+		"COMPARISON_OPERATOR_ENDS_WITH":             13,
+		"COMPARISON_OPERATOR_BETWEEN":               14,
+		"COMPARISON_OPERATOR_NOT_BETWEEN":           15,
 	}
 )
 
@@ -168,6 +177,8 @@ const (
 	ProcessField_PROCESS_FIELD_POLICY_VERSION      ProcessField = 12
 	ProcessField_PROCESS_FIELD_VERSION             ProcessField = 13
 	ProcessField_PROCESS_FIELD_INITIATOR_ACTOR_ID  ProcessField = 14
+	ProcessField_PROCESS_FIELD_EVENT_COUNT         ProcessField = 15
+	ProcessField_PROCESS_FIELD_IS_DELETED          ProcessField = 16
 )
 
 // Enum value maps for ProcessField.
@@ -188,6 +199,8 @@ var (
 		12: "PROCESS_FIELD_POLICY_VERSION",
 		13: "PROCESS_FIELD_VERSION",
 		14: "PROCESS_FIELD_INITIATOR_ACTOR_ID",
+		15: "PROCESS_FIELD_EVENT_COUNT",
+		16: "PROCESS_FIELD_IS_DELETED",
 	}
 	ProcessField_value = map[string]int32{
 		"PROCESS_FIELD_UNSPECIFIED":         0,
@@ -205,6 +218,8 @@ var (
 		"PROCESS_FIELD_POLICY_VERSION":      12,
 		"PROCESS_FIELD_VERSION":             13,
 		"PROCESS_FIELD_INITIATOR_ACTOR_ID":  14,
+		"PROCESS_FIELD_EVENT_COUNT":         15,
+		"PROCESS_FIELD_IS_DELETED":          16,
 	}
 )
 
@@ -233,6 +248,116 @@ func (x ProcessField) Number() protoreflect.EnumNumber {
 // Deprecated: Use ProcessField.Descriptor instead.
 func (ProcessField) EnumDescriptor() ([]byte, []int) {
 	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{2}
+}
+
+type QueryScope int32
+
+const (
+	QueryScope_QUERY_SCOPE_UNSPECIFIED QueryScope = 0
+	QueryScope_QUERY_SCOPE_ALL         QueryScope = 1
+	QueryScope_QUERY_SCOPE_ACTIVE      QueryScope = 2
+	QueryScope_QUERY_SCOPE_COMPLETED   QueryScope = 3
+	QueryScope_QUERY_SCOPE_DELETED     QueryScope = 4
+)
+
+// Enum value maps for QueryScope.
+var (
+	QueryScope_name = map[int32]string{
+		0: "QUERY_SCOPE_UNSPECIFIED",
+		1: "QUERY_SCOPE_ALL",
+		2: "QUERY_SCOPE_ACTIVE",
+		3: "QUERY_SCOPE_COMPLETED",
+		4: "QUERY_SCOPE_DELETED",
+	}
+	QueryScope_value = map[string]int32{
+		"QUERY_SCOPE_UNSPECIFIED": 0,
+		"QUERY_SCOPE_ALL":         1,
+		"QUERY_SCOPE_ACTIVE":      2,
+		"QUERY_SCOPE_COMPLETED":   3,
+		"QUERY_SCOPE_DELETED":     4,
+	}
+)
+
+func (x QueryScope) Enum() *QueryScope {
+	p := new(QueryScope)
+	*p = x
+	return p
+}
+
+func (x QueryScope) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (QueryScope) Descriptor() protoreflect.EnumDescriptor {
+	return file_bpmp_projection_v1_projection_proto_enumTypes[3].Descriptor()
+}
+
+func (QueryScope) Type() protoreflect.EnumType {
+	return &file_bpmp_projection_v1_projection_proto_enumTypes[3]
+}
+
+func (x QueryScope) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use QueryScope.Descriptor instead.
+func (QueryScope) EnumDescriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{3}
+}
+
+type QueryValueKind int32
+
+const (
+	QueryValueKind_QUERY_VALUE_KIND_UNSPECIFIED QueryValueKind = 0
+	QueryValueKind_QUERY_VALUE_KIND_STRING      QueryValueKind = 1
+	QueryValueKind_QUERY_VALUE_KIND_INTEGER     QueryValueKind = 2
+	QueryValueKind_QUERY_VALUE_KIND_BOOLEAN     QueryValueKind = 3
+	QueryValueKind_QUERY_VALUE_KIND_TIMESTAMP   QueryValueKind = 4
+)
+
+// Enum value maps for QueryValueKind.
+var (
+	QueryValueKind_name = map[int32]string{
+		0: "QUERY_VALUE_KIND_UNSPECIFIED",
+		1: "QUERY_VALUE_KIND_STRING",
+		2: "QUERY_VALUE_KIND_INTEGER",
+		3: "QUERY_VALUE_KIND_BOOLEAN",
+		4: "QUERY_VALUE_KIND_TIMESTAMP",
+	}
+	QueryValueKind_value = map[string]int32{
+		"QUERY_VALUE_KIND_UNSPECIFIED": 0,
+		"QUERY_VALUE_KIND_STRING":      1,
+		"QUERY_VALUE_KIND_INTEGER":     2,
+		"QUERY_VALUE_KIND_BOOLEAN":     3,
+		"QUERY_VALUE_KIND_TIMESTAMP":   4,
+	}
+)
+
+func (x QueryValueKind) Enum() *QueryValueKind {
+	p := new(QueryValueKind)
+	*p = x
+	return p
+}
+
+func (x QueryValueKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (QueryValueKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_bpmp_projection_v1_projection_proto_enumTypes[4].Descriptor()
+}
+
+func (QueryValueKind) Type() protoreflect.EnumType {
+	return &file_bpmp_projection_v1_projection_proto_enumTypes[4]
+}
+
+func (x QueryValueKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use QueryValueKind.Descriptor instead.
+func (QueryValueKind) EnumDescriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{4}
 }
 
 type EventField int32
@@ -283,11 +408,11 @@ func (x EventField) String() string {
 }
 
 func (EventField) Descriptor() protoreflect.EnumDescriptor {
-	return file_bpmp_projection_v1_projection_proto_enumTypes[3].Descriptor()
+	return file_bpmp_projection_v1_projection_proto_enumTypes[5].Descriptor()
 }
 
 func (EventField) Type() protoreflect.EnumType {
-	return &file_bpmp_projection_v1_projection_proto_enumTypes[3]
+	return &file_bpmp_projection_v1_projection_proto_enumTypes[5]
 }
 
 func (x EventField) Number() protoreflect.EnumNumber {
@@ -296,7 +421,7 @@ func (x EventField) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use EventField.Descriptor instead.
 func (EventField) EnumDescriptor() ([]byte, []int) {
-	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{3}
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{5}
 }
 
 type SortDirection int32
@@ -332,11 +457,11 @@ func (x SortDirection) String() string {
 }
 
 func (SortDirection) Descriptor() protoreflect.EnumDescriptor {
-	return file_bpmp_projection_v1_projection_proto_enumTypes[4].Descriptor()
+	return file_bpmp_projection_v1_projection_proto_enumTypes[6].Descriptor()
 }
 
 func (SortDirection) Type() protoreflect.EnumType {
-	return &file_bpmp_projection_v1_projection_proto_enumTypes[4]
+	return &file_bpmp_projection_v1_projection_proto_enumTypes[6]
 }
 
 func (x SortDirection) Number() protoreflect.EnumNumber {
@@ -345,7 +470,7 @@ func (x SortDirection) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use SortDirection.Descriptor instead.
 func (SortDirection) EnumDescriptor() ([]byte, []int) {
-	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{4}
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{6}
 }
 
 type RelationQuantifier int32
@@ -381,11 +506,11 @@ func (x RelationQuantifier) String() string {
 }
 
 func (RelationQuantifier) Descriptor() protoreflect.EnumDescriptor {
-	return file_bpmp_projection_v1_projection_proto_enumTypes[5].Descriptor()
+	return file_bpmp_projection_v1_projection_proto_enumTypes[7].Descriptor()
 }
 
 func (RelationQuantifier) Type() protoreflect.EnumType {
-	return &file_bpmp_projection_v1_projection_proto_enumTypes[5]
+	return &file_bpmp_projection_v1_projection_proto_enumTypes[7]
 }
 
 func (x RelationQuantifier) Number() protoreflect.EnumNumber {
@@ -394,7 +519,175 @@ func (x RelationQuantifier) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use RelationQuantifier.Descriptor instead.
 func (RelationQuantifier) EnumDescriptor() ([]byte, []int) {
-	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{5}
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{7}
+}
+
+type TextTransform int32
+
+const (
+	TextTransform_TEXT_TRANSFORM_UNSPECIFIED TextTransform = 0
+	TextTransform_TEXT_TRANSFORM_NONE        TextTransform = 1
+	TextTransform_TEXT_TRANSFORM_TRIM        TextTransform = 2
+	TextTransform_TEXT_TRANSFORM_LOWER       TextTransform = 3
+	TextTransform_TEXT_TRANSFORM_UPPER       TextTransform = 4
+	TextTransform_TEXT_TRANSFORM_TRIM_LOWER  TextTransform = 5
+	TextTransform_TEXT_TRANSFORM_TRIM_UPPER  TextTransform = 6
+)
+
+// Enum value maps for TextTransform.
+var (
+	TextTransform_name = map[int32]string{
+		0: "TEXT_TRANSFORM_UNSPECIFIED",
+		1: "TEXT_TRANSFORM_NONE",
+		2: "TEXT_TRANSFORM_TRIM",
+		3: "TEXT_TRANSFORM_LOWER",
+		4: "TEXT_TRANSFORM_UPPER",
+		5: "TEXT_TRANSFORM_TRIM_LOWER",
+		6: "TEXT_TRANSFORM_TRIM_UPPER",
+	}
+	TextTransform_value = map[string]int32{
+		"TEXT_TRANSFORM_UNSPECIFIED": 0,
+		"TEXT_TRANSFORM_NONE":        1,
+		"TEXT_TRANSFORM_TRIM":        2,
+		"TEXT_TRANSFORM_LOWER":       3,
+		"TEXT_TRANSFORM_UPPER":       4,
+		"TEXT_TRANSFORM_TRIM_LOWER":  5,
+		"TEXT_TRANSFORM_TRIM_UPPER":  6,
+	}
+)
+
+func (x TextTransform) Enum() *TextTransform {
+	p := new(TextTransform)
+	*p = x
+	return p
+}
+
+func (x TextTransform) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (TextTransform) Descriptor() protoreflect.EnumDescriptor {
+	return file_bpmp_projection_v1_projection_proto_enumTypes[8].Descriptor()
+}
+
+func (TextTransform) Type() protoreflect.EnumType {
+	return &file_bpmp_projection_v1_projection_proto_enumTypes[8]
+}
+
+func (x TextTransform) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use TextTransform.Descriptor instead.
+func (TextTransform) EnumDescriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{8}
+}
+
+type NumericTransform int32
+
+const (
+	NumericTransform_NUMERIC_TRANSFORM_UNSPECIFIED NumericTransform = 0
+	NumericTransform_NUMERIC_TRANSFORM_NONE        NumericTransform = 1
+	NumericTransform_NUMERIC_TRANSFORM_ABS         NumericTransform = 2
+)
+
+// Enum value maps for NumericTransform.
+var (
+	NumericTransform_name = map[int32]string{
+		0: "NUMERIC_TRANSFORM_UNSPECIFIED",
+		1: "NUMERIC_TRANSFORM_NONE",
+		2: "NUMERIC_TRANSFORM_ABS",
+	}
+	NumericTransform_value = map[string]int32{
+		"NUMERIC_TRANSFORM_UNSPECIFIED": 0,
+		"NUMERIC_TRANSFORM_NONE":        1,
+		"NUMERIC_TRANSFORM_ABS":         2,
+	}
+)
+
+func (x NumericTransform) Enum() *NumericTransform {
+	p := new(NumericTransform)
+	*p = x
+	return p
+}
+
+func (x NumericTransform) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (NumericTransform) Descriptor() protoreflect.EnumDescriptor {
+	return file_bpmp_projection_v1_projection_proto_enumTypes[9].Descriptor()
+}
+
+func (NumericTransform) Type() protoreflect.EnumType {
+	return &file_bpmp_projection_v1_projection_proto_enumTypes[9]
+}
+
+func (x NumericTransform) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use NumericTransform.Descriptor instead.
+func (NumericTransform) EnumDescriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{9}
+}
+
+type DateTransform int32
+
+const (
+	DateTransform_DATE_TRANSFORM_UNSPECIFIED DateTransform = 0
+	DateTransform_DATE_TRANSFORM_NONE        DateTransform = 1
+	DateTransform_DATE_TRANSFORM_UTC_DAY     DateTransform = 2
+	DateTransform_DATE_TRANSFORM_UTC_WEEK    DateTransform = 3
+	DateTransform_DATE_TRANSFORM_UTC_MONTH   DateTransform = 4
+	DateTransform_DATE_TRANSFORM_UTC_YEAR    DateTransform = 5
+)
+
+// Enum value maps for DateTransform.
+var (
+	DateTransform_name = map[int32]string{
+		0: "DATE_TRANSFORM_UNSPECIFIED",
+		1: "DATE_TRANSFORM_NONE",
+		2: "DATE_TRANSFORM_UTC_DAY",
+		3: "DATE_TRANSFORM_UTC_WEEK",
+		4: "DATE_TRANSFORM_UTC_MONTH",
+		5: "DATE_TRANSFORM_UTC_YEAR",
+	}
+	DateTransform_value = map[string]int32{
+		"DATE_TRANSFORM_UNSPECIFIED": 0,
+		"DATE_TRANSFORM_NONE":        1,
+		"DATE_TRANSFORM_UTC_DAY":     2,
+		"DATE_TRANSFORM_UTC_WEEK":    3,
+		"DATE_TRANSFORM_UTC_MONTH":   4,
+		"DATE_TRANSFORM_UTC_YEAR":    5,
+	}
+)
+
+func (x DateTransform) Enum() *DateTransform {
+	p := new(DateTransform)
+	*p = x
+	return p
+}
+
+func (x DateTransform) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (DateTransform) Descriptor() protoreflect.EnumDescriptor {
+	return file_bpmp_projection_v1_projection_proto_enumTypes[10].Descriptor()
+}
+
+func (DateTransform) Type() protoreflect.EnumType {
+	return &file_bpmp_projection_v1_projection_proto_enumTypes[10]
+}
+
+func (x DateTransform) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use DateTransform.Descriptor instead.
+func (DateTransform) EnumDescriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{10}
 }
 
 type WorkflowInstanceReadModel struct {
@@ -916,12 +1209,16 @@ func (*QueryValue_BooleanValue) isQueryValue_Value() {}
 func (*QueryValue_TimestampEpochMs) isQueryValue_Value() {}
 
 type ProcessPredicate struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Field         ProcessField           `protobuf:"varint,1,opt,name=field,proto3,enum=bpmp.projection.v1.ProcessField" json:"field,omitempty"`
-	Operator      ComparisonOperator     `protobuf:"varint,2,opt,name=operator,proto3,enum=bpmp.projection.v1.ComparisonOperator" json:"operator,omitempty"`
-	Values        []*QueryValue          `protobuf:"bytes,3,rep,name=values,proto3" json:"values,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Field            ProcessField           `protobuf:"varint,1,opt,name=field,proto3,enum=bpmp.projection.v1.ProcessField" json:"field,omitempty"`
+	Operator         ComparisonOperator     `protobuf:"varint,2,opt,name=operator,proto3,enum=bpmp.projection.v1.ComparisonOperator" json:"operator,omitempty"`
+	Values           []*QueryValue          `protobuf:"bytes,3,rep,name=values,proto3" json:"values,omitempty"`
+	TextTransform    TextTransform          `protobuf:"varint,4,opt,name=text_transform,json=textTransform,proto3,enum=bpmp.projection.v1.TextTransform" json:"text_transform,omitempty"`
+	CoalesceValue    *QueryValue            `protobuf:"bytes,5,opt,name=coalesce_value,json=coalesceValue,proto3" json:"coalesce_value,omitempty"`
+	NumericTransform NumericTransform       `protobuf:"varint,6,opt,name=numeric_transform,json=numericTransform,proto3,enum=bpmp.projection.v1.NumericTransform" json:"numeric_transform,omitempty"`
+	DateTransform    DateTransform          `protobuf:"varint,7,opt,name=date_transform,json=dateTransform,proto3,enum=bpmp.projection.v1.DateTransform" json:"date_transform,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *ProcessPredicate) Reset() {
@@ -975,13 +1272,45 @@ func (x *ProcessPredicate) GetValues() []*QueryValue {
 	return nil
 }
 
+func (x *ProcessPredicate) GetTextTransform() TextTransform {
+	if x != nil {
+		return x.TextTransform
+	}
+	return TextTransform_TEXT_TRANSFORM_UNSPECIFIED
+}
+
+func (x *ProcessPredicate) GetCoalesceValue() *QueryValue {
+	if x != nil {
+		return x.CoalesceValue
+	}
+	return nil
+}
+
+func (x *ProcessPredicate) GetNumericTransform() NumericTransform {
+	if x != nil {
+		return x.NumericTransform
+	}
+	return NumericTransform_NUMERIC_TRANSFORM_UNSPECIFIED
+}
+
+func (x *ProcessPredicate) GetDateTransform() DateTransform {
+	if x != nil {
+		return x.DateTransform
+	}
+	return DateTransform_DATE_TRANSFORM_UNSPECIFIED
+}
+
 type EventPredicate struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Field         EventField             `protobuf:"varint,1,opt,name=field,proto3,enum=bpmp.projection.v1.EventField" json:"field,omitempty"`
-	Operator      ComparisonOperator     `protobuf:"varint,2,opt,name=operator,proto3,enum=bpmp.projection.v1.ComparisonOperator" json:"operator,omitempty"`
-	Values        []*QueryValue          `protobuf:"bytes,3,rep,name=values,proto3" json:"values,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Field            EventField             `protobuf:"varint,1,opt,name=field,proto3,enum=bpmp.projection.v1.EventField" json:"field,omitempty"`
+	Operator         ComparisonOperator     `protobuf:"varint,2,opt,name=operator,proto3,enum=bpmp.projection.v1.ComparisonOperator" json:"operator,omitempty"`
+	Values           []*QueryValue          `protobuf:"bytes,3,rep,name=values,proto3" json:"values,omitempty"`
+	TextTransform    TextTransform          `protobuf:"varint,4,opt,name=text_transform,json=textTransform,proto3,enum=bpmp.projection.v1.TextTransform" json:"text_transform,omitempty"`
+	CoalesceValue    *QueryValue            `protobuf:"bytes,5,opt,name=coalesce_value,json=coalesceValue,proto3" json:"coalesce_value,omitempty"`
+	NumericTransform NumericTransform       `protobuf:"varint,6,opt,name=numeric_transform,json=numericTransform,proto3,enum=bpmp.projection.v1.NumericTransform" json:"numeric_transform,omitempty"`
+	DateTransform    DateTransform          `protobuf:"varint,7,opt,name=date_transform,json=dateTransform,proto3,enum=bpmp.projection.v1.DateTransform" json:"date_transform,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *EventPredicate) Reset() {
@@ -1033,6 +1362,34 @@ func (x *EventPredicate) GetValues() []*QueryValue {
 		return x.Values
 	}
 	return nil
+}
+
+func (x *EventPredicate) GetTextTransform() TextTransform {
+	if x != nil {
+		return x.TextTransform
+	}
+	return TextTransform_TEXT_TRANSFORM_UNSPECIFIED
+}
+
+func (x *EventPredicate) GetCoalesceValue() *QueryValue {
+	if x != nil {
+		return x.CoalesceValue
+	}
+	return nil
+}
+
+func (x *EventPredicate) GetNumericTransform() NumericTransform {
+	if x != nil {
+		return x.NumericTransform
+	}
+	return NumericTransform_NUMERIC_TRANSFORM_UNSPECIFIED
+}
+
+func (x *EventPredicate) GetDateTransform() DateTransform {
+	if x != nil {
+		return x.DateTransform
+	}
+	return DateTransform_DATE_TRANSFORM_UNSPECIFIED
 }
 
 type EventExpression struct {
@@ -1414,11 +1771,15 @@ func (x *ProcessExpressionGroup) GetExpressions() []*ProcessExpression {
 }
 
 type ProcessSort struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Field         ProcessField           `protobuf:"varint,1,opt,name=field,proto3,enum=bpmp.projection.v1.ProcessField" json:"field,omitempty"`
-	Direction     SortDirection          `protobuf:"varint,2,opt,name=direction,proto3,enum=bpmp.projection.v1.SortDirection" json:"direction,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Field            ProcessField           `protobuf:"varint,1,opt,name=field,proto3,enum=bpmp.projection.v1.ProcessField" json:"field,omitempty"`
+	Direction        SortDirection          `protobuf:"varint,2,opt,name=direction,proto3,enum=bpmp.projection.v1.SortDirection" json:"direction,omitempty"`
+	TextTransform    TextTransform          `protobuf:"varint,3,opt,name=text_transform,json=textTransform,proto3,enum=bpmp.projection.v1.TextTransform" json:"text_transform,omitempty"`
+	CoalesceValue    *QueryValue            `protobuf:"bytes,4,opt,name=coalesce_value,json=coalesceValue,proto3" json:"coalesce_value,omitempty"`
+	NumericTransform NumericTransform       `protobuf:"varint,5,opt,name=numeric_transform,json=numericTransform,proto3,enum=bpmp.projection.v1.NumericTransform" json:"numeric_transform,omitempty"`
+	DateTransform    DateTransform          `protobuf:"varint,6,opt,name=date_transform,json=dateTransform,proto3,enum=bpmp.projection.v1.DateTransform" json:"date_transform,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *ProcessSort) Reset() {
@@ -1465,6 +1826,34 @@ func (x *ProcessSort) GetDirection() SortDirection {
 	return SortDirection_SORT_DIRECTION_UNSPECIFIED
 }
 
+func (x *ProcessSort) GetTextTransform() TextTransform {
+	if x != nil {
+		return x.TextTransform
+	}
+	return TextTransform_TEXT_TRANSFORM_UNSPECIFIED
+}
+
+func (x *ProcessSort) GetCoalesceValue() *QueryValue {
+	if x != nil {
+		return x.CoalesceValue
+	}
+	return nil
+}
+
+func (x *ProcessSort) GetNumericTransform() NumericTransform {
+	if x != nil {
+		return x.NumericTransform
+	}
+	return NumericTransform_NUMERIC_TRANSFORM_UNSPECIFIED
+}
+
+func (x *ProcessSort) GetDateTransform() DateTransform {
+	if x != nil {
+		return x.DateTransform
+	}
+	return DateTransform_DATE_TRANSFORM_UNSPECIFIED
+}
+
 type QueryCompletedProcessesRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	TenantId       string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
@@ -1474,6 +1863,7 @@ type QueryCompletedProcessesRequest struct {
 	PageSize       uint32                 `protobuf:"varint,5,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
 	PageToken      string                 `protobuf:"bytes,6,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
 	ActorProof     *v1.ActorProof         `protobuf:"bytes,7,opt,name=actor_proof,json=actorProof,proto3" json:"actor_proof,omitempty"`
+	Select         []ProcessField         `protobuf:"varint,8,rep,packed,name=select,proto3,enum=bpmp.projection.v1.ProcessField" json:"select,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -1557,11 +1947,19 @@ func (x *QueryCompletedProcessesRequest) GetActorProof() *v1.ActorProof {
 	return nil
 }
 
+func (x *QueryCompletedProcessesRequest) GetSelect() []ProcessField {
+	if x != nil {
+		return x.Select
+	}
+	return nil
+}
+
 type CompletedProcessReadModel struct {
 	state         protoimpl.MessageState     `protogen:"open.v1"`
 	Instance      *WorkflowInstanceReadModel `protobuf:"bytes,1,opt,name=instance,proto3" json:"instance,omitempty"`
 	DurationMs    uint64                     `protobuf:"varint,2,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
 	EventCount    uint64                     `protobuf:"varint,3,opt,name=event_count,json=eventCount,proto3" json:"event_count,omitempty"`
+	MaskedFields  []string                   `protobuf:"bytes,4,rep,name=masked_fields,json=maskedFields,proto3" json:"masked_fields,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1617,12 +2015,22 @@ func (x *CompletedProcessReadModel) GetEventCount() uint64 {
 	return 0
 }
 
+func (x *CompletedProcessReadModel) GetMaskedFields() []string {
+	if x != nil {
+		return x.MaskedFields
+	}
+	return nil
+}
+
 type QueryCompletedProcessesResponse struct {
-	state         protoimpl.MessageState       `protogen:"open.v1"`
-	Processes     []*CompletedProcessReadModel `protobuf:"bytes,1,rep,name=processes,proto3" json:"processes,omitempty"`
-	NextPageToken string                       `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState       `protogen:"open.v1"`
+	Processes        []*CompletedProcessReadModel `protobuf:"bytes,1,rep,name=processes,proto3" json:"processes,omitempty"`
+	NextPageToken    string                       `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	NormalizedSort   []*ProcessSort               `protobuf:"bytes,3,rep,name=normalized_sort,json=normalizedSort,proto3" json:"normalized_sort,omitempty"`
+	PolicyVersion    string                       `protobuf:"bytes,4,opt,name=policy_version,json=policyVersion,proto3" json:"policy_version,omitempty"`
+	QueryFingerprint string                       `protobuf:"bytes,5,opt,name=query_fingerprint,json=queryFingerprint,proto3" json:"query_fingerprint,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *QueryCompletedProcessesResponse) Reset() {
@@ -1667,6 +2075,611 @@ func (x *QueryCompletedProcessesResponse) GetNextPageToken() string {
 		return x.NextPageToken
 	}
 	return ""
+}
+
+func (x *QueryCompletedProcessesResponse) GetNormalizedSort() []*ProcessSort {
+	if x != nil {
+		return x.NormalizedSort
+	}
+	return nil
+}
+
+func (x *QueryCompletedProcessesResponse) GetPolicyVersion() string {
+	if x != nil {
+		return x.PolicyVersion
+	}
+	return ""
+}
+
+func (x *QueryCompletedProcessesResponse) GetQueryFingerprint() string {
+	if x != nil {
+		return x.QueryFingerprint
+	}
+	return ""
+}
+
+type QueryProcessesRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	TenantId       string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	Filter         *ProcessExpression     `protobuf:"bytes,2,opt,name=filter,proto3" json:"filter,omitempty"`
+	Sort           []*ProcessSort         `protobuf:"bytes,3,rep,name=sort,proto3" json:"sort,omitempty"`
+	IncludeDeleted bool                   `protobuf:"varint,4,opt,name=include_deleted,json=includeDeleted,proto3" json:"include_deleted,omitempty"`
+	PageSize       uint32                 `protobuf:"varint,5,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	PageToken      string                 `protobuf:"bytes,6,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	ActorProof     *v1.ActorProof         `protobuf:"bytes,7,opt,name=actor_proof,json=actorProof,proto3" json:"actor_proof,omitempty"`
+	Scope          QueryScope             `protobuf:"varint,8,opt,name=scope,proto3,enum=bpmp.projection.v1.QueryScope" json:"scope,omitempty"`
+	Select         []ProcessField         `protobuf:"varint,9,rep,packed,name=select,proto3,enum=bpmp.projection.v1.ProcessField" json:"select,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *QueryProcessesRequest) Reset() {
+	*x = QueryProcessesRequest{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryProcessesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryProcessesRequest) ProtoMessage() {}
+
+func (x *QueryProcessesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryProcessesRequest.ProtoReflect.Descriptor instead.
+func (*QueryProcessesRequest) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *QueryProcessesRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *QueryProcessesRequest) GetFilter() *ProcessExpression {
+	if x != nil {
+		return x.Filter
+	}
+	return nil
+}
+
+func (x *QueryProcessesRequest) GetSort() []*ProcessSort {
+	if x != nil {
+		return x.Sort
+	}
+	return nil
+}
+
+func (x *QueryProcessesRequest) GetIncludeDeleted() bool {
+	if x != nil {
+		return x.IncludeDeleted
+	}
+	return false
+}
+
+func (x *QueryProcessesRequest) GetPageSize() uint32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *QueryProcessesRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+func (x *QueryProcessesRequest) GetActorProof() *v1.ActorProof {
+	if x != nil {
+		return x.ActorProof
+	}
+	return nil
+}
+
+func (x *QueryProcessesRequest) GetScope() QueryScope {
+	if x != nil {
+		return x.Scope
+	}
+	return QueryScope_QUERY_SCOPE_UNSPECIFIED
+}
+
+func (x *QueryProcessesRequest) GetSelect() []ProcessField {
+	if x != nil {
+		return x.Select
+	}
+	return nil
+}
+
+type QueryProcessesResponse struct {
+	state            protoimpl.MessageState       `protogen:"open.v1"`
+	Processes        []*CompletedProcessReadModel `protobuf:"bytes,1,rep,name=processes,proto3" json:"processes,omitempty"`
+	NextPageToken    string                       `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	NormalizedSort   []*ProcessSort               `protobuf:"bytes,3,rep,name=normalized_sort,json=normalizedSort,proto3" json:"normalized_sort,omitempty"`
+	PolicyVersion    string                       `protobuf:"bytes,4,opt,name=policy_version,json=policyVersion,proto3" json:"policy_version,omitempty"`
+	QueryFingerprint string                       `protobuf:"bytes,5,opt,name=query_fingerprint,json=queryFingerprint,proto3" json:"query_fingerprint,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *QueryProcessesResponse) Reset() {
+	*x = QueryProcessesResponse{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryProcessesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryProcessesResponse) ProtoMessage() {}
+
+func (x *QueryProcessesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryProcessesResponse.ProtoReflect.Descriptor instead.
+func (*QueryProcessesResponse) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *QueryProcessesResponse) GetProcesses() []*CompletedProcessReadModel {
+	if x != nil {
+		return x.Processes
+	}
+	return nil
+}
+
+func (x *QueryProcessesResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
+func (x *QueryProcessesResponse) GetNormalizedSort() []*ProcessSort {
+	if x != nil {
+		return x.NormalizedSort
+	}
+	return nil
+}
+
+func (x *QueryProcessesResponse) GetPolicyVersion() string {
+	if x != nil {
+		return x.PolicyVersion
+	}
+	return ""
+}
+
+func (x *QueryProcessesResponse) GetQueryFingerprint() string {
+	if x != nil {
+		return x.QueryFingerprint
+	}
+	return ""
+}
+
+type ProcessFieldCapability struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Field             ProcessField           `protobuf:"varint,1,opt,name=field,proto3,enum=bpmp.projection.v1.ProcessField" json:"field,omitempty"`
+	ValueKind         QueryValueKind         `protobuf:"varint,2,opt,name=value_kind,json=valueKind,proto3,enum=bpmp.projection.v1.QueryValueKind" json:"value_kind,omitempty"`
+	Filterable        bool                   `protobuf:"varint,3,opt,name=filterable,proto3" json:"filterable,omitempty"`
+	Sortable          bool                   `protobuf:"varint,4,opt,name=sortable,proto3" json:"sortable,omitempty"`
+	Selectable        bool                   `protobuf:"varint,5,opt,name=selectable,proto3" json:"selectable,omitempty"`
+	Operators         []ComparisonOperator   `protobuf:"varint,6,rep,packed,name=operators,proto3,enum=bpmp.projection.v1.ComparisonOperator" json:"operators,omitempty"`
+	TextTransforms    []TextTransform        `protobuf:"varint,7,rep,packed,name=text_transforms,json=textTransforms,proto3,enum=bpmp.projection.v1.TextTransform" json:"text_transforms,omitempty"`
+	NumericTransforms []NumericTransform     `protobuf:"varint,8,rep,packed,name=numeric_transforms,json=numericTransforms,proto3,enum=bpmp.projection.v1.NumericTransform" json:"numeric_transforms,omitempty"`
+	DateTransforms    []DateTransform        `protobuf:"varint,9,rep,packed,name=date_transforms,json=dateTransforms,proto3,enum=bpmp.projection.v1.DateTransform" json:"date_transforms,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *ProcessFieldCapability) Reset() {
+	*x = ProcessFieldCapability{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProcessFieldCapability) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProcessFieldCapability) ProtoMessage() {}
+
+func (x *ProcessFieldCapability) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProcessFieldCapability.ProtoReflect.Descriptor instead.
+func (*ProcessFieldCapability) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *ProcessFieldCapability) GetField() ProcessField {
+	if x != nil {
+		return x.Field
+	}
+	return ProcessField_PROCESS_FIELD_UNSPECIFIED
+}
+
+func (x *ProcessFieldCapability) GetValueKind() QueryValueKind {
+	if x != nil {
+		return x.ValueKind
+	}
+	return QueryValueKind_QUERY_VALUE_KIND_UNSPECIFIED
+}
+
+func (x *ProcessFieldCapability) GetFilterable() bool {
+	if x != nil {
+		return x.Filterable
+	}
+	return false
+}
+
+func (x *ProcessFieldCapability) GetSortable() bool {
+	if x != nil {
+		return x.Sortable
+	}
+	return false
+}
+
+func (x *ProcessFieldCapability) GetSelectable() bool {
+	if x != nil {
+		return x.Selectable
+	}
+	return false
+}
+
+func (x *ProcessFieldCapability) GetOperators() []ComparisonOperator {
+	if x != nil {
+		return x.Operators
+	}
+	return nil
+}
+
+func (x *ProcessFieldCapability) GetTextTransforms() []TextTransform {
+	if x != nil {
+		return x.TextTransforms
+	}
+	return nil
+}
+
+func (x *ProcessFieldCapability) GetNumericTransforms() []NumericTransform {
+	if x != nil {
+		return x.NumericTransforms
+	}
+	return nil
+}
+
+func (x *ProcessFieldCapability) GetDateTransforms() []DateTransform {
+	if x != nil {
+		return x.DateTransforms
+	}
+	return nil
+}
+
+type EventFieldCapability struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Field             EventField             `protobuf:"varint,1,opt,name=field,proto3,enum=bpmp.projection.v1.EventField" json:"field,omitempty"`
+	ValueKind         QueryValueKind         `protobuf:"varint,2,opt,name=value_kind,json=valueKind,proto3,enum=bpmp.projection.v1.QueryValueKind" json:"value_kind,omitempty"`
+	Operators         []ComparisonOperator   `protobuf:"varint,3,rep,packed,name=operators,proto3,enum=bpmp.projection.v1.ComparisonOperator" json:"operators,omitempty"`
+	TextTransforms    []TextTransform        `protobuf:"varint,4,rep,packed,name=text_transforms,json=textTransforms,proto3,enum=bpmp.projection.v1.TextTransform" json:"text_transforms,omitempty"`
+	NumericTransforms []NumericTransform     `protobuf:"varint,5,rep,packed,name=numeric_transforms,json=numericTransforms,proto3,enum=bpmp.projection.v1.NumericTransform" json:"numeric_transforms,omitempty"`
+	DateTransforms    []DateTransform        `protobuf:"varint,6,rep,packed,name=date_transforms,json=dateTransforms,proto3,enum=bpmp.projection.v1.DateTransform" json:"date_transforms,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *EventFieldCapability) Reset() {
+	*x = EventFieldCapability{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EventFieldCapability) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EventFieldCapability) ProtoMessage() {}
+
+func (x *EventFieldCapability) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EventFieldCapability.ProtoReflect.Descriptor instead.
+func (*EventFieldCapability) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *EventFieldCapability) GetField() EventField {
+	if x != nil {
+		return x.Field
+	}
+	return EventField_EVENT_FIELD_UNSPECIFIED
+}
+
+func (x *EventFieldCapability) GetValueKind() QueryValueKind {
+	if x != nil {
+		return x.ValueKind
+	}
+	return QueryValueKind_QUERY_VALUE_KIND_UNSPECIFIED
+}
+
+func (x *EventFieldCapability) GetOperators() []ComparisonOperator {
+	if x != nil {
+		return x.Operators
+	}
+	return nil
+}
+
+func (x *EventFieldCapability) GetTextTransforms() []TextTransform {
+	if x != nil {
+		return x.TextTransforms
+	}
+	return nil
+}
+
+func (x *EventFieldCapability) GetNumericTransforms() []NumericTransform {
+	if x != nil {
+		return x.NumericTransforms
+	}
+	return nil
+}
+
+func (x *EventFieldCapability) GetDateTransforms() []DateTransform {
+	if x != nil {
+		return x.DateTransforms
+	}
+	return nil
+}
+
+type GetQueryCapabilitiesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TenantId      string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	ActorProof    *v1.ActorProof         `protobuf:"bytes,2,opt,name=actor_proof,json=actorProof,proto3" json:"actor_proof,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetQueryCapabilitiesRequest) Reset() {
+	*x = GetQueryCapabilitiesRequest{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetQueryCapabilitiesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetQueryCapabilitiesRequest) ProtoMessage() {}
+
+func (x *GetQueryCapabilitiesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetQueryCapabilitiesRequest.ProtoReflect.Descriptor instead.
+func (*GetQueryCapabilitiesRequest) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *GetQueryCapabilitiesRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *GetQueryCapabilitiesRequest) GetActorProof() *v1.ActorProof {
+	if x != nil {
+		return x.ActorProof
+	}
+	return nil
+}
+
+type GetQueryCapabilitiesResponse struct {
+	state            protoimpl.MessageState    `protogen:"open.v1"`
+	SchemaVersion    string                    `protobuf:"bytes,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
+	ConfigVersion    string                    `protobuf:"bytes,2,opt,name=config_version,json=configVersion,proto3" json:"config_version,omitempty"`
+	PolicyVersion    string                    `protobuf:"bytes,3,opt,name=policy_version,json=policyVersion,proto3" json:"policy_version,omitempty"`
+	Fields           []*ProcessFieldCapability `protobuf:"bytes,4,rep,name=fields,proto3" json:"fields,omitempty"`
+	EventFields      []*EventFieldCapability   `protobuf:"bytes,5,rep,name=event_fields,json=eventFields,proto3" json:"event_fields,omitempty"`
+	DefaultPageSize  uint32                    `protobuf:"varint,6,opt,name=default_page_size,json=defaultPageSize,proto3" json:"default_page_size,omitempty"`
+	MaxPageSize      uint32                    `protobuf:"varint,7,opt,name=max_page_size,json=maxPageSize,proto3" json:"max_page_size,omitempty"`
+	MaxFilterDepth   uint32                    `protobuf:"varint,8,opt,name=max_filter_depth,json=maxFilterDepth,proto3" json:"max_filter_depth,omitempty"`
+	MaxPredicates    uint32                    `protobuf:"varint,9,opt,name=max_predicates,json=maxPredicates,proto3" json:"max_predicates,omitempty"`
+	MaxSortFields    uint32                    `protobuf:"varint,10,opt,name=max_sort_fields,json=maxSortFields,proto3" json:"max_sort_fields,omitempty"`
+	MaxRelationJoins uint32                    `protobuf:"varint,11,opt,name=max_relation_joins,json=maxRelationJoins,proto3" json:"max_relation_joins,omitempty"`
+	MaxInValues      uint32                    `protobuf:"varint,12,opt,name=max_in_values,json=maxInValues,proto3" json:"max_in_values,omitempty"`
+	MaxStringBytes   uint32                    `protobuf:"varint,13,opt,name=max_string_bytes,json=maxStringBytes,proto3" json:"max_string_bytes,omitempty"`
+	Scopes           []QueryScope              `protobuf:"varint,14,rep,packed,name=scopes,proto3,enum=bpmp.projection.v1.QueryScope" json:"scopes,omitempty"`
+	DefaultSort      []*ProcessSort            `protobuf:"bytes,15,rep,name=default_sort,json=defaultSort,proto3" json:"default_sort,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *GetQueryCapabilitiesResponse) Reset() {
+	*x = GetQueryCapabilitiesResponse{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetQueryCapabilitiesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetQueryCapabilitiesResponse) ProtoMessage() {}
+
+func (x *GetQueryCapabilitiesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetQueryCapabilitiesResponse.ProtoReflect.Descriptor instead.
+func (*GetQueryCapabilitiesResponse) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *GetQueryCapabilitiesResponse) GetSchemaVersion() string {
+	if x != nil {
+		return x.SchemaVersion
+	}
+	return ""
+}
+
+func (x *GetQueryCapabilitiesResponse) GetConfigVersion() string {
+	if x != nil {
+		return x.ConfigVersion
+	}
+	return ""
+}
+
+func (x *GetQueryCapabilitiesResponse) GetPolicyVersion() string {
+	if x != nil {
+		return x.PolicyVersion
+	}
+	return ""
+}
+
+func (x *GetQueryCapabilitiesResponse) GetFields() []*ProcessFieldCapability {
+	if x != nil {
+		return x.Fields
+	}
+	return nil
+}
+
+func (x *GetQueryCapabilitiesResponse) GetEventFields() []*EventFieldCapability {
+	if x != nil {
+		return x.EventFields
+	}
+	return nil
+}
+
+func (x *GetQueryCapabilitiesResponse) GetDefaultPageSize() uint32 {
+	if x != nil {
+		return x.DefaultPageSize
+	}
+	return 0
+}
+
+func (x *GetQueryCapabilitiesResponse) GetMaxPageSize() uint32 {
+	if x != nil {
+		return x.MaxPageSize
+	}
+	return 0
+}
+
+func (x *GetQueryCapabilitiesResponse) GetMaxFilterDepth() uint32 {
+	if x != nil {
+		return x.MaxFilterDepth
+	}
+	return 0
+}
+
+func (x *GetQueryCapabilitiesResponse) GetMaxPredicates() uint32 {
+	if x != nil {
+		return x.MaxPredicates
+	}
+	return 0
+}
+
+func (x *GetQueryCapabilitiesResponse) GetMaxSortFields() uint32 {
+	if x != nil {
+		return x.MaxSortFields
+	}
+	return 0
+}
+
+func (x *GetQueryCapabilitiesResponse) GetMaxRelationJoins() uint32 {
+	if x != nil {
+		return x.MaxRelationJoins
+	}
+	return 0
+}
+
+func (x *GetQueryCapabilitiesResponse) GetMaxInValues() uint32 {
+	if x != nil {
+		return x.MaxInValues
+	}
+	return 0
+}
+
+func (x *GetQueryCapabilitiesResponse) GetMaxStringBytes() uint32 {
+	if x != nil {
+		return x.MaxStringBytes
+	}
+	return 0
+}
+
+func (x *GetQueryCapabilitiesResponse) GetScopes() []QueryScope {
+	if x != nil {
+		return x.Scopes
+	}
+	return nil
+}
+
+func (x *GetQueryCapabilitiesResponse) GetDefaultSort() []*ProcessSort {
+	if x != nil {
+		return x.DefaultSort
+	}
+	return nil
 }
 
 var File_bpmp_projection_v1_projection_proto protoreflect.FileDescriptor
@@ -1720,15 +2733,23 @@ const file_bpmp_projection_v1_projection_proto_rawDesc = "" +
 	"\rinteger_value\x18\x02 \x01(\x12H\x00R\fintegerValue\x12%\n" +
 	"\rboolean_value\x18\x03 \x01(\bH\x00R\fbooleanValue\x12.\n" +
 	"\x12timestamp_epoch_ms\x18\x04 \x01(\x04H\x00R\x10timestampEpochMsB\a\n" +
-	"\x05value\"\xc6\x01\n" +
+	"\x05value\"\xf4\x03\n" +
 	"\x10ProcessPredicate\x126\n" +
 	"\x05field\x18\x01 \x01(\x0e2 .bpmp.projection.v1.ProcessFieldR\x05field\x12B\n" +
 	"\boperator\x18\x02 \x01(\x0e2&.bpmp.projection.v1.ComparisonOperatorR\boperator\x126\n" +
-	"\x06values\x18\x03 \x03(\v2\x1e.bpmp.projection.v1.QueryValueR\x06values\"\xc2\x01\n" +
+	"\x06values\x18\x03 \x03(\v2\x1e.bpmp.projection.v1.QueryValueR\x06values\x12H\n" +
+	"\x0etext_transform\x18\x04 \x01(\x0e2!.bpmp.projection.v1.TextTransformR\rtextTransform\x12E\n" +
+	"\x0ecoalesce_value\x18\x05 \x01(\v2\x1e.bpmp.projection.v1.QueryValueR\rcoalesceValue\x12Q\n" +
+	"\x11numeric_transform\x18\x06 \x01(\x0e2$.bpmp.projection.v1.NumericTransformR\x10numericTransform\x12H\n" +
+	"\x0edate_transform\x18\a \x01(\x0e2!.bpmp.projection.v1.DateTransformR\rdateTransform\"\xf0\x03\n" +
 	"\x0eEventPredicate\x124\n" +
 	"\x05field\x18\x01 \x01(\x0e2\x1e.bpmp.projection.v1.EventFieldR\x05field\x12B\n" +
 	"\boperator\x18\x02 \x01(\x0e2&.bpmp.projection.v1.ComparisonOperatorR\boperator\x126\n" +
-	"\x06values\x18\x03 \x03(\v2\x1e.bpmp.projection.v1.QueryValueR\x06values\"\xe6\x01\n" +
+	"\x06values\x18\x03 \x03(\v2\x1e.bpmp.projection.v1.QueryValueR\x06values\x12H\n" +
+	"\x0etext_transform\x18\x04 \x01(\x0e2!.bpmp.projection.v1.TextTransformR\rtextTransform\x12E\n" +
+	"\x0ecoalesce_value\x18\x05 \x01(\v2\x1e.bpmp.projection.v1.QueryValueR\rcoalesceValue\x12Q\n" +
+	"\x11numeric_transform\x18\x06 \x01(\x0e2$.bpmp.projection.v1.NumericTransformR\x10numericTransform\x12H\n" +
+	"\x0edate_transform\x18\a \x01(\x0e2!.bpmp.projection.v1.DateTransformR\rdateTransform\"\xe6\x01\n" +
 	"\x0fEventExpression\x12B\n" +
 	"\tpredicate\x18\x01 \x01(\v2\".bpmp.projection.v1.EventPredicateH\x00R\tpredicate\x12@\n" +
 	"\x05group\x18\x02 \x01(\v2(.bpmp.projection.v1.EventExpressionGroupH\x00R\x05group\x12?\n" +
@@ -1756,10 +2777,14 @@ const file_bpmp_projection_v1_projection_proto_rawDesc = "" +
 	"expression\"\xa2\x01\n" +
 	"\x16ProcessExpressionGroup\x12?\n" +
 	"\boperator\x18\x01 \x01(\x0e2#.bpmp.projection.v1.LogicalOperatorR\boperator\x12G\n" +
-	"\vexpressions\x18\x02 \x03(\v2%.bpmp.projection.v1.ProcessExpressionR\vexpressions\"\x86\x01\n" +
+	"\vexpressions\x18\x02 \x03(\v2%.bpmp.projection.v1.ProcessExpressionR\vexpressions\"\xb4\x03\n" +
 	"\vProcessSort\x126\n" +
 	"\x05field\x18\x01 \x01(\x0e2 .bpmp.projection.v1.ProcessFieldR\x05field\x12?\n" +
-	"\tdirection\x18\x02 \x01(\x0e2!.bpmp.projection.v1.SortDirectionR\tdirection\"\xda\x02\n" +
+	"\tdirection\x18\x02 \x01(\x0e2!.bpmp.projection.v1.SortDirectionR\tdirection\x12H\n" +
+	"\x0etext_transform\x18\x03 \x01(\x0e2!.bpmp.projection.v1.TextTransformR\rtextTransform\x12E\n" +
+	"\x0ecoalesce_value\x18\x04 \x01(\v2\x1e.bpmp.projection.v1.QueryValueR\rcoalesceValue\x12Q\n" +
+	"\x11numeric_transform\x18\x05 \x01(\x0e2$.bpmp.projection.v1.NumericTransformR\x10numericTransform\x12H\n" +
+	"\x0edate_transform\x18\x06 \x01(\x0e2!.bpmp.projection.v1.DateTransformR\rdateTransform\"\x94\x03\n" +
 	"\x1eQueryCompletedProcessesRequest\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12=\n" +
 	"\x06filter\x18\x02 \x01(\v2%.bpmp.projection.v1.ProcessExpressionR\x06filter\x123\n" +
@@ -1769,20 +2794,87 @@ const file_bpmp_projection_v1_projection_proto_rawDesc = "" +
 	"\n" +
 	"page_token\x18\x06 \x01(\tR\tpageToken\x12B\n" +
 	"\vactor_proof\x18\a \x01(\v2!.bpmp.authorization.v1.ActorProofR\n" +
-	"actorProof\"\xa8\x01\n" +
+	"actorProof\x128\n" +
+	"\x06select\x18\b \x03(\x0e2 .bpmp.projection.v1.ProcessFieldR\x06select\"\xcd\x01\n" +
 	"\x19CompletedProcessReadModel\x12I\n" +
 	"\binstance\x18\x01 \x01(\v2-.bpmp.projection.v1.WorkflowInstanceReadModelR\binstance\x12\x1f\n" +
 	"\vduration_ms\x18\x02 \x01(\x04R\n" +
 	"durationMs\x12\x1f\n" +
 	"\vevent_count\x18\x03 \x01(\x04R\n" +
-	"eventCount\"\x96\x01\n" +
+	"eventCount\x12#\n" +
+	"\rmasked_fields\x18\x04 \x03(\tR\fmaskedFields\"\xb4\x02\n" +
 	"\x1fQueryCompletedProcessesResponse\x12K\n" +
 	"\tprocesses\x18\x01 \x03(\v2-.bpmp.projection.v1.CompletedProcessReadModelR\tprocesses\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken*f\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\x12H\n" +
+	"\x0fnormalized_sort\x18\x03 \x03(\v2\x1f.bpmp.projection.v1.ProcessSortR\x0enormalizedSort\x12%\n" +
+	"\x0epolicy_version\x18\x04 \x01(\tR\rpolicyVersion\x12+\n" +
+	"\x11query_fingerprint\x18\x05 \x01(\tR\x10queryFingerprint\"\xc1\x03\n" +
+	"\x15QueryProcessesRequest\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12=\n" +
+	"\x06filter\x18\x02 \x01(\v2%.bpmp.projection.v1.ProcessExpressionR\x06filter\x123\n" +
+	"\x04sort\x18\x03 \x03(\v2\x1f.bpmp.projection.v1.ProcessSortR\x04sort\x12'\n" +
+	"\x0finclude_deleted\x18\x04 \x01(\bR\x0eincludeDeleted\x12\x1b\n" +
+	"\tpage_size\x18\x05 \x01(\rR\bpageSize\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x06 \x01(\tR\tpageToken\x12B\n" +
+	"\vactor_proof\x18\a \x01(\v2!.bpmp.authorization.v1.ActorProofR\n" +
+	"actorProof\x124\n" +
+	"\x05scope\x18\b \x01(\x0e2\x1e.bpmp.projection.v1.QueryScopeR\x05scope\x128\n" +
+	"\x06select\x18\t \x03(\x0e2 .bpmp.projection.v1.ProcessFieldR\x06select\"\xab\x02\n" +
+	"\x16QueryProcessesResponse\x12K\n" +
+	"\tprocesses\x18\x01 \x03(\v2-.bpmp.projection.v1.CompletedProcessReadModelR\tprocesses\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\x12H\n" +
+	"\x0fnormalized_sort\x18\x03 \x03(\v2\x1f.bpmp.projection.v1.ProcessSortR\x0enormalizedSort\x12%\n" +
+	"\x0epolicy_version\x18\x04 \x01(\tR\rpolicyVersion\x12+\n" +
+	"\x11query_fingerprint\x18\x05 \x01(\tR\x10queryFingerprint\"\xa2\x04\n" +
+	"\x16ProcessFieldCapability\x126\n" +
+	"\x05field\x18\x01 \x01(\x0e2 .bpmp.projection.v1.ProcessFieldR\x05field\x12A\n" +
+	"\n" +
+	"value_kind\x18\x02 \x01(\x0e2\".bpmp.projection.v1.QueryValueKindR\tvalueKind\x12\x1e\n" +
+	"\n" +
+	"filterable\x18\x03 \x01(\bR\n" +
+	"filterable\x12\x1a\n" +
+	"\bsortable\x18\x04 \x01(\bR\bsortable\x12\x1e\n" +
+	"\n" +
+	"selectable\x18\x05 \x01(\bR\n" +
+	"selectable\x12D\n" +
+	"\toperators\x18\x06 \x03(\x0e2&.bpmp.projection.v1.ComparisonOperatorR\toperators\x12J\n" +
+	"\x0ftext_transforms\x18\a \x03(\x0e2!.bpmp.projection.v1.TextTransformR\x0etextTransforms\x12S\n" +
+	"\x12numeric_transforms\x18\b \x03(\x0e2$.bpmp.projection.v1.NumericTransformR\x11numericTransforms\x12J\n" +
+	"\x0fdate_transforms\x18\t \x03(\x0e2!.bpmp.projection.v1.DateTransformR\x0edateTransforms\"\xc2\x03\n" +
+	"\x14EventFieldCapability\x124\n" +
+	"\x05field\x18\x01 \x01(\x0e2\x1e.bpmp.projection.v1.EventFieldR\x05field\x12A\n" +
+	"\n" +
+	"value_kind\x18\x02 \x01(\x0e2\".bpmp.projection.v1.QueryValueKindR\tvalueKind\x12D\n" +
+	"\toperators\x18\x03 \x03(\x0e2&.bpmp.projection.v1.ComparisonOperatorR\toperators\x12J\n" +
+	"\x0ftext_transforms\x18\x04 \x03(\x0e2!.bpmp.projection.v1.TextTransformR\x0etextTransforms\x12S\n" +
+	"\x12numeric_transforms\x18\x05 \x03(\x0e2$.bpmp.projection.v1.NumericTransformR\x11numericTransforms\x12J\n" +
+	"\x0fdate_transforms\x18\x06 \x03(\x0e2!.bpmp.projection.v1.DateTransformR\x0edateTransforms\"~\n" +
+	"\x1bGetQueryCapabilitiesRequest\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12B\n" +
+	"\vactor_proof\x18\x02 \x01(\v2!.bpmp.authorization.v1.ActorProofR\n" +
+	"actorProof\"\xe5\x05\n" +
+	"\x1cGetQueryCapabilitiesResponse\x12%\n" +
+	"\x0eschema_version\x18\x01 \x01(\tR\rschemaVersion\x12%\n" +
+	"\x0econfig_version\x18\x02 \x01(\tR\rconfigVersion\x12%\n" +
+	"\x0epolicy_version\x18\x03 \x01(\tR\rpolicyVersion\x12B\n" +
+	"\x06fields\x18\x04 \x03(\v2*.bpmp.projection.v1.ProcessFieldCapabilityR\x06fields\x12K\n" +
+	"\fevent_fields\x18\x05 \x03(\v2(.bpmp.projection.v1.EventFieldCapabilityR\veventFields\x12*\n" +
+	"\x11default_page_size\x18\x06 \x01(\rR\x0fdefaultPageSize\x12\"\n" +
+	"\rmax_page_size\x18\a \x01(\rR\vmaxPageSize\x12(\n" +
+	"\x10max_filter_depth\x18\b \x01(\rR\x0emaxFilterDepth\x12%\n" +
+	"\x0emax_predicates\x18\t \x01(\rR\rmaxPredicates\x12&\n" +
+	"\x0fmax_sort_fields\x18\n" +
+	" \x01(\rR\rmaxSortFields\x12,\n" +
+	"\x12max_relation_joins\x18\v \x01(\rR\x10maxRelationJoins\x12\"\n" +
+	"\rmax_in_values\x18\f \x01(\rR\vmaxInValues\x12(\n" +
+	"\x10max_string_bytes\x18\r \x01(\rR\x0emaxStringBytes\x126\n" +
+	"\x06scopes\x18\x0e \x03(\x0e2\x1e.bpmp.projection.v1.QueryScopeR\x06scopes\x12B\n" +
+	"\fdefault_sort\x18\x0f \x03(\v2\x1f.bpmp.projection.v1.ProcessSortR\vdefaultSort*f\n" +
 	"\x0fLogicalOperator\x12 \n" +
 	"\x1cLOGICAL_OPERATOR_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14LOGICAL_OPERATOR_AND\x10\x01\x12\x17\n" +
-	"\x13LOGICAL_OPERATOR_OR\x10\x02*\xe8\x03\n" +
+	"\x13LOGICAL_OPERATOR_OR\x10\x02*\xd1\x04\n" +
 	"\x12ComparisonOperator\x12#\n" +
 	"\x1fCOMPARISON_OPERATOR_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19COMPARISON_OPERATOR_EQUAL\x10\x01\x12!\n" +
@@ -1797,7 +2889,10 @@ const file_bpmp_projection_v1_projection_proto_rawDesc = "" +
 	"\x1fCOMPARISON_OPERATOR_STARTS_WITH\x10\n" +
 	"\x12\x1f\n" +
 	"\x1bCOMPARISON_OPERATOR_IS_NULL\x10\v\x12#\n" +
-	"\x1fCOMPARISON_OPERATOR_IS_NOT_NULL\x10\f*\xf4\x03\n" +
+	"\x1fCOMPARISON_OPERATOR_IS_NOT_NULL\x10\f\x12!\n" +
+	"\x1dCOMPARISON_OPERATOR_ENDS_WITH\x10\r\x12\x1f\n" +
+	"\x1bCOMPARISON_OPERATOR_BETWEEN\x10\x0e\x12#\n" +
+	"\x1fCOMPARISON_OPERATOR_NOT_BETWEEN\x10\x0f*\xb1\x04\n" +
 	"\fProcessField\x12\x1d\n" +
 	"\x19PROCESS_FIELD_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19PROCESS_FIELD_INSTANCE_ID\x10\x01\x12\x1f\n" +
@@ -1814,7 +2909,22 @@ const file_bpmp_projection_v1_projection_proto_rawDesc = "" +
 	"\x1cPROCESS_FIELD_CONFIG_VERSION\x10\v\x12 \n" +
 	"\x1cPROCESS_FIELD_POLICY_VERSION\x10\f\x12\x19\n" +
 	"\x15PROCESS_FIELD_VERSION\x10\r\x12$\n" +
-	" PROCESS_FIELD_INITIATOR_ACTOR_ID\x10\x0e*\xef\x01\n" +
+	" PROCESS_FIELD_INITIATOR_ACTOR_ID\x10\x0e\x12\x1d\n" +
+	"\x19PROCESS_FIELD_EVENT_COUNT\x10\x0f\x12\x1c\n" +
+	"\x18PROCESS_FIELD_IS_DELETED\x10\x10*\x8a\x01\n" +
+	"\n" +
+	"QueryScope\x12\x1b\n" +
+	"\x17QUERY_SCOPE_UNSPECIFIED\x10\x00\x12\x13\n" +
+	"\x0fQUERY_SCOPE_ALL\x10\x01\x12\x16\n" +
+	"\x12QUERY_SCOPE_ACTIVE\x10\x02\x12\x19\n" +
+	"\x15QUERY_SCOPE_COMPLETED\x10\x03\x12\x17\n" +
+	"\x13QUERY_SCOPE_DELETED\x10\x04*\xab\x01\n" +
+	"\x0eQueryValueKind\x12 \n" +
+	"\x1cQUERY_VALUE_KIND_UNSPECIFIED\x10\x00\x12\x1b\n" +
+	"\x17QUERY_VALUE_KIND_STRING\x10\x01\x12\x1c\n" +
+	"\x18QUERY_VALUE_KIND_INTEGER\x10\x02\x12\x1c\n" +
+	"\x18QUERY_VALUE_KIND_BOOLEAN\x10\x03\x12\x1e\n" +
+	"\x1aQUERY_VALUE_KIND_TIMESTAMP\x10\x04*\xef\x01\n" +
 	"\n" +
 	"EventField\x12\x1b\n" +
 	"\x17EVENT_FIELD_UNSPECIFIED\x10\x00\x12\x1a\n" +
@@ -1832,11 +2942,32 @@ const file_bpmp_projection_v1_projection_proto_rawDesc = "" +
 	"\x12RelationQuantifier\x12#\n" +
 	"\x1fRELATION_QUANTIFIER_UNSPECIFIED\x10\x00\x12\x1e\n" +
 	"\x1aRELATION_QUANTIFIER_EXISTS\x10\x01\x12\"\n" +
-	"\x1eRELATION_QUANTIFIER_NOT_EXISTS\x10\x022\x93\x03\n" +
+	"\x1eRELATION_QUANTIFIER_NOT_EXISTS\x10\x02*\xd3\x01\n" +
+	"\rTextTransform\x12\x1e\n" +
+	"\x1aTEXT_TRANSFORM_UNSPECIFIED\x10\x00\x12\x17\n" +
+	"\x13TEXT_TRANSFORM_NONE\x10\x01\x12\x17\n" +
+	"\x13TEXT_TRANSFORM_TRIM\x10\x02\x12\x18\n" +
+	"\x14TEXT_TRANSFORM_LOWER\x10\x03\x12\x18\n" +
+	"\x14TEXT_TRANSFORM_UPPER\x10\x04\x12\x1d\n" +
+	"\x19TEXT_TRANSFORM_TRIM_LOWER\x10\x05\x12\x1d\n" +
+	"\x19TEXT_TRANSFORM_TRIM_UPPER\x10\x06*l\n" +
+	"\x10NumericTransform\x12!\n" +
+	"\x1dNUMERIC_TRANSFORM_UNSPECIFIED\x10\x00\x12\x1a\n" +
+	"\x16NUMERIC_TRANSFORM_NONE\x10\x01\x12\x19\n" +
+	"\x15NUMERIC_TRANSFORM_ABS\x10\x02*\xbc\x01\n" +
+	"\rDateTransform\x12\x1e\n" +
+	"\x1aDATE_TRANSFORM_UNSPECIFIED\x10\x00\x12\x17\n" +
+	"\x13DATE_TRANSFORM_NONE\x10\x01\x12\x1a\n" +
+	"\x16DATE_TRANSFORM_UTC_DAY\x10\x02\x12\x1b\n" +
+	"\x17DATE_TRANSFORM_UTC_WEEK\x10\x03\x12\x1c\n" +
+	"\x18DATE_TRANSFORM_UTC_MONTH\x10\x04\x12\x1b\n" +
+	"\x17DATE_TRANSFORM_UTC_YEAR\x10\x052\xf7\x04\n" +
 	"\x16ProjectionQueryService\x12v\n" +
 	"\x13GetWorkflowInstance\x12..bpmp.projection.v1.GetWorkflowInstanceRequest\x1a/.bpmp.projection.v1.GetWorkflowInstanceResponse\x12|\n" +
 	"\x15ListWorkflowInstances\x120.bpmp.projection.v1.ListWorkflowInstancesRequest\x1a1.bpmp.projection.v1.ListWorkflowInstancesResponse\x12\x82\x01\n" +
-	"\x17QueryCompletedProcesses\x122.bpmp.projection.v1.QueryCompletedProcessesRequest\x1a3.bpmp.projection.v1.QueryCompletedProcessesResponseB\xea\x01\n" +
+	"\x17QueryCompletedProcesses\x122.bpmp.projection.v1.QueryCompletedProcessesRequest\x1a3.bpmp.projection.v1.QueryCompletedProcessesResponse\x12g\n" +
+	"\x0eQueryProcesses\x12).bpmp.projection.v1.QueryProcessesRequest\x1a*.bpmp.projection.v1.QueryProcessesResponse\x12y\n" +
+	"\x14GetQueryCapabilities\x12/.bpmp.projection.v1.GetQueryCapabilitiesRequest\x1a0.bpmp.projection.v1.GetQueryCapabilitiesResponseB\xea\x01\n" +
 	"\x16com.bpmp.projection.v1B\x0fProjectionProtoP\x01ZUgithub.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/projection/v1;projectionv1\xa2\x02\x03BPX\xaa\x02\x12Bpmp.Projection.V1\xca\x02\x12Bpmp\\Projection\\V1\xe2\x02\x1eBpmp\\Projection\\V1\\GPBMetadata\xea\x02\x14Bpmp::Projection::V1b\x06proto3"
 
 var (
@@ -1851,76 +2982,129 @@ func file_bpmp_projection_v1_projection_proto_rawDescGZIP() []byte {
 	return file_bpmp_projection_v1_projection_proto_rawDescData
 }
 
-var file_bpmp_projection_v1_projection_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_bpmp_projection_v1_projection_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_bpmp_projection_v1_projection_proto_enumTypes = make([]protoimpl.EnumInfo, 11)
+var file_bpmp_projection_v1_projection_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
 var file_bpmp_projection_v1_projection_proto_goTypes = []any{
 	(LogicalOperator)(0),                    // 0: bpmp.projection.v1.LogicalOperator
 	(ComparisonOperator)(0),                 // 1: bpmp.projection.v1.ComparisonOperator
 	(ProcessField)(0),                       // 2: bpmp.projection.v1.ProcessField
-	(EventField)(0),                         // 3: bpmp.projection.v1.EventField
-	(SortDirection)(0),                      // 4: bpmp.projection.v1.SortDirection
-	(RelationQuantifier)(0),                 // 5: bpmp.projection.v1.RelationQuantifier
-	(*WorkflowInstanceReadModel)(nil),       // 6: bpmp.projection.v1.WorkflowInstanceReadModel
-	(*GetWorkflowInstanceRequest)(nil),      // 7: bpmp.projection.v1.GetWorkflowInstanceRequest
-	(*GetWorkflowInstanceResponse)(nil),     // 8: bpmp.projection.v1.GetWorkflowInstanceResponse
-	(*ListWorkflowInstancesRequest)(nil),    // 9: bpmp.projection.v1.ListWorkflowInstancesRequest
-	(*ListWorkflowInstancesResponse)(nil),   // 10: bpmp.projection.v1.ListWorkflowInstancesResponse
-	(*QueryValue)(nil),                      // 11: bpmp.projection.v1.QueryValue
-	(*ProcessPredicate)(nil),                // 12: bpmp.projection.v1.ProcessPredicate
-	(*EventPredicate)(nil),                  // 13: bpmp.projection.v1.EventPredicate
-	(*EventExpression)(nil),                 // 14: bpmp.projection.v1.EventExpression
-	(*EventExpressionGroup)(nil),            // 15: bpmp.projection.v1.EventExpressionGroup
-	(*EventRelationPredicate)(nil),          // 16: bpmp.projection.v1.EventRelationPredicate
-	(*ProcessExpression)(nil),               // 17: bpmp.projection.v1.ProcessExpression
-	(*ProcessExpressionGroup)(nil),          // 18: bpmp.projection.v1.ProcessExpressionGroup
-	(*ProcessSort)(nil),                     // 19: bpmp.projection.v1.ProcessSort
-	(*QueryCompletedProcessesRequest)(nil),  // 20: bpmp.projection.v1.QueryCompletedProcessesRequest
-	(*CompletedProcessReadModel)(nil),       // 21: bpmp.projection.v1.CompletedProcessReadModel
-	(*QueryCompletedProcessesResponse)(nil), // 22: bpmp.projection.v1.QueryCompletedProcessesResponse
-	(*v1.ActorProof)(nil),                   // 23: bpmp.authorization.v1.ActorProof
+	(QueryScope)(0),                         // 3: bpmp.projection.v1.QueryScope
+	(QueryValueKind)(0),                     // 4: bpmp.projection.v1.QueryValueKind
+	(EventField)(0),                         // 5: bpmp.projection.v1.EventField
+	(SortDirection)(0),                      // 6: bpmp.projection.v1.SortDirection
+	(RelationQuantifier)(0),                 // 7: bpmp.projection.v1.RelationQuantifier
+	(TextTransform)(0),                      // 8: bpmp.projection.v1.TextTransform
+	(NumericTransform)(0),                   // 9: bpmp.projection.v1.NumericTransform
+	(DateTransform)(0),                      // 10: bpmp.projection.v1.DateTransform
+	(*WorkflowInstanceReadModel)(nil),       // 11: bpmp.projection.v1.WorkflowInstanceReadModel
+	(*GetWorkflowInstanceRequest)(nil),      // 12: bpmp.projection.v1.GetWorkflowInstanceRequest
+	(*GetWorkflowInstanceResponse)(nil),     // 13: bpmp.projection.v1.GetWorkflowInstanceResponse
+	(*ListWorkflowInstancesRequest)(nil),    // 14: bpmp.projection.v1.ListWorkflowInstancesRequest
+	(*ListWorkflowInstancesResponse)(nil),   // 15: bpmp.projection.v1.ListWorkflowInstancesResponse
+	(*QueryValue)(nil),                      // 16: bpmp.projection.v1.QueryValue
+	(*ProcessPredicate)(nil),                // 17: bpmp.projection.v1.ProcessPredicate
+	(*EventPredicate)(nil),                  // 18: bpmp.projection.v1.EventPredicate
+	(*EventExpression)(nil),                 // 19: bpmp.projection.v1.EventExpression
+	(*EventExpressionGroup)(nil),            // 20: bpmp.projection.v1.EventExpressionGroup
+	(*EventRelationPredicate)(nil),          // 21: bpmp.projection.v1.EventRelationPredicate
+	(*ProcessExpression)(nil),               // 22: bpmp.projection.v1.ProcessExpression
+	(*ProcessExpressionGroup)(nil),          // 23: bpmp.projection.v1.ProcessExpressionGroup
+	(*ProcessSort)(nil),                     // 24: bpmp.projection.v1.ProcessSort
+	(*QueryCompletedProcessesRequest)(nil),  // 25: bpmp.projection.v1.QueryCompletedProcessesRequest
+	(*CompletedProcessReadModel)(nil),       // 26: bpmp.projection.v1.CompletedProcessReadModel
+	(*QueryCompletedProcessesResponse)(nil), // 27: bpmp.projection.v1.QueryCompletedProcessesResponse
+	(*QueryProcessesRequest)(nil),           // 28: bpmp.projection.v1.QueryProcessesRequest
+	(*QueryProcessesResponse)(nil),          // 29: bpmp.projection.v1.QueryProcessesResponse
+	(*ProcessFieldCapability)(nil),          // 30: bpmp.projection.v1.ProcessFieldCapability
+	(*EventFieldCapability)(nil),            // 31: bpmp.projection.v1.EventFieldCapability
+	(*GetQueryCapabilitiesRequest)(nil),     // 32: bpmp.projection.v1.GetQueryCapabilitiesRequest
+	(*GetQueryCapabilitiesResponse)(nil),    // 33: bpmp.projection.v1.GetQueryCapabilitiesResponse
+	(*v1.ActorProof)(nil),                   // 34: bpmp.authorization.v1.ActorProof
 }
 var file_bpmp_projection_v1_projection_proto_depIdxs = []int32{
-	23, // 0: bpmp.projection.v1.GetWorkflowInstanceRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
-	6,  // 1: bpmp.projection.v1.GetWorkflowInstanceResponse.instance:type_name -> bpmp.projection.v1.WorkflowInstanceReadModel
-	23, // 2: bpmp.projection.v1.ListWorkflowInstancesRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
-	6,  // 3: bpmp.projection.v1.ListWorkflowInstancesResponse.instances:type_name -> bpmp.projection.v1.WorkflowInstanceReadModel
+	34, // 0: bpmp.projection.v1.GetWorkflowInstanceRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	11, // 1: bpmp.projection.v1.GetWorkflowInstanceResponse.instance:type_name -> bpmp.projection.v1.WorkflowInstanceReadModel
+	34, // 2: bpmp.projection.v1.ListWorkflowInstancesRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	11, // 3: bpmp.projection.v1.ListWorkflowInstancesResponse.instances:type_name -> bpmp.projection.v1.WorkflowInstanceReadModel
 	2,  // 4: bpmp.projection.v1.ProcessPredicate.field:type_name -> bpmp.projection.v1.ProcessField
 	1,  // 5: bpmp.projection.v1.ProcessPredicate.operator:type_name -> bpmp.projection.v1.ComparisonOperator
-	11, // 6: bpmp.projection.v1.ProcessPredicate.values:type_name -> bpmp.projection.v1.QueryValue
-	3,  // 7: bpmp.projection.v1.EventPredicate.field:type_name -> bpmp.projection.v1.EventField
-	1,  // 8: bpmp.projection.v1.EventPredicate.operator:type_name -> bpmp.projection.v1.ComparisonOperator
-	11, // 9: bpmp.projection.v1.EventPredicate.values:type_name -> bpmp.projection.v1.QueryValue
-	13, // 10: bpmp.projection.v1.EventExpression.predicate:type_name -> bpmp.projection.v1.EventPredicate
-	15, // 11: bpmp.projection.v1.EventExpression.group:type_name -> bpmp.projection.v1.EventExpressionGroup
-	14, // 12: bpmp.projection.v1.EventExpression.negated:type_name -> bpmp.projection.v1.EventExpression
-	0,  // 13: bpmp.projection.v1.EventExpressionGroup.operator:type_name -> bpmp.projection.v1.LogicalOperator
-	14, // 14: bpmp.projection.v1.EventExpressionGroup.expressions:type_name -> bpmp.projection.v1.EventExpression
-	14, // 15: bpmp.projection.v1.EventRelationPredicate.expression:type_name -> bpmp.projection.v1.EventExpression
-	5,  // 16: bpmp.projection.v1.EventRelationPredicate.quantifier:type_name -> bpmp.projection.v1.RelationQuantifier
-	12, // 17: bpmp.projection.v1.ProcessExpression.predicate:type_name -> bpmp.projection.v1.ProcessPredicate
-	18, // 18: bpmp.projection.v1.ProcessExpression.group:type_name -> bpmp.projection.v1.ProcessExpressionGroup
-	17, // 19: bpmp.projection.v1.ProcessExpression.negated:type_name -> bpmp.projection.v1.ProcessExpression
-	16, // 20: bpmp.projection.v1.ProcessExpression.event_relation:type_name -> bpmp.projection.v1.EventRelationPredicate
-	0,  // 21: bpmp.projection.v1.ProcessExpressionGroup.operator:type_name -> bpmp.projection.v1.LogicalOperator
-	17, // 22: bpmp.projection.v1.ProcessExpressionGroup.expressions:type_name -> bpmp.projection.v1.ProcessExpression
-	2,  // 23: bpmp.projection.v1.ProcessSort.field:type_name -> bpmp.projection.v1.ProcessField
-	4,  // 24: bpmp.projection.v1.ProcessSort.direction:type_name -> bpmp.projection.v1.SortDirection
-	17, // 25: bpmp.projection.v1.QueryCompletedProcessesRequest.filter:type_name -> bpmp.projection.v1.ProcessExpression
-	19, // 26: bpmp.projection.v1.QueryCompletedProcessesRequest.sort:type_name -> bpmp.projection.v1.ProcessSort
-	23, // 27: bpmp.projection.v1.QueryCompletedProcessesRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
-	6,  // 28: bpmp.projection.v1.CompletedProcessReadModel.instance:type_name -> bpmp.projection.v1.WorkflowInstanceReadModel
-	21, // 29: bpmp.projection.v1.QueryCompletedProcessesResponse.processes:type_name -> bpmp.projection.v1.CompletedProcessReadModel
-	7,  // 30: bpmp.projection.v1.ProjectionQueryService.GetWorkflowInstance:input_type -> bpmp.projection.v1.GetWorkflowInstanceRequest
-	9,  // 31: bpmp.projection.v1.ProjectionQueryService.ListWorkflowInstances:input_type -> bpmp.projection.v1.ListWorkflowInstancesRequest
-	20, // 32: bpmp.projection.v1.ProjectionQueryService.QueryCompletedProcesses:input_type -> bpmp.projection.v1.QueryCompletedProcessesRequest
-	8,  // 33: bpmp.projection.v1.ProjectionQueryService.GetWorkflowInstance:output_type -> bpmp.projection.v1.GetWorkflowInstanceResponse
-	10, // 34: bpmp.projection.v1.ProjectionQueryService.ListWorkflowInstances:output_type -> bpmp.projection.v1.ListWorkflowInstancesResponse
-	22, // 35: bpmp.projection.v1.ProjectionQueryService.QueryCompletedProcesses:output_type -> bpmp.projection.v1.QueryCompletedProcessesResponse
-	33, // [33:36] is the sub-list for method output_type
-	30, // [30:33] is the sub-list for method input_type
-	30, // [30:30] is the sub-list for extension type_name
-	30, // [30:30] is the sub-list for extension extendee
-	0,  // [0:30] is the sub-list for field type_name
+	16, // 6: bpmp.projection.v1.ProcessPredicate.values:type_name -> bpmp.projection.v1.QueryValue
+	8,  // 7: bpmp.projection.v1.ProcessPredicate.text_transform:type_name -> bpmp.projection.v1.TextTransform
+	16, // 8: bpmp.projection.v1.ProcessPredicate.coalesce_value:type_name -> bpmp.projection.v1.QueryValue
+	9,  // 9: bpmp.projection.v1.ProcessPredicate.numeric_transform:type_name -> bpmp.projection.v1.NumericTransform
+	10, // 10: bpmp.projection.v1.ProcessPredicate.date_transform:type_name -> bpmp.projection.v1.DateTransform
+	5,  // 11: bpmp.projection.v1.EventPredicate.field:type_name -> bpmp.projection.v1.EventField
+	1,  // 12: bpmp.projection.v1.EventPredicate.operator:type_name -> bpmp.projection.v1.ComparisonOperator
+	16, // 13: bpmp.projection.v1.EventPredicate.values:type_name -> bpmp.projection.v1.QueryValue
+	8,  // 14: bpmp.projection.v1.EventPredicate.text_transform:type_name -> bpmp.projection.v1.TextTransform
+	16, // 15: bpmp.projection.v1.EventPredicate.coalesce_value:type_name -> bpmp.projection.v1.QueryValue
+	9,  // 16: bpmp.projection.v1.EventPredicate.numeric_transform:type_name -> bpmp.projection.v1.NumericTransform
+	10, // 17: bpmp.projection.v1.EventPredicate.date_transform:type_name -> bpmp.projection.v1.DateTransform
+	18, // 18: bpmp.projection.v1.EventExpression.predicate:type_name -> bpmp.projection.v1.EventPredicate
+	20, // 19: bpmp.projection.v1.EventExpression.group:type_name -> bpmp.projection.v1.EventExpressionGroup
+	19, // 20: bpmp.projection.v1.EventExpression.negated:type_name -> bpmp.projection.v1.EventExpression
+	0,  // 21: bpmp.projection.v1.EventExpressionGroup.operator:type_name -> bpmp.projection.v1.LogicalOperator
+	19, // 22: bpmp.projection.v1.EventExpressionGroup.expressions:type_name -> bpmp.projection.v1.EventExpression
+	19, // 23: bpmp.projection.v1.EventRelationPredicate.expression:type_name -> bpmp.projection.v1.EventExpression
+	7,  // 24: bpmp.projection.v1.EventRelationPredicate.quantifier:type_name -> bpmp.projection.v1.RelationQuantifier
+	17, // 25: bpmp.projection.v1.ProcessExpression.predicate:type_name -> bpmp.projection.v1.ProcessPredicate
+	23, // 26: bpmp.projection.v1.ProcessExpression.group:type_name -> bpmp.projection.v1.ProcessExpressionGroup
+	22, // 27: bpmp.projection.v1.ProcessExpression.negated:type_name -> bpmp.projection.v1.ProcessExpression
+	21, // 28: bpmp.projection.v1.ProcessExpression.event_relation:type_name -> bpmp.projection.v1.EventRelationPredicate
+	0,  // 29: bpmp.projection.v1.ProcessExpressionGroup.operator:type_name -> bpmp.projection.v1.LogicalOperator
+	22, // 30: bpmp.projection.v1.ProcessExpressionGroup.expressions:type_name -> bpmp.projection.v1.ProcessExpression
+	2,  // 31: bpmp.projection.v1.ProcessSort.field:type_name -> bpmp.projection.v1.ProcessField
+	6,  // 32: bpmp.projection.v1.ProcessSort.direction:type_name -> bpmp.projection.v1.SortDirection
+	8,  // 33: bpmp.projection.v1.ProcessSort.text_transform:type_name -> bpmp.projection.v1.TextTransform
+	16, // 34: bpmp.projection.v1.ProcessSort.coalesce_value:type_name -> bpmp.projection.v1.QueryValue
+	9,  // 35: bpmp.projection.v1.ProcessSort.numeric_transform:type_name -> bpmp.projection.v1.NumericTransform
+	10, // 36: bpmp.projection.v1.ProcessSort.date_transform:type_name -> bpmp.projection.v1.DateTransform
+	22, // 37: bpmp.projection.v1.QueryCompletedProcessesRequest.filter:type_name -> bpmp.projection.v1.ProcessExpression
+	24, // 38: bpmp.projection.v1.QueryCompletedProcessesRequest.sort:type_name -> bpmp.projection.v1.ProcessSort
+	34, // 39: bpmp.projection.v1.QueryCompletedProcessesRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	2,  // 40: bpmp.projection.v1.QueryCompletedProcessesRequest.select:type_name -> bpmp.projection.v1.ProcessField
+	11, // 41: bpmp.projection.v1.CompletedProcessReadModel.instance:type_name -> bpmp.projection.v1.WorkflowInstanceReadModel
+	26, // 42: bpmp.projection.v1.QueryCompletedProcessesResponse.processes:type_name -> bpmp.projection.v1.CompletedProcessReadModel
+	24, // 43: bpmp.projection.v1.QueryCompletedProcessesResponse.normalized_sort:type_name -> bpmp.projection.v1.ProcessSort
+	22, // 44: bpmp.projection.v1.QueryProcessesRequest.filter:type_name -> bpmp.projection.v1.ProcessExpression
+	24, // 45: bpmp.projection.v1.QueryProcessesRequest.sort:type_name -> bpmp.projection.v1.ProcessSort
+	34, // 46: bpmp.projection.v1.QueryProcessesRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	3,  // 47: bpmp.projection.v1.QueryProcessesRequest.scope:type_name -> bpmp.projection.v1.QueryScope
+	2,  // 48: bpmp.projection.v1.QueryProcessesRequest.select:type_name -> bpmp.projection.v1.ProcessField
+	26, // 49: bpmp.projection.v1.QueryProcessesResponse.processes:type_name -> bpmp.projection.v1.CompletedProcessReadModel
+	24, // 50: bpmp.projection.v1.QueryProcessesResponse.normalized_sort:type_name -> bpmp.projection.v1.ProcessSort
+	2,  // 51: bpmp.projection.v1.ProcessFieldCapability.field:type_name -> bpmp.projection.v1.ProcessField
+	4,  // 52: bpmp.projection.v1.ProcessFieldCapability.value_kind:type_name -> bpmp.projection.v1.QueryValueKind
+	1,  // 53: bpmp.projection.v1.ProcessFieldCapability.operators:type_name -> bpmp.projection.v1.ComparisonOperator
+	8,  // 54: bpmp.projection.v1.ProcessFieldCapability.text_transforms:type_name -> bpmp.projection.v1.TextTransform
+	9,  // 55: bpmp.projection.v1.ProcessFieldCapability.numeric_transforms:type_name -> bpmp.projection.v1.NumericTransform
+	10, // 56: bpmp.projection.v1.ProcessFieldCapability.date_transforms:type_name -> bpmp.projection.v1.DateTransform
+	5,  // 57: bpmp.projection.v1.EventFieldCapability.field:type_name -> bpmp.projection.v1.EventField
+	4,  // 58: bpmp.projection.v1.EventFieldCapability.value_kind:type_name -> bpmp.projection.v1.QueryValueKind
+	1,  // 59: bpmp.projection.v1.EventFieldCapability.operators:type_name -> bpmp.projection.v1.ComparisonOperator
+	8,  // 60: bpmp.projection.v1.EventFieldCapability.text_transforms:type_name -> bpmp.projection.v1.TextTransform
+	9,  // 61: bpmp.projection.v1.EventFieldCapability.numeric_transforms:type_name -> bpmp.projection.v1.NumericTransform
+	10, // 62: bpmp.projection.v1.EventFieldCapability.date_transforms:type_name -> bpmp.projection.v1.DateTransform
+	34, // 63: bpmp.projection.v1.GetQueryCapabilitiesRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	30, // 64: bpmp.projection.v1.GetQueryCapabilitiesResponse.fields:type_name -> bpmp.projection.v1.ProcessFieldCapability
+	31, // 65: bpmp.projection.v1.GetQueryCapabilitiesResponse.event_fields:type_name -> bpmp.projection.v1.EventFieldCapability
+	3,  // 66: bpmp.projection.v1.GetQueryCapabilitiesResponse.scopes:type_name -> bpmp.projection.v1.QueryScope
+	24, // 67: bpmp.projection.v1.GetQueryCapabilitiesResponse.default_sort:type_name -> bpmp.projection.v1.ProcessSort
+	12, // 68: bpmp.projection.v1.ProjectionQueryService.GetWorkflowInstance:input_type -> bpmp.projection.v1.GetWorkflowInstanceRequest
+	14, // 69: bpmp.projection.v1.ProjectionQueryService.ListWorkflowInstances:input_type -> bpmp.projection.v1.ListWorkflowInstancesRequest
+	25, // 70: bpmp.projection.v1.ProjectionQueryService.QueryCompletedProcesses:input_type -> bpmp.projection.v1.QueryCompletedProcessesRequest
+	28, // 71: bpmp.projection.v1.ProjectionQueryService.QueryProcesses:input_type -> bpmp.projection.v1.QueryProcessesRequest
+	32, // 72: bpmp.projection.v1.ProjectionQueryService.GetQueryCapabilities:input_type -> bpmp.projection.v1.GetQueryCapabilitiesRequest
+	13, // 73: bpmp.projection.v1.ProjectionQueryService.GetWorkflowInstance:output_type -> bpmp.projection.v1.GetWorkflowInstanceResponse
+	15, // 74: bpmp.projection.v1.ProjectionQueryService.ListWorkflowInstances:output_type -> bpmp.projection.v1.ListWorkflowInstancesResponse
+	27, // 75: bpmp.projection.v1.ProjectionQueryService.QueryCompletedProcesses:output_type -> bpmp.projection.v1.QueryCompletedProcessesResponse
+	29, // 76: bpmp.projection.v1.ProjectionQueryService.QueryProcesses:output_type -> bpmp.projection.v1.QueryProcessesResponse
+	33, // 77: bpmp.projection.v1.ProjectionQueryService.GetQueryCapabilities:output_type -> bpmp.projection.v1.GetQueryCapabilitiesResponse
+	73, // [73:78] is the sub-list for method output_type
+	68, // [68:73] is the sub-list for method input_type
+	68, // [68:68] is the sub-list for extension type_name
+	68, // [68:68] is the sub-list for extension extendee
+	0,  // [0:68] is the sub-list for field type_name
 }
 
 func init() { file_bpmp_projection_v1_projection_proto_init() }
@@ -1950,8 +3134,8 @@ func file_bpmp_projection_v1_projection_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bpmp_projection_v1_projection_proto_rawDesc), len(file_bpmp_projection_v1_projection_proto_rawDesc)),
-			NumEnums:      6,
-			NumMessages:   17,
+			NumEnums:      11,
+			NumMessages:   23,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

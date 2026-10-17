@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"math"
 	"testing"
 	"time"
 )
@@ -92,6 +93,33 @@ func TestQueryCompletedNormalizesStableSortAndAppliesLookahead(t *testing.T) {
 	}
 }
 
+func TestQueryValidationCountsStableSortAndRequiresValidPagePolicy(t *testing.T) {
+	store := &queryStore{}
+	policy := completedQueryPolicy()
+	policy.QueryMaxSortFields = 1
+	service := newQueryService(t, store, policy, QueryAuthorization{SubjectID: "actor-1", PolicyVersion: "policy-v1"})
+	_, _, _, err := service.QueryCompleted(context.Background(), ProcessQuery{
+		TenantID: "tenant-a",
+		Sort:     []ProcessSort{{Field: ProcessCompletedAt, Direction: SortDescending}},
+	})
+	if err == nil {
+		t.Fatal("implicit stable sort must count against the sort budget")
+	}
+
+	for _, mutate := range []func(*RuntimePolicy){
+		func(value *RuntimePolicy) { value.QueryDefaultPageSize = 0 },
+		func(value *RuntimePolicy) { value.QueryMaxPageSize = 0 },
+		func(value *RuntimePolicy) { value.QueryDefaultPageSize = value.QueryMaxPageSize + 1 },
+	} {
+		invalid := completedQueryPolicy()
+		mutate(&invalid)
+		service = newQueryService(t, store, invalid, QueryAuthorization{SubjectID: "actor-1", PolicyVersion: "policy-v1"})
+		if _, _, _, err = service.QueryCompleted(context.Background(), ProcessQuery{TenantID: "tenant-a"}); err == nil {
+			t.Fatalf("invalid page policy was accepted: %+v", invalid)
+		}
+	}
+}
+
 func TestQueryCompletedRejectsBudgetAndForeignCursor(t *testing.T) {
 	store := &queryStore{}
 	policy := completedQueryPolicy()
@@ -159,6 +187,94 @@ func TestQueryValidationEnforcesFieldOperatorMatrix(t *testing.T) {
 	if err := validatePredicate(ProcessDurationMS, CompareGreaterThan,
 		[]QueryValue{{Kind: ValueInteger, Integer: 1}}, policy); err != nil {
 		t.Fatalf("compatible numeric predicate was rejected: %v", err)
+	}
+}
+
+func TestQueryValidationAndCursorApplyTypedTransforms(t *testing.T) {
+	policy := completedQueryPolicy()
+	if err := validateProcessPredicate(ProcessPredicate{
+		Field: ProcessDurationMS, Operator: CompareEqual,
+		Values:        []QueryValue{{Kind: ValueInteger, Integer: 10}},
+		TextTransform: TextTransformLower,
+	}, policy); err == nil {
+		t.Fatal("text transform on integer field was accepted")
+	}
+	if err := validateProcessPredicate(ProcessPredicate{
+		Field: ProcessWorkflowType, Operator: CompareEqual,
+		Values:   []QueryValue{{Kind: ValueString, String: "approval"}},
+		Coalesce: &QueryValue{Kind: ValueInteger, Integer: 1},
+	}, policy); err == nil {
+		t.Fatal("coalesce value with a mismatched type was accepted")
+	}
+
+	completed := time.UnixMilli(2_000).UTC()
+	query := ProcessQuery{
+		TenantID: "tenant-a", AuthorizationSubject: "actor-1", AuthorizationPolicyVersion: "p1",
+		Sort: []ProcessSort{
+			{Field: ProcessWorkflowType, Direction: SortAscending, TextTransform: TextTransformTrimLower},
+			{Field: ProcessInstanceID, Direction: SortAscending},
+		},
+	}
+	cursor, err := CursorFor(query, CompletedProcess{Instance: Instance{
+		InstanceID: "i1", WorkflowType: "  Approval ", CompletedAt: &completed,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cursor.Values[0].String != "approval" {
+		t.Fatalf("cursor did not use transformed sort value: %+v", cursor.Values)
+	}
+}
+
+func TestRangeAndTypedValueTransforms(t *testing.T) {
+	policy := completedQueryPolicy()
+	if err := validateProcessPredicate(ProcessPredicate{
+		Field: ProcessDurationMS, Operator: CompareBetween,
+		Values: []QueryValue{{Kind: ValueInteger, Integer: 20}, {Kind: ValueInteger, Integer: 10}},
+	}, policy); err == nil {
+		t.Fatal("reversed numeric range was accepted")
+	}
+	if err := validateProcessPredicate(ProcessPredicate{
+		Field: ProcessCompletedAt, Operator: CompareBetween,
+		Values:        []QueryValue{{Kind: ValueTimestamp, Time: time.Unix(10, 0)}, {Kind: ValueTimestamp, Time: time.Unix(20, 0)}},
+		DateTransform: DateTransformUTCDay,
+	}, policy); err != nil {
+		t.Fatalf("valid date range was rejected: %v", err)
+	}
+
+	predicate := ProcessPredicate{
+		Field: ProcessDurationMS, Operator: CompareBetween,
+		Values:           []QueryValue{{Kind: ValueInteger, Integer: -20}, {Kind: ValueInteger, Integer: 30}},
+		NumericTransform: NumericTransformAbs,
+	}
+	if err := normalizeProcessPredicate(&predicate); err != nil {
+		t.Fatal(err)
+	}
+	if predicate.Values[0].Integer != 20 || predicate.Values[1].Integer != 30 {
+		t.Fatalf("numeric values were not normalized: %+v", predicate.Values)
+	}
+
+	date := time.Date(2026, time.October, 17, 23, 42, 1, 0, time.FixedZone("UTC+7", 7*60*60))
+	datePredicate := ProcessPredicate{
+		Field: ProcessCompletedAt, Operator: CompareEqual,
+		Values:        []QueryValue{{Kind: ValueTimestamp, Time: date}},
+		DateTransform: DateTransformUTCDay,
+	}
+	if err := normalizeProcessPredicate(&datePredicate); err != nil {
+		t.Fatal(err)
+	}
+	want := time.Date(2026, time.October, 17, 0, 0, 0, 0, time.UTC)
+	if !datePredicate.Values[0].Time.Equal(want) {
+		t.Fatalf("date was not bucketed in UTC: got %s want %s", datePredicate.Values[0].Time, want)
+	}
+
+	overflow := ProcessPredicate{
+		Field: ProcessDurationMS, Operator: CompareEqual,
+		Values:           []QueryValue{{Kind: ValueInteger, Integer: math.MinInt64}},
+		NumericTransform: NumericTransformAbs,
+	}
+	if err := normalizeProcessPredicate(&overflow); err == nil {
+		t.Fatal("ABS overflow was accepted")
 	}
 }
 

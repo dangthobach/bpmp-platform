@@ -22,6 +22,8 @@ const (
 	ProjectionQueryService_GetWorkflowInstance_FullMethodName     = "/bpmp.projection.v1.ProjectionQueryService/GetWorkflowInstance"
 	ProjectionQueryService_ListWorkflowInstances_FullMethodName   = "/bpmp.projection.v1.ProjectionQueryService/ListWorkflowInstances"
 	ProjectionQueryService_QueryCompletedProcesses_FullMethodName = "/bpmp.projection.v1.ProjectionQueryService/QueryCompletedProcesses"
+	ProjectionQueryService_QueryProcesses_FullMethodName          = "/bpmp.projection.v1.ProjectionQueryService/QueryProcesses"
+	ProjectionQueryService_GetQueryCapabilities_FullMethodName    = "/bpmp.projection.v1.ProjectionQueryService/GetQueryCapabilities"
 )
 
 // ProjectionQueryServiceClient is the client API for ProjectionQueryService service.
@@ -31,6 +33,8 @@ type ProjectionQueryServiceClient interface {
 	GetWorkflowInstance(ctx context.Context, in *GetWorkflowInstanceRequest, opts ...grpc.CallOption) (*GetWorkflowInstanceResponse, error)
 	ListWorkflowInstances(ctx context.Context, in *ListWorkflowInstancesRequest, opts ...grpc.CallOption) (*ListWorkflowInstancesResponse, error)
 	QueryCompletedProcesses(ctx context.Context, in *QueryCompletedProcessesRequest, opts ...grpc.CallOption) (*QueryCompletedProcessesResponse, error)
+	QueryProcesses(ctx context.Context, in *QueryProcessesRequest, opts ...grpc.CallOption) (*QueryProcessesResponse, error)
+	GetQueryCapabilities(ctx context.Context, in *GetQueryCapabilitiesRequest, opts ...grpc.CallOption) (*GetQueryCapabilitiesResponse, error)
 }
 
 type projectionQueryServiceClient struct {
@@ -71,6 +75,26 @@ func (c *projectionQueryServiceClient) QueryCompletedProcesses(ctx context.Conte
 	return out, nil
 }
 
+func (c *projectionQueryServiceClient) QueryProcesses(ctx context.Context, in *QueryProcessesRequest, opts ...grpc.CallOption) (*QueryProcessesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(QueryProcessesResponse)
+	err := c.cc.Invoke(ctx, ProjectionQueryService_QueryProcesses_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *projectionQueryServiceClient) GetQueryCapabilities(ctx context.Context, in *GetQueryCapabilitiesRequest, opts ...grpc.CallOption) (*GetQueryCapabilitiesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetQueryCapabilitiesResponse)
+	err := c.cc.Invoke(ctx, ProjectionQueryService_GetQueryCapabilities_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ProjectionQueryServiceServer is the server API for ProjectionQueryService service.
 // All implementations must embed UnimplementedProjectionQueryServiceServer
 // for forward compatibility.
@@ -78,6 +102,8 @@ type ProjectionQueryServiceServer interface {
 	GetWorkflowInstance(context.Context, *GetWorkflowInstanceRequest) (*GetWorkflowInstanceResponse, error)
 	ListWorkflowInstances(context.Context, *ListWorkflowInstancesRequest) (*ListWorkflowInstancesResponse, error)
 	QueryCompletedProcesses(context.Context, *QueryCompletedProcessesRequest) (*QueryCompletedProcessesResponse, error)
+	QueryProcesses(context.Context, *QueryProcessesRequest) (*QueryProcessesResponse, error)
+	GetQueryCapabilities(context.Context, *GetQueryCapabilitiesRequest) (*GetQueryCapabilitiesResponse, error)
 	mustEmbedUnimplementedProjectionQueryServiceServer()
 }
 
@@ -96,6 +122,12 @@ func (UnimplementedProjectionQueryServiceServer) ListWorkflowInstances(context.C
 }
 func (UnimplementedProjectionQueryServiceServer) QueryCompletedProcesses(context.Context, *QueryCompletedProcessesRequest) (*QueryCompletedProcessesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method QueryCompletedProcesses not implemented")
+}
+func (UnimplementedProjectionQueryServiceServer) QueryProcesses(context.Context, *QueryProcessesRequest) (*QueryProcessesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method QueryProcesses not implemented")
+}
+func (UnimplementedProjectionQueryServiceServer) GetQueryCapabilities(context.Context, *GetQueryCapabilitiesRequest) (*GetQueryCapabilitiesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetQueryCapabilities not implemented")
 }
 func (UnimplementedProjectionQueryServiceServer) mustEmbedUnimplementedProjectionQueryServiceServer() {
 }
@@ -173,6 +205,42 @@ func _ProjectionQueryService_QueryCompletedProcesses_Handler(srv interface{}, ct
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ProjectionQueryService_QueryProcesses_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(QueryProcessesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProjectionQueryServiceServer).QueryProcesses(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProjectionQueryService_QueryProcesses_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProjectionQueryServiceServer).QueryProcesses(ctx, req.(*QueryProcessesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProjectionQueryService_GetQueryCapabilities_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetQueryCapabilitiesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProjectionQueryServiceServer).GetQueryCapabilities(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProjectionQueryService_GetQueryCapabilities_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProjectionQueryServiceServer).GetQueryCapabilities(ctx, req.(*GetQueryCapabilitiesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ProjectionQueryService_ServiceDesc is the grpc.ServiceDesc for ProjectionQueryService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -191,6 +259,14 @@ var ProjectionQueryService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "QueryCompletedProcesses",
 			Handler:    _ProjectionQueryService_QueryCompletedProcesses_Handler,
+		},
+		{
+			MethodName: "QueryProcesses",
+			Handler:    _ProjectionQueryService_QueryProcesses_Handler,
+		},
+		{
+			MethodName: "GetQueryCapabilities",
+			Handler:    _ProjectionQueryService_GetQueryCapabilities_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

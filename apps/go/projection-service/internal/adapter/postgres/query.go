@@ -10,7 +10,8 @@ import (
 	"github.com/dangthobach/bpmp-platform/apps/go/projection-service/internal/application"
 )
 
-const durationExpression = `GREATEST(0,FLOOR(EXTRACT(EPOCH FROM (p.completed_at-p.started_at))*1000))::bigint`
+const durationExpression = `COALESCE(GREATEST(0,FLOOR(EXTRACT(EPOCH FROM (p.completed_at-p.started_at))*1000)),0)::bigint`
+const eventCountExpression = `(SELECT COUNT(*) FROM workflow_event_read_models ec WHERE ec.tenant_id=p.tenant_id AND ec.instance_id=p.instance_id AND NOT ec.is_deleted)::bigint`
 
 type sqlBuilder struct {
 	args          []any
@@ -26,7 +27,6 @@ func (s *Store) QueryCompleted(
 }
 
 func (s *Store) QueryInstances(ctx context.Context, query application.ProcessQuery) ([]application.CompletedProcess, error) {
-	query.Scope = application.QueryScopeInstances
 	return s.queryProcesses(ctx, query)
 }
 
@@ -74,10 +74,15 @@ func compileCompletedQuery(query application.ProcessQuery) (string, []any, error
 	conditions := []string{
 		"p.tenant_id=" + tenant,
 	}
-	if query.Scope != application.QueryScopeInstances {
+	switch query.Scope {
+	case application.QueryScopeCompleted:
 		conditions = append(conditions, "p.status='COMPLETED'", "p.completed_at IS NOT NULL")
+	case application.QueryScopeActive:
+		conditions = append(conditions, "p.completed_at IS NULL")
+	case application.QueryScopeDeleted:
+		conditions = append(conditions, "p.is_deleted")
 	}
-	if !query.IncludeDeleted {
+	if query.Scope != application.QueryScopeDeleted && !query.IncludeDeleted {
 		conditions = append(conditions, "NOT p.is_deleted")
 	}
 	if query.Filter != nil {
@@ -96,7 +101,7 @@ func compileCompletedQuery(query application.ProcessQuery) (string, []any, error
 	}
 	order := make([]string, 0, len(query.Sort))
 	for _, sort := range query.Sort {
-		field, err := processSQL(sort.Field)
+		field, err := builder.processSortSQL(sort)
 		if err != nil {
 			return "", nil, err
 		}
@@ -110,8 +115,7 @@ func compileCompletedQuery(query application.ProcessQuery) (string, []any, error
 	statement := `SELECT p.tenant_id,p.instance_id,p.workflow_type,p.workflow_version,p.status,
 		p.active_node_id,p.last_event_sequence,p.started_at,p.updated_at,p.completed_at,
 		p.config_version,p.policy_version,p.initiator_actor_id,p.is_deleted,p.version,` + durationExpression + `,
-		(SELECT COUNT(*) FROM workflow_event_read_models ec
-		 WHERE ec.tenant_id=p.tenant_id AND ec.instance_id=p.instance_id AND NOT ec.is_deleted)::bigint
+		` + eventCountExpression + `
 		FROM workflow_instance_read_models p
 		WHERE ` + strings.Join(conditions, " AND ") + `
 		ORDER BY ` + strings.Join(order, ",") + `
@@ -126,6 +130,7 @@ func (b *sqlBuilder) processExpression(expression application.ProcessExpression)
 		if err != nil {
 			return "", err
 		}
+		field = b.fieldExpression(field, expression.Predicate.TextTransform, expression.Predicate.NumericTransform, expression.Predicate.DateTransform, expression.Predicate.Coalesce)
 		return b.comparison(field, expression.Predicate.Operator, expression.Predicate.Values)
 	case expression.Negated != nil:
 		child, err := b.processExpression(*expression.Negated)
@@ -168,6 +173,7 @@ func (b *sqlBuilder) eventExpression(alias string, expression application.EventE
 		if err != nil {
 			return "", err
 		}
+		field = b.fieldExpression(field, expression.Predicate.TextTransform, expression.Predicate.NumericTransform, expression.Predicate.DateTransform, expression.Predicate.Coalesce)
 		return b.comparison(field, expression.Predicate.Operator, expression.Predicate.Values)
 	case expression.Negated != nil:
 		child, err := b.eventExpression(alias, *expression.Negated)
@@ -209,12 +215,20 @@ func (b *sqlBuilder) comparison(
 			keyword = "<> ALL"
 		}
 		return field + " " + keyword + "(" + b.bind(value) + ")", nil
-	case application.CompareContains, application.CompareStartsWith:
+	case application.CompareBetween, application.CompareNotBetween:
+		keyword := "BETWEEN"
+		if operator == application.CompareNotBetween {
+			keyword = "NOT BETWEEN"
+		}
+		return field + " " + keyword + " " + b.bind(queryScalar(values[0])) + " AND " + b.bind(queryScalar(values[1])), nil
+	case application.CompareContains, application.CompareStartsWith, application.CompareEndsWith:
 		value := escapeLike(values[0].String)
 		if operator == application.CompareContains {
 			value = "%" + value + "%"
-		} else {
+		} else if operator == application.CompareStartsWith {
 			value += "%"
+		} else {
+			value = "%" + value
 		}
 		return field + " LIKE " + b.bind(value) + " ESCAPE '\\'", nil
 	default:
@@ -242,13 +256,13 @@ func (b *sqlBuilder) cursorCondition(
 	for current, sort := range sorts {
 		parts := make([]string, 0, current+1)
 		for previous := 0; previous < current; previous++ {
-			field, err := processSQL(sorts[previous].Field)
+			field, err := b.processSortSQL(sorts[previous])
 			if err != nil {
 				return "", err
 			}
 			parts = append(parts, field+"="+b.bind(queryScalar(values[previous])))
 		}
-		field, err := processSQL(sort.Field)
+		field, err := b.processSortSQL(sort)
 		if err != nil {
 			return "", err
 		}
@@ -260,6 +274,47 @@ func (b *sqlBuilder) cursorCondition(
 		branches = append(branches, "("+strings.Join(parts, " AND ")+")")
 	}
 	return "(" + strings.Join(branches, " OR ") + ")", nil
+}
+
+func (b *sqlBuilder) processSortSQL(sort application.ProcessSort) (string, error) {
+	field, err := processSQL(sort.Field)
+	if err != nil {
+		return "", err
+	}
+	return b.fieldExpression(field, sort.TextTransform, sort.NumericTransform, sort.DateTransform, sort.Coalesce), nil
+}
+
+func (b *sqlBuilder) fieldExpression(field string, textTransform application.TextTransform, numericTransform application.NumericTransform, dateTransform application.DateTransform, coalesce *application.QueryValue) string {
+	if coalesce != nil {
+		field = "COALESCE(" + field + "," + b.bind(queryScalar(*coalesce)) + ")"
+	}
+	if numericTransform == application.NumericTransformAbs {
+		field = "ABS(" + field + ")"
+	}
+	switch dateTransform {
+	case application.DateTransformUTCDay:
+		field = "DATE_TRUNC('day'," + field + " AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'"
+	case application.DateTransformUTCWeek:
+		field = "DATE_TRUNC('week'," + field + " AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'"
+	case application.DateTransformUTCMonth:
+		field = "DATE_TRUNC('month'," + field + " AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'"
+	case application.DateTransformUTCYear:
+		field = "DATE_TRUNC('year'," + field + " AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'"
+	}
+	switch textTransform {
+	case application.TextTransformTrim:
+		return "BTRIM(" + field + ")"
+	case application.TextTransformLower:
+		return "LOWER(" + field + ")"
+	case application.TextTransformUpper:
+		return "UPPER(" + field + ")"
+	case application.TextTransformTrimLower:
+		return "LOWER(BTRIM(" + field + "))"
+	case application.TextTransformTrimUpper:
+		return "UPPER(BTRIM(" + field + "))"
+	default:
+		return field
+	}
 }
 
 func (b *sqlBuilder) bind(value any) string {
@@ -283,6 +338,8 @@ func processSQL(field application.ProcessField) (string, error) {
 		application.ProcessPolicyVersion:     "p.policy_version",
 		application.ProcessVersion:           "p.version",
 		application.ProcessInitiatorActorID:  "p.initiator_actor_id",
+		application.ProcessEventCount:       eventCountExpression,
+		application.ProcessIsDeleted:        "p.is_deleted",
 	}
 	value, ok := values[field]
 	if !ok {

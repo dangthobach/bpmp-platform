@@ -8,6 +8,7 @@ import {
   Play,
   Workflow,
   SlidersHorizontal,
+  Database,
   Wifi,
   WifiOff,
 } from "lucide-react";
@@ -22,6 +23,7 @@ const navigation = [
   { to: "/start", label: "Start workflow", icon: Play },
   { to: "/cases", label: "Cases", icon: Workflow },
   { to: "/audit", label: "Audit", icon: FileClock },
+  { to: "/processes", label: "Process explorer", icon: Database },
   { to: "/organizations", label: "Organizations", icon: Building2 },
   { to: "/configuration", label: "Configuration", icon: SlidersHorizontal },
 ];

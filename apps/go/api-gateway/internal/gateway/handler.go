@@ -22,6 +22,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
 type Handler struct {
@@ -174,6 +175,8 @@ var publicOperationDefinitions = []publicOperationDefinition{
 	{PublicOperation{http.MethodGet, "/v1/cases/{caseID}", "getCase"}, (*Handler).getCase, false},
 	{PublicOperation{http.MethodGet, "/v1/audit-records", "listAuditRecords"}, (*Handler).listAuditRecords, false},
 	{PublicOperation{http.MethodPost, "/v1/process-instances/completed/query", "queryCompletedProcesses"}, (*Handler).queryCompletedProcesses, false},
+	{PublicOperation{http.MethodPost, "/v1/process-instances/query", "queryProcesses"}, (*Handler).queryProcesses, false},
+	{PublicOperation{http.MethodGet, "/v1/process-instances/query-capabilities", "getProcessQueryCapabilities"}, (*Handler).getProcessQueryCapabilities, false},
 	{PublicOperation{http.MethodGet, "/v1/configuration/profiles", "listConfigurationProfiles"}, (*Handler).configuration, true},
 	{PublicOperation{http.MethodPost, "/v1/configuration/profiles", "createConfigurationProfile"}, (*Handler).configuration, true},
 	{PublicOperation{http.MethodGet, "/v1/configuration/profiles/{profileID}", "getConfigurationProfile"}, (*Handler).configuration, true},
@@ -219,6 +222,60 @@ func (h *Handler) queryCompletedProcesses(w http.ResponseWriter, r *http.Request
 		writeError(w, errUpstream)
 		return
 	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) queryProcesses(w http.ResponseWriter, r *http.Request) {
+	setCorrelationHeader(w, r)
+	scope, err := h.authenticateQuery(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if h.projection == nil {
+		writeError(w, errUpstream)
+		return
+	}
+	request := &projectionv1.QueryProcessesRequest{}
+	if err = decodeProtoBody(w, r, request, scope.runtimePolicy.MaxRequestBodyBytes); err != nil {
+		writeError(w, errInvalid)
+		return
+	}
+	request.TenantId = scope.tenantID
+	request.ActorProof = actorProof(scope)
+	response, err := invokeUpstream(h, upstreamContext(r, scope), scope, projectionDependency,
+		func(ctx context.Context) (*projectionv1.QueryProcessesResponse, error) {
+			return h.projection.QueryProcesses(ctx, request)
+		})
+	if err != nil {
+		writeProjectionError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) getProcessQueryCapabilities(w http.ResponseWriter, r *http.Request) {
+	setCorrelationHeader(w, r)
+	scope, err := h.authenticateQuery(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if h.projection == nil {
+		writeError(w, errUpstream)
+		return
+	}
+	response, err := invokeUpstream(h, upstreamContext(r, scope), scope, projectionDependency,
+		func(ctx context.Context) (*projectionv1.GetQueryCapabilitiesResponse, error) {
+			return h.projection.GetQueryCapabilities(ctx, &projectionv1.GetQueryCapabilitiesRequest{
+				TenantId: scope.tenantID, ActorProof: actorProof(scope),
+			})
+		})
+	if err != nil {
+		writeProjectionError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "private, no-cache")
 	writeJSON(w, http.StatusOK, response)
 }
 
@@ -592,7 +649,7 @@ func decodeBody(w http.ResponseWriter, r *http.Request, target any, max int64) e
 	return nil
 }
 
-func decodeProtoBody(w http.ResponseWriter, r *http.Request, target *projectionv1.QueryCompletedProcessesRequest, max int64) error {
+func decodeProtoBody(w http.ResponseWriter, r *http.Request, target proto.Message, max int64) error {
 	r.Body = http.MaxBytesReader(w, r.Body, max)
 	data, err := io.ReadAll(r.Body)
 	if err != nil {

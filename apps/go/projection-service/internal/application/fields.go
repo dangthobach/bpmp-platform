@@ -4,7 +4,7 @@ package application
 var FieldNames = []string{"tenant_id", "instance_id", "workflow_type", "workflow_version", "status", "active_node_id", "last_event_sequence", "started_at_epoch_ms", "updated_at_epoch_ms", "completed_at_epoch_ms", "duration_ms", "event_count", "config_version", "policy_version", "is_deleted", "version", "initiator_actor_id", "event_type", "event_node_id", "event_actor_id", "event_sequence", "event_occurred_at", "event_config_version", "event_policy_version"}
 
 func ProcessFieldName(field ProcessField) string {
-	names := map[ProcessField]string{ProcessInstanceID: "instance_id", ProcessWorkflowType: "workflow_type", ProcessWorkflowVersion: "workflow_version", ProcessStatus: "status", ProcessActiveNodeID: "active_node_id", ProcessLastEventSequence: "last_event_sequence", ProcessStartedAt: "started_at_epoch_ms", ProcessUpdatedAt: "updated_at_epoch_ms", ProcessCompletedAt: "completed_at_epoch_ms", ProcessDurationMS: "duration_ms", ProcessConfigVersion: "config_version", ProcessPolicyVersion: "policy_version", ProcessVersion: "version", ProcessInitiatorActorID: "initiator_actor_id"}
+	names := map[ProcessField]string{ProcessInstanceID: "instance_id", ProcessWorkflowType: "workflow_type", ProcessWorkflowVersion: "workflow_version", ProcessStatus: "status", ProcessActiveNodeID: "active_node_id", ProcessLastEventSequence: "last_event_sequence", ProcessStartedAt: "started_at_epoch_ms", ProcessUpdatedAt: "updated_at_epoch_ms", ProcessCompletedAt: "completed_at_epoch_ms", ProcessDurationMS: "duration_ms", ProcessConfigVersion: "config_version", ProcessPolicyVersion: "policy_version", ProcessVersion: "version", ProcessInitiatorActorID: "initiator_actor_id", ProcessEventCount: "event_count", ProcessIsDeleted: "is_deleted"}
 	return names[field]
 }
 
@@ -29,6 +29,17 @@ func validateFieldAccess(query ProcessQuery) error {
 	}
 	if query.IncludeDeleted && !allowed["is_deleted"] {
 		return ErrQueryForbidden
+	}
+	seenSelected := make(map[ProcessField]struct{}, len(query.SelectedFields))
+	for _, field := range query.SelectedFields {
+		name := ProcessFieldName(field)
+		if name == "" || !query.Fields.CanRead(name) {
+			return ErrQueryForbidden
+		}
+		if _, duplicate := seenSelected[field]; duplicate {
+			return fmt.Errorf("%w: duplicate selected field", ErrInvalidQuery)
+		}
+		seenSelected[field] = struct{}{}
 	}
 	for _, sort := range query.Sort {
 		if !allowed[ProcessFieldName(sort.Field)] {

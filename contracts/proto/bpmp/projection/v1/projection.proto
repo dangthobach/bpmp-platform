@@ -67,6 +67,9 @@ enum ComparisonOperator {
   COMPARISON_OPERATOR_STARTS_WITH = 10;
   COMPARISON_OPERATOR_IS_NULL = 11;
   COMPARISON_OPERATOR_IS_NOT_NULL = 12;
+  COMPARISON_OPERATOR_ENDS_WITH = 13;
+  COMPARISON_OPERATOR_BETWEEN = 14;
+  COMPARISON_OPERATOR_NOT_BETWEEN = 15;
 }
 
 enum ProcessField {
@@ -85,6 +88,24 @@ enum ProcessField {
   PROCESS_FIELD_POLICY_VERSION = 12;
   PROCESS_FIELD_VERSION = 13;
   PROCESS_FIELD_INITIATOR_ACTOR_ID = 14;
+  PROCESS_FIELD_EVENT_COUNT = 15;
+  PROCESS_FIELD_IS_DELETED = 16;
+}
+
+enum QueryScope {
+  QUERY_SCOPE_UNSPECIFIED = 0;
+  QUERY_SCOPE_ALL = 1;
+  QUERY_SCOPE_ACTIVE = 2;
+  QUERY_SCOPE_COMPLETED = 3;
+  QUERY_SCOPE_DELETED = 4;
+}
+
+enum QueryValueKind {
+  QUERY_VALUE_KIND_UNSPECIFIED = 0;
+  QUERY_VALUE_KIND_STRING = 1;
+  QUERY_VALUE_KIND_INTEGER = 2;
+  QUERY_VALUE_KIND_BOOLEAN = 3;
+  QUERY_VALUE_KIND_TIMESTAMP = 4;
 }
 
 enum EventField {
@@ -110,6 +131,31 @@ enum RelationQuantifier {
   RELATION_QUANTIFIER_NOT_EXISTS = 2;
 }
 
+enum TextTransform {
+  TEXT_TRANSFORM_UNSPECIFIED = 0;
+  TEXT_TRANSFORM_NONE = 1;
+  TEXT_TRANSFORM_TRIM = 2;
+  TEXT_TRANSFORM_LOWER = 3;
+  TEXT_TRANSFORM_UPPER = 4;
+  TEXT_TRANSFORM_TRIM_LOWER = 5;
+  TEXT_TRANSFORM_TRIM_UPPER = 6;
+}
+
+enum NumericTransform {
+  NUMERIC_TRANSFORM_UNSPECIFIED = 0;
+  NUMERIC_TRANSFORM_NONE = 1;
+  NUMERIC_TRANSFORM_ABS = 2;
+}
+
+enum DateTransform {
+  DATE_TRANSFORM_UNSPECIFIED = 0;
+  DATE_TRANSFORM_NONE = 1;
+  DATE_TRANSFORM_UTC_DAY = 2;
+  DATE_TRANSFORM_UTC_WEEK = 3;
+  DATE_TRANSFORM_UTC_MONTH = 4;
+  DATE_TRANSFORM_UTC_YEAR = 5;
+}
+
 message QueryValue {
   oneof value {
     string string_value = 1;
@@ -123,12 +169,20 @@ message ProcessPredicate {
   ProcessField field = 1;
   ComparisonOperator operator = 2;
   repeated QueryValue values = 3;
+  TextTransform text_transform = 4;
+  QueryValue coalesce_value = 5;
+  NumericTransform numeric_transform = 6;
+  DateTransform date_transform = 7;
 }
 
 message EventPredicate {
   EventField field = 1;
   ComparisonOperator operator = 2;
   repeated QueryValue values = 3;
+  TextTransform text_transform = 4;
+  QueryValue coalesce_value = 5;
+  NumericTransform numeric_transform = 6;
+  DateTransform date_transform = 7;
 }
 
 message EventExpression {
@@ -167,6 +221,10 @@ message ProcessExpressionGroup {
 message ProcessSort {
   ProcessField field = 1;
   SortDirection direction = 2;
+  TextTransform text_transform = 3;
+  QueryValue coalesce_value = 4;
+  NumericTransform numeric_transform = 5;
+  DateTransform date_transform = 6;
 }
 
 message QueryCompletedProcessesRequest {
@@ -177,21 +235,92 @@ message QueryCompletedProcessesRequest {
   uint32 page_size = 5;
   string page_token = 6;
   bpmp.authorization.v1.ActorProof actor_proof = 7;
+  repeated ProcessField select = 8;
 }
 
 message CompletedProcessReadModel {
   WorkflowInstanceReadModel instance = 1;
   uint64 duration_ms = 2;
   uint64 event_count = 3;
+  repeated string masked_fields = 4;
 }
 
 message QueryCompletedProcessesResponse {
   repeated CompletedProcessReadModel processes = 1;
   string next_page_token = 2;
+  repeated ProcessSort normalized_sort = 3;
+  string policy_version = 4;
+  string query_fingerprint = 5;
+}
+
+message QueryProcessesRequest {
+  string tenant_id = 1;
+  ProcessExpression filter = 2;
+  repeated ProcessSort sort = 3;
+  bool include_deleted = 4;
+  uint32 page_size = 5;
+  string page_token = 6;
+  bpmp.authorization.v1.ActorProof actor_proof = 7;
+  QueryScope scope = 8;
+  repeated ProcessField select = 9;
+}
+
+message QueryProcessesResponse {
+  repeated CompletedProcessReadModel processes = 1;
+  string next_page_token = 2;
+  repeated ProcessSort normalized_sort = 3;
+  string policy_version = 4;
+  string query_fingerprint = 5;
+}
+
+message ProcessFieldCapability {
+  ProcessField field = 1;
+  QueryValueKind value_kind = 2;
+  bool filterable = 3;
+  bool sortable = 4;
+  bool selectable = 5;
+  repeated ComparisonOperator operators = 6;
+  repeated TextTransform text_transforms = 7;
+  repeated NumericTransform numeric_transforms = 8;
+  repeated DateTransform date_transforms = 9;
+}
+
+message EventFieldCapability {
+  EventField field = 1;
+  QueryValueKind value_kind = 2;
+  repeated ComparisonOperator operators = 3;
+  repeated TextTransform text_transforms = 4;
+  repeated NumericTransform numeric_transforms = 5;
+  repeated DateTransform date_transforms = 6;
+}
+
+message GetQueryCapabilitiesRequest {
+  string tenant_id = 1;
+  bpmp.authorization.v1.ActorProof actor_proof = 2;
+}
+
+message GetQueryCapabilitiesResponse {
+  string schema_version = 1;
+  string config_version = 2;
+  string policy_version = 3;
+  repeated ProcessFieldCapability fields = 4;
+  repeated EventFieldCapability event_fields = 5;
+  uint32 default_page_size = 6;
+  uint32 max_page_size = 7;
+  uint32 max_filter_depth = 8;
+  uint32 max_predicates = 9;
+  uint32 max_sort_fields = 10;
+  uint32 max_relation_joins = 11;
+  uint32 max_in_values = 12;
+  uint32 max_string_bytes = 13;
+  repeated QueryScope scopes = 14;
+  repeated ProcessSort default_sort = 15;
 }
 
 service ProjectionQueryService {
   rpc GetWorkflowInstance(GetWorkflowInstanceRequest) returns (GetWorkflowInstanceResponse);
   rpc ListWorkflowInstances(ListWorkflowInstancesRequest) returns (ListWorkflowInstancesResponse);
   rpc QueryCompletedProcesses(QueryCompletedProcessesRequest) returns (QueryCompletedProcessesResponse);
+  rpc QueryProcesses(QueryProcessesRequest) returns (QueryProcessesResponse);
+  rpc GetQueryCapabilities(GetQueryCapabilitiesRequest) returns (GetQueryCapabilitiesResponse);
 }

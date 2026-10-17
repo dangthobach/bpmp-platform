@@ -59,7 +59,7 @@ func TestPostgresAuthorizedQueryLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	for _, file := range []string{"001_projection.sql", "002_completed_process_query.sql"} {
+	for _, file := range []string{"001_projection.sql", "002_completed_process_query.sql", "004_query_text_transforms.sql"} {
 		data, readErr := os.ReadFile(filepath.Join("../../../../../../db/projection-service/migrations", file))
 		if readErr != nil {
 			t.Fatal(readErr)

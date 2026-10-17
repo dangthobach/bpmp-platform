@@ -136,6 +136,38 @@ describe("BpmpApiClient work items API", () => {
   });
 });
 
+describe("BpmpApiClient completed process query", () => {
+  it("posts the typed tree and normalizes an omitted protobuf result list", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new BpmpApiClient(config, () => identity);
+    const filter = {
+      event_relation: {
+        quantifier: "RELATION_QUANTIFIER_EXISTS",
+        expression: {
+          predicate: {
+            field: "EVENT_FIELD_EVENT_TYPE",
+            operator: "COMPARISON_OPERATOR_EQUAL",
+            values: [{ string_value: "workflow_completed" }],
+          },
+        },
+      },
+    };
+
+    await expect(client.queryCompletedProcesses({ filter, page_size: 25 })).resolves.toEqual({
+      processes: [],
+      next_page_token: "",
+    });
+    const [url, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
+    expect(url.pathname).toBe("/v1/process-instances/completed/query");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({ filter, page_size: 25 });
+    const headers = new Headers(init.headers);
+    expect(headers.get("Authorization")).toBe("Bearer signed-user-token");
+    expect(headers.get("X-BPMP-Tenant-ID")).toBe(identity.tenantId);
+  });
+});
+
 describe("BpmpApiClient configuration facade", () => {
   it("uses the public gateway and preserves a caller-owned idempotency key", async () => {
     const profile = {

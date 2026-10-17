@@ -97,6 +97,44 @@ start of each request: page size, timeout, filter depth, predicate count, sort
 count, relation joins, `IN` cardinality and string length. Raw SQL, arbitrary
 columns and cross-service joins are not part of this API.
 
+The Cockpit exposes this contract under **Process explorer**. Its visual query
+builder emits the same typed Protobuf JSON shape and supports nested `AND`/`OR`,
+`NOT`, correlated event `EXISTS`/`NOT EXISTS`, multi-field sorting and cursor
+pagination. Nested groups and relations can be collapsed without changing the
+query AST. String predicates and sort keys accept only the versioned
+`TextTransform` enum (`TRIM`, `LOWER`, `UPPER`, and the two trim combinations),
+numeric fields may use `NumericTransform.ABS`, and timestamps may be bucketed
+to UTC day, ISO week, month, or year through `DateTransform`. String matching
+includes escaped `CONTAINS`, `STARTS_WITH`, and `ENDS_WITH`; `%` and `_` are
+literal input rather than caller-controlled SQL wildcards. Numeric and
+timestamp fields support inclusive `BETWEEN` and `NOT_BETWEEN` with exactly two
+ordered, same-type bounds. `coalesce_value` remains a typed null fallback.
+
+The PostgreSQL compiler applies the same typed expression to filters, every
+`ORDER BY` level, keyset comparisons, and cursor values; it never accepts a raw
+SQL function or expression from clients. Transforms are applied before range
+ordering is validated. UTC buckets are timezone-independent, with weeks
+starting on Monday according to PostgreSQL `date_trunc('week', ...)` semantics.
+Browser validation rejects malformed groups, incompatible field/operator pairs,
+unsafe JavaScript integers, invalid timestamps, empty `IN` members, reversed or
+incomplete ranges, transform/type mismatches, duplicate sorts, oversized UTF-8 strings and excessive local
+complexity before a request is sent. These checks are usability and
+client-resource guards only: Projection Service authorization and the tenant's
+dynamic `ProjectionPolicy` remain authoritative on every execution.
+
+The stable `PROCESS_FIELD_INSTANCE_ID` tie-breaker added during normalization
+counts toward `query_max_sort_fields`. A query at the configured sort limit
+must therefore include that field explicitly or leave room for the automatic
+tie-breaker. This keeps the executed `ORDER BY`, cursor arity and configured
+complexity budget aligned.
+
+Text, numeric, and date transforms can make an ordinary B-tree index unusable. Migration
+`004_query_text_transforms.sql` therefore adds expression indexes only for the
+measured common `TRIM + LOWER` workflow/event type path. Adding indexes for
+other field/transform combinations requires representative `EXPLAIN (ANALYZE,
+BUFFERS)` evidence to avoid unbounded projection write amplification. See
+[Query performance](query-performance.md).
+
 `GetWorkflowInstance` and `ListWorkflowInstances` also require `actor_proof` and
 use the same authorizer and typed filter pipeline. An instance outside the
 actor's row scope returns `NOT_FOUND`; missing or invalid proof returns

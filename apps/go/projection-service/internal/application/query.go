@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"strings"
 	"time"
 )
 
@@ -14,6 +16,29 @@ var (
 	ErrInvalidQuery   = errors.New("projection query is invalid")
 	ErrQueryForbidden = errors.New("projection query is forbidden")
 )
+
+type QueryViolation struct {
+	Path    string
+	Rule    string
+	Message string
+}
+
+type QueryValidationError struct {
+	Violations []QueryViolation
+}
+
+func (e *QueryValidationError) Error() string {
+	if len(e.Violations) == 0 {
+		return ErrInvalidQuery.Error()
+	}
+	return e.Violations[0].Message
+}
+
+func (e *QueryValidationError) Unwrap() error { return ErrInvalidQuery }
+
+func invalidQuery(path, rule, message string) error {
+	return &QueryValidationError{Violations: []QueryViolation{{Path: path, Rule: rule, Message: message}}}
+}
 
 type ActorProofType int32
 
@@ -87,6 +112,37 @@ const (
 	CompareStartsWith
 	CompareIsNull
 	CompareIsNotNull
+	CompareEndsWith
+	CompareBetween
+	CompareNotBetween
+)
+
+type TextTransform int32
+
+const (
+	TextTransformNone TextTransform = iota + 1
+	TextTransformTrim
+	TextTransformLower
+	TextTransformUpper
+	TextTransformTrimLower
+	TextTransformTrimUpper
+)
+
+type NumericTransform int32
+
+const (
+	NumericTransformNone NumericTransform = iota + 1
+	NumericTransformAbs
+)
+
+type DateTransform int32
+
+const (
+	DateTransformNone DateTransform = iota + 1
+	DateTransformUTCDay
+	DateTransformUTCWeek
+	DateTransformUTCMonth
+	DateTransformUTCYear
 )
 
 type ProcessField int32
@@ -106,6 +162,8 @@ const (
 	ProcessPolicyVersion
 	ProcessVersion
 	ProcessInitiatorActorID
+	ProcessEventCount
+	ProcessIsDeleted
 )
 
 type EventField int32
@@ -128,15 +186,23 @@ const (
 )
 
 type ProcessPredicate struct {
-	Field    ProcessField `json:"field"`
-	Operator Comparison   `json:"operator"`
-	Values   []QueryValue `json:"values,omitempty"`
+	Field            ProcessField     `json:"field"`
+	Operator         Comparison       `json:"operator"`
+	Values           []QueryValue     `json:"values,omitempty"`
+	TextTransform    TextTransform    `json:"text_transform,omitempty"`
+	Coalesce         *QueryValue      `json:"coalesce,omitempty"`
+	NumericTransform NumericTransform `json:"numeric_transform,omitempty"`
+	DateTransform    DateTransform    `json:"date_transform,omitempty"`
 }
 
 type EventPredicate struct {
-	Field    EventField   `json:"field"`
-	Operator Comparison   `json:"operator"`
-	Values   []QueryValue `json:"values,omitempty"`
+	Field            EventField       `json:"field"`
+	Operator         Comparison       `json:"operator"`
+	Values           []QueryValue     `json:"values,omitempty"`
+	TextTransform    TextTransform    `json:"text_transform,omitempty"`
+	Coalesce         *QueryValue      `json:"coalesce,omitempty"`
+	NumericTransform NumericTransform `json:"numeric_transform,omitempty"`
+	DateTransform    DateTransform    `json:"date_transform,omitempty"`
 }
 
 type EventExpression struct {
@@ -174,8 +240,12 @@ const (
 )
 
 type ProcessSort struct {
-	Field     ProcessField  `json:"field"`
-	Direction SortDirection `json:"direction"`
+	Field            ProcessField     `json:"field"`
+	Direction        SortDirection    `json:"direction"`
+	TextTransform    TextTransform    `json:"text_transform,omitempty"`
+	Coalesce         *QueryValue      `json:"coalesce,omitempty"`
+	NumericTransform NumericTransform `json:"numeric_transform,omitempty"`
+	DateTransform    DateTransform    `json:"date_transform,omitempty"`
 }
 
 type QueryCursor struct {
@@ -196,13 +266,16 @@ type ProcessQuery struct {
 	CursorSigningKeyID         string              `json:"-"`
 	Scope                      QueryScope          `json:"scope"`
 	Fields                     *FieldAuthorization `json:"fields,omitempty"`
+	SelectedFields             []ProcessField      `json:"selected_fields,omitempty"`
 }
 
 type QueryScope uint8
 
 const (
-	QueryScopeCompleted QueryScope = iota + 1
-	QueryScopeInstances
+	QueryScopeAll QueryScope = iota + 1
+	QueryScopeActive
+	QueryScopeCompleted
+	QueryScopeDeleted
 )
 
 type CompletedProcess struct {
@@ -224,7 +297,9 @@ func (s *Service) QueryCompleted(
 }
 
 func (s *Service) QueryInstances(ctx context.Context, query ProcessQuery) ([]CompletedProcess, int, ProcessQuery, error) {
-	query.Scope = QueryScopeInstances
+	if query.Scope == 0 {
+		query.Scope = QueryScopeAll
+	}
 	if len(query.Sort) == 0 {
 		query.Sort = []ProcessSort{{Field: ProcessUpdatedAt, Direction: SortDescending}, {Field: ProcessInstanceID, Direction: SortDescending}}
 	}
@@ -256,6 +331,9 @@ func (s *Service) queryProcesses(ctx context.Context, query ProcessQuery) ([]Com
 	query.AuthorizationPolicyVersion = authorization.PolicyVersion
 	query.CursorSigningKeyID = policy.QueryCursorSigningKeyID
 	query.Fields = authorization.Fields
+	if query.Scope < QueryScopeAll || query.Scope > QueryScopeDeleted {
+		return nil, 0, query, fmt.Errorf("%w: query scope is unsupported", ErrInvalidQuery)
+	}
 	if err = validateFieldAccess(query); err != nil {
 		return nil, 0, query, err
 	}
@@ -273,7 +351,7 @@ func (s *Service) queryProcesses(ctx context.Context, query ProcessQuery) ([]Com
 	effectiveLimit := query.Limit
 	query.Limit++
 	var processes []CompletedProcess
-	if query.Scope == QueryScopeInstances {
+	if query.Scope != QueryScopeCompleted {
 		processes, err = s.store.QueryInstances(queryCtx, query)
 	} else {
 		processes, err = s.store.QueryCompleted(queryCtx, query)
@@ -295,7 +373,9 @@ func intersectFilters(client, authorization *ProcessExpression) *ProcessExpressi
 }
 
 func normalizeAndValidateQuery(query *ProcessQuery, policy RuntimePolicy) error {
-	if policy.QueryMaxFilterDepth == 0 || policy.QueryMaxPredicates == 0 ||
+	if policy.QueryDefaultPageSize == 0 || policy.QueryMaxPageSize == 0 ||
+		policy.QueryDefaultPageSize > policy.QueryMaxPageSize ||
+		policy.QueryMaxFilterDepth == 0 || policy.QueryMaxPredicates == 0 ||
 		policy.QueryMaxSortFields == 0 ||
 		policy.QueryMaxInValues == 0 || policy.QueryTimeout <= 0 ||
 		policy.QueryMaxStringBytes == 0 {
@@ -314,11 +394,18 @@ func normalizeAndValidateQuery(query *ProcessQuery, policy RuntimePolicy) error 
 	if len(query.Sort) == 0 {
 		query.Sort = []ProcessSort{{Field: ProcessCompletedAt, Direction: SortDescending}}
 	}
-	if uint32(len(query.Sort)) > policy.QueryMaxSortFields {
-		return fmt.Errorf("%w: sort count exceeds policy", ErrInvalidQuery)
-	}
 	seen := make(map[ProcessField]struct{}, len(query.Sort)+1)
-	for _, sort := range query.Sort {
+	for index := range query.Sort {
+		sort := &query.Sort[index]
+		if sort.TextTransform == 0 {
+			sort.TextTransform = TextTransformNone
+		}
+		if sort.NumericTransform == 0 {
+			sort.NumericTransform = NumericTransformNone
+		}
+		if sort.DateTransform == 0 {
+			sort.DateTransform = DateTransformNone
+		}
 		if !validProcessField(sort.Field) ||
 			(sort.Direction != SortAscending && sort.Direction != SortDescending) {
 			return fmt.Errorf("%w: sort is unsupported", ErrInvalidQuery)
@@ -327,12 +414,27 @@ func normalizeAndValidateQuery(query *ProcessQuery, policy RuntimePolicy) error 
 			return fmt.Errorf("%w: duplicate sort field", ErrInvalidQuery)
 		}
 		seen[sort.Field] = struct{}{}
+		if err := validateSort(*sort, policy); err != nil {
+			return err
+		}
 	}
 	if _, stable := seen[ProcessInstanceID]; !stable {
-		query.Sort = append(query.Sort, ProcessSort{Field: ProcessInstanceID, Direction: SortAscending})
+		query.Sort = append(query.Sort, ProcessSort{
+			Field: ProcessInstanceID, Direction: SortAscending,
+			TextTransform: TextTransformNone, NumericTransform: NumericTransformNone, DateTransform: DateTransformNone,
+		})
+	}
+	// The stable tie-breaker is part of the executed ORDER BY and cursor. Count it
+	// against the policy so normalization cannot silently exceed the configured
+	// query complexity budget.
+	if uint32(len(query.Sort)) > policy.QueryMaxSortFields {
+		return fmt.Errorf("%w: sort count exceeds policy", ErrInvalidQuery)
 	}
 	budget := queryBudget{}
 	if query.Filter != nil {
+		if err := normalizeProcessExpression(query.Filter); err != nil {
+			return err
+		}
 		if err := validateProcessExpression(*query.Filter, 1, policy, &budget); err != nil {
 			return err
 		}
@@ -345,6 +447,84 @@ func normalizeAndValidateQuery(query *ProcessQuery, policy RuntimePolicy) error 
 			if query.After.Values[index].Kind != processFieldKind(sort.Field) {
 				return fmt.Errorf("%w: page token sort type is invalid", ErrInvalidQuery)
 			}
+		}
+	}
+	return nil
+}
+
+func normalizeProcessExpression(expression *ProcessExpression) error {
+	if expression == nil {
+		return nil
+	}
+	if expression.Predicate != nil {
+		if err := normalizeProcessPredicate(expression.Predicate); err != nil {
+			return err
+		}
+	}
+	for index := range expression.Children {
+		if err := normalizeProcessExpression(&expression.Children[index]); err != nil {
+			return err
+		}
+	}
+	if err := normalizeProcessExpression(expression.Negated); err != nil {
+		return err
+	}
+	if expression.EventRelation != nil {
+		return normalizeEventExpression(&expression.EventRelation.Expression)
+	}
+	return nil
+}
+
+func normalizeEventExpression(expression *EventExpression) error {
+	if expression == nil {
+		return nil
+	}
+	if expression.Predicate != nil {
+		predicate := expression.Predicate
+		normalizeTransforms(&predicate.TextTransform, &predicate.NumericTransform, &predicate.DateTransform)
+		if err := normalizeValues(predicate.Values, predicate.TextTransform, predicate.NumericTransform, predicate.DateTransform); err != nil {
+			return err
+		}
+	}
+	for index := range expression.Children {
+		if err := normalizeEventExpression(&expression.Children[index]); err != nil {
+			return err
+		}
+	}
+	return normalizeEventExpression(expression.Negated)
+}
+
+func normalizeProcessPredicate(predicate *ProcessPredicate) error {
+	normalizeTransforms(&predicate.TextTransform, &predicate.NumericTransform, &predicate.DateTransform)
+	return normalizeValues(predicate.Values, predicate.TextTransform, predicate.NumericTransform, predicate.DateTransform)
+}
+
+func normalizeTransforms(text *TextTransform, numeric *NumericTransform, date *DateTransform) {
+	if *text == 0 {
+		*text = TextTransformNone
+	}
+	if *numeric == 0 {
+		*numeric = NumericTransformNone
+	}
+	if *date == 0 {
+		*date = DateTransformNone
+	}
+}
+
+func normalizeValues(values []QueryValue, text TextTransform, numeric NumericTransform, date DateTransform) error {
+	for index := range values {
+		switch values[index].Kind {
+		case ValueString:
+			values[index].String = applyTextTransform(values[index].String, text)
+		case ValueInteger:
+			if numeric == NumericTransformAbs {
+				if values[index].Integer == math.MinInt64 {
+					return fmt.Errorf("%w: absolute numeric transform overflows", ErrInvalidQuery)
+				}
+				values[index].Integer = int64Abs(values[index].Integer)
+			}
+		case ValueTimestamp:
+			values[index].Time = applyDateTransform(values[index].Time, date)
 		}
 	}
 	return nil
@@ -382,7 +562,7 @@ func validateProcessExpression(
 		if budget.predicates > policy.QueryMaxPredicates {
 			return fmt.Errorf("%w: predicate count exceeds policy", ErrInvalidQuery)
 		}
-		return validatePredicate(expression.Predicate.Field, expression.Predicate.Operator, expression.Predicate.Values, policy)
+		return validateProcessPredicate(*expression.Predicate, policy)
 	case expression.Negated != nil:
 		return validateProcessExpression(*expression.Negated, depth+1, policy, budget)
 	case expression.EventRelation != nil:
@@ -450,17 +630,89 @@ func validateEventPredicate(predicate EventPredicate, policy RuntimePolicy) erro
 	if predicate.Field < EventType || predicate.Field > EventPolicyVersion {
 		return fmt.Errorf("%w: event field is unsupported", ErrInvalidQuery)
 	}
-	return validateValues(eventFieldKind(predicate.Field), predicate.Operator, predicate.Values, policy)
+	return validateValues(eventFieldKind(predicate.Field), predicate.Operator, predicate.Values, predicate.TextTransform, predicate.NumericTransform, predicate.DateTransform, predicate.Coalesce, policy)
 }
 
 func validatePredicate(field ProcessField, operator Comparison, values []QueryValue, policy RuntimePolicy) error {
 	if !validProcessField(field) {
 		return fmt.Errorf("%w: process field is unsupported", ErrInvalidQuery)
 	}
-	return validateValues(processFieldKind(field), operator, values, policy)
+	return validateValues(processFieldKind(field), operator, values, TextTransformNone, NumericTransformNone, DateTransformNone, nil, policy)
 }
 
-func validateValues(kind ValueKind, operator Comparison, values []QueryValue, policy RuntimePolicy) error {
+func validateSort(sort ProcessSort, policy RuntimePolicy) error {
+	kind := processFieldKind(sort.Field)
+	transform := sort.TextTransform
+	if transform == 0 {
+		transform = TextTransformNone
+	}
+	if transform < TextTransformNone || transform > TextTransformTrimUpper ||
+		(kind != ValueString && transform != TextTransformNone) {
+		return fmt.Errorf("%w: sort text transform is incompatible with field type", ErrInvalidQuery)
+	}
+	numericTransform := sort.NumericTransform
+	if numericTransform == 0 {
+		numericTransform = NumericTransformNone
+	}
+	if numericTransform < NumericTransformNone || numericTransform > NumericTransformAbs ||
+		(kind != ValueInteger && numericTransform != NumericTransformNone) {
+		return fmt.Errorf("%w: sort numeric transform is incompatible with field type", ErrInvalidQuery)
+	}
+	dateTransform := sort.DateTransform
+	if dateTransform == 0 {
+		dateTransform = DateTransformNone
+	}
+	if dateTransform < DateTransformNone || dateTransform > DateTransformUTCYear ||
+		(kind != ValueTimestamp && dateTransform != DateTransformNone) {
+		return fmt.Errorf("%w: sort date transform is incompatible with field type", ErrInvalidQuery)
+	}
+	if sort.Coalesce != nil {
+		value := sort.Coalesce
+		if value.Kind != kind ||
+			(kind == ValueString && (value.String == "" || uint32(len(value.String)) > policy.QueryMaxStringBytes)) ||
+			(kind == ValueTimestamp && value.Time.IsZero()) {
+			return fmt.Errorf("%w: sort coalesce value type is invalid", ErrInvalidQuery)
+		}
+	}
+	return nil
+}
+
+func validateProcessPredicate(predicate ProcessPredicate, policy RuntimePolicy) error {
+	if !validProcessField(predicate.Field) {
+		return fmt.Errorf("%w: process field is unsupported", ErrInvalidQuery)
+	}
+	return validateValues(processFieldKind(predicate.Field), predicate.Operator, predicate.Values, predicate.TextTransform, predicate.NumericTransform, predicate.DateTransform, predicate.Coalesce, policy)
+}
+
+func validateValues(kind ValueKind, operator Comparison, values []QueryValue, textTransform TextTransform, numericTransform NumericTransform, dateTransform DateTransform, coalesce *QueryValue, policy RuntimePolicy) error {
+	if textTransform == 0 {
+		textTransform = TextTransformNone
+	}
+	if textTransform < TextTransformNone || textTransform > TextTransformTrimUpper ||
+		(kind != ValueString && textTransform != TextTransformNone) {
+		return fmt.Errorf("%w: text transform is incompatible with field type", ErrInvalidQuery)
+	}
+	if numericTransform == 0 {
+		numericTransform = NumericTransformNone
+	}
+	if numericTransform < NumericTransformNone || numericTransform > NumericTransformAbs ||
+		(kind != ValueInteger && numericTransform != NumericTransformNone) {
+		return fmt.Errorf("%w: numeric transform is incompatible with field type", ErrInvalidQuery)
+	}
+	if dateTransform == 0 {
+		dateTransform = DateTransformNone
+	}
+	if dateTransform < DateTransformNone || dateTransform > DateTransformUTCYear ||
+		(kind != ValueTimestamp && dateTransform != DateTransformNone) {
+		return fmt.Errorf("%w: date transform is incompatible with field type", ErrInvalidQuery)
+	}
+	if coalesce != nil {
+		if coalesce.Kind != kind ||
+			(kind == ValueString && (coalesce.String == "" || uint32(len(coalesce.String)) > policy.QueryMaxStringBytes)) ||
+			(kind == ValueTimestamp && coalesce.Time.IsZero()) {
+			return fmt.Errorf("%w: coalesce value type is invalid", ErrInvalidQuery)
+		}
+	}
 	if !operatorAllowed(kind, operator) {
 		return fmt.Errorf("%w: operator is incompatible with field type", ErrInvalidQuery)
 	}
@@ -471,12 +723,15 @@ func validateValues(kind ValueKind, operator Comparison, values []QueryValue, po
 	if operator == CompareIsNull || operator == CompareIsNotNull {
 		wanted = 0
 	}
-	if operator < CompareEqual || operator > CompareIsNotNull ||
+	if operator == CompareBetween || operator == CompareNotBetween {
+		wanted = 2
+	}
+	if operator < CompareEqual || operator > CompareNotBetween ||
 		(wanted >= 0 && len(values) != wanted) ||
 		(wanted == -1 && (len(values) == 0 || uint32(len(values)) > policy.QueryMaxInValues)) {
 		return fmt.Errorf("%w: operator value cardinality is invalid", ErrInvalidQuery)
 	}
-	if (operator == CompareContains || operator == CompareStartsWith) && kind != ValueString {
+	if (operator == CompareContains || operator == CompareStartsWith || operator == CompareEndsWith) && kind != ValueString {
 		return fmt.Errorf("%w: text operator requires a string field", ErrInvalidQuery)
 	}
 	for _, value := range values {
@@ -484,6 +739,9 @@ func validateValues(kind ValueKind, operator Comparison, values []QueryValue, po
 			(kind == ValueTimestamp && value.Time.IsZero()) {
 			return fmt.Errorf("%w: predicate value type is invalid", ErrInvalidQuery)
 		}
+	}
+	if (operator == CompareBetween || operator == CompareNotBetween) && !orderedRange(values) {
+		return fmt.Errorf("%w: range lower bound exceeds upper bound", ErrInvalidQuery)
 	}
 	return nil
 }
@@ -493,25 +751,48 @@ func operatorAllowed(kind ValueKind, operator Comparison) bool {
 	case ValueString:
 		return operator == CompareEqual || operator == CompareNotEqual ||
 			operator == CompareIn || operator == CompareNotIn ||
-			operator == CompareContains || operator == CompareStartsWith
+			operator == CompareContains || operator == CompareStartsWith || operator == CompareEndsWith ||
+			operator == CompareIsNull || operator == CompareIsNotNull
 	case ValueInteger, ValueTimestamp:
 		return operator == CompareEqual || operator == CompareNotEqual ||
 			operator == CompareGreaterThan || operator == CompareGreaterThanOrEqual ||
 			operator == CompareLessThan || operator == CompareLessThanOrEqual ||
-			operator == CompareIn || operator == CompareNotIn
+			operator == CompareIn || operator == CompareNotIn ||
+			operator == CompareBetween || operator == CompareNotBetween ||
+			operator == CompareIsNull || operator == CompareIsNotNull
+	case ValueBoolean:
+		return operator == CompareEqual || operator == CompareNotEqual ||
+			operator == CompareIn || operator == CompareNotIn ||
+			operator == CompareIsNull || operator == CompareIsNotNull
+	default:
+		return false
+	}
+}
+
+func orderedRange(values []QueryValue) bool {
+	if len(values) != 2 || values[0].Kind != values[1].Kind {
+		return false
+	}
+	switch values[0].Kind {
+	case ValueInteger:
+		return values[0].Integer <= values[1].Integer
+	case ValueTimestamp:
+		return !values[0].Time.After(values[1].Time)
 	default:
 		return false
 	}
 }
 
 func validProcessField(field ProcessField) bool {
-	return field >= ProcessInstanceID && field <= ProcessInitiatorActorID
+	return field >= ProcessInstanceID && field <= ProcessIsDeleted
 }
 
 func processFieldKind(field ProcessField) ValueKind {
 	switch field {
-	case ProcessLastEventSequence, ProcessDurationMS, ProcessVersion:
+	case ProcessLastEventSequence, ProcessDurationMS, ProcessVersion, ProcessEventCount:
 		return ValueInteger
+	case ProcessIsDeleted:
+		return ValueBoolean
 	case ProcessStartedAt, ProcessUpdatedAt, ProcessCompletedAt:
 		return ValueTimestamp
 	default:
@@ -548,7 +829,7 @@ func CursorFor(query ProcessQuery, process CompletedProcess) (*QueryCursor, erro
 	}
 	values := make([]QueryValue, 0, len(query.Sort))
 	for _, sort := range query.Sort {
-		value, valueErr := sortValue(sort.Field, process)
+		value, valueErr := sortValue(sort, process)
 		if valueErr != nil {
 			return nil, valueErr
 		}
@@ -557,41 +838,103 @@ func CursorFor(query ProcessQuery, process CompletedProcess) (*QueryCursor, erro
 	return &QueryCursor{QueryHash: hash, Values: values}, nil
 }
 
-func sortValue(field ProcessField, process CompletedProcess) (QueryValue, error) {
+func sortValue(sort ProcessSort, process CompletedProcess) (QueryValue, error) {
 	instance := process.Instance
-	switch field {
+	var value QueryValue
+	switch sort.Field {
 	case ProcessInstanceID:
-		return QueryValue{Kind: ValueString, String: instance.InstanceID}, nil
+		value = QueryValue{Kind: ValueString, String: instance.InstanceID}
 	case ProcessWorkflowType:
-		return QueryValue{Kind: ValueString, String: instance.WorkflowType}, nil
+		value = QueryValue{Kind: ValueString, String: instance.WorkflowType}
 	case ProcessWorkflowVersion:
-		return QueryValue{Kind: ValueString, String: instance.WorkflowVersion}, nil
+		value = QueryValue{Kind: ValueString, String: instance.WorkflowVersion}
 	case ProcessStatus:
-		return QueryValue{Kind: ValueString, String: instance.Status}, nil
+		value = QueryValue{Kind: ValueString, String: instance.Status}
 	case ProcessActiveNodeID:
-		return QueryValue{Kind: ValueString, String: instance.ActiveNodeID}, nil
+		value = QueryValue{Kind: ValueString, String: instance.ActiveNodeID}
 	case ProcessConfigVersion:
-		return QueryValue{Kind: ValueString, String: instance.ConfigVersion}, nil
+		value = QueryValue{Kind: ValueString, String: instance.ConfigVersion}
 	case ProcessPolicyVersion:
-		return QueryValue{Kind: ValueString, String: instance.PolicyVersion}, nil
+		value = QueryValue{Kind: ValueString, String: instance.PolicyVersion}
 	case ProcessInitiatorActorID:
-		return QueryValue{Kind: ValueString, String: instance.InitiatorActorID}, nil
+		value = QueryValue{Kind: ValueString, String: instance.InitiatorActorID}
 	case ProcessLastEventSequence:
-		return QueryValue{Kind: ValueInteger, Integer: int64(instance.LastEventSequence)}, nil
+		value = QueryValue{Kind: ValueInteger, Integer: int64(instance.LastEventSequence)}
 	case ProcessVersion:
-		return QueryValue{Kind: ValueInteger, Integer: int64(instance.Version)}, nil
+		value = QueryValue{Kind: ValueInteger, Integer: int64(instance.Version)}
 	case ProcessDurationMS:
-		return QueryValue{Kind: ValueInteger, Integer: int64(process.DurationMS)}, nil
+		value = QueryValue{Kind: ValueInteger, Integer: int64(process.DurationMS)}
+	case ProcessEventCount:
+		value = QueryValue{Kind: ValueInteger, Integer: int64(process.EventCount)}
+	case ProcessIsDeleted:
+		value = QueryValue{Kind: ValueBoolean, Boolean: instance.IsDeleted}
 	case ProcessStartedAt:
-		return QueryValue{Kind: ValueTimestamp, Time: instance.StartedAt}, nil
+		value = QueryValue{Kind: ValueTimestamp, Time: instance.StartedAt}
 	case ProcessUpdatedAt:
-		return QueryValue{Kind: ValueTimestamp, Time: instance.UpdatedAt}, nil
+		value = QueryValue{Kind: ValueTimestamp, Time: instance.UpdatedAt}
 	case ProcessCompletedAt:
 		if instance.CompletedAt == nil {
-			return QueryValue{}, fmt.Errorf("%w: completed timestamp is absent", ErrInvalidQuery)
+			if sort.Coalesce == nil {
+				return QueryValue{}, fmt.Errorf("%w: completed timestamp is absent", ErrInvalidQuery)
+			}
+			value = *sort.Coalesce
+			break
 		}
-		return QueryValue{Kind: ValueTimestamp, Time: *instance.CompletedAt}, nil
+		value = QueryValue{Kind: ValueTimestamp, Time: *instance.CompletedAt}
 	default:
 		return QueryValue{}, fmt.Errorf("%w: sort field is unsupported", ErrInvalidQuery)
+	}
+	value.String = applyTextTransform(value.String, sort.TextTransform)
+	if value.Kind == ValueInteger && sort.NumericTransform == NumericTransformAbs {
+		if value.Integer == math.MinInt64 {
+			return QueryValue{}, fmt.Errorf("%w: absolute numeric sort overflows", ErrInvalidQuery)
+		}
+		value.Integer = int64Abs(value.Integer)
+	}
+	if value.Kind == ValueTimestamp {
+		value.Time = applyDateTransform(value.Time, sort.DateTransform)
+	}
+	return value, nil
+}
+
+func int64Abs(value int64) int64 {
+	if value < 0 {
+		return -value
+	}
+	return value
+}
+
+func applyDateTransform(value time.Time, transform DateTransform) time.Time {
+	value = value.UTC()
+	switch transform {
+	case DateTransformUTCDay:
+		return time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, time.UTC)
+	case DateTransformUTCWeek:
+		day := time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, time.UTC)
+		daysSinceMonday := (int(day.Weekday()) + 6) % 7
+		return day.AddDate(0, 0, -daysSinceMonday)
+	case DateTransformUTCMonth:
+		return time.Date(value.Year(), value.Month(), 1, 0, 0, 0, 0, time.UTC)
+	case DateTransformUTCYear:
+		return time.Date(value.Year(), 1, 1, 0, 0, 0, 0, time.UTC)
+	default:
+		return value
+	}
+}
+
+func applyTextTransform(value string, transform TextTransform) string {
+	switch transform {
+	case TextTransformTrim:
+		return strings.TrimSpace(value)
+	case TextTransformLower:
+		return strings.ToLower(value)
+	case TextTransformUpper:
+		return strings.ToUpper(value)
+	case TextTransformTrimLower:
+		return strings.ToLower(strings.TrimSpace(value))
+	case TextTransformTrimUpper:
+		return strings.ToUpper(strings.TrimSpace(value))
+	default:
+		return value
 	}
 }

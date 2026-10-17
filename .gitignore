@@ -14,6 +14,8 @@
 /apps/web/cockpit-web/*.tsbuildinfo
 /apps/web/cockpit-web/vite.config.js
 /apps/web/cockpit-web/vite.config.d.ts
+/apps/web/cockpit-web/playwright-report/
+/apps/web/cockpit-web/test-results/
 /.agents/
 clippy_output.txt
 check_output.txt

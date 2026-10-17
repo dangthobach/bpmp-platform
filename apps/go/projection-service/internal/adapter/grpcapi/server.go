@@ -126,16 +126,32 @@ func toWire(instance application.Instance) *projectionv1.WorkflowInstanceReadMod
 }
 
 func toWireAuthorized(instance application.Instance, fields *application.FieldAuthorization) *projectionv1.WorkflowInstanceReadModel {
+	result, _ := toWireSelected(instance, fields, nil)
+	return result
+}
+
+func toWireSelected(instance application.Instance, fields *application.FieldAuthorization, selected []application.ProcessField) (*projectionv1.WorkflowInstanceReadModel, []string) {
 	result := toWire(instance)
 	message := result.ProtoReflect()
 	descriptors := message.Descriptor().Fields()
+	selectedNames := make(map[string]struct{}, len(selected))
+	for _, field := range selected {
+		selectedNames[application.ProcessFieldName(field)] = struct{}{}
+	}
+	masked := make([]string, 0)
 	for i := 0; i < descriptors.Len(); i++ {
 		field := descriptors.Get(i)
-		if !fields.CanRead(string(field.Name())) {
+		name := string(field.Name())
+		readable := fields.CanRead(name)
+		_, requested := selectedNames[name]
+		if !readable || (len(selectedNames) != 0 && !requested) {
 			message.Clear(field)
 		}
+		if !readable {
+			masked = append(masked, name)
+		}
 	}
-	return result
+	return result, masked
 }
 
 func mapError(err error) error {

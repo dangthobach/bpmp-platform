@@ -98,6 +98,14 @@ pub struct ProcessPredicate {
     pub operator: i32,
     #[prost(message, repeated, tag="3")]
     pub values: ::prost::alloc::vec::Vec<QueryValue>,
+    #[prost(enumeration="TextTransform", tag="4")]
+    pub text_transform: i32,
+    #[prost(message, optional, tag="5")]
+    pub coalesce_value: ::core::option::Option<QueryValue>,
+    #[prost(enumeration="NumericTransform", tag="6")]
+    pub numeric_transform: i32,
+    #[prost(enumeration="DateTransform", tag="7")]
+    pub date_transform: i32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct EventPredicate {
@@ -107,6 +115,14 @@ pub struct EventPredicate {
     pub operator: i32,
     #[prost(message, repeated, tag="3")]
     pub values: ::prost::alloc::vec::Vec<QueryValue>,
+    #[prost(enumeration="TextTransform", tag="4")]
+    pub text_transform: i32,
+    #[prost(message, optional, tag="5")]
+    pub coalesce_value: ::core::option::Option<QueryValue>,
+    #[prost(enumeration="NumericTransform", tag="6")]
+    pub numeric_transform: i32,
+    #[prost(enumeration="DateTransform", tag="7")]
+    pub date_transform: i32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct EventExpression {
@@ -168,12 +184,20 @@ pub struct ProcessExpressionGroup {
     #[prost(message, repeated, tag="2")]
     pub expressions: ::prost::alloc::vec::Vec<ProcessExpression>,
 }
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ProcessSort {
     #[prost(enumeration="ProcessField", tag="1")]
     pub field: i32,
     #[prost(enumeration="SortDirection", tag="2")]
     pub direction: i32,
+    #[prost(enumeration="TextTransform", tag="3")]
+    pub text_transform: i32,
+    #[prost(message, optional, tag="4")]
+    pub coalesce_value: ::core::option::Option<QueryValue>,
+    #[prost(enumeration="NumericTransform", tag="5")]
+    pub numeric_transform: i32,
+    #[prost(enumeration="DateTransform", tag="6")]
+    pub date_transform: i32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct QueryCompletedProcessesRequest {
@@ -191,6 +215,8 @@ pub struct QueryCompletedProcessesRequest {
     pub page_token: ::prost::alloc::string::String,
     #[prost(message, optional, tag="7")]
     pub actor_proof: ::core::option::Option<super::super::authorization::v1::ActorProof>,
+    #[prost(enumeration="ProcessField", repeated, tag="8")]
+    pub select: ::prost::alloc::vec::Vec<i32>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct CompletedProcessReadModel {
@@ -200,6 +226,8 @@ pub struct CompletedProcessReadModel {
     pub duration_ms: u64,
     #[prost(uint64, tag="3")]
     pub event_count: u64,
+    #[prost(string, repeated, tag="4")]
+    pub masked_fields: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct QueryCompletedProcessesResponse {
@@ -207,6 +235,122 @@ pub struct QueryCompletedProcessesResponse {
     pub processes: ::prost::alloc::vec::Vec<CompletedProcessReadModel>,
     #[prost(string, tag="2")]
     pub next_page_token: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag="3")]
+    pub normalized_sort: ::prost::alloc::vec::Vec<ProcessSort>,
+    #[prost(string, tag="4")]
+    pub policy_version: ::prost::alloc::string::String,
+    #[prost(string, tag="5")]
+    pub query_fingerprint: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct QueryProcessesRequest {
+    #[prost(string, tag="1")]
+    pub tenant_id: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="2")]
+    pub filter: ::core::option::Option<ProcessExpression>,
+    #[prost(message, repeated, tag="3")]
+    pub sort: ::prost::alloc::vec::Vec<ProcessSort>,
+    #[prost(bool, tag="4")]
+    pub include_deleted: bool,
+    #[prost(uint32, tag="5")]
+    pub page_size: u32,
+    #[prost(string, tag="6")]
+    pub page_token: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="7")]
+    pub actor_proof: ::core::option::Option<super::super::authorization::v1::ActorProof>,
+    #[prost(enumeration="QueryScope", tag="8")]
+    pub scope: i32,
+    #[prost(enumeration="ProcessField", repeated, tag="9")]
+    pub select: ::prost::alloc::vec::Vec<i32>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct QueryProcessesResponse {
+    #[prost(message, repeated, tag="1")]
+    pub processes: ::prost::alloc::vec::Vec<CompletedProcessReadModel>,
+    #[prost(string, tag="2")]
+    pub next_page_token: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag="3")]
+    pub normalized_sort: ::prost::alloc::vec::Vec<ProcessSort>,
+    #[prost(string, tag="4")]
+    pub policy_version: ::prost::alloc::string::String,
+    #[prost(string, tag="5")]
+    pub query_fingerprint: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ProcessFieldCapability {
+    #[prost(enumeration="ProcessField", tag="1")]
+    pub field: i32,
+    #[prost(enumeration="QueryValueKind", tag="2")]
+    pub value_kind: i32,
+    #[prost(bool, tag="3")]
+    pub filterable: bool,
+    #[prost(bool, tag="4")]
+    pub sortable: bool,
+    #[prost(bool, tag="5")]
+    pub selectable: bool,
+    #[prost(enumeration="ComparisonOperator", repeated, tag="6")]
+    pub operators: ::prost::alloc::vec::Vec<i32>,
+    #[prost(enumeration="TextTransform", repeated, tag="7")]
+    pub text_transforms: ::prost::alloc::vec::Vec<i32>,
+    #[prost(enumeration="NumericTransform", repeated, tag="8")]
+    pub numeric_transforms: ::prost::alloc::vec::Vec<i32>,
+    #[prost(enumeration="DateTransform", repeated, tag="9")]
+    pub date_transforms: ::prost::alloc::vec::Vec<i32>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct EventFieldCapability {
+    #[prost(enumeration="EventField", tag="1")]
+    pub field: i32,
+    #[prost(enumeration="QueryValueKind", tag="2")]
+    pub value_kind: i32,
+    #[prost(enumeration="ComparisonOperator", repeated, tag="3")]
+    pub operators: ::prost::alloc::vec::Vec<i32>,
+    #[prost(enumeration="TextTransform", repeated, tag="4")]
+    pub text_transforms: ::prost::alloc::vec::Vec<i32>,
+    #[prost(enumeration="NumericTransform", repeated, tag="5")]
+    pub numeric_transforms: ::prost::alloc::vec::Vec<i32>,
+    #[prost(enumeration="DateTransform", repeated, tag="6")]
+    pub date_transforms: ::prost::alloc::vec::Vec<i32>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct GetQueryCapabilitiesRequest {
+    #[prost(string, tag="1")]
+    pub tenant_id: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="2")]
+    pub actor_proof: ::core::option::Option<super::super::authorization::v1::ActorProof>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetQueryCapabilitiesResponse {
+    #[prost(string, tag="1")]
+    pub schema_version: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub config_version: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub policy_version: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag="4")]
+    pub fields: ::prost::alloc::vec::Vec<ProcessFieldCapability>,
+    #[prost(message, repeated, tag="5")]
+    pub event_fields: ::prost::alloc::vec::Vec<EventFieldCapability>,
+    #[prost(uint32, tag="6")]
+    pub default_page_size: u32,
+    #[prost(uint32, tag="7")]
+    pub max_page_size: u32,
+    #[prost(uint32, tag="8")]
+    pub max_filter_depth: u32,
+    #[prost(uint32, tag="9")]
+    pub max_predicates: u32,
+    #[prost(uint32, tag="10")]
+    pub max_sort_fields: u32,
+    #[prost(uint32, tag="11")]
+    pub max_relation_joins: u32,
+    #[prost(uint32, tag="12")]
+    pub max_in_values: u32,
+    #[prost(uint32, tag="13")]
+    pub max_string_bytes: u32,
+    #[prost(enumeration="QueryScope", repeated, tag="14")]
+    pub scopes: ::prost::alloc::vec::Vec<i32>,
+    #[prost(message, repeated, tag="15")]
+    pub default_sort: ::prost::alloc::vec::Vec<ProcessSort>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -253,6 +397,9 @@ pub enum ComparisonOperator {
     StartsWith = 10,
     IsNull = 11,
     IsNotNull = 12,
+    EndsWith = 13,
+    Between = 14,
+    NotBetween = 15,
 }
 impl ComparisonOperator {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -274,6 +421,9 @@ impl ComparisonOperator {
             Self::StartsWith => "COMPARISON_OPERATOR_STARTS_WITH",
             Self::IsNull => "COMPARISON_OPERATOR_IS_NULL",
             Self::IsNotNull => "COMPARISON_OPERATOR_IS_NOT_NULL",
+            Self::EndsWith => "COMPARISON_OPERATOR_ENDS_WITH",
+            Self::Between => "COMPARISON_OPERATOR_BETWEEN",
+            Self::NotBetween => "COMPARISON_OPERATOR_NOT_BETWEEN",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -292,6 +442,9 @@ impl ComparisonOperator {
             "COMPARISON_OPERATOR_STARTS_WITH" => Some(Self::StartsWith),
             "COMPARISON_OPERATOR_IS_NULL" => Some(Self::IsNull),
             "COMPARISON_OPERATOR_IS_NOT_NULL" => Some(Self::IsNotNull),
+            "COMPARISON_OPERATOR_ENDS_WITH" => Some(Self::EndsWith),
+            "COMPARISON_OPERATOR_BETWEEN" => Some(Self::Between),
+            "COMPARISON_OPERATOR_NOT_BETWEEN" => Some(Self::NotBetween),
             _ => None,
         }
     }
@@ -314,6 +467,8 @@ pub enum ProcessField {
     PolicyVersion = 12,
     Version = 13,
     InitiatorActorId = 14,
+    EventCount = 15,
+    IsDeleted = 16,
 }
 impl ProcessField {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -337,6 +492,8 @@ impl ProcessField {
             Self::PolicyVersion => "PROCESS_FIELD_POLICY_VERSION",
             Self::Version => "PROCESS_FIELD_VERSION",
             Self::InitiatorActorId => "PROCESS_FIELD_INITIATOR_ACTOR_ID",
+            Self::EventCount => "PROCESS_FIELD_EVENT_COUNT",
+            Self::IsDeleted => "PROCESS_FIELD_IS_DELETED",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -357,6 +514,78 @@ impl ProcessField {
             "PROCESS_FIELD_POLICY_VERSION" => Some(Self::PolicyVersion),
             "PROCESS_FIELD_VERSION" => Some(Self::Version),
             "PROCESS_FIELD_INITIATOR_ACTOR_ID" => Some(Self::InitiatorActorId),
+            "PROCESS_FIELD_EVENT_COUNT" => Some(Self::EventCount),
+            "PROCESS_FIELD_IS_DELETED" => Some(Self::IsDeleted),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum QueryScope {
+    Unspecified = 0,
+    All = 1,
+    Active = 2,
+    Completed = 3,
+    Deleted = 4,
+}
+impl QueryScope {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "QUERY_SCOPE_UNSPECIFIED",
+            Self::All => "QUERY_SCOPE_ALL",
+            Self::Active => "QUERY_SCOPE_ACTIVE",
+            Self::Completed => "QUERY_SCOPE_COMPLETED",
+            Self::Deleted => "QUERY_SCOPE_DELETED",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "QUERY_SCOPE_UNSPECIFIED" => Some(Self::Unspecified),
+            "QUERY_SCOPE_ALL" => Some(Self::All),
+            "QUERY_SCOPE_ACTIVE" => Some(Self::Active),
+            "QUERY_SCOPE_COMPLETED" => Some(Self::Completed),
+            "QUERY_SCOPE_DELETED" => Some(Self::Deleted),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum QueryValueKind {
+    Unspecified = 0,
+    String = 1,
+    Integer = 2,
+    Boolean = 3,
+    Timestamp = 4,
+}
+impl QueryValueKind {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "QUERY_VALUE_KIND_UNSPECIFIED",
+            Self::String => "QUERY_VALUE_KIND_STRING",
+            Self::Integer => "QUERY_VALUE_KIND_INTEGER",
+            Self::Boolean => "QUERY_VALUE_KIND_BOOLEAN",
+            Self::Timestamp => "QUERY_VALUE_KIND_TIMESTAMP",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "QUERY_VALUE_KIND_UNSPECIFIED" => Some(Self::Unspecified),
+            "QUERY_VALUE_KIND_STRING" => Some(Self::String),
+            "QUERY_VALUE_KIND_INTEGER" => Some(Self::Integer),
+            "QUERY_VALUE_KIND_BOOLEAN" => Some(Self::Boolean),
+            "QUERY_VALUE_KIND_TIMESTAMP" => Some(Self::Timestamp),
             _ => None,
         }
     }
@@ -459,6 +688,114 @@ impl RelationQuantifier {
             "RELATION_QUANTIFIER_UNSPECIFIED" => Some(Self::Unspecified),
             "RELATION_QUANTIFIER_EXISTS" => Some(Self::Exists),
             "RELATION_QUANTIFIER_NOT_EXISTS" => Some(Self::NotExists),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum TextTransform {
+    Unspecified = 0,
+    None = 1,
+    Trim = 2,
+    Lower = 3,
+    Upper = 4,
+    TrimLower = 5,
+    TrimUpper = 6,
+}
+impl TextTransform {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "TEXT_TRANSFORM_UNSPECIFIED",
+            Self::None => "TEXT_TRANSFORM_NONE",
+            Self::Trim => "TEXT_TRANSFORM_TRIM",
+            Self::Lower => "TEXT_TRANSFORM_LOWER",
+            Self::Upper => "TEXT_TRANSFORM_UPPER",
+            Self::TrimLower => "TEXT_TRANSFORM_TRIM_LOWER",
+            Self::TrimUpper => "TEXT_TRANSFORM_TRIM_UPPER",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "TEXT_TRANSFORM_UNSPECIFIED" => Some(Self::Unspecified),
+            "TEXT_TRANSFORM_NONE" => Some(Self::None),
+            "TEXT_TRANSFORM_TRIM" => Some(Self::Trim),
+            "TEXT_TRANSFORM_LOWER" => Some(Self::Lower),
+            "TEXT_TRANSFORM_UPPER" => Some(Self::Upper),
+            "TEXT_TRANSFORM_TRIM_LOWER" => Some(Self::TrimLower),
+            "TEXT_TRANSFORM_TRIM_UPPER" => Some(Self::TrimUpper),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum NumericTransform {
+    Unspecified = 0,
+    None = 1,
+    Abs = 2,
+}
+impl NumericTransform {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "NUMERIC_TRANSFORM_UNSPECIFIED",
+            Self::None => "NUMERIC_TRANSFORM_NONE",
+            Self::Abs => "NUMERIC_TRANSFORM_ABS",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "NUMERIC_TRANSFORM_UNSPECIFIED" => Some(Self::Unspecified),
+            "NUMERIC_TRANSFORM_NONE" => Some(Self::None),
+            "NUMERIC_TRANSFORM_ABS" => Some(Self::Abs),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum DateTransform {
+    Unspecified = 0,
+    None = 1,
+    UtcDay = 2,
+    UtcWeek = 3,
+    UtcMonth = 4,
+    UtcYear = 5,
+}
+impl DateTransform {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "DATE_TRANSFORM_UNSPECIFIED",
+            Self::None => "DATE_TRANSFORM_NONE",
+            Self::UtcDay => "DATE_TRANSFORM_UTC_DAY",
+            Self::UtcWeek => "DATE_TRANSFORM_UTC_WEEK",
+            Self::UtcMonth => "DATE_TRANSFORM_UTC_MONTH",
+            Self::UtcYear => "DATE_TRANSFORM_UTC_YEAR",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "DATE_TRANSFORM_UNSPECIFIED" => Some(Self::Unspecified),
+            "DATE_TRANSFORM_NONE" => Some(Self::None),
+            "DATE_TRANSFORM_UTC_DAY" => Some(Self::UtcDay),
+            "DATE_TRANSFORM_UTC_WEEK" => Some(Self::UtcWeek),
+            "DATE_TRANSFORM_UTC_MONTH" => Some(Self::UtcMonth),
+            "DATE_TRANSFORM_UTC_YEAR" => Some(Self::UtcYear),
             _ => None,
         }
     }

@@ -91,3 +91,47 @@ export interface DelegateWorkItemInput {
   candidateGroup?: string;
   idempotencyKey?: string;
 }
+
+export interface WorkflowInstance {
+  tenant_id?: string;
+  instance_id: string;
+  workflow_type?: string;
+  workflow_version?: string;
+  status?: string;
+  active_node_id?: string;
+  last_event_sequence?: number;
+  started_at_epoch_ms?: number;
+  updated_at_epoch_ms?: number;
+  completed_at_epoch_ms?: number;
+  config_version?: string;
+  policy_version?: string;
+  initiator_actor_id?: string;
+  is_deleted?: boolean;
+  version?: number;
+}
+
+export interface CompletedProcess {
+  instance: WorkflowInstance;
+  duration_ms?: number;
+  event_count?: number;
+}
+
+export interface CompletedProcessPage {
+  processes: CompletedProcess[];
+  next_page_token: string;
+}
+
+export interface CompletedProcessQueryInput {
+  filter?: Record<string, unknown>;
+  sort?: Array<{
+    field: string;
+    direction: string;
+    text_transform?: string;
+    numeric_transform?: string;
+    date_transform?: string;
+    coalesce_value?: Record<string, unknown>;
+  }>;
+  include_deleted?: boolean;
+  page_size?: number;
+  page_token?: string;
+}

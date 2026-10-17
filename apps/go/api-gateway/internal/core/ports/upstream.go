@@ -24,6 +24,8 @@ type HumanRuntime interface {
 
 type Projection interface {
 	QueryCompletedProcesses(context.Context, *projectionv1.QueryCompletedProcessesRequest, ...grpc.CallOption) (*projectionv1.QueryCompletedProcessesResponse, error)
+	QueryProcesses(context.Context, *projectionv1.QueryProcessesRequest, ...grpc.CallOption) (*projectionv1.QueryProcessesResponse, error)
+	GetQueryCapabilities(context.Context, *projectionv1.GetQueryCapabilitiesRequest, ...grpc.CallOption) (*projectionv1.GetQueryCapabilitiesResponse, error)
 }
 
 type RateLimiter interface {
