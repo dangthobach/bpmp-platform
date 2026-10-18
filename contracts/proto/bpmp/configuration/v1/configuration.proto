@@ -169,6 +169,7 @@ message ProjectionPolicy {
   uint32 query_revoke_retry_attempts = 23;
   uint64 query_revoke_retry_backoff_ms = 24;
   uint64 query_revoke_operation_timeout_ms = 25;
+  string query_diagnostics_capability = 26;
 }
 
 message QueryActorRevokeEpoch {

@@ -10,6 +10,7 @@ var (
 	ErrInvalidEvent = errors.New("projection event is invalid")
 	ErrSequenceGap  = errors.New("projection event sequence has a gap")
 	ErrNotFound     = errors.New("projection read model was not found")
+	ErrConflict     = errors.New("projection resource version conflicts")
 )
 
 type EventKind uint8
@@ -126,6 +127,7 @@ type RuntimePolicy struct {
 	QueryCursorSigningKeyID     string
 	QueryAllCapability          string
 	QueryOwnCapability          string
+	QueryDiagnosticsCapability  string
 	QueryMinRevokeEpoch         uint64
 	QueryActorRevokeEpochs      map[string]uint64
 	QueryMaxTokenAge            time.Duration

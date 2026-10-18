@@ -115,6 +115,7 @@ export interface CompletedProcess {
   duration_ms?: number;
   event_count?: number;
   masked_fields?: string[];
+  events?: WorkflowEvent[];
 }
 
 export interface CompletedProcessPage {
@@ -148,7 +149,7 @@ export type TextTransform = "TEXT_TRANSFORM_NONE" | "TEXT_TRANSFORM_TRIM" | "TEX
 export type NumericTransform = "NUMERIC_TRANSFORM_NONE" | "NUMERIC_TRANSFORM_ABS";
 export type DateTransform = "DATE_TRANSFORM_NONE" | "DATE_TRANSFORM_UTC_DAY" | "DATE_TRANSFORM_UTC_WEEK"
   | "DATE_TRANSFORM_UTC_MONTH" | "DATE_TRANSFORM_UTC_YEAR";
-export type QueryValue = { string_value: string } | { integer_value: number } | { boolean_value: boolean } | { timestamp_epoch_ms: number };
+export type QueryValue = { string_value: string } | { integer_value: number } | { boolean_value: boolean } | { timestamp_epoch_ms: number } | { decimal_value: string };
 export interface ProcessPredicateInput { field: ProcessField; operator: ComparisonOperator; values?: QueryValue[]; text_transform?: TextTransform; numeric_transform?: NumericTransform; date_transform?: DateTransform; coalesce_value?: QueryValue }
 export interface EventPredicateInput { field: EventField; operator: ComparisonOperator; values?: QueryValue[]; text_transform?: TextTransform; numeric_transform?: NumericTransform; date_transform?: DateTransform; coalesce_value?: QueryValue }
 export type EventExpressionInput = { predicate: EventPredicateInput } | { group: { operator: "LOGICAL_OPERATOR_AND" | "LOGICAL_OPERATOR_OR"; expressions: EventExpressionInput[] } } | { negated: EventExpressionInput };
@@ -162,9 +163,23 @@ export interface CompletedProcessQueryInput {
   include_deleted?: boolean;
   page_size?: number;
   page_token?: string;
+  collapse?: ProcessField;
+  expand_events?: EventExpansionInput;
 }
 
 export interface ProcessQueryInput extends CompletedProcessQueryInput { scope: QueryScope }
+export interface EventExpansionInput { filter?: EventExpressionInput; limit: number }
+export interface WorkflowEvent { instance_id?: string; sequence?: number; event_type?: string; node_id?: string; actor_id?: string; occurred_at_epoch_ms?: number; config_version?: string; policy_version?: string; is_deleted?: boolean; masked_fields?: string[] }
+export interface EventQueryInput { filter?: EventExpressionInput; process_filter?: ProcessExpressionInput; sort?: { field: EventField; direction: "SORT_DIRECTION_ASCENDING" | "SORT_DIRECTION_DESCENDING" }[]; page_size?: number; page_token?: string }
+export interface EventPage { events: WorkflowEvent[]; next_page_token: string; policy_version?: string }
+export type AggregateOperation = "AGGREGATE_OPERATION_COUNT" | "AGGREGATE_OPERATION_SUM" | "AGGREGATE_OPERATION_AVG" | "AGGREGATE_OPERATION_MIN" | "AGGREGATE_OPERATION_MAX";
+export interface AggregateQueryInput { scope: QueryScope; filter?: ProcessExpressionInput; group_by: ProcessField[]; metrics: { alias: string; operation: AggregateOperation; field?: ProcessField }[]; limit?: number }
+export interface AggregateCell { name: string; value?: QueryValue }
+export interface AggregatePage { rows: { dimensions: AggregateCell[]; metrics: AggregateCell[] }[]; policy_version?: string }
+export interface SavedQuery { id: string; name: string; version: number; query: ProcessQueryInput; created_at_epoch_ms: number; updated_at_epoch_ms: number }
+export interface SavedQueryPage { saved_queries: SavedQuery[]; next_page_token: string }
+export interface QueryExport { id: string; status: "QUERY_EXPORT_STATUS_PENDING" | "QUERY_EXPORT_STATUS_COMPLETED" | "QUERY_EXPORT_STATUS_FAILED" | "QUERY_EXPORT_STATUS_CANCELLED"; row_count?: number; csv?: string; error_code?: string; created_at_epoch_ms: number; expires_at_epoch_ms: number }
+export interface QueryPlan { redacted_plan_json: string; query_fingerprint: string }
 export interface FieldCapability { field: ProcessField; value_kind: string; filterable: boolean; sortable: boolean; selectable: boolean; operators: ComparisonOperator[]; text_transforms?: TextTransform[]; numeric_transforms?: NumericTransform[]; date_transforms?: DateTransform[] }
 export interface EventFieldCapability { field: EventField; value_kind: string; operators: ComparisonOperator[]; text_transforms?: TextTransform[]; numeric_transforms?: NumericTransform[]; date_transforms?: DateTransform[] }
 export interface QueryCapabilities {

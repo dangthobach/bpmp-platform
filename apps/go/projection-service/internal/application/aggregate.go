@@ -128,8 +128,7 @@ func (s *Service) AggregateProcesses(ctx context.Context, query AggregateQuery) 
 		if err = validateProcessExpression(*query.Filter, 1, policy, &budget); err != nil {
 			return nil, query, err
 		}
-		fieldQuery := ProcessQuery{Fields: query.Fields, Filter: query.Filter, Scope: query.Scope}
-		if err = validateFieldAccess(fieldQuery); err != nil {
+		if err = validateProcessFilterFieldAccess(query.Filter, query.Fields); err != nil {
 			return nil, query, err
 		}
 	}

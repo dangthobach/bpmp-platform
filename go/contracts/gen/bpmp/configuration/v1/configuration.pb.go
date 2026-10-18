@@ -1220,6 +1220,7 @@ type ProjectionPolicy struct {
 	QueryRevokeRetryAttempts      uint32                   `protobuf:"varint,23,opt,name=query_revoke_retry_attempts,json=queryRevokeRetryAttempts,proto3" json:"query_revoke_retry_attempts,omitempty"`
 	QueryRevokeRetryBackoffMs     uint64                   `protobuf:"varint,24,opt,name=query_revoke_retry_backoff_ms,json=queryRevokeRetryBackoffMs,proto3" json:"query_revoke_retry_backoff_ms,omitempty"`
 	QueryRevokeOperationTimeoutMs uint64                   `protobuf:"varint,25,opt,name=query_revoke_operation_timeout_ms,json=queryRevokeOperationTimeoutMs,proto3" json:"query_revoke_operation_timeout_ms,omitempty"`
+	QueryDiagnosticsCapability    string                   `protobuf:"bytes,26,opt,name=query_diagnostics_capability,json=queryDiagnosticsCapability,proto3" json:"query_diagnostics_capability,omitempty"`
 	unknownFields                 protoimpl.UnknownFields
 	sizeCache                     protoimpl.SizeCache
 }
@@ -1427,6 +1428,13 @@ func (x *ProjectionPolicy) GetQueryRevokeOperationTimeoutMs() uint64 {
 		return x.QueryRevokeOperationTimeoutMs
 	}
 	return 0
+}
+
+func (x *ProjectionPolicy) GetQueryDiagnosticsCapability() string {
+	if x != nil {
+		return x.QueryDiagnosticsCapability
+	}
+	return ""
 }
 
 type QueryActorRevokeEpoch struct {
@@ -2582,8 +2590,7 @@ const file_bpmp_configuration_v1_configuration_proto_rawDesc = "" +
 	"\fengine_retry\x18\v \x01(\v2\".bpmp.configuration.v1.RetryPolicyR\vengineRetry\x12V\n" +
 	"(engine_circuit_breaker_failure_threshold\x18\f \x01(\rR$engineCircuitBreakerFailureThreshold\x12B\n" +
 	"\x1eengine_circuit_breaker_open_ms\x18\r \x01(\x04R\x1aengineCircuitBreakerOpenMs\x124\n" +
-	"\x16engine_retryable_codes\x18\x0e \x03(\tR\x14engineRetryableCodes\"\xf7\n" +
-	"\n" +
+	"\x16engine_retryable_codes\x18\x0e \x03(\tR\x14engineRetryableCodes\"\xb9\v\n" +
 	"\x10ProjectionPolicy\x12,\n" +
 	"\x12consume_batch_size\x18\x01 \x01(\rR\x10consumeBatchSize\x12,\n" +
 	"\x12rebuild_batch_size\x18\x02 \x01(\rR\x10rebuildBatchSize\x125\n" +
@@ -2610,7 +2617,8 @@ const file_bpmp_configuration_v1_configuration_proto_rawDesc = "" +
 	"\x10query_pdp_action\x18\x16 \x01(\tR\x0equeryPdpAction\x12=\n" +
 	"\x1bquery_revoke_retry_attempts\x18\x17 \x01(\rR\x18queryRevokeRetryAttempts\x12@\n" +
 	"\x1dquery_revoke_retry_backoff_ms\x18\x18 \x01(\x04R\x19queryRevokeRetryBackoffMs\x12H\n" +
-	"!query_revoke_operation_timeout_ms\x18\x19 \x01(\x04R\x1dqueryRevokeOperationTimeoutMs\"U\n" +
+	"!query_revoke_operation_timeout_ms\x18\x19 \x01(\x04R\x1dqueryRevokeOperationTimeoutMs\x12@\n" +
+	"\x1cquery_diagnostics_capability\x18\x1a \x01(\tR\x1aqueryDiagnosticsCapability\"U\n" +
 	"\x15QueryActorRevokeEpoch\x12\x19\n" +
 	"\bactor_id\x18\x01 \x01(\tR\aactorId\x12!\n" +
 	"\frevoke_epoch\x18\x02 \x01(\x04R\vrevokeEpoch\"\xc8\x05\n" +

@@ -156,9 +156,13 @@ func fromWireQuery(request *projectionv1.QueryCompletedProcessesRequest) (applic
 		query.SelectedFields = append(query.SelectedFields, application.ProcessField(field))
 	}
 	if request.GetExpandEvents() != nil {
-		eventFilter, filterErr := fromWireEventExpression(request.GetExpandEvents().GetFilter(), 1)
-		if filterErr != nil {
-			return application.ProcessQuery{}, filterErr
+		var eventFilter *application.EventExpression
+		if request.GetExpandEvents().GetFilter() != nil {
+			var filterErr error
+			eventFilter, filterErr = fromWireEventExpression(request.GetExpandEvents().GetFilter(), 1)
+			if filterErr != nil {
+				return application.ProcessQuery{}, filterErr
+			}
 		}
 		query.ExpandEvents = &application.EventExpansion{Filter: eventFilter, Limit: request.GetExpandEvents().GetLimit()}
 	}
@@ -227,6 +231,314 @@ func (s *Server) QueryProcesses(ctx context.Context, request *projectionv1.Query
 	return response, nil
 }
 
+func (s *Server) AggregateProcesses(ctx context.Context, request *projectionv1.AggregateProcessesRequest) (*projectionv1.AggregateProcessesResponse, error) {
+	if request == nil {
+		return nil, mapError(invalidWireQuery("request", "required", "request is required"))
+	}
+	filter, err := fromWireProcessExpression(request.GetFilter(), 1)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	credential, err := fromWireActorProof(request.GetActorProof())
+	if err != nil {
+		return nil, mapError(err)
+	}
+	query := application.AggregateQuery{
+		TenantID: request.GetTenantId(), Scope: application.QueryScope(request.GetScope()), Filter: filter,
+		Limit: int(request.GetLimit()), Credential: credential,
+		GroupBy: make([]application.ProcessField, 0, len(request.GetGroupBy())),
+		Metrics: make([]application.AggregateMetric, 0, len(request.GetMetrics())),
+	}
+	for _, field := range request.GetGroupBy() {
+		query.GroupBy = append(query.GroupBy, application.ProcessField(field))
+	}
+	for index, metric := range request.GetMetrics() {
+		if metric == nil {
+			return nil, mapError(invalidWireQuery(fmt.Sprintf("metrics[%d]", index), "required", "metric is required"))
+		}
+		query.Metrics = append(query.Metrics, application.AggregateMetric{Alias: metric.GetAlias(), Operation: application.AggregateOperation(metric.GetOperation()), Field: application.ProcessField(metric.GetField())})
+	}
+	rows, normalized, err := s.service.AggregateProcesses(ctx, query)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	response := &projectionv1.AggregateProcessesResponse{PolicyVersion: normalized.AuthorizationPolicyVersion, Rows: make([]*projectionv1.AggregateRow, 0, len(rows))}
+	for _, row := range rows {
+		item := &projectionv1.AggregateRow{}
+		for _, cell := range row.Dimensions {
+			value := cell.Value
+			item.Dimensions = append(item.Dimensions, &projectionv1.AggregateCell{Name: cell.Name, Value: toWireQueryValue(&value)})
+		}
+		for _, cell := range row.Metrics {
+			value := cell.Value
+			item.Metrics = append(item.Metrics, &projectionv1.AggregateCell{Name: cell.Name, Value: toWireQueryValue(&value)})
+		}
+		response.Rows = append(response.Rows, item)
+	}
+	return response, nil
+}
+
+func (s *Server) QueryEvents(ctx context.Context, request *projectionv1.QueryEventsRequest) (*projectionv1.QueryEventsResponse, error) {
+	if request == nil {
+		return nil, mapError(invalidWireQuery("request", "required", "request is required"))
+	}
+	filter, err := fromWireEventExpression(request.GetFilter(), 1)
+	if err != nil && request.GetFilter() != nil {
+		return nil, mapError(err)
+	}
+	processFilter, err := fromWireProcessExpression(request.GetProcessFilter(), 1)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	credential, err := fromWireActorProof(request.GetActorProof())
+	if err != nil {
+		return nil, mapError(err)
+	}
+	after, err := s.cursors.DecodeQuery(request.GetPageToken())
+	if err != nil {
+		return nil, mapError(invalidWireQuery("page_token", "invalid_cursor", "page token is invalid"))
+	}
+	query := application.EventQuery{TenantID: request.GetTenantId(), Filter: filter, ProcessFilter: processFilter, Limit: int(request.GetPageSize()), Credential: credential, After: after, Sort: make([]application.EventSort, 0, len(request.GetSort()))}
+	for index, sort := range request.GetSort() {
+		if sort == nil {
+			return nil, mapError(invalidWireQuery(fmt.Sprintf("sort[%d]", index), "required", "sort is required"))
+		}
+		query.Sort = append(query.Sort, application.EventSort{Field: application.EventField(sort.GetField()), Direction: application.SortDirection(sort.GetDirection())})
+	}
+	events, limit, normalized, err := s.service.QueryEvents(ctx, query)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	response := &projectionv1.QueryEventsResponse{PolicyVersion: normalized.AuthorizationPolicyVersion}
+	if limit > 0 && len(events) > limit {
+		cursor, cursorErr := application.EventCursorFor(normalized, events[limit-1])
+		if cursorErr != nil {
+			return nil, status.Error(codes.Internal, "build event cursor")
+		}
+		response.NextPageToken, cursorErr = s.cursors.EncodeQuery(normalized.CursorSigningKeyID, cursor)
+		if cursorErr != nil {
+			return nil, status.Error(codes.Internal, "encode event cursor")
+		}
+		events = events[:limit]
+	}
+	response.Events = toWireEvents(events, normalized.Fields)
+	return response, nil
+}
+
+func (s *Server) SaveQuery(ctx context.Context, request *projectionv1.SaveQueryRequest) (*projectionv1.SaveQueryResponse, error) {
+	if request == nil || request.GetQuery() == nil {
+		return nil, mapError(invalidWireQuery("query", "required", "query is required"))
+	}
+	credential, err := fromWireActorProof(request.GetActorProof())
+	if err != nil {
+		return nil, mapError(err)
+	}
+	request.Query.TenantId, request.Query.ActorProof = request.GetTenantId(), request.GetActorProof()
+	query, err := fromWireGeneralQuery(request.GetQuery())
+	if err != nil {
+		return nil, mapError(err)
+	}
+	query.TenantID = request.GetTenantId()
+	query.Credential = credential
+	item, err := s.service.SaveQuery(ctx, application.SavedQuery{TenantID: request.GetTenantId(), ID: request.GetId(), Name: request.GetName(), Query: query}, request.GetExpectedVersion(), credential)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return &projectionv1.SaveQueryResponse{SavedQuery: toWireSavedQuery(item)}, nil
+}
+
+func (s *Server) ListSavedQueries(ctx context.Context, request *projectionv1.ListSavedQueriesRequest) (*projectionv1.ListSavedQueriesResponse, error) {
+	if request == nil {
+		return nil, mapError(invalidWireQuery("request", "required", "request is required"))
+	}
+	credential, err := fromWireActorProof(request.GetActorProof())
+	if err != nil {
+		return nil, mapError(err)
+	}
+	var afterTime time.Time
+	afterID := ""
+	if request.GetPageToken() != "" {
+		cursor, decodeErr := s.cursors.DecodeQuery(request.GetPageToken())
+		if decodeErr != nil || cursor.QueryHash != "saved-query-list-v1" || len(cursor.Values) != 2 || cursor.Values[0].Kind != application.ValueTimestamp || cursor.Values[1].Kind != application.ValueString {
+			return nil, mapError(invalidWireQuery("page_token", "invalid_cursor", "page token is invalid"))
+		}
+		afterTime, afterID = cursor.Values[0].Time, cursor.Values[1].String
+	}
+	items, limit, keyID, err := s.service.ListSavedQueries(ctx, request.GetTenantId(), credential, afterTime, afterID, int(request.GetPageSize()))
+	if err != nil {
+		return nil, mapError(err)
+	}
+	response := &projectionv1.ListSavedQueriesResponse{}
+	if len(items) > limit {
+		last := items[limit-1]
+		response.NextPageToken, err = s.cursors.EncodeQuery(keyID, &application.QueryCursor{QueryHash: "saved-query-list-v1", Values: []application.QueryValue{{Kind: application.ValueTimestamp, Time: last.UpdatedAt}, {Kind: application.ValueString, String: last.ID}}})
+		if err != nil {
+			return nil, status.Error(codes.Internal, "encode saved query cursor")
+		}
+		items = items[:limit]
+	}
+	for _, item := range items {
+		response.SavedQueries = append(response.SavedQueries, toWireSavedQuery(item))
+	}
+	return response, nil
+}
+
+func (s *Server) DeleteSavedQuery(ctx context.Context, request *projectionv1.DeleteSavedQueryRequest) (*projectionv1.DeleteSavedQueryResponse, error) {
+	if request == nil {
+		return nil, mapError(invalidWireQuery("request", "required", "request is required"))
+	}
+	credential, err := fromWireActorProof(request.GetActorProof())
+	if err != nil {
+		return nil, mapError(err)
+	}
+	if err = s.service.DeleteSavedQuery(ctx, request.GetTenantId(), request.GetId(), request.GetExpectedVersion(), credential); err != nil {
+		return nil, mapError(err)
+	}
+	return &projectionv1.DeleteSavedQueryResponse{}, nil
+}
+
+func (s *Server) CreateQueryExport(ctx context.Context, request *projectionv1.CreateQueryExportRequest) (*projectionv1.CreateQueryExportResponse, error) {
+	if request == nil || request.GetQuery() == nil {
+		return nil, mapError(invalidWireQuery("query", "required", "query is required"))
+	}
+	credential, err := fromWireActorProof(request.GetActorProof())
+	if err != nil {
+		return nil, mapError(err)
+	}
+	request.Query.TenantId, request.Query.ActorProof = request.GetTenantId(), request.GetActorProof()
+	query, err := fromWireGeneralQuery(request.GetQuery())
+	if err != nil {
+		return nil, mapError(err)
+	}
+	item, err := s.service.CreateQueryExport(ctx, request.GetTenantId(), query, int(request.GetMaxRows()), credential)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return &projectionv1.CreateQueryExportResponse{Export: toWireExport(item)}, nil
+}
+func (s *Server) GetQueryExport(ctx context.Context, request *projectionv1.GetQueryExportRequest) (*projectionv1.GetQueryExportResponse, error) {
+	if request == nil {
+		return nil, mapError(invalidWireQuery("request", "required", "request is required"))
+	}
+	credential, err := fromWireActorProof(request.GetActorProof())
+	if err != nil {
+		return nil, mapError(err)
+	}
+	item, err := s.service.GetQueryExport(ctx, request.GetTenantId(), request.GetId(), credential)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return &projectionv1.GetQueryExportResponse{Export: toWireExport(item)}, nil
+}
+func (s *Server) CancelQueryExport(ctx context.Context, request *projectionv1.CancelQueryExportRequest) (*projectionv1.CancelQueryExportResponse, error) {
+	if request == nil {
+		return nil, mapError(invalidWireQuery("request", "required", "request is required"))
+	}
+	credential, err := fromWireActorProof(request.GetActorProof())
+	if err != nil {
+		return nil, mapError(err)
+	}
+	item, err := s.service.CancelQueryExport(ctx, request.GetTenantId(), request.GetId(), credential)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return &projectionv1.CancelQueryExportResponse{Export: toWireExport(item)}, nil
+}
+func (s *Server) ExplainQueryPlan(ctx context.Context, request *projectionv1.ExplainQueryPlanRequest) (*projectionv1.ExplainQueryPlanResponse, error) {
+	if request == nil || request.GetQuery() == nil {
+		return nil, mapError(invalidWireQuery("query", "required", "query is required"))
+	}
+	credential, err := fromWireActorProof(request.GetActorProof())
+	if err != nil {
+		return nil, mapError(err)
+	}
+	request.Query.TenantId, request.Query.ActorProof = request.GetTenantId(), request.GetActorProof()
+	query, err := fromWireGeneralQuery(request.GetQuery())
+	if err != nil {
+		return nil, mapError(err)
+	}
+	query.TenantID, query.Credential = request.GetTenantId(), credential
+	plan, fingerprint, err := s.service.ExplainQueryPlan(ctx, query, request.GetAnalyze())
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return &projectionv1.ExplainQueryPlanResponse{RedactedPlanJson: plan, QueryFingerprint: fingerprint}, nil
+}
+func toWireExport(item application.QueryExport) *projectionv1.QueryExport {
+	statusValue := projectionv1.QueryExportStatus(item.Status)
+	if item.Status < application.QueryExportPending || item.Status > application.QueryExportCancelled {
+		statusValue = projectionv1.QueryExportStatus_QUERY_EXPORT_STATUS_PENDING
+	}
+	return &projectionv1.QueryExport{Id: item.ID, Status: statusValue, RowCount: item.RowCount, Csv: item.CSV, ErrorCode: item.ErrorCode, CreatedAtEpochMs: uint64(item.CreatedAt.UnixMilli()), ExpiresAtEpochMs: uint64(item.ExpiresAt.UnixMilli())}
+}
+
+func toWireSavedQuery(item application.SavedQuery) *projectionv1.SavedQuery {
+	return &projectionv1.SavedQuery{Id: item.ID, Name: item.Name, Version: item.Version, Query: toWireGeneralQuery(item.Query), CreatedAtEpochMs: uint64(item.CreatedAt.UnixMilli()), UpdatedAtEpochMs: uint64(item.UpdatedAt.UnixMilli())}
+}
+
+func toWireGeneralQuery(query application.ProcessQuery) *projectionv1.QueryProcessesRequest {
+	result := &projectionv1.QueryProcessesRequest{Scope: projectionv1.QueryScope(query.Scope), Filter: toWireProcessExpression(query.Filter), IncludeDeleted: query.IncludeDeleted, PageSize: uint32(query.Limit), Collapse: projectionv1.ProcessField(query.Collapse), Sort: toWireSorts(query.Sort)}
+	for _, field := range query.SelectedFields {
+		result.Select = append(result.Select, projectionv1.ProcessField(field))
+	}
+	if query.ExpandEvents != nil {
+		result.ExpandEvents = &projectionv1.EventExpansion{Filter: toWireEventExpression(query.ExpandEvents.Filter), Limit: query.ExpandEvents.Limit}
+	}
+	return result
+}
+
+func toWireProcessExpression(expression *application.ProcessExpression) *projectionv1.ProcessExpression {
+	if expression == nil {
+		return nil
+	}
+	result := &projectionv1.ProcessExpression{}
+	switch {
+	case expression.Predicate != nil:
+		p := expression.Predicate
+		values := make([]*projectionv1.QueryValue, 0, len(p.Values))
+		for i := range p.Values {
+			values = append(values, toWireQueryValue(&p.Values[i]))
+		}
+		result.Expression = &projectionv1.ProcessExpression_Predicate{Predicate: &projectionv1.ProcessPredicate{Field: projectionv1.ProcessField(p.Field), Operator: projectionv1.ComparisonOperator(p.Operator), Values: values, TextTransform: projectionv1.TextTransform(p.TextTransform), NumericTransform: projectionv1.NumericTransform(p.NumericTransform), DateTransform: projectionv1.DateTransform(p.DateTransform), CoalesceValue: toWireQueryValue(p.Coalesce)}}
+	case expression.Negated != nil:
+		result.Expression = &projectionv1.ProcessExpression_Negated{Negated: toWireProcessExpression(expression.Negated)}
+	case expression.EventRelation != nil:
+		result.Expression = &projectionv1.ProcessExpression_EventRelation{EventRelation: &projectionv1.EventRelationPredicate{Quantifier: projectionv1.RelationQuantifier(expression.EventRelation.Quantifier), Expression: toWireEventExpression(&expression.EventRelation.Expression)}}
+	default:
+		group := &projectionv1.ProcessExpressionGroup{Operator: projectionv1.LogicalOperator(expression.Logical)}
+		for i := range expression.Children {
+			group.Expressions = append(group.Expressions, toWireProcessExpression(&expression.Children[i]))
+		}
+		result.Expression = &projectionv1.ProcessExpression_Group{Group: group}
+	}
+	return result
+}
+
+func toWireEventExpression(expression *application.EventExpression) *projectionv1.EventExpression {
+	if expression == nil {
+		return nil
+	}
+	result := &projectionv1.EventExpression{}
+	switch {
+	case expression.Predicate != nil:
+		p := expression.Predicate
+		values := make([]*projectionv1.QueryValue, 0, len(p.Values))
+		for i := range p.Values {
+			values = append(values, toWireQueryValue(&p.Values[i]))
+		}
+		result.Expression = &projectionv1.EventExpression_Predicate{Predicate: &projectionv1.EventPredicate{Field: projectionv1.EventField(p.Field), Operator: projectionv1.ComparisonOperator(p.Operator), Values: values, TextTransform: projectionv1.TextTransform(p.TextTransform), NumericTransform: projectionv1.NumericTransform(p.NumericTransform), DateTransform: projectionv1.DateTransform(p.DateTransform), CoalesceValue: toWireQueryValue(p.Coalesce)}}
+	case expression.Negated != nil:
+		result.Expression = &projectionv1.EventExpression_Negated{Negated: toWireEventExpression(expression.Negated)}
+	default:
+		group := &projectionv1.EventExpressionGroup{Operator: projectionv1.LogicalOperator(expression.Logical)}
+		for i := range expression.Children {
+			group.Expressions = append(group.Expressions, toWireEventExpression(&expression.Children[i]))
+		}
+		result.Expression = &projectionv1.EventExpression_Group{Group: group}
+	}
+	return result
+}
+
 func fromWireGeneralQuery(request *projectionv1.QueryProcessesRequest) (application.ProcessQuery, error) {
 	if request == nil {
 		return application.ProcessQuery{}, application.ErrInvalidQuery
@@ -254,9 +566,13 @@ func fromWireGeneralQuery(request *projectionv1.QueryProcessesRequest) (applicat
 		query.SelectedFields = append(query.SelectedFields, application.ProcessField(field))
 	}
 	if request.GetExpandEvents() != nil {
-		eventFilter, filterErr := fromWireEventExpression(request.GetExpandEvents().GetFilter(), 1)
-		if filterErr != nil {
-			return application.ProcessQuery{}, filterErr
+		var eventFilter *application.EventExpression
+		if request.GetExpandEvents().GetFilter() != nil {
+			var filterErr error
+			eventFilter, filterErr = fromWireEventExpression(request.GetExpandEvents().GetFilter(), 1)
+			if filterErr != nil {
+				return application.ProcessQuery{}, filterErr
+			}
 		}
 		query.ExpandEvents = &application.EventExpansion{Filter: eventFilter, Limit: request.GetExpandEvents().GetLimit()}
 	}

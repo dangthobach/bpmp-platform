@@ -107,3 +107,11 @@ func validateEventFieldAccess(e *EventExpression, allowed map[string]bool) error
 	}
 	return validateEventFieldAccess(e.Negated, allowed)
 }
+
+func validateProcessFilterFieldAccess(expression *ProcessExpression, fields *FieldAuthorization) error {
+	if fields == nil { return nil }
+	allowed := make(map[string]bool, len(fields.QueryFields)); for _, name := range fields.QueryFields { allowed[name] = true }
+	var visit func(*ProcessExpression) error
+	visit = func(e *ProcessExpression) error { if e==nil{return nil};if e.Predicate!=nil&&!allowed[ProcessFieldName(e.Predicate.Field)]{return ErrQueryForbidden};if e.EventRelation!=nil{if err:=validateEventFieldAccess(&e.EventRelation.Expression,allowed);err!=nil{return err}};for i:=range e.Children{if err:=visit(&e.Children[i]);err!=nil{return err}};return visit(e.Negated) }
+	return visit(expression)
+}

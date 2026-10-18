@@ -31,6 +31,7 @@ import type {
   CompletedProcessQueryInput,
   ProcessQueryInput,
   QueryCapabilities,
+  AggregateQueryInput, AggregatePage, EventQueryInput, EventPage, SavedQuery, SavedQueryPage, QueryExport, QueryPlan,
 } from "./types";
 
 export interface RequestIdentity {
@@ -99,6 +100,14 @@ const completedProcessPageSchema = z.object({
   policy_version: z.string().optional(),
   query_fingerprint: z.string().optional(),
 });
+const queryValueSchema = z.union([z.object({string_value:z.string()}),z.object({integer_value:z.number().int()}),z.object({boolean_value:z.boolean()}),z.object({timestamp_epoch_ms:z.number().int().nonnegative()}),z.object({decimal_value:z.string().regex(/^-?\d+(\.\d+)?$/)})]);
+const eventSchema=z.object({instance_id:z.string().optional(),sequence:z.number().int().nonnegative().optional(),event_type:z.string().optional(),node_id:z.string().optional(),actor_id:z.string().optional(),occurred_at_epoch_ms:z.number().int().nonnegative().optional(),config_version:z.string().optional(),policy_version:z.string().optional(),is_deleted:z.boolean().optional(),masked_fields:z.array(z.string()).optional()});
+const eventPageSchema=z.object({events:z.array(eventSchema).default([]),next_page_token:z.string().default(""),policy_version:z.string().optional()});
+const aggregatePageSchema=z.object({rows:z.array(z.object({dimensions:z.array(z.object({name:z.string(),value:queryValueSchema.optional()})).default([]),metrics:z.array(z.object({name:z.string(),value:queryValueSchema.optional()})).default([])})).default([]),policy_version:z.string().optional()});
+const savedQuerySchema=z.object({id:z.string().min(1),name:z.string().min(1),version:z.number().int().positive(),query:z.record(z.string(),z.unknown()),created_at_epoch_ms:z.number().int().nonnegative(),updated_at_epoch_ms:z.number().int().nonnegative()});
+const savedQueryPageSchema=z.object({saved_queries:z.array(savedQuerySchema).default([]),next_page_token:z.string().default("")});
+const queryExportSchema=z.object({id:z.string().min(1),status:z.enum(["QUERY_EXPORT_STATUS_PENDING","QUERY_EXPORT_STATUS_COMPLETED","QUERY_EXPORT_STATUS_FAILED","QUERY_EXPORT_STATUS_CANCELLED"]),row_count:z.number().int().nonnegative().optional(),csv:z.string().optional(),error_code:z.string().optional(),created_at_epoch_ms:z.number().int().nonnegative(),expires_at_epoch_ms:z.number().int().nonnegative()});
+const queryPlanSchema=z.object({redacted_plan_json:z.string(),query_fingerprint:z.string().min(1)});
 const queryCapabilitiesSchema = z.object({
   schema_version: z.string().min(1), config_version: z.string().min(1), policy_version: z.string().min(1),
   fields: z.array(z.object({ field: processFieldSchema, value_kind: z.string(), filterable: z.boolean(), sortable: z.boolean(), selectable: z.boolean(), operators: z.array(comparisonOperatorSchema).default([]), text_transforms: z.array(textTransformSchema).optional(), numeric_transforms: z.array(numericTransformSchema).optional(), date_transforms: z.array(dateTransformSchema).optional() })),
@@ -230,6 +239,16 @@ export class BpmpApiClient {
     if (!parsed.success) throw new ApiError("Invalid process query capabilities", 502, "");
     return parsed.data as unknown as QueryCapabilities;
   }
+
+  async aggregateProcesses(input: AggregateQueryInput): Promise<AggregatePage> { const parsed=aggregatePageSchema.safeParse(await this.request<unknown>("/v1/process-instances/aggregate",{method:"POST",body:input}));if(!parsed.success)throw new ApiError("Invalid aggregate response",502,"");return parsed.data as AggregatePage; }
+  async queryEvents(input: EventQueryInput): Promise<EventPage> { const parsed=eventPageSchema.safeParse(await this.request<unknown>("/v1/process-events/query",{method:"POST",body:input}));if(!parsed.success)throw new ApiError("Invalid event query response",502,"");return parsed.data as EventPage; }
+  async saveQuery(input:{id:string;name:string;expected_version?:number;query:ProcessQueryInput}):Promise<SavedQuery>{const raw=await this.request<unknown>("/v1/saved-queries",{method:"POST",body:input});const parsed=z.object({saved_query:savedQuerySchema}).safeParse(raw);if(!parsed.success)throw new ApiError("Invalid saved query response",502,"");return parsed.data.saved_query as unknown as SavedQuery;}
+  async listSavedQueries(pageToken="",pageSize=this.config.defaultPageSize):Promise<SavedQueryPage>{const query=new URLSearchParams({page_size:String(pageSize)});if(pageToken)query.set("page_token",pageToken);const parsed=savedQueryPageSchema.safeParse(await this.request<unknown>(`/v1/saved-queries?${query.toString()}`));if(!parsed.success)throw new ApiError("Invalid saved query page",502,"");return parsed.data as unknown as SavedQueryPage;}
+  async deleteSavedQuery(id:string,expectedVersion:number):Promise<void>{await this.request(`/v1/saved-queries/${encodeURIComponent(id)}?expected_version=${expectedVersion}`,{method:"DELETE"});}
+  async createQueryExport(query:ProcessQueryInput,maxRows=10000):Promise<QueryExport>{const raw=await this.request<unknown>("/v1/query-exports",{method:"POST",body:{query,max_rows:maxRows}});const parsed=z.object({export:queryExportSchema}).safeParse(raw);if(!parsed.success)throw new ApiError("Invalid query export response",502,"");return parsed.data.export as QueryExport;}
+  async getQueryExport(id:string):Promise<QueryExport>{const raw=await this.request<unknown>(`/v1/query-exports/${encodeURIComponent(id)}`);const parsed=z.object({export:queryExportSchema}).safeParse(raw);if(!parsed.success)throw new ApiError("Invalid query export response",502,"");return parsed.data.export as QueryExport;}
+  async cancelQueryExport(id:string):Promise<QueryExport>{const raw=await this.request<unknown>(`/v1/query-exports/${encodeURIComponent(id)}`,{method:"DELETE"});const parsed=z.object({export:queryExportSchema}).safeParse(raw);if(!parsed.success)throw new ApiError("Invalid query export response",502,"");return parsed.data.export as QueryExport;}
+  async explainQueryPlan(query:ProcessQueryInput,analyze=false):Promise<QueryPlan>{const parsed=queryPlanSchema.safeParse(await this.request<unknown>("/v1/ops/query-plan",{method:"POST",body:{query,analyze}}));if(!parsed.success)throw new ApiError("Invalid query plan response",502,"");return parsed.data;}
 
   listOrganizations(offset = 0, limit = this.config.defaultPageSize) {
     const query = new URLSearchParams({
@@ -424,7 +443,7 @@ export class BpmpApiClient {
   private async request<T>(
     path: string,
     options: {
-      method?: "GET" | "POST";
+      method?: "GET" | "POST" | "DELETE";
       body?: unknown;
       idempotencyKey?: string;
     } = {},

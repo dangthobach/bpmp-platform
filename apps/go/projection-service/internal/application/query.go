@@ -63,6 +63,7 @@ type QueryAuthorization struct {
 	PolicyVersion string
 	Filter        *ProcessExpression
 	Fields        *FieldAuthorization
+	Capabilities  []string
 }
 
 type FieldAuthorization struct {
@@ -324,56 +325,59 @@ func (s *Service) QueryInstances(ctx context.Context, query ProcessQuery) ([]Com
 }
 
 func (s *Service) queryProcesses(ctx context.Context, query ProcessQuery) ([]CompletedProcess, int, ProcessQuery, error) {
+	queryCtx, cancel, query, effectiveLimit, err := s.prepareProcessQuery(ctx, query)
+	if err != nil { return nil, 0, query, err }
+	defer cancel()
+	var processes []CompletedProcess
+	if query.Scope != QueryScopeCompleted { processes, err = s.store.QueryInstances(queryCtx, query) } else { processes, err = s.store.QueryCompleted(queryCtx, query) }
+	return processes, effectiveLimit, query, err
+}
+
+func (s *Service) prepareProcessQuery(ctx context.Context, query ProcessQuery) (context.Context, context.CancelFunc, ProcessQuery, int, error) {
+	noop:=func(){}
 	if query.TenantID == "" {
-		return nil, 0, query, fmt.Errorf("%w: tenant is required", ErrInvalidQuery)
+		return ctx, noop, query, 0, fmt.Errorf("%w: tenant is required", ErrInvalidQuery)
 	}
 	policy, err := s.policy.Policy(query.TenantID)
 	if err != nil {
-		return nil, 0, query, err
+		return ctx, noop, query, 0, err
 	}
 	queryCtx, cancel := context.WithTimeout(ctx, policy.QueryTimeout)
-	defer cancel()
 	authorization, err := s.authorizer.AuthorizeQuery(queryCtx, QueryAuthorizationRequest{
 		TenantID:   query.TenantID,
 		Credential: query.Credential,
 		Policy:     policy,
 	})
 	if err != nil {
-		return nil, 0, query, err
+		cancel(); return ctx, noop, query, 0, err
 	}
 	if authorization.SubjectID == "" || authorization.PolicyVersion == "" {
-		return nil, 0, query, ErrQueryForbidden
+		cancel(); return ctx, noop, query, 0, ErrQueryForbidden
 	}
 	query.AuthorizationSubject = authorization.SubjectID
 	query.AuthorizationPolicyVersion = authorization.PolicyVersion
 	query.CursorSigningKeyID = policy.QueryCursorSigningKeyID
 	query.Fields = authorization.Fields
 	if query.Scope < QueryScopeAll || query.Scope > QueryScopeDeleted {
-		return nil, 0, query, fmt.Errorf("%w: query scope is unsupported", ErrInvalidQuery)
+		cancel(); return ctx, noop, query, 0, fmt.Errorf("%w: query scope is unsupported", ErrInvalidQuery)
 	}
 	if err = validateFieldAccess(query); err != nil {
-		return nil, 0, query, err
+		cancel(); return ctx, noop, query, 0, err
 	}
 	query.Filter = intersectFilters(query.Filter, authorization.Filter)
 	if err = normalizeAndValidateQuery(&query, policy); err != nil {
-		return nil, 0, query, err
+		cancel(); return ctx, noop, query, 0, err
 	}
 	queryHash, err := query.Fingerprint()
 	if err != nil {
-		return nil, 0, query, fmt.Errorf("%w: fingerprint query", ErrInvalidQuery)
+		cancel(); return ctx, noop, query, 0, fmt.Errorf("%w: fingerprint query", ErrInvalidQuery)
 	}
 	if query.After != nil && query.After.QueryHash != queryHash {
-		return nil, 0, query, fmt.Errorf("%w: page token belongs to another query", ErrInvalidQuery)
+		cancel(); return ctx, noop, query, 0, fmt.Errorf("%w: page token belongs to another query", ErrInvalidQuery)
 	}
 	effectiveLimit := query.Limit
 	query.Limit++
-	var processes []CompletedProcess
-	if query.Scope != QueryScopeCompleted {
-		processes, err = s.store.QueryInstances(queryCtx, query)
-	} else {
-		processes, err = s.store.QueryCompleted(queryCtx, query)
-	}
-	return processes, effectiveLimit, query, err
+	return queryCtx, cancel, query, effectiveLimit, nil
 }
 
 func intersectFilters(client, authorization *ProcessExpression) *ProcessExpression {

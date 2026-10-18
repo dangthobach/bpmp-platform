@@ -105,10 +105,11 @@ func (a *Authorizer) AuthorizeQuery(
 				authorization.Filter = &application.ProcessExpression{Logical: application.LogicalAnd, Children: []application.ProcessExpression{ceiling, *authorization.Filter}}
 			}
 		}
+		authorization.Capabilities = append([]string(nil), identity.Capabilities...)
 		return authorization, nil
 	}
 	authorization := application.QueryAuthorization{
-		SubjectID: identity.Subject, PolicyVersion: request.Policy.PolicyVersion,
+		SubjectID: identity.Subject, PolicyVersion: request.Policy.PolicyVersion, Capabilities: append([]string(nil), identity.Capabilities...),
 	}
 	if _, allowed := capabilities[request.Policy.QueryAllCapability]; allowed {
 		return authorization, nil

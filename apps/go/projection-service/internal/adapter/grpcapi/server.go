@@ -159,6 +159,8 @@ func mapError(err error) error {
 	switch {
 	case errors.Is(err, application.ErrNotFound):
 		return status.Error(codes.NotFound, err.Error())
+	case errors.Is(err, application.ErrConflict):
+		return status.Error(codes.Aborted, err.Error())
 	case errors.Is(err, application.ErrInvalidEvent):
 		return status.Error(codes.InvalidArgument, err.Error())
 	case errors.Is(err, application.ErrInvalidQuery):

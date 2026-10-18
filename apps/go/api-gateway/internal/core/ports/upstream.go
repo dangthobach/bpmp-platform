@@ -26,6 +26,15 @@ type Projection interface {
 	QueryCompletedProcesses(context.Context, *projectionv1.QueryCompletedProcessesRequest, ...grpc.CallOption) (*projectionv1.QueryCompletedProcessesResponse, error)
 	QueryProcesses(context.Context, *projectionv1.QueryProcessesRequest, ...grpc.CallOption) (*projectionv1.QueryProcessesResponse, error)
 	GetQueryCapabilities(context.Context, *projectionv1.GetQueryCapabilitiesRequest, ...grpc.CallOption) (*projectionv1.GetQueryCapabilitiesResponse, error)
+	AggregateProcesses(context.Context, *projectionv1.AggregateProcessesRequest, ...grpc.CallOption) (*projectionv1.AggregateProcessesResponse, error)
+	QueryEvents(context.Context, *projectionv1.QueryEventsRequest, ...grpc.CallOption) (*projectionv1.QueryEventsResponse, error)
+	SaveQuery(context.Context, *projectionv1.SaveQueryRequest, ...grpc.CallOption) (*projectionv1.SaveQueryResponse, error)
+	ListSavedQueries(context.Context, *projectionv1.ListSavedQueriesRequest, ...grpc.CallOption) (*projectionv1.ListSavedQueriesResponse, error)
+	DeleteSavedQuery(context.Context, *projectionv1.DeleteSavedQueryRequest, ...grpc.CallOption) (*projectionv1.DeleteSavedQueryResponse, error)
+	CreateQueryExport(context.Context, *projectionv1.CreateQueryExportRequest, ...grpc.CallOption) (*projectionv1.CreateQueryExportResponse, error)
+	GetQueryExport(context.Context, *projectionv1.GetQueryExportRequest, ...grpc.CallOption) (*projectionv1.GetQueryExportResponse, error)
+	CancelQueryExport(context.Context, *projectionv1.CancelQueryExportRequest, ...grpc.CallOption) (*projectionv1.CancelQueryExportResponse, error)
+	ExplainQueryPlan(context.Context, *projectionv1.ExplainQueryPlanRequest, ...grpc.CallOption) (*projectionv1.ExplainQueryPlanResponse, error)
 }
 
 type RateLimiter interface {

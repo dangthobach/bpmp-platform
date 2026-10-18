@@ -42,6 +42,9 @@ export function ProcessQueryPage() {
   const [pageSize, setPageSize] = useState(50);
   const [includeDeleted, setIncludeDeleted] = useState(false);
   const [scope, setScope] = useState<QueryScope>("QUERY_SCOPE_COMPLETED");
+  const [selectedFields, setSelectedFields] = useState<ProcessField[]>([]);
+  const [collapse, setCollapse] = useState<ProcessField | "">("");
+  const [expandEventLimit, setExpandEventLimit] = useState(0);
   const [executed, setExecuted] = useState<ExecutedQuery | null>(null);
   const [pageTokens, setPageTokens] = useState<string[]>([""]);
   const [submitErrors, setSubmitErrors] = useState<Record<string, string>>({});
@@ -116,6 +119,8 @@ export function ProcessQueryPage() {
     if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > maxPageSize) {
       nextErrors.pageSize = `Page size must be between 1 and ${maxPageSize}.`;
     }
+    if (collapse && compiledSorts[0]?.field !== collapse) nextErrors.collapse = "Collapse field must be the first sort field.";
+    if (!Number.isInteger(expandEventLimit) || expandEventLimit < 0 || expandEventLimit > effectiveLimits.maxInValues) nextErrors.expandEvents = `Event expansion must be between 0 and ${effectiveLimits.maxInValues}.`;
     setSubmitErrors(nextErrors);
     if (!draft.expression || Object.keys(nextErrors).length > 0) return;
     const request: ProcessQueryInput = {
@@ -124,6 +129,9 @@ export function ProcessQueryPage() {
       sort: compiledSorts,
       include_deleted: includeDeleted,
       page_size: pageSize,
+      ...(selectedFields.length ? { select: selectedFields } : {}),
+      ...(collapse ? { collapse } : {}),
+      ...(expandEventLimit ? { expand_events: { limit: expandEventLimit } } : {}),
     };
     setPageTokens([""]);
     setExecuted({ request, signature: JSON.stringify(request) });
@@ -223,11 +231,30 @@ export function ProcessQueryPage() {
               Page size
               <input type="number" min={1} max={capabilities.data?.max_page_size ?? 100} value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))} />
             </label>
+            <label>
+              Collapse by
+              <select aria-label="Collapse field" value={collapse} onChange={(event) => setCollapse(event.target.value as ProcessField | "")}>
+                <option value="">No collapse</option>
+                {processFields.filter((field) => field.sortable).map((field) => <option key={field.value} value={field.value}>{field.label}</option>)}
+              </select>
+            </label>
+            <label>
+              Expand latest events
+              <input aria-label="Expanded event limit" type="number" min={0} max={effectiveLimits.maxInValues} value={expandEventLimit} onChange={(event) => setExpandEventLimit(Number(event.target.value))} />
+            </label>
+            <label>
+              Returned fields
+              <select multiple aria-label="Returned fields" value={selectedFields} onChange={(event) => setSelectedFields(Array.from(event.currentTarget.selectedOptions, (option) => option.value as ProcessField))}>
+                {(capabilities.data?.fields.filter((field) => field.selectable).map((field) => ({ value: field.field, label: field.field.replace("PROCESS_FIELD_", "").toLowerCase() })) ?? processFields.map((field) => ({ value: field.value as ProcessField, label: field.label }))).map((field) => <option key={field.value} value={field.value}>{field.label}</option>)}
+              </select>
+            </label>
             <label className="checkbox-label">
               <input type="checkbox" checked={includeDeleted} onChange={(event) => setIncludeDeleted(event.target.checked)} />
               Include deleted projections
             </label>
             {submitErrors.pageSize ? <span className="query-node__error">{submitErrors.pageSize}</span> : null}
+            {submitErrors.collapse ? <span className="query-node__error">{submitErrors.collapse}</span> : null}
+            {submitErrors.expandEvents ? <span className="query-node__error">{submitErrors.expandEvents}</span> : null}
             <span className="query-policy-note">Tenant policy and field authorization are revalidated by the Projection Service.</span>
           </div>
         </div>

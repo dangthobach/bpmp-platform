@@ -245,6 +245,8 @@ pub struct ProjectionPolicy {
     pub query_revoke_retry_backoff_ms: u64,
     #[prost(uint64, tag="25")]
     pub query_revoke_operation_timeout_ms: u64,
+    #[prost(string, tag="26")]
+    pub query_diagnostics_capability: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct QueryActorRevokeEpoch {

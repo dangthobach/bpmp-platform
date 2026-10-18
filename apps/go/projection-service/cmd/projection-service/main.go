@@ -338,7 +338,8 @@ func run(configPath string) error {
 		IdleTimeout:       milliseconds(value.Health.ReadinessTimeoutMS),
 		MaxHeaderBytes:    value.Health.MaxHeaderBytes,
 	}
-	errs := make(chan error, 5)
+	errs := make(chan error, 6)
+	go func() { errs <- service.RunExportWorker(ctx) }()
 	go func() { errs <- revokeConsumer.Run(ctx) }()
 	go func() { errs <- consumer.Run(ctx) }()
 	go func() { errs <- reloader.Run(ctx) }()

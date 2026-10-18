@@ -178,6 +178,15 @@ var publicOperationDefinitions = []publicOperationDefinition{
 	{PublicOperation{http.MethodPost, "/v1/process-instances/completed/query", "queryCompletedProcesses"}, (*Handler).queryCompletedProcesses, false},
 	{PublicOperation{http.MethodPost, "/v1/process-instances/query", "queryProcesses"}, (*Handler).queryProcesses, false},
 	{PublicOperation{http.MethodGet, "/v1/process-instances/query-capabilities", "getProcessQueryCapabilities"}, (*Handler).getProcessQueryCapabilities, false},
+	{PublicOperation{http.MethodPost, "/v1/process-instances/aggregate", "aggregateProcesses"}, (*Handler).aggregateProcesses, false},
+	{PublicOperation{http.MethodPost, "/v1/process-events/query", "queryProcessEvents"}, (*Handler).queryProcessEvents, false},
+	{PublicOperation{http.MethodPost, "/v1/saved-queries", "saveProcessQuery"}, (*Handler).saveProcessQuery, false},
+	{PublicOperation{http.MethodGet, "/v1/saved-queries", "listSavedQueries"}, (*Handler).listSavedQueries, false},
+	{PublicOperation{http.MethodDelete, "/v1/saved-queries/{savedQueryID}", "deleteSavedQuery"}, (*Handler).deleteSavedQuery, false},
+	{PublicOperation{http.MethodPost, "/v1/query-exports", "createQueryExport"}, (*Handler).createQueryExport, false},
+	{PublicOperation{http.MethodGet, "/v1/query-exports/{exportID}", "getQueryExport"}, (*Handler).getQueryExport, false},
+	{PublicOperation{http.MethodDelete, "/v1/query-exports/{exportID}", "cancelQueryExport"}, (*Handler).cancelQueryExport, false},
+	{PublicOperation{http.MethodPost, "/v1/ops/query-plan", "explainQueryPlan"}, (*Handler).explainQueryPlan, false},
 	{PublicOperation{http.MethodGet, "/v1/configuration/profiles", "listConfigurationProfiles"}, (*Handler).configuration, true},
 	{PublicOperation{http.MethodPost, "/v1/configuration/profiles", "createConfigurationProfile"}, (*Handler).configuration, true},
 	{PublicOperation{http.MethodGet, "/v1/configuration/profiles/{profileID}", "getConfigurationProfile"}, (*Handler).configuration, true},
@@ -212,15 +221,7 @@ func (h *Handler) queryCompletedProcesses(w http.ResponseWriter, r *http.Request
 			return h.projection.QueryCompletedProcesses(ctx, request)
 		})
 	if err != nil {
-		switch status.Code(err) {
-		case codes.InvalidArgument:
-			writeError(w, errInvalid)
-			return
-		case codes.PermissionDenied, codes.Unauthenticated:
-			writeError(w, errForbidden)
-			return
-		}
-		writeError(w, errUpstream)
+		writeProjectionError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -277,6 +278,239 @@ func (h *Handler) getProcessQueryCapabilities(w http.ResponseWriter, r *http.Req
 		return
 	}
 	w.Header().Set("Cache-Control", "private, no-cache")
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) aggregateProcesses(w http.ResponseWriter, r *http.Request) {
+	setCorrelationHeader(w, r)
+	scope, err := h.authenticateQuery(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if h.projection == nil {
+		writeError(w, errUpstream)
+		return
+	}
+	request := &projectionv1.AggregateProcessesRequest{}
+	if err = decodeProtoBody(w, r, request, scope.runtimePolicy.MaxRequestBodyBytes); err != nil {
+		writeError(w, errInvalid)
+		return
+	}
+	request.TenantId, request.ActorProof = scope.tenantID, actorProof(scope)
+	response, err := invokeUpstream(h, upstreamContext(r, scope), scope, projectionDependency,
+		func(ctx context.Context) (*projectionv1.AggregateProcessesResponse, error) {
+			return h.projection.AggregateProcesses(ctx, request)
+		})
+	if err != nil {
+		writeProjectionError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) queryProcessEvents(w http.ResponseWriter, r *http.Request) {
+	setCorrelationHeader(w, r)
+	scope, err := h.authenticateQuery(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if h.projection == nil {
+		writeError(w, errUpstream)
+		return
+	}
+	request := &projectionv1.QueryEventsRequest{}
+	if err = decodeProtoBody(w, r, request, scope.runtimePolicy.MaxRequestBodyBytes); err != nil {
+		writeError(w, errInvalid)
+		return
+	}
+	request.TenantId, request.ActorProof = scope.tenantID, actorProof(scope)
+	response, err := invokeUpstream(h, upstreamContext(r, scope), scope, projectionDependency, func(ctx context.Context) (*projectionv1.QueryEventsResponse, error) {
+		return h.projection.QueryEvents(ctx, request)
+	})
+	if err != nil {
+		writeProjectionError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) saveProcessQuery(w http.ResponseWriter, r *http.Request) {
+	setCorrelationHeader(w, r)
+	scope, err := h.authenticateQuery(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if h.projection == nil {
+		writeError(w, errUpstream)
+		return
+	}
+	request := &projectionv1.SaveQueryRequest{}
+	if err = decodeProtoBody(w, r, request, scope.runtimePolicy.MaxRequestBodyBytes); err != nil {
+		writeError(w, errInvalid)
+		return
+	}
+	request.TenantId, request.ActorProof = scope.tenantID, actorProof(scope)
+	response, err := invokeUpstream(h, upstreamContext(r, scope), scope, projectionDependency, func(ctx context.Context) (*projectionv1.SaveQueryResponse, error) {
+		return h.projection.SaveQuery(ctx, request)
+	})
+	if err != nil {
+		writeProjectionError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) listSavedQueries(w http.ResponseWriter, r *http.Request) {
+	setCorrelationHeader(w, r)
+	scope, err := h.authenticateQuery(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if h.projection == nil {
+		writeError(w, errUpstream)
+		return
+	}
+	pageSize, err := positiveUint32Query(r, "page_size")
+	if err != nil {
+		writeError(w, errInvalid)
+		return
+	}
+	request := &projectionv1.ListSavedQueriesRequest{TenantId: scope.tenantID, ActorProof: actorProof(scope), PageSize: pageSize, PageToken: r.URL.Query().Get("page_token")}
+	response, err := invokeUpstream(h, upstreamContext(r, scope), scope, projectionDependency, func(ctx context.Context) (*projectionv1.ListSavedQueriesResponse, error) {
+		return h.projection.ListSavedQueries(ctx, request)
+	})
+	if err != nil {
+		writeProjectionError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) deleteSavedQuery(w http.ResponseWriter, r *http.Request) {
+	setCorrelationHeader(w, r)
+	scope, err := h.authenticateQuery(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if h.projection == nil {
+		writeError(w, errUpstream)
+		return
+	}
+	version, err := strconv.ParseUint(r.URL.Query().Get("expected_version"), 10, 64)
+	if err != nil || version == 0 {
+		writeError(w, errInvalid)
+		return
+	}
+	request := &projectionv1.DeleteSavedQueryRequest{TenantId: scope.tenantID, Id: r.PathValue("savedQueryID"), ExpectedVersion: version, ActorProof: actorProof(scope)}
+	_, err = invokeUpstream(h, upstreamContext(r, scope), scope, projectionDependency, func(ctx context.Context) (*projectionv1.DeleteSavedQueryResponse, error) {
+		return h.projection.DeleteSavedQuery(ctx, request)
+	})
+	if err != nil {
+		writeProjectionError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) createQueryExport(w http.ResponseWriter, r *http.Request) {
+	setCorrelationHeader(w, r)
+	scope, err := h.authenticateQuery(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if h.projection == nil {
+		writeError(w, errUpstream)
+		return
+	}
+	request := &projectionv1.CreateQueryExportRequest{}
+	if err = decodeProtoBody(w, r, request, scope.runtimePolicy.MaxRequestBodyBytes); err != nil {
+		writeError(w, errInvalid)
+		return
+	}
+	request.TenantId, request.ActorProof = scope.tenantID, actorProof(scope)
+	response, err := invokeUpstream(h, upstreamContext(r, scope), scope, projectionDependency, func(ctx context.Context) (*projectionv1.CreateQueryExportResponse, error) {
+		return h.projection.CreateQueryExport(ctx, request)
+	})
+	if err != nil {
+		writeProjectionError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, response)
+}
+
+func (h *Handler) getQueryExport(w http.ResponseWriter, r *http.Request) {
+	setCorrelationHeader(w, r)
+	scope, err := h.authenticateQuery(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if h.projection == nil {
+		writeError(w, errUpstream)
+		return
+	}
+	response, err := invokeUpstream(h, upstreamContext(r, scope), scope, projectionDependency, func(ctx context.Context) (*projectionv1.GetQueryExportResponse, error) {
+		return h.projection.GetQueryExport(ctx, &projectionv1.GetQueryExportRequest{TenantId: scope.tenantID, Id: r.PathValue("exportID"), ActorProof: actorProof(scope)})
+	})
+	if err != nil {
+		writeProjectionError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) cancelQueryExport(w http.ResponseWriter, r *http.Request) {
+	setCorrelationHeader(w, r)
+	scope, err := h.authenticateQuery(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if h.projection == nil {
+		writeError(w, errUpstream)
+		return
+	}
+	response, err := invokeUpstream(h, upstreamContext(r, scope), scope, projectionDependency, func(ctx context.Context) (*projectionv1.CancelQueryExportResponse, error) {
+		return h.projection.CancelQueryExport(ctx, &projectionv1.CancelQueryExportRequest{TenantId: scope.tenantID, Id: r.PathValue("exportID"), ActorProof: actorProof(scope)})
+	})
+	if err != nil {
+		writeProjectionError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) explainQueryPlan(w http.ResponseWriter, r *http.Request) {
+	setCorrelationHeader(w, r)
+	scope, err := h.authenticateQuery(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if h.projection == nil {
+		writeError(w, errUpstream)
+		return
+	}
+	request := &projectionv1.ExplainQueryPlanRequest{}
+	if err = decodeProtoBody(w, r, request, scope.runtimePolicy.MaxRequestBodyBytes); err != nil {
+		writeError(w, errInvalid)
+		return
+	}
+	request.TenantId, request.ActorProof = scope.tenantID, actorProof(scope)
+	response, err := invokeUpstream(h, upstreamContext(r, scope), scope, projectionDependency, func(ctx context.Context) (*projectionv1.ExplainQueryPlanResponse, error) {
+		return h.projection.ExplainQueryPlan(ctx, request)
+	})
+	if err != nil {
+		writeProjectionError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, response)
 }
 
@@ -724,6 +958,9 @@ func writeProjectionError(w http.ResponseWriter, err error) {
 		writeError(w, errForbidden)
 		return
 	}
+	if grpcStatus.Code() == codes.NotFound { requestmeta.WriteProblemResponse(w,http.StatusNotFound,"not_found","Not found",grpcStatus.Message(),false);return }
+	if grpcStatus.Code() == codes.Aborted { requestmeta.WriteProblemResponse(w,http.StatusConflict,"version_conflict","Version conflict",grpcStatus.Message(),false);return }
+	if grpcStatus.Code() == codes.DeadlineExceeded { requestmeta.WriteProblemResponse(w,http.StatusGatewayTimeout,"query_timeout","Query timed out",grpcStatus.Message(),true);return }
 	if grpcStatus.Code() != codes.InvalidArgument {
 		writeError(w, errUpstream)
 		return
