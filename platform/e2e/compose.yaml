@@ -41,6 +41,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB}
     volumes:
       - ./runtime/governance-service.sql:/docker-entrypoint-initdb.d/001-governance.sql:ro
+      - ./runtime/projection-schema.sql:/docker-entrypoint-initdb.d/002-projection-schema.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 2s

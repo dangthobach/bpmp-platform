@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -15,10 +17,13 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -42,6 +47,17 @@ import (
 	"github.com/dangthobach/bpmp-platform/go/platform/servermiddleware"
 	platformtelemetry "github.com/dangthobach/bpmp-platform/go/platform/telemetry"
 )
+
+const projectionMigrationNamespace = "projection-service"
+
+var projectionMigrationName = regexp.MustCompile(`^([0-9]{3,})_[a-z0-9][a-z0-9_]*\.sql$`)
+
+type projectionMigration struct {
+	id       string
+	version  int
+	contents []byte
+	checksum string
+}
 
 func main() {
 	configPath := flag.String("config", os.Getenv("PROJECTION_SERVICE_CONFIG"), "path to projection-service JSON configuration")
@@ -358,43 +374,160 @@ func run(configPath string) error {
 }
 
 func applyProjectionMigrations(ctx context.Context, pool *pgxpool.Pool, path string) error {
-	info, err := os.Stat(path)
+	migrations, err := loadProjectionMigrations(path)
 	if err != nil {
 		return err
-	}
-	paths := []string{path}
-	if info.IsDir() {
-		entries, readErr := os.ReadDir(path)
-		if readErr != nil {
-			return readErr
-		}
-		paths = paths[:0]
-		for _, entry := range entries {
-			if !entry.IsDir() && filepath.Ext(entry.Name()) == ".sql" {
-				paths = append(paths, filepath.Join(path, entry.Name()))
-			}
-		}
-		sort.Strings(paths)
-	}
-	if len(paths) == 0 {
-		return errors.New("projection migration path contains no SQL files")
 	}
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin projection migrations: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	for _, migrationPath := range paths {
-		migration, readErr := os.ReadFile(migrationPath)
-		if readErr != nil {
-			return readErr
+	// The transaction-scoped lock serializes startup migrations without leaking a
+	// session lock when a process crashes or its context is cancelled.
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended(current_database() || ':' || current_schema() || ':projection-service-migrations', 0))`); err != nil {
+		return fmt.Errorf("lock projection migrations: %w", err)
+	}
+	if err = ensureProjectionMigrationLedger(ctx, tx); err != nil {
+		return err
+	}
+	rows, err := tx.Query(ctx, `SELECT migration_id, checksum_sha256 FROM bpmp_schema_migrations WHERE namespace=$1`, projectionMigrationNamespace)
+	if err != nil {
+		return fmt.Errorf("read projection migration ledger: %w", err)
+	}
+	applied := make(map[string]string, len(migrations))
+	for rows.Next() {
+		var id, checksum string
+		if err = rows.Scan(&id, &checksum); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan projection migration ledger: %w", err)
 		}
-		if _, err = tx.Exec(ctx, string(migration)); err != nil {
-			return fmt.Errorf("apply projection migration %s: %w", filepath.Base(migrationPath), err)
+		applied[id] = checksum
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("read projection migration ledger: %w", err)
+	}
+	rows.Close()
+
+	available := make(map[string]projectionMigration, len(migrations))
+	for _, migration := range migrations {
+		available[migration.id] = migration
+	}
+	for id, recordedChecksum := range applied {
+		migration, ok := available[id]
+		if !ok {
+			return fmt.Errorf("applied projection migration %s is missing from migration path", id)
+		}
+		if recordedChecksum != migration.checksum {
+			return fmt.Errorf("projection migration checksum mismatch for %s: recorded=%s current=%s", id, recordedChecksum, migration.checksum)
+		}
+	}
+	for _, migration := range migrations {
+		if _, ok := applied[migration.id]; ok {
+			continue
+		}
+		if _, err = tx.Exec(ctx, string(migration.contents)); err != nil {
+			return fmt.Errorf("apply projection migration %s: %w", migration.id, err)
+		}
+		if _, err = tx.Exec(ctx, `
+			INSERT INTO bpmp_schema_migrations(namespace,migration_id,checksum_sha256)
+			VALUES($1,$2,$3)`, projectionMigrationNamespace, migration.id, migration.checksum); err != nil {
+			return fmt.Errorf("record projection migration %s: %w", migration.id, err)
 		}
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit projection migrations: %w", err)
+	}
+	return nil
+}
+
+func loadProjectionMigrations(path string) ([]projectionMigration, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, errors.New("projection migration path must be a directory so the complete history can be verified")
+	}
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".sql" {
+			paths = append(paths, filepath.Join(path, entry.Name()))
+		}
+	}
+	if len(paths) == 0 {
+		return nil, errors.New("projection migration path contains no SQL files")
+	}
+	migrations := make([]projectionMigration, 0, len(paths))
+	seen := make(map[string]struct{}, len(paths))
+	seenVersions := make(map[int]string, len(paths))
+	for _, migrationPath := range paths {
+		id := filepath.Base(migrationPath)
+		nameParts := projectionMigrationName.FindStringSubmatch(id)
+		if nameParts == nil {
+			return nil, fmt.Errorf("projection migration filename must match NNN_name.sql: %s", id)
+		}
+		version, conversionErr := strconv.Atoi(nameParts[1])
+		if conversionErr != nil || version < 1 {
+			return nil, fmt.Errorf("invalid projection migration version: %s", id)
+		}
+		if _, ok := seen[id]; ok {
+			return nil, fmt.Errorf("duplicate projection migration id: %s", id)
+		}
+		if existing, ok := seenVersions[version]; ok {
+			return nil, fmt.Errorf("duplicate projection migration version %d: %s and %s", version, existing, id)
+		}
+		seen[id] = struct{}{}
+		seenVersions[version] = id
+		migration, readErr := os.ReadFile(migrationPath)
+		if readErr != nil {
+			return nil, readErr
+		}
+		digest := sha256.Sum256(migration)
+		migrations = append(migrations, projectionMigration{
+			id: id, version: version, contents: migration,
+			checksum: hex.EncodeToString(digest[:]),
+		})
+	}
+	sort.Slice(migrations, func(i, j int) bool { return migrations[i].version < migrations[j].version })
+	for index, migration := range migrations {
+		expected := index + 1
+		if migration.version != expected {
+			return nil, fmt.Errorf("projection migration sequence has a gap: expected %03d, found %s", expected, migration.id)
+		}
+	}
+	return migrations, nil
+}
+
+func ensureProjectionMigrationLedger(ctx context.Context, tx pgx.Tx) error {
+	_, err := tx.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS bpmp_schema_migrations (
+			namespace TEXT NOT NULL,
+			migration_id TEXT NOT NULL,
+			checksum_sha256 TEXT NOT NULL CHECK (checksum_sha256 ~ '^[0-9a-f]{64}$'),
+			applied_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp(),
+			applied_by TEXT NOT NULL DEFAULT current_user,
+			version BIGINT NOT NULL DEFAULT 1 CHECK (version = 1),
+			is_deleted BOOLEAN NOT NULL DEFAULT FALSE CHECK (NOT is_deleted),
+			PRIMARY KEY (namespace, migration_id)
+		);
+		CREATE OR REPLACE FUNCTION bpmp_reject_schema_migration_mutation()
+		RETURNS trigger LANGUAGE plpgsql AS $$
+		BEGIN
+			RAISE EXCEPTION 'bpmp_schema_migrations is append-only';
+		END;
+		$$;
+		DROP TRIGGER IF EXISTS bpmp_schema_migrations_no_mutation ON bpmp_schema_migrations;
+		CREATE TRIGGER bpmp_schema_migrations_no_mutation
+		BEFORE UPDATE OR DELETE ON bpmp_schema_migrations
+		FOR EACH ROW EXECUTE FUNCTION bpmp_reject_schema_migration_mutation();`)
+	if err != nil {
+		return fmt.Errorf("ensure projection migration ledger: %w", err)
 	}
 	return nil
 }

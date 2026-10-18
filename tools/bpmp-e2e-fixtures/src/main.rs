@@ -46,6 +46,12 @@ const PROJECTION_QUERY_MIGRATION: &str =
     include_str!("../../../db/projection-service/migrations/002_completed_process_query.sql");
 const PROJECTION_REVOKE_MIGRATION: &str =
     include_str!("../../../db/projection-service/migrations/003_query_revoke_kafka.sql");
+const PROJECTION_TEXT_TRANSFORMS_MIGRATION: &str =
+    include_str!("../../../db/projection-service/migrations/004_query_text_transforms.sql");
+const PROJECTION_QUERY_API_MIGRATION: &str =
+    include_str!("../../../db/projection-service/migrations/005_query_api.sql");
+const PROJECTION_STORAGE_HARDENING_MIGRATION: &str =
+    include_str!("../../../db/projection-service/migrations/006_query_storage_hardening.sql");
 const GOVERNANCE_MIGRATION: &str =
     include_str!("../../../db/governance-service/migrations/001_governance.sql");
 
@@ -446,14 +452,35 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
         schema_migration("configuration", &seeded_configuration_migration(manifest)?),
     )?;
     write(
-        &output.join("projection-service.sql"),
-        schema_migration(
-            "projection",
-            &format!(
-                "{PROJECTION_MIGRATION}\n{PROJECTION_QUERY_MIGRATION}\n{PROJECTION_REVOKE_MIGRATION}"
-            ),
-        ),
+        &output.join("projection-schema.sql"),
+        b"CREATE SCHEMA IF NOT EXISTS projection;\n",
     )?;
+    let projection_migration_dir = output.join("projection-service-migrations");
+    fs::create_dir_all(&projection_migration_dir).with_context(|| {
+        format!(
+            "create projection migration directory {}",
+            projection_migration_dir.display()
+        )
+    })?;
+    for (name, migration) in [
+        ("001_projection.sql", PROJECTION_MIGRATION),
+        (
+            "002_completed_process_query.sql",
+            PROJECTION_QUERY_MIGRATION,
+        ),
+        ("003_query_revoke_kafka.sql", PROJECTION_REVOKE_MIGRATION),
+        (
+            "004_query_text_transforms.sql",
+            PROJECTION_TEXT_TRANSFORMS_MIGRATION,
+        ),
+        ("005_query_api.sql", PROJECTION_QUERY_API_MIGRATION),
+        (
+            "006_query_storage_hardening.sql",
+            PROJECTION_STORAGE_HARDENING_MIGRATION,
+        ),
+    ] {
+        write(&projection_migration_dir.join(name), migration.as_bytes())?;
+    }
     write(
         &output.join("governance-service.sql"),
         schema_migration("governance", GOVERNANCE_MIGRATION),
@@ -859,7 +886,7 @@ fn projection_config(manifest: &Manifest, mount: &str, tls_fingerprint: &str) ->
         "health_address": manifest.projection_health_address,
         "postgres_dsn": manifest.projection_postgres_dsn,
         "apply_migrations": true,
-        "migration_path": path("projection-service.sql"),
+        "migration_path": path("projection-service-migrations"),
         "tls": {
             "server_certificate": path("secrets/tls.pem"),
             "server_private_key": path("secrets/tls-key.pem"),
