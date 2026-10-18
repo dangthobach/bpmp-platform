@@ -38,7 +38,7 @@ func (s *Service) ExplainQueryPlan(ctx context.Context, query ProcessQuery, anal
 	if !allowed {
 		return "", "", ErrQueryForbidden
 	}
-	queryCtx,cancel,normalized,limit,err:=s.prepareProcessQuery(ctx,query)
+	queryCtx, cancel, normalized, limit, err := s.prepareProcessQuery(ctx, query)
 	if err != nil {
 		return "", "", err
 	}

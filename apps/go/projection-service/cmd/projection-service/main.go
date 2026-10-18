@@ -14,6 +14,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"sort"
 	"syscall"
 	"time"
 
@@ -86,12 +88,8 @@ func run(configPath string) error {
 		return fmt.Errorf("ping projection PostgreSQL: %w", err)
 	}
 	if value.ApplyMigrations {
-		migration, readErr := os.ReadFile(value.MigrationPath)
-		if readErr != nil {
-			return readErr
-		}
-		if _, err = pool.Exec(ctx, string(migration)); err != nil {
-			return fmt.Errorf("apply projection migration: %w", err)
+		if err = applyProjectionMigrations(ctx, pool, value.MigrationPath); err != nil {
+			return err
 		}
 	}
 
@@ -357,6 +355,48 @@ func run(configPath string) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), milliseconds(value.Health.ShutdownTimeoutMS))
 	defer cancel()
 	return errors.Join(err, healthServer.Shutdown(shutdownCtx))
+}
+
+func applyProjectionMigrations(ctx context.Context, pool *pgxpool.Pool, path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	paths := []string{path}
+	if info.IsDir() {
+		entries, readErr := os.ReadDir(path)
+		if readErr != nil {
+			return readErr
+		}
+		paths = paths[:0]
+		for _, entry := range entries {
+			if !entry.IsDir() && filepath.Ext(entry.Name()) == ".sql" {
+				paths = append(paths, filepath.Join(path, entry.Name()))
+			}
+		}
+		sort.Strings(paths)
+	}
+	if len(paths) == 0 {
+		return errors.New("projection migration path contains no SQL files")
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin projection migrations: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	for _, migrationPath := range paths {
+		migration, readErr := os.ReadFile(migrationPath)
+		if readErr != nil {
+			return readErr
+		}
+		if _, err = tx.Exec(ctx, string(migration)); err != nil {
+			return fmt.Errorf("apply projection migration %s: %w", filepath.Base(migrationPath), err)
+		}
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit projection migrations: %w", err)
+	}
+	return nil
 }
 
 func loadCursorCodec(config cursorSigningConfig) (*grpcapi.CursorCodec, error) {

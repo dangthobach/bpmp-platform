@@ -22,7 +22,7 @@ func (s *Store) QueryEvents(ctx context.Context, query application.EventQuery) (
 		if err != nil {
 			return nil, err
 		}
-		conditions = append(conditions, "EXISTS (SELECT 1 FROM workflow_instance_read_models p WHERE p.tenant_id=e.tenant_id AND p.instance_id=e.instance_id AND "+sql+")")
+		conditions = append(conditions, "EXISTS (SELECT 1 FROM workflow_instance_read_models p WHERE p.tenant_id=e.tenant_id AND p.instance_id=e.instance_id AND NOT p.is_deleted AND "+sql+")")
 	}
 	orders := make([]string, 0, len(query.Sort)+1)
 	for _, sort := range query.Sort {
