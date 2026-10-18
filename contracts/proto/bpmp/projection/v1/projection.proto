@@ -162,6 +162,7 @@ message QueryValue {
     sint64 integer_value = 2;
     bool boolean_value = 3;
     uint64 timestamp_epoch_ms = 4;
+    string decimal_value = 5;
   }
 }
 
@@ -236,6 +237,8 @@ message QueryCompletedProcessesRequest {
   string page_token = 6;
   bpmp.authorization.v1.ActorProof actor_proof = 7;
   repeated ProcessField select = 8;
+  ProcessField collapse = 9;
+  EventExpansion expand_events = 10;
 }
 
 message CompletedProcessReadModel {
@@ -243,6 +246,7 @@ message CompletedProcessReadModel {
   uint64 duration_ms = 2;
   uint64 event_count = 3;
   repeated string masked_fields = 4;
+  repeated WorkflowEventReadModel events = 5;
 }
 
 message QueryCompletedProcessesResponse {
@@ -263,6 +267,8 @@ message QueryProcessesRequest {
   bpmp.authorization.v1.ActorProof actor_proof = 7;
   QueryScope scope = 8;
   repeated ProcessField select = 9;
+  ProcessField collapse = 10;
+  EventExpansion expand_events = 11;
 }
 
 message QueryProcessesResponse {
@@ -271,6 +277,85 @@ message QueryProcessesResponse {
   repeated ProcessSort normalized_sort = 3;
   string policy_version = 4;
   string query_fingerprint = 5;
+}
+
+message EventExpansion {
+  EventExpression filter = 1;
+  uint32 limit = 2;
+}
+
+message WorkflowEventReadModel {
+  string instance_id = 1;
+  uint64 sequence = 2;
+  string event_type = 3;
+  string node_id = 4;
+  string actor_id = 5;
+  uint64 occurred_at_epoch_ms = 6;
+  string config_version = 7;
+  string policy_version = 8;
+  bool is_deleted = 9;
+  repeated string masked_fields = 10;
+}
+
+message EventSort {
+  EventField field = 1;
+  SortDirection direction = 2;
+}
+
+message QueryEventsRequest {
+  string tenant_id = 1;
+  EventExpression filter = 2;
+  ProcessExpression process_filter = 3;
+  repeated EventSort sort = 4;
+  uint32 page_size = 5;
+  string page_token = 6;
+  bpmp.authorization.v1.ActorProof actor_proof = 7;
+}
+
+message QueryEventsResponse {
+  repeated WorkflowEventReadModel events = 1;
+  string next_page_token = 2;
+  string policy_version = 3;
+}
+
+enum AggregateOperation {
+  AGGREGATE_OPERATION_UNSPECIFIED = 0;
+  AGGREGATE_OPERATION_COUNT = 1;
+  AGGREGATE_OPERATION_SUM = 2;
+  AGGREGATE_OPERATION_AVG = 3;
+  AGGREGATE_OPERATION_MIN = 4;
+  AGGREGATE_OPERATION_MAX = 5;
+}
+
+message AggregateMetric {
+  string alias = 1;
+  AggregateOperation operation = 2;
+  ProcessField field = 3;
+}
+
+message AggregateProcessesRequest {
+  string tenant_id = 1;
+  QueryScope scope = 2;
+  ProcessExpression filter = 3;
+  repeated ProcessField group_by = 4;
+  repeated AggregateMetric metrics = 5;
+  uint32 limit = 6;
+  bpmp.authorization.v1.ActorProof actor_proof = 7;
+}
+
+message AggregateCell {
+  string name = 1;
+  QueryValue value = 2;
+}
+
+message AggregateRow {
+  repeated AggregateCell dimensions = 1;
+  repeated AggregateCell metrics = 2;
+}
+
+message AggregateProcessesResponse {
+  repeated AggregateRow rows = 1;
+  string policy_version = 2;
 }
 
 message ProcessFieldCapability {
@@ -317,10 +402,71 @@ message GetQueryCapabilitiesResponse {
   repeated ProcessSort default_sort = 15;
 }
 
+message SavedQuery {
+  string id = 1;
+  string name = 2;
+  uint64 version = 3;
+  QueryProcessesRequest query = 4;
+  uint64 created_at_epoch_ms = 5;
+  uint64 updated_at_epoch_ms = 6;
+}
+
+message SaveQueryRequest {
+  string tenant_id = 1;
+  string id = 2;
+  string name = 3;
+  uint64 expected_version = 4;
+  QueryProcessesRequest query = 5;
+  bpmp.authorization.v1.ActorProof actor_proof = 6;
+}
+
+message SaveQueryResponse { SavedQuery saved_query = 1; }
+message ListSavedQueriesRequest { string tenant_id = 1; uint32 page_size = 2; string page_token = 3; bpmp.authorization.v1.ActorProof actor_proof = 4; }
+message ListSavedQueriesResponse { repeated SavedQuery saved_queries = 1; string next_page_token = 2; }
+message DeleteSavedQueryRequest { string tenant_id = 1; string id = 2; uint64 expected_version = 3; bpmp.authorization.v1.ActorProof actor_proof = 4; }
+message DeleteSavedQueryResponse {}
+
+enum QueryExportStatus {
+  QUERY_EXPORT_STATUS_UNSPECIFIED = 0;
+  QUERY_EXPORT_STATUS_PENDING = 1;
+  QUERY_EXPORT_STATUS_COMPLETED = 2;
+  QUERY_EXPORT_STATUS_FAILED = 3;
+  QUERY_EXPORT_STATUS_CANCELLED = 4;
+}
+
+message QueryExport {
+  string id = 1;
+  QueryExportStatus status = 2;
+  uint64 row_count = 3;
+  bytes csv = 4;
+  string error_code = 5;
+  uint64 created_at_epoch_ms = 6;
+  uint64 expires_at_epoch_ms = 7;
+}
+
+message CreateQueryExportRequest { string tenant_id = 1; QueryProcessesRequest query = 2; uint32 max_rows = 3; bpmp.authorization.v1.ActorProof actor_proof = 4; }
+message CreateQueryExportResponse { QueryExport export = 1; }
+message GetQueryExportRequest { string tenant_id = 1; string id = 2; bpmp.authorization.v1.ActorProof actor_proof = 3; }
+message GetQueryExportResponse { QueryExport export = 1; }
+message CancelQueryExportRequest { string tenant_id = 1; string id = 2; bpmp.authorization.v1.ActorProof actor_proof = 3; }
+message CancelQueryExportResponse { QueryExport export = 1; }
+
+message ExplainQueryPlanRequest { string tenant_id = 1; QueryProcessesRequest query = 2; bool analyze = 3; bpmp.authorization.v1.ActorProof actor_proof = 4; }
+message ExplainQueryPlanResponse { string redacted_plan_json = 1; string query_fingerprint = 2; }
+
 service ProjectionQueryService {
   rpc GetWorkflowInstance(GetWorkflowInstanceRequest) returns (GetWorkflowInstanceResponse);
   rpc ListWorkflowInstances(ListWorkflowInstancesRequest) returns (ListWorkflowInstancesResponse);
   rpc QueryCompletedProcesses(QueryCompletedProcessesRequest) returns (QueryCompletedProcessesResponse);
   rpc QueryProcesses(QueryProcessesRequest) returns (QueryProcessesResponse);
   rpc GetQueryCapabilities(GetQueryCapabilitiesRequest) returns (GetQueryCapabilitiesResponse);
+  rpc AggregateProcesses(AggregateProcessesRequest) returns (AggregateProcessesResponse);
+  rpc QueryEvents(QueryEventsRequest) returns (QueryEventsResponse);
+  rpc SaveQuery(SaveQueryRequest) returns (SaveQueryResponse);
+  rpc ListSavedQueries(ListSavedQueriesRequest) returns (ListSavedQueriesResponse);
+  rpc DeleteSavedQuery(DeleteSavedQueryRequest) returns (DeleteSavedQueryResponse);
+  rpc CreateQueryExport(CreateQueryExportRequest) returns (CreateQueryExportResponse);
+  rpc GetQueryExport(GetQueryExportRequest) returns (GetQueryExportResponse);
+  rpc CancelQueryExport(CancelQueryExportRequest) returns (CancelQueryExportResponse);
+  rpc ExplainQueryPlan(ExplainQueryPlanRequest) returns (ExplainQueryPlanResponse);
 }

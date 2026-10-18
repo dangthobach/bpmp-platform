@@ -87,6 +87,7 @@ const (
 	ValueInteger
 	ValueBoolean
 	ValueTimestamp
+	ValueDecimal
 )
 
 type QueryValue struct {
@@ -95,6 +96,7 @@ type QueryValue struct {
 	Integer int64     `json:"integer,omitempty"`
 	Boolean bool      `json:"boolean,omitempty"`
 	Time    time.Time `json:"time,omitempty"`
+	Decimal string    `json:"decimal,omitempty"`
 }
 
 type Comparison int32
@@ -267,6 +269,13 @@ type ProcessQuery struct {
 	Scope                      QueryScope          `json:"scope"`
 	Fields                     *FieldAuthorization `json:"fields,omitempty"`
 	SelectedFields             []ProcessField      `json:"selected_fields,omitempty"`
+	Collapse                   ProcessField        `json:"collapse,omitempty"`
+	ExpandEvents               *EventExpansion     `json:"expand_events,omitempty"`
+}
+
+type EventExpansion struct {
+	Filter *EventExpression `json:"filter,omitempty"`
+	Limit  uint32           `json:"limit"`
 }
 
 type QueryScope uint8
@@ -282,6 +291,14 @@ type CompletedProcess struct {
 	Instance   Instance
 	DurationMS uint64
 	EventCount uint64
+	Events     []WorkflowEvent
+}
+
+type WorkflowEvent struct {
+	InstanceID, EventType, NodeID, ActorID, ConfigVersion, PolicyVersion string
+	Sequence                                                             uint64
+	OccurredAt                                                           time.Time
+	IsDeleted                                                            bool
 }
 
 type queryBudget struct {
@@ -373,23 +390,14 @@ func intersectFilters(client, authorization *ProcessExpression) *ProcessExpressi
 }
 
 func normalizeAndValidateQuery(query *ProcessQuery, policy RuntimePolicy) error {
-	if policy.QueryDefaultPageSize == 0 || policy.QueryMaxPageSize == 0 ||
-		policy.QueryDefaultPageSize > policy.QueryMaxPageSize ||
-		policy.QueryMaxFilterDepth == 0 || policy.QueryMaxPredicates == 0 ||
-		policy.QueryMaxSortFields == 0 ||
-		policy.QueryMaxInValues == 0 || policy.QueryTimeout <= 0 ||
-		policy.QueryMaxStringBytes == 0 {
-		return fmt.Errorf("%w: dynamic query policy is incomplete", ErrInvalidQuery)
-	}
-	if policy.QueryCursorSigningKeyID == "" || policy.QueryAllCapability == "" ||
-		policy.QueryOwnCapability == "" || policy.QueryAllCapability == policy.QueryOwnCapability {
-		return fmt.Errorf("%w: query authorization policy is incomplete", ErrInvalidQuery)
+	if err := validateQueryPolicy(policy); err != nil {
+		return err
 	}
 	if query.Limit == 0 {
 		query.Limit = int(policy.QueryDefaultPageSize)
 	}
 	if query.Limit < 0 || uint32(query.Limit) > policy.QueryMaxPageSize {
-		return fmt.Errorf("%w: page size exceeds policy", ErrInvalidQuery)
+		return invalidQuery("page_size", "page_size_limit", "page size exceeds tenant policy")
 	}
 	if len(query.Sort) == 0 {
 		query.Sort = []ProcessSort{{Field: ProcessCompletedAt, Direction: SortDescending}}
@@ -406,12 +414,11 @@ func normalizeAndValidateQuery(query *ProcessQuery, policy RuntimePolicy) error 
 		if sort.DateTransform == 0 {
 			sort.DateTransform = DateTransformNone
 		}
-		if !validProcessField(sort.Field) ||
-			(sort.Direction != SortAscending && sort.Direction != SortDescending) {
-			return fmt.Errorf("%w: sort is unsupported", ErrInvalidQuery)
+		if !validProcessField(sort.Field) || (sort.Direction != SortAscending && sort.Direction != SortDescending) {
+			return invalidQuery(fmt.Sprintf("sort[%d]", index), "unsupported_sort", "sort field or direction is unsupported")
 		}
 		if _, duplicate := seen[sort.Field]; duplicate {
-			return fmt.Errorf("%w: duplicate sort field", ErrInvalidQuery)
+			return invalidQuery(fmt.Sprintf("sort[%d].field", index), "duplicate_sort", "each sort field may appear only once")
 		}
 		seen[sort.Field] = struct{}{}
 		if err := validateSort(*sort, policy); err != nil {
@@ -419,16 +426,29 @@ func normalizeAndValidateQuery(query *ProcessQuery, policy RuntimePolicy) error 
 		}
 	}
 	if _, stable := seen[ProcessInstanceID]; !stable {
-		query.Sort = append(query.Sort, ProcessSort{
-			Field: ProcessInstanceID, Direction: SortAscending,
-			TextTransform: TextTransformNone, NumericTransform: NumericTransformNone, DateTransform: DateTransformNone,
-		})
+		query.Sort = append(query.Sort, ProcessSort{Field: ProcessInstanceID, Direction: SortAscending, TextTransform: TextTransformNone, NumericTransform: NumericTransformNone, DateTransform: DateTransformNone})
 	}
-	// The stable tie-breaker is part of the executed ORDER BY and cursor. Count it
-	// against the policy so normalization cannot silently exceed the configured
-	// query complexity budget.
 	if uint32(len(query.Sort)) > policy.QueryMaxSortFields {
-		return fmt.Errorf("%w: sort count exceeds policy", ErrInvalidQuery)
+		return invalidQuery("sort", "sort_limit", "sort count including the stable tie-breaker exceeds tenant policy")
+	}
+	if query.Collapse != 0 {
+		if !validProcessField(query.Collapse) || len(query.Sort) == 0 || query.Sort[0].Field != query.Collapse {
+			return invalidQuery("collapse", "collapse_sort", "collapse field must be the first sort field")
+		}
+	}
+	if query.ExpandEvents != nil {
+		if query.ExpandEvents.Limit == 0 || query.ExpandEvents.Limit > policy.QueryMaxInValues {
+			return invalidQuery("expand_events.limit", "expansion_limit", "event expansion limit exceeds tenant policy")
+		}
+		if err := normalizeEventExpression(query.ExpandEvents.Filter); err != nil {
+			return err
+		}
+		if query.ExpandEvents.Filter != nil {
+			expansionBudget := queryBudget{}
+			if err := validateEventExpression(*query.ExpandEvents.Filter, 1, policy, &expansionBudget); err != nil {
+				return err
+			}
+		}
 	}
 	budget := queryBudget{}
 	if query.Filter != nil {
@@ -441,13 +461,29 @@ func normalizeAndValidateQuery(query *ProcessQuery, policy RuntimePolicy) error 
 	}
 	if query.After != nil {
 		if len(query.After.Values) != len(query.Sort) {
-			return fmt.Errorf("%w: page token sort arity is invalid", ErrInvalidQuery)
+			return invalidQuery("page_token", "cursor_arity", "page token sort value count is invalid")
 		}
 		for index, sort := range query.Sort {
 			if query.After.Values[index].Kind != processFieldKind(sort.Field) {
-				return fmt.Errorf("%w: page token sort type is invalid", ErrInvalidQuery)
+				return invalidQuery("page_token", "cursor_type", "page token sort value type is invalid")
 			}
 		}
+	}
+	return nil
+}
+
+func validateQueryPolicy(policy RuntimePolicy) error {
+	if policy.QueryDefaultPageSize == 0 || policy.QueryMaxPageSize == 0 ||
+		policy.QueryDefaultPageSize > policy.QueryMaxPageSize ||
+		policy.QueryMaxFilterDepth == 0 || policy.QueryMaxPredicates == 0 ||
+		policy.QueryMaxSortFields == 0 ||
+		policy.QueryMaxInValues == 0 || policy.QueryTimeout <= 0 ||
+		policy.QueryMaxStringBytes == 0 {
+		return invalidQuery("policy", "incomplete_policy", "dynamic query policy is incomplete")
+	}
+	if policy.QueryCursorSigningKeyID == "" || policy.QueryAllCapability == "" ||
+		policy.QueryOwnCapability == "" || policy.QueryAllCapability == policy.QueryOwnCapability {
+		return invalidQuery("policy", "incomplete_authorization_policy", "query authorization policy is incomplete")
 	}
 	return nil
 }
@@ -648,7 +684,7 @@ func validateSort(sort ProcessSort, policy RuntimePolicy) error {
 	}
 	if transform < TextTransformNone || transform > TextTransformTrimUpper ||
 		(kind != ValueString && transform != TextTransformNone) {
-		return fmt.Errorf("%w: sort text transform is incompatible with field type", ErrInvalidQuery)
+		return invalidQuery("sort.text_transform", "transform_type", "sort text transform is incompatible with field type")
 	}
 	numericTransform := sort.NumericTransform
 	if numericTransform == 0 {
@@ -656,7 +692,7 @@ func validateSort(sort ProcessSort, policy RuntimePolicy) error {
 	}
 	if numericTransform < NumericTransformNone || numericTransform > NumericTransformAbs ||
 		(kind != ValueInteger && numericTransform != NumericTransformNone) {
-		return fmt.Errorf("%w: sort numeric transform is incompatible with field type", ErrInvalidQuery)
+		return invalidQuery("sort.numeric_transform", "transform_type", "sort numeric transform is incompatible with field type")
 	}
 	dateTransform := sort.DateTransform
 	if dateTransform == 0 {
@@ -664,14 +700,14 @@ func validateSort(sort ProcessSort, policy RuntimePolicy) error {
 	}
 	if dateTransform < DateTransformNone || dateTransform > DateTransformUTCYear ||
 		(kind != ValueTimestamp && dateTransform != DateTransformNone) {
-		return fmt.Errorf("%w: sort date transform is incompatible with field type", ErrInvalidQuery)
+		return invalidQuery("sort.date_transform", "transform_type", "sort date transform is incompatible with field type")
 	}
 	if sort.Coalesce != nil {
 		value := sort.Coalesce
 		if value.Kind != kind ||
 			(kind == ValueString && (value.String == "" || uint32(len(value.String)) > policy.QueryMaxStringBytes)) ||
 			(kind == ValueTimestamp && value.Time.IsZero()) {
-			return fmt.Errorf("%w: sort coalesce value type is invalid", ErrInvalidQuery)
+			return invalidQuery("sort.coalesce_value", "value_type", "sort coalesce value type is invalid")
 		}
 	}
 	return nil
@@ -690,31 +726,31 @@ func validateValues(kind ValueKind, operator Comparison, values []QueryValue, te
 	}
 	if textTransform < TextTransformNone || textTransform > TextTransformTrimUpper ||
 		(kind != ValueString && textTransform != TextTransformNone) {
-		return fmt.Errorf("%w: text transform is incompatible with field type", ErrInvalidQuery)
+		return invalidQuery("predicate.text_transform", "transform_type", "text transform is incompatible with field type")
 	}
 	if numericTransform == 0 {
 		numericTransform = NumericTransformNone
 	}
 	if numericTransform < NumericTransformNone || numericTransform > NumericTransformAbs ||
 		(kind != ValueInteger && numericTransform != NumericTransformNone) {
-		return fmt.Errorf("%w: numeric transform is incompatible with field type", ErrInvalidQuery)
+		return invalidQuery("predicate.numeric_transform", "transform_type", "numeric transform is incompatible with field type")
 	}
 	if dateTransform == 0 {
 		dateTransform = DateTransformNone
 	}
 	if dateTransform < DateTransformNone || dateTransform > DateTransformUTCYear ||
 		(kind != ValueTimestamp && dateTransform != DateTransformNone) {
-		return fmt.Errorf("%w: date transform is incompatible with field type", ErrInvalidQuery)
+		return invalidQuery("predicate.date_transform", "transform_type", "date transform is incompatible with field type")
 	}
 	if coalesce != nil {
 		if coalesce.Kind != kind ||
 			(kind == ValueString && (coalesce.String == "" || uint32(len(coalesce.String)) > policy.QueryMaxStringBytes)) ||
 			(kind == ValueTimestamp && coalesce.Time.IsZero()) {
-			return fmt.Errorf("%w: coalesce value type is invalid", ErrInvalidQuery)
+			return invalidQuery("predicate.coalesce_value", "value_type", "coalesce value type is invalid")
 		}
 	}
 	if !operatorAllowed(kind, operator) {
-		return fmt.Errorf("%w: operator is incompatible with field type", ErrInvalidQuery)
+		return invalidQuery("predicate.operator", "operator_type", "operator is incompatible with field type")
 	}
 	wanted := 1
 	if operator == CompareIn || operator == CompareNotIn {
@@ -729,19 +765,19 @@ func validateValues(kind ValueKind, operator Comparison, values []QueryValue, te
 	if operator < CompareEqual || operator > CompareNotBetween ||
 		(wanted >= 0 && len(values) != wanted) ||
 		(wanted == -1 && (len(values) == 0 || uint32(len(values)) > policy.QueryMaxInValues)) {
-		return fmt.Errorf("%w: operator value cardinality is invalid", ErrInvalidQuery)
+		return invalidQuery("predicate.values", "value_cardinality", "operator value cardinality is invalid")
 	}
 	if (operator == CompareContains || operator == CompareStartsWith || operator == CompareEndsWith) && kind != ValueString {
-		return fmt.Errorf("%w: text operator requires a string field", ErrInvalidQuery)
+		return invalidQuery("predicate.operator", "operator_type", "text operator requires a string field")
 	}
 	for _, value := range values {
 		if value.Kind != kind || (kind == ValueString && (value.String == "" || uint32(len(value.String)) > policy.QueryMaxStringBytes)) ||
 			(kind == ValueTimestamp && value.Time.IsZero()) {
-			return fmt.Errorf("%w: predicate value type is invalid", ErrInvalidQuery)
+			return invalidQuery("predicate.values", "value_type", "predicate value type is invalid")
 		}
 	}
 	if (operator == CompareBetween || operator == CompareNotBetween) && !orderedRange(values) {
-		return fmt.Errorf("%w: range lower bound exceeds upper bound", ErrInvalidQuery)
+		return invalidQuery("predicate.values", "range_order", "range lower bound exceeds upper bound")
 	}
 	return nil
 }

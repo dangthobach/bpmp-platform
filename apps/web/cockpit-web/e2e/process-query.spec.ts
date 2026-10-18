@@ -21,10 +21,20 @@ async function mockCockpit(page: Page) {
     contentType: "text/event-stream",
     body: "",
   }));
-  await page.route("**/v1/process-instances/completed/query", async (route) => {
+  await page.route("**/v1/process-instances/query-capabilities", (route) => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({
+      schema_version: "bpmp.projection.query.v1", config_version: "visual-config-v1", policy_version: "visual-policy-v1",
+      fields: [], event_fields: [], default_page_size: 50, max_page_size: 100, max_filter_depth: 8,
+      max_predicates: 20, max_sort_fields: 4, max_relation_joins: 4, max_in_values: 20, max_string_bytes: 512,
+      scopes: ["QUERY_SCOPE_ALL", "QUERY_SCOPE_ACTIVE", "QUERY_SCOPE_COMPLETED", "QUERY_SCOPE_DELETED"], default_sort: [],
+    }),
+  }));
+  await page.route("**/v1/process-instances/query", async (route) => {
     const request = route.request().postDataJSON() as Record<string, unknown>;
     expect(request).toHaveProperty("filter.group.expressions");
     expect(request).toHaveProperty("sort.1.text_transform", "TEXT_TRANSFORM_TRIM_LOWER");
+    expect(request).toHaveProperty("scope", "QUERY_SCOPE_COMPLETED");
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({

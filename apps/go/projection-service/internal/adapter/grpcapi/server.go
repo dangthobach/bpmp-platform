@@ -6,6 +6,7 @@ import (
 
 	"github.com/dangthobach/bpmp-platform/apps/go/projection-service/internal/application"
 	projectionv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/projection/v1"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -161,7 +162,20 @@ func mapError(err error) error {
 	case errors.Is(err, application.ErrInvalidEvent):
 		return status.Error(codes.InvalidArgument, err.Error())
 	case errors.Is(err, application.ErrInvalidQuery):
-		return status.Error(codes.InvalidArgument, err.Error())
+		queryStatus := status.New(codes.InvalidArgument, err.Error())
+		var validation *application.QueryValidationError
+		if errors.As(err, &validation) {
+			detail := &errdetails.BadRequest{}
+			for _, violation := range validation.Violations {
+				detail.FieldViolations = append(detail.FieldViolations, &errdetails.BadRequest_FieldViolation{
+					Field: violation.Path, Description: violation.Rule + ": " + violation.Message,
+				})
+			}
+			if withDetails, detailErr := queryStatus.WithDetails(detail); detailErr == nil {
+				queryStatus = withDetails
+			}
+		}
+		return queryStatus.Err()
 	case errors.Is(err, application.ErrQueryForbidden):
 		return status.Error(codes.PermissionDenied, err.Error())
 	case errors.Is(err, context.DeadlineExceeded):

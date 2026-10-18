@@ -29,6 +29,8 @@ import type {
   WorkItemResponse,
   CompletedProcessPage,
   CompletedProcessQueryInput,
+  ProcessQueryInput,
+  QueryCapabilities,
 } from "./types";
 
 export interface RequestIdentity {
@@ -53,6 +55,58 @@ const problemDetailsSchema = z.object({
   detail: z.string().optional(),
   code: z.string().optional(),
   error: z.string().optional(),
+});
+
+const workflowInstanceSchema = z.object({
+  tenant_id: z.string().optional(), instance_id: z.string().min(1), workflow_type: z.string().optional(),
+  workflow_version: z.string().optional(), status: z.string().optional(), active_node_id: z.string().optional(),
+  last_event_sequence: z.number().int().nonnegative().optional(), started_at_epoch_ms: z.number().int().nonnegative().optional(),
+  updated_at_epoch_ms: z.number().int().nonnegative().optional(), completed_at_epoch_ms: z.number().int().nonnegative().optional(),
+  config_version: z.string().optional(), policy_version: z.string().optional(), initiator_actor_id: z.string().optional(),
+  is_deleted: z.boolean().optional(), version: z.number().int().nonnegative().optional(),
+});
+const processFieldSchema = z.enum([
+  "PROCESS_FIELD_INSTANCE_ID", "PROCESS_FIELD_WORKFLOW_TYPE", "PROCESS_FIELD_WORKFLOW_VERSION", "PROCESS_FIELD_STATUS",
+  "PROCESS_FIELD_ACTIVE_NODE_ID", "PROCESS_FIELD_LAST_EVENT_SEQUENCE", "PROCESS_FIELD_STARTED_AT", "PROCESS_FIELD_UPDATED_AT",
+  "PROCESS_FIELD_COMPLETED_AT", "PROCESS_FIELD_DURATION_MS", "PROCESS_FIELD_CONFIG_VERSION", "PROCESS_FIELD_POLICY_VERSION",
+  "PROCESS_FIELD_VERSION", "PROCESS_FIELD_INITIATOR_ACTOR_ID", "PROCESS_FIELD_EVENT_COUNT", "PROCESS_FIELD_IS_DELETED",
+]);
+const eventFieldSchema = z.enum(["EVENT_FIELD_EVENT_TYPE", "EVENT_FIELD_NODE_ID", "EVENT_FIELD_ACTOR_ID", "EVENT_FIELD_SEQUENCE", "EVENT_FIELD_OCCURRED_AT", "EVENT_FIELD_CONFIG_VERSION", "EVENT_FIELD_POLICY_VERSION"]);
+const comparisonOperatorSchema = z.enum([
+  "COMPARISON_OPERATOR_EQUAL", "COMPARISON_OPERATOR_NOT_EQUAL", "COMPARISON_OPERATOR_GREATER_THAN", "COMPARISON_OPERATOR_GREATER_THAN_OR_EQUAL",
+  "COMPARISON_OPERATOR_LESS_THAN", "COMPARISON_OPERATOR_LESS_THAN_OR_EQUAL", "COMPARISON_OPERATOR_IN", "COMPARISON_OPERATOR_NOT_IN",
+  "COMPARISON_OPERATOR_CONTAINS", "COMPARISON_OPERATOR_STARTS_WITH", "COMPARISON_OPERATOR_ENDS_WITH", "COMPARISON_OPERATOR_IS_NULL",
+  "COMPARISON_OPERATOR_IS_NOT_NULL", "COMPARISON_OPERATOR_BETWEEN", "COMPARISON_OPERATOR_NOT_BETWEEN",
+]);
+const textTransformSchema = z.enum(["TEXT_TRANSFORM_NONE", "TEXT_TRANSFORM_TRIM", "TEXT_TRANSFORM_LOWER", "TEXT_TRANSFORM_UPPER", "TEXT_TRANSFORM_TRIM_LOWER", "TEXT_TRANSFORM_TRIM_UPPER"]);
+const numericTransformSchema = z.enum(["NUMERIC_TRANSFORM_NONE", "NUMERIC_TRANSFORM_ABS"]);
+const dateTransformSchema = z.enum(["DATE_TRANSFORM_NONE", "DATE_TRANSFORM_UTC_DAY", "DATE_TRANSFORM_UTC_WEEK", "DATE_TRANSFORM_UTC_MONTH", "DATE_TRANSFORM_UTC_YEAR"]);
+const processSortSchema = z.object({
+  field: processFieldSchema,
+  direction: z.enum(["SORT_DIRECTION_ASCENDING", "SORT_DIRECTION_DESCENDING"]),
+  text_transform: textTransformSchema.optional(), numeric_transform: numericTransformSchema.optional(),
+  date_transform: dateTransformSchema.optional(), coalesce_value: z.record(z.string(), z.unknown()).optional(),
+});
+const completedProcessPageSchema = z.object({
+  processes: z.array(z.object({
+    instance: workflowInstanceSchema,
+    duration_ms: z.number().int().nonnegative().optional(),
+    event_count: z.number().int().nonnegative().optional(),
+    masked_fields: z.array(z.string()).optional(),
+  })).default([]),
+  next_page_token: z.string().default(""),
+  normalized_sort: z.array(processSortSchema).optional(),
+  policy_version: z.string().optional(),
+  query_fingerprint: z.string().optional(),
+});
+const queryCapabilitiesSchema = z.object({
+  schema_version: z.string().min(1), config_version: z.string().min(1), policy_version: z.string().min(1),
+  fields: z.array(z.object({ field: processFieldSchema, value_kind: z.string(), filterable: z.boolean(), sortable: z.boolean(), selectable: z.boolean(), operators: z.array(comparisonOperatorSchema).default([]), text_transforms: z.array(textTransformSchema).optional(), numeric_transforms: z.array(numericTransformSchema).optional(), date_transforms: z.array(dateTransformSchema).optional() })),
+  event_fields: z.array(z.object({ field: eventFieldSchema, value_kind: z.string(), operators: z.array(comparisonOperatorSchema).default([]), text_transforms: z.array(textTransformSchema).optional(), numeric_transforms: z.array(numericTransformSchema).optional(), date_transforms: z.array(dateTransformSchema).optional() })),
+  default_page_size: z.number().int().positive(), max_page_size: z.number().int().positive(), max_filter_depth: z.number().int().positive(),
+  max_predicates: z.number().int().positive(), max_sort_fields: z.number().int().positive(), max_relation_joins: z.number().int().nonnegative(),
+  max_in_values: z.number().int().positive(), max_string_bytes: z.number().int().positive(), scopes: z.array(z.string()),
+  default_sort: z.array(processSortSchema),
 });
 
 export class ApiError extends Error {
@@ -154,14 +208,27 @@ export class BpmpApiClient {
   }
 
   async queryCompletedProcesses(input: CompletedProcessQueryInput): Promise<CompletedProcessPage> {
-    const response = await this.request<Partial<CompletedProcessPage>>(
+    const response = await this.request<unknown>(
       "/v1/process-instances/completed/query",
       { method: "POST", body: input },
     );
-    return {
-      processes: Array.isArray(response.processes) ? response.processes : [],
-      next_page_token: typeof response.next_page_token === "string" ? response.next_page_token : "",
-    };
+    const parsed = completedProcessPageSchema.safeParse(response);
+    if (!parsed.success) throw new ApiError("Invalid process query response", 502, "");
+    return parsed.data as unknown as CompletedProcessPage;
+  }
+
+  async queryProcesses(input: ProcessQueryInput): Promise<CompletedProcessPage> {
+    const response = await this.request<unknown>("/v1/process-instances/query", { method: "POST", body: input });
+    const parsed = completedProcessPageSchema.safeParse(response);
+    if (!parsed.success) throw new ApiError("Invalid process query response", 502, "");
+    return parsed.data as unknown as CompletedProcessPage;
+  }
+
+  async getProcessQueryCapabilities(): Promise<QueryCapabilities> {
+    const response = await this.request<unknown>("/v1/process-instances/query-capabilities");
+    const parsed = queryCapabilitiesSchema.safeParse(response);
+    if (!parsed.success) throw new ApiError("Invalid process query capabilities", 502, "");
+    return parsed.data as unknown as QueryCapabilities;
   }
 
   listOrganizations(offset = 0, limit = this.config.defaultPageSize) {

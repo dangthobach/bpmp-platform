@@ -3,6 +3,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RuntimeConfig } from "../config/runtime";
 import { BpmpApiClient } from "./client";
+import type { ProcessExpressionInput } from "./types";
 
 const config: RuntimeConfig = {
   apiBaseUrl: "https://gateway.example.test/",
@@ -141,7 +142,7 @@ describe("BpmpApiClient completed process query", () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     const client = new BpmpApiClient(config, () => identity);
-    const filter = {
+    const filter: ProcessExpressionInput = {
       event_relation: {
         quantifier: "RELATION_QUANTIFIER_EXISTS",
         expression: {

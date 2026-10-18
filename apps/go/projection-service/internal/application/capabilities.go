@@ -45,6 +45,9 @@ func (s *Service) GetQueryCapabilities(ctx context.Context, tenantID string, cre
 	if err != nil {
 		return QueryCapabilities{}, err
 	}
+	if err := validateQueryPolicy(policy); err != nil {
+		return QueryCapabilities{}, err
+	}
 	queryCtx, cancel := context.WithTimeout(ctx, policy.QueryTimeout)
 	defer cancel()
 	authorization, err := s.authorizer.AuthorizeQuery(queryCtx, QueryAuthorizationRequest{

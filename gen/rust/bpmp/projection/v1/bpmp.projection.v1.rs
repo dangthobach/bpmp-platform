@@ -73,7 +73,7 @@ pub struct ListWorkflowInstancesResponse {
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct QueryValue {
-    #[prost(oneof="query_value::Value", tags="1, 2, 3, 4")]
+    #[prost(oneof="query_value::Value", tags="1, 2, 3, 4, 5")]
     pub value: ::core::option::Option<query_value::Value>,
 }
 /// Nested message and enum types in `QueryValue`.
@@ -88,6 +88,8 @@ pub mod query_value {
         BooleanValue(bool),
         #[prost(uint64, tag="4")]
         TimestampEpochMs(u64),
+        #[prost(string, tag="5")]
+        DecimalValue(::prost::alloc::string::String),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -217,8 +219,12 @@ pub struct QueryCompletedProcessesRequest {
     pub actor_proof: ::core::option::Option<super::super::authorization::v1::ActorProof>,
     #[prost(enumeration="ProcessField", repeated, tag="8")]
     pub select: ::prost::alloc::vec::Vec<i32>,
+    #[prost(enumeration="ProcessField", tag="9")]
+    pub collapse: i32,
+    #[prost(message, optional, tag="10")]
+    pub expand_events: ::core::option::Option<EventExpansion>,
 }
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CompletedProcessReadModel {
     #[prost(message, optional, tag="1")]
     pub instance: ::core::option::Option<WorkflowInstanceReadModel>,
@@ -228,6 +234,8 @@ pub struct CompletedProcessReadModel {
     pub event_count: u64,
     #[prost(string, repeated, tag="4")]
     pub masked_fields: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(message, repeated, tag="5")]
+    pub events: ::prost::alloc::vec::Vec<WorkflowEventReadModel>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct QueryCompletedProcessesResponse {
@@ -262,6 +270,10 @@ pub struct QueryProcessesRequest {
     pub scope: i32,
     #[prost(enumeration="ProcessField", repeated, tag="9")]
     pub select: ::prost::alloc::vec::Vec<i32>,
+    #[prost(enumeration="ProcessField", tag="10")]
+    pub collapse: i32,
+    #[prost(message, optional, tag="11")]
+    pub expand_events: ::core::option::Option<EventExpansion>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct QueryProcessesResponse {
@@ -275,6 +287,116 @@ pub struct QueryProcessesResponse {
     pub policy_version: ::prost::alloc::string::String,
     #[prost(string, tag="5")]
     pub query_fingerprint: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EventExpansion {
+    #[prost(message, optional, tag="1")]
+    pub filter: ::core::option::Option<EventExpression>,
+    #[prost(uint32, tag="2")]
+    pub limit: u32,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct WorkflowEventReadModel {
+    #[prost(string, tag="1")]
+    pub instance_id: ::prost::alloc::string::String,
+    #[prost(uint64, tag="2")]
+    pub sequence: u64,
+    #[prost(string, tag="3")]
+    pub event_type: ::prost::alloc::string::String,
+    #[prost(string, tag="4")]
+    pub node_id: ::prost::alloc::string::String,
+    #[prost(string, tag="5")]
+    pub actor_id: ::prost::alloc::string::String,
+    #[prost(uint64, tag="6")]
+    pub occurred_at_epoch_ms: u64,
+    #[prost(string, tag="7")]
+    pub config_version: ::prost::alloc::string::String,
+    #[prost(string, tag="8")]
+    pub policy_version: ::prost::alloc::string::String,
+    #[prost(bool, tag="9")]
+    pub is_deleted: bool,
+    #[prost(string, repeated, tag="10")]
+    pub masked_fields: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct EventSort {
+    #[prost(enumeration="EventField", tag="1")]
+    pub field: i32,
+    #[prost(enumeration="SortDirection", tag="2")]
+    pub direction: i32,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct QueryEventsRequest {
+    #[prost(string, tag="1")]
+    pub tenant_id: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="2")]
+    pub filter: ::core::option::Option<EventExpression>,
+    #[prost(message, optional, tag="3")]
+    pub process_filter: ::core::option::Option<ProcessExpression>,
+    #[prost(message, repeated, tag="4")]
+    pub sort: ::prost::alloc::vec::Vec<EventSort>,
+    #[prost(uint32, tag="5")]
+    pub page_size: u32,
+    #[prost(string, tag="6")]
+    pub page_token: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="7")]
+    pub actor_proof: ::core::option::Option<super::super::authorization::v1::ActorProof>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct QueryEventsResponse {
+    #[prost(message, repeated, tag="1")]
+    pub events: ::prost::alloc::vec::Vec<WorkflowEventReadModel>,
+    #[prost(string, tag="2")]
+    pub next_page_token: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub policy_version: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct AggregateMetric {
+    #[prost(string, tag="1")]
+    pub alias: ::prost::alloc::string::String,
+    #[prost(enumeration="AggregateOperation", tag="2")]
+    pub operation: i32,
+    #[prost(enumeration="ProcessField", tag="3")]
+    pub field: i32,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AggregateProcessesRequest {
+    #[prost(string, tag="1")]
+    pub tenant_id: ::prost::alloc::string::String,
+    #[prost(enumeration="QueryScope", tag="2")]
+    pub scope: i32,
+    #[prost(message, optional, tag="3")]
+    pub filter: ::core::option::Option<ProcessExpression>,
+    #[prost(enumeration="ProcessField", repeated, tag="4")]
+    pub group_by: ::prost::alloc::vec::Vec<i32>,
+    #[prost(message, repeated, tag="5")]
+    pub metrics: ::prost::alloc::vec::Vec<AggregateMetric>,
+    #[prost(uint32, tag="6")]
+    pub limit: u32,
+    #[prost(message, optional, tag="7")]
+    pub actor_proof: ::core::option::Option<super::super::authorization::v1::ActorProof>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct AggregateCell {
+    #[prost(string, tag="1")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="2")]
+    pub value: ::core::option::Option<QueryValue>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AggregateRow {
+    #[prost(message, repeated, tag="1")]
+    pub dimensions: ::prost::alloc::vec::Vec<AggregateCell>,
+    #[prost(message, repeated, tag="2")]
+    pub metrics: ::prost::alloc::vec::Vec<AggregateCell>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AggregateProcessesResponse {
+    #[prost(message, repeated, tag="1")]
+    pub rows: ::prost::alloc::vec::Vec<AggregateRow>,
+    #[prost(string, tag="2")]
+    pub policy_version: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ProcessFieldCapability {
@@ -351,6 +473,152 @@ pub struct GetQueryCapabilitiesResponse {
     pub scopes: ::prost::alloc::vec::Vec<i32>,
     #[prost(message, repeated, tag="15")]
     pub default_sort: ::prost::alloc::vec::Vec<ProcessSort>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SavedQuery {
+    #[prost(string, tag="1")]
+    pub id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(uint64, tag="3")]
+    pub version: u64,
+    #[prost(message, optional, tag="4")]
+    pub query: ::core::option::Option<QueryProcessesRequest>,
+    #[prost(uint64, tag="5")]
+    pub created_at_epoch_ms: u64,
+    #[prost(uint64, tag="6")]
+    pub updated_at_epoch_ms: u64,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SaveQueryRequest {
+    #[prost(string, tag="1")]
+    pub tenant_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub id: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(uint64, tag="4")]
+    pub expected_version: u64,
+    #[prost(message, optional, tag="5")]
+    pub query: ::core::option::Option<QueryProcessesRequest>,
+    #[prost(message, optional, tag="6")]
+    pub actor_proof: ::core::option::Option<super::super::authorization::v1::ActorProof>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SaveQueryResponse {
+    #[prost(message, optional, tag="1")]
+    pub saved_query: ::core::option::Option<SavedQuery>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ListSavedQueriesRequest {
+    #[prost(string, tag="1")]
+    pub tenant_id: ::prost::alloc::string::String,
+    #[prost(uint32, tag="2")]
+    pub page_size: u32,
+    #[prost(string, tag="3")]
+    pub page_token: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="4")]
+    pub actor_proof: ::core::option::Option<super::super::authorization::v1::ActorProof>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListSavedQueriesResponse {
+    #[prost(message, repeated, tag="1")]
+    pub saved_queries: ::prost::alloc::vec::Vec<SavedQuery>,
+    #[prost(string, tag="2")]
+    pub next_page_token: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct DeleteSavedQueryRequest {
+    #[prost(string, tag="1")]
+    pub tenant_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub id: ::prost::alloc::string::String,
+    #[prost(uint64, tag="3")]
+    pub expected_version: u64,
+    #[prost(message, optional, tag="4")]
+    pub actor_proof: ::core::option::Option<super::super::authorization::v1::ActorProof>,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct DeleteSavedQueryResponse {
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct QueryExport {
+    #[prost(string, tag="1")]
+    pub id: ::prost::alloc::string::String,
+    #[prost(enumeration="QueryExportStatus", tag="2")]
+    pub status: i32,
+    #[prost(uint64, tag="3")]
+    pub row_count: u64,
+    #[prost(bytes="vec", tag="4")]
+    pub csv: ::prost::alloc::vec::Vec<u8>,
+    #[prost(string, tag="5")]
+    pub error_code: ::prost::alloc::string::String,
+    #[prost(uint64, tag="6")]
+    pub created_at_epoch_ms: u64,
+    #[prost(uint64, tag="7")]
+    pub expires_at_epoch_ms: u64,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CreateQueryExportRequest {
+    #[prost(string, tag="1")]
+    pub tenant_id: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="2")]
+    pub query: ::core::option::Option<QueryProcessesRequest>,
+    #[prost(uint32, tag="3")]
+    pub max_rows: u32,
+    #[prost(message, optional, tag="4")]
+    pub actor_proof: ::core::option::Option<super::super::authorization::v1::ActorProof>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct CreateQueryExportResponse {
+    #[prost(message, optional, tag="1")]
+    pub export: ::core::option::Option<QueryExport>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct GetQueryExportRequest {
+    #[prost(string, tag="1")]
+    pub tenant_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub id: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="3")]
+    pub actor_proof: ::core::option::Option<super::super::authorization::v1::ActorProof>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct GetQueryExportResponse {
+    #[prost(message, optional, tag="1")]
+    pub export: ::core::option::Option<QueryExport>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct CancelQueryExportRequest {
+    #[prost(string, tag="1")]
+    pub tenant_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub id: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="3")]
+    pub actor_proof: ::core::option::Option<super::super::authorization::v1::ActorProof>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct CancelQueryExportResponse {
+    #[prost(message, optional, tag="1")]
+    pub export: ::core::option::Option<QueryExport>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ExplainQueryPlanRequest {
+    #[prost(string, tag="1")]
+    pub tenant_id: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="2")]
+    pub query: ::core::option::Option<QueryProcessesRequest>,
+    #[prost(bool, tag="3")]
+    pub analyze: bool,
+    #[prost(message, optional, tag="4")]
+    pub actor_proof: ::core::option::Option<super::super::authorization::v1::ActorProof>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ExplainQueryPlanResponse {
+    #[prost(string, tag="1")]
+    pub redacted_plan_json: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub query_fingerprint: ::prost::alloc::string::String,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -796,6 +1064,79 @@ impl DateTransform {
             "DATE_TRANSFORM_UTC_WEEK" => Some(Self::UtcWeek),
             "DATE_TRANSFORM_UTC_MONTH" => Some(Self::UtcMonth),
             "DATE_TRANSFORM_UTC_YEAR" => Some(Self::UtcYear),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum AggregateOperation {
+    Unspecified = 0,
+    Count = 1,
+    Sum = 2,
+    Avg = 3,
+    Min = 4,
+    Max = 5,
+}
+impl AggregateOperation {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "AGGREGATE_OPERATION_UNSPECIFIED",
+            Self::Count => "AGGREGATE_OPERATION_COUNT",
+            Self::Sum => "AGGREGATE_OPERATION_SUM",
+            Self::Avg => "AGGREGATE_OPERATION_AVG",
+            Self::Min => "AGGREGATE_OPERATION_MIN",
+            Self::Max => "AGGREGATE_OPERATION_MAX",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "AGGREGATE_OPERATION_UNSPECIFIED" => Some(Self::Unspecified),
+            "AGGREGATE_OPERATION_COUNT" => Some(Self::Count),
+            "AGGREGATE_OPERATION_SUM" => Some(Self::Sum),
+            "AGGREGATE_OPERATION_AVG" => Some(Self::Avg),
+            "AGGREGATE_OPERATION_MIN" => Some(Self::Min),
+            "AGGREGATE_OPERATION_MAX" => Some(Self::Max),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum QueryExportStatus {
+    Unspecified = 0,
+    Pending = 1,
+    Completed = 2,
+    Failed = 3,
+    Cancelled = 4,
+}
+impl QueryExportStatus {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "QUERY_EXPORT_STATUS_UNSPECIFIED",
+            Self::Pending => "QUERY_EXPORT_STATUS_PENDING",
+            Self::Completed => "QUERY_EXPORT_STATUS_COMPLETED",
+            Self::Failed => "QUERY_EXPORT_STATUS_FAILED",
+            Self::Cancelled => "QUERY_EXPORT_STATUS_CANCELLED",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "QUERY_EXPORT_STATUS_UNSPECIFIED" => Some(Self::Unspecified),
+            "QUERY_EXPORT_STATUS_PENDING" => Some(Self::Pending),
+            "QUERY_EXPORT_STATUS_COMPLETED" => Some(Self::Completed),
+            "QUERY_EXPORT_STATUS_FAILED" => Some(Self::Failed),
+            "QUERY_EXPORT_STATUS_CANCELLED" => Some(Self::Cancelled),
             _ => None,
         }
     }

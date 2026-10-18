@@ -1,5 +1,7 @@
 package application
 
+import "fmt"
+
 // FieldNames is the versioned read-model vocabulary, not SQL column names.
 var FieldNames = []string{"tenant_id", "instance_id", "workflow_type", "workflow_version", "status", "active_node_id", "last_event_sequence", "started_at_epoch_ms", "updated_at_epoch_ms", "completed_at_epoch_ms", "duration_ms", "event_count", "config_version", "policy_version", "is_deleted", "version", "initiator_actor_id", "event_type", "event_node_id", "event_actor_id", "event_sequence", "event_occurred_at", "event_config_version", "event_policy_version"}
 
@@ -46,12 +48,26 @@ func validateFieldAccess(query ProcessQuery) error {
 			return ErrQueryForbidden
 		}
 	}
+	if query.Collapse != 0 && !allowed[ProcessFieldName(query.Collapse)] {
+		return ErrQueryForbidden
+	}
+	if query.ExpandEvents != nil {
+		if err := validateEventFieldAccess(query.ExpandEvents.Filter, allowed); err != nil {
+			return err
+		}
+	}
 	// Stable keyset pagination also exposes the instance ID, including on Get.
 	if !allowed["instance_id"] {
 		return ErrQueryForbidden
 	}
-	if len(query.Sort) == 0 && !allowed["completed_at_epoch_ms"] {
-		return ErrQueryForbidden
+	if len(query.Sort) == 0 {
+		defaultField := "updated_at_epoch_ms"
+		if query.Scope == QueryScopeCompleted {
+			defaultField = "completed_at_epoch_ms"
+		}
+		if !allowed[defaultField] {
+			return ErrQueryForbidden
+		}
 	}
 	var visit func(*ProcessExpression) error
 	visit = func(e *ProcessExpression) error {

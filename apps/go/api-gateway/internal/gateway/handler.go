@@ -19,6 +19,7 @@ import (
 	humanv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/human/v1"
 	projectionv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/projection/v1"
 	"github.com/dangthobach/bpmp-platform/go/platform/requestmeta"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -702,6 +703,54 @@ func writeError(w http.ResponseWriter, err error) {
 	requestmeta.WriteProblemResponse(w, status, code, message, "", retryable)
 }
 
+type queryViolationResponse struct {
+	Path    string `json:"path"`
+	Rule    string `json:"rule"`
+	Message string `json:"message"`
+}
+
+type queryProblemResponse struct {
+	requestmeta.Problem
+	Violations []queryViolationResponse `json:"violations,omitempty"`
+}
+
+func writeProjectionError(w http.ResponseWriter, err error) {
+	grpcStatus, ok := status.FromError(err)
+	if !ok {
+		writeError(w, errUpstream)
+		return
+	}
+	if grpcStatus.Code() == codes.PermissionDenied || grpcStatus.Code() == codes.Unauthenticated {
+		writeError(w, errForbidden)
+		return
+	}
+	if grpcStatus.Code() != codes.InvalidArgument {
+		writeError(w, errUpstream)
+		return
+	}
+	violations := make([]queryViolationResponse, 0)
+	for _, detail := range grpcStatus.Details() {
+		badRequest, valid := detail.(*errdetails.BadRequest)
+		if !valid {
+			continue
+		}
+		for _, violation := range badRequest.GetFieldViolations() {
+			rule, message := "invalid", violation.GetDescription()
+			if before, after, found := strings.Cut(message, ": "); found {
+				rule, message = before, after
+			}
+			violations = append(violations, queryViolationResponse{Path: violation.GetField(), Rule: rule, Message: message})
+		}
+	}
+	problem := queryProblemResponse{Problem: requestmeta.Problem{
+		Type: "https://docs.bpmp.dev/problems/query_validation_failed", Title: "Query validation failed",
+		Status: http.StatusBadRequest, Detail: grpcStatus.Message(), Code: "query_validation_failed",
+		RequestID: w.Header().Get(requestmeta.HTTPHeaderRequestID), CorrelationID: w.Header().Get(requestmeta.HTTPHeaderCorrelationID),
+	}, Violations: violations}
+	w.Header().Set("Content-Type", "application/problem+json")
+	writeJSON(w, http.StatusBadRequest, problem)
+}
+
 func setCorrelationHeader(w http.ResponseWriter, r *http.Request) {
 	if values, ok := requestmeta.FromContext(r.Context()); ok {
 		w.Header().Set(requestmeta.HTTPHeaderCorrelationID, values.CorrelationID)
@@ -718,7 +767,9 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 		requestmeta.WriteProblemResponse(w, http.StatusInternalServerError, "response_encoding_failed", "Response encoding failed", "response could not be encoded", false)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
+	if w.Header().Get("Content-Type") == "" {
+		w.Header().Set("Content-Type", "application/json")
+	}
 	w.WriteHeader(status)
 	if _, err := w.Write(body.Bytes()); err != nil {
 		slog.Warn("write HTTP response", "error", err)

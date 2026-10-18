@@ -690,6 +690,119 @@ func (DateTransform) EnumDescriptor() ([]byte, []int) {
 	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{10}
 }
 
+type AggregateOperation int32
+
+const (
+	AggregateOperation_AGGREGATE_OPERATION_UNSPECIFIED AggregateOperation = 0
+	AggregateOperation_AGGREGATE_OPERATION_COUNT       AggregateOperation = 1
+	AggregateOperation_AGGREGATE_OPERATION_SUM         AggregateOperation = 2
+	AggregateOperation_AGGREGATE_OPERATION_AVG         AggregateOperation = 3
+	AggregateOperation_AGGREGATE_OPERATION_MIN         AggregateOperation = 4
+	AggregateOperation_AGGREGATE_OPERATION_MAX         AggregateOperation = 5
+)
+
+// Enum value maps for AggregateOperation.
+var (
+	AggregateOperation_name = map[int32]string{
+		0: "AGGREGATE_OPERATION_UNSPECIFIED",
+		1: "AGGREGATE_OPERATION_COUNT",
+		2: "AGGREGATE_OPERATION_SUM",
+		3: "AGGREGATE_OPERATION_AVG",
+		4: "AGGREGATE_OPERATION_MIN",
+		5: "AGGREGATE_OPERATION_MAX",
+	}
+	AggregateOperation_value = map[string]int32{
+		"AGGREGATE_OPERATION_UNSPECIFIED": 0,
+		"AGGREGATE_OPERATION_COUNT":       1,
+		"AGGREGATE_OPERATION_SUM":         2,
+		"AGGREGATE_OPERATION_AVG":         3,
+		"AGGREGATE_OPERATION_MIN":         4,
+		"AGGREGATE_OPERATION_MAX":         5,
+	}
+)
+
+func (x AggregateOperation) Enum() *AggregateOperation {
+	p := new(AggregateOperation)
+	*p = x
+	return p
+}
+
+func (x AggregateOperation) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (AggregateOperation) Descriptor() protoreflect.EnumDescriptor {
+	return file_bpmp_projection_v1_projection_proto_enumTypes[11].Descriptor()
+}
+
+func (AggregateOperation) Type() protoreflect.EnumType {
+	return &file_bpmp_projection_v1_projection_proto_enumTypes[11]
+}
+
+func (x AggregateOperation) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use AggregateOperation.Descriptor instead.
+func (AggregateOperation) EnumDescriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{11}
+}
+
+type QueryExportStatus int32
+
+const (
+	QueryExportStatus_QUERY_EXPORT_STATUS_UNSPECIFIED QueryExportStatus = 0
+	QueryExportStatus_QUERY_EXPORT_STATUS_PENDING     QueryExportStatus = 1
+	QueryExportStatus_QUERY_EXPORT_STATUS_COMPLETED   QueryExportStatus = 2
+	QueryExportStatus_QUERY_EXPORT_STATUS_FAILED      QueryExportStatus = 3
+	QueryExportStatus_QUERY_EXPORT_STATUS_CANCELLED   QueryExportStatus = 4
+)
+
+// Enum value maps for QueryExportStatus.
+var (
+	QueryExportStatus_name = map[int32]string{
+		0: "QUERY_EXPORT_STATUS_UNSPECIFIED",
+		1: "QUERY_EXPORT_STATUS_PENDING",
+		2: "QUERY_EXPORT_STATUS_COMPLETED",
+		3: "QUERY_EXPORT_STATUS_FAILED",
+		4: "QUERY_EXPORT_STATUS_CANCELLED",
+	}
+	QueryExportStatus_value = map[string]int32{
+		"QUERY_EXPORT_STATUS_UNSPECIFIED": 0,
+		"QUERY_EXPORT_STATUS_PENDING":     1,
+		"QUERY_EXPORT_STATUS_COMPLETED":   2,
+		"QUERY_EXPORT_STATUS_FAILED":      3,
+		"QUERY_EXPORT_STATUS_CANCELLED":   4,
+	}
+)
+
+func (x QueryExportStatus) Enum() *QueryExportStatus {
+	p := new(QueryExportStatus)
+	*p = x
+	return p
+}
+
+func (x QueryExportStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (QueryExportStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_bpmp_projection_v1_projection_proto_enumTypes[12].Descriptor()
+}
+
+func (QueryExportStatus) Type() protoreflect.EnumType {
+	return &file_bpmp_projection_v1_projection_proto_enumTypes[12]
+}
+
+func (x QueryExportStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use QueryExportStatus.Descriptor instead.
+func (QueryExportStatus) EnumDescriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{12}
+}
+
 type WorkflowInstanceReadModel struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	TenantId           string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
@@ -1102,6 +1215,7 @@ type QueryValue struct {
 	//	*QueryValue_IntegerValue
 	//	*QueryValue_BooleanValue
 	//	*QueryValue_TimestampEpochMs
+	//	*QueryValue_DecimalValue
 	Value         isQueryValue_Value `protobuf_oneof:"value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1180,6 +1294,15 @@ func (x *QueryValue) GetTimestampEpochMs() uint64 {
 	return 0
 }
 
+func (x *QueryValue) GetDecimalValue() string {
+	if x != nil {
+		if x, ok := x.Value.(*QueryValue_DecimalValue); ok {
+			return x.DecimalValue
+		}
+	}
+	return ""
+}
+
 type isQueryValue_Value interface {
 	isQueryValue_Value()
 }
@@ -1200,6 +1323,10 @@ type QueryValue_TimestampEpochMs struct {
 	TimestampEpochMs uint64 `protobuf:"varint,4,opt,name=timestamp_epoch_ms,json=timestampEpochMs,proto3,oneof"`
 }
 
+type QueryValue_DecimalValue struct {
+	DecimalValue string `protobuf:"bytes,5,opt,name=decimal_value,json=decimalValue,proto3,oneof"`
+}
+
 func (*QueryValue_StringValue) isQueryValue_Value() {}
 
 func (*QueryValue_IntegerValue) isQueryValue_Value() {}
@@ -1207,6 +1334,8 @@ func (*QueryValue_IntegerValue) isQueryValue_Value() {}
 func (*QueryValue_BooleanValue) isQueryValue_Value() {}
 
 func (*QueryValue_TimestampEpochMs) isQueryValue_Value() {}
+
+func (*QueryValue_DecimalValue) isQueryValue_Value() {}
 
 type ProcessPredicate struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
@@ -1864,6 +1993,8 @@ type QueryCompletedProcessesRequest struct {
 	PageToken      string                 `protobuf:"bytes,6,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
 	ActorProof     *v1.ActorProof         `protobuf:"bytes,7,opt,name=actor_proof,json=actorProof,proto3" json:"actor_proof,omitempty"`
 	Select         []ProcessField         `protobuf:"varint,8,rep,packed,name=select,proto3,enum=bpmp.projection.v1.ProcessField" json:"select,omitempty"`
+	Collapse       ProcessField           `protobuf:"varint,9,opt,name=collapse,proto3,enum=bpmp.projection.v1.ProcessField" json:"collapse,omitempty"`
+	ExpandEvents   *EventExpansion        `protobuf:"bytes,10,opt,name=expand_events,json=expandEvents,proto3" json:"expand_events,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -1954,12 +2085,27 @@ func (x *QueryCompletedProcessesRequest) GetSelect() []ProcessField {
 	return nil
 }
 
+func (x *QueryCompletedProcessesRequest) GetCollapse() ProcessField {
+	if x != nil {
+		return x.Collapse
+	}
+	return ProcessField_PROCESS_FIELD_UNSPECIFIED
+}
+
+func (x *QueryCompletedProcessesRequest) GetExpandEvents() *EventExpansion {
+	if x != nil {
+		return x.ExpandEvents
+	}
+	return nil
+}
+
 type CompletedProcessReadModel struct {
 	state         protoimpl.MessageState     `protogen:"open.v1"`
 	Instance      *WorkflowInstanceReadModel `protobuf:"bytes,1,opt,name=instance,proto3" json:"instance,omitempty"`
 	DurationMs    uint64                     `protobuf:"varint,2,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
 	EventCount    uint64                     `protobuf:"varint,3,opt,name=event_count,json=eventCount,proto3" json:"event_count,omitempty"`
 	MaskedFields  []string                   `protobuf:"bytes,4,rep,name=masked_fields,json=maskedFields,proto3" json:"masked_fields,omitempty"`
+	Events        []*WorkflowEventReadModel  `protobuf:"bytes,5,rep,name=events,proto3" json:"events,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2018,6 +2164,13 @@ func (x *CompletedProcessReadModel) GetEventCount() uint64 {
 func (x *CompletedProcessReadModel) GetMaskedFields() []string {
 	if x != nil {
 		return x.MaskedFields
+	}
+	return nil
+}
+
+func (x *CompletedProcessReadModel) GetEvents() []*WorkflowEventReadModel {
+	if x != nil {
+		return x.Events
 	}
 	return nil
 }
@@ -2109,6 +2262,8 @@ type QueryProcessesRequest struct {
 	ActorProof     *v1.ActorProof         `protobuf:"bytes,7,opt,name=actor_proof,json=actorProof,proto3" json:"actor_proof,omitempty"`
 	Scope          QueryScope             `protobuf:"varint,8,opt,name=scope,proto3,enum=bpmp.projection.v1.QueryScope" json:"scope,omitempty"`
 	Select         []ProcessField         `protobuf:"varint,9,rep,packed,name=select,proto3,enum=bpmp.projection.v1.ProcessField" json:"select,omitempty"`
+	Collapse       ProcessField           `protobuf:"varint,10,opt,name=collapse,proto3,enum=bpmp.projection.v1.ProcessField" json:"collapse,omitempty"`
+	ExpandEvents   *EventExpansion        `protobuf:"bytes,11,opt,name=expand_events,json=expandEvents,proto3" json:"expand_events,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -2206,6 +2361,20 @@ func (x *QueryProcessesRequest) GetSelect() []ProcessField {
 	return nil
 }
 
+func (x *QueryProcessesRequest) GetCollapse() ProcessField {
+	if x != nil {
+		return x.Collapse
+	}
+	return ProcessField_PROCESS_FIELD_UNSPECIFIED
+}
+
+func (x *QueryProcessesRequest) GetExpandEvents() *EventExpansion {
+	if x != nil {
+		return x.ExpandEvents
+	}
+	return nil
+}
+
 type QueryProcessesResponse struct {
 	state            protoimpl.MessageState       `protogen:"open.v1"`
 	Processes        []*CompletedProcessReadModel `protobuf:"bytes,1,rep,name=processes,proto3" json:"processes,omitempty"`
@@ -2282,6 +2451,686 @@ func (x *QueryProcessesResponse) GetQueryFingerprint() string {
 	return ""
 }
 
+type EventExpansion struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Filter        *EventExpression       `protobuf:"bytes,1,opt,name=filter,proto3" json:"filter,omitempty"`
+	Limit         uint32                 `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EventExpansion) Reset() {
+	*x = EventExpansion{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EventExpansion) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EventExpansion) ProtoMessage() {}
+
+func (x *EventExpansion) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EventExpansion.ProtoReflect.Descriptor instead.
+func (*EventExpansion) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *EventExpansion) GetFilter() *EventExpression {
+	if x != nil {
+		return x.Filter
+	}
+	return nil
+}
+
+func (x *EventExpansion) GetLimit() uint32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+type WorkflowEventReadModel struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	InstanceId        string                 `protobuf:"bytes,1,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
+	Sequence          uint64                 `protobuf:"varint,2,opt,name=sequence,proto3" json:"sequence,omitempty"`
+	EventType         string                 `protobuf:"bytes,3,opt,name=event_type,json=eventType,proto3" json:"event_type,omitempty"`
+	NodeId            string                 `protobuf:"bytes,4,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	ActorId           string                 `protobuf:"bytes,5,opt,name=actor_id,json=actorId,proto3" json:"actor_id,omitempty"`
+	OccurredAtEpochMs uint64                 `protobuf:"varint,6,opt,name=occurred_at_epoch_ms,json=occurredAtEpochMs,proto3" json:"occurred_at_epoch_ms,omitempty"`
+	ConfigVersion     string                 `protobuf:"bytes,7,opt,name=config_version,json=configVersion,proto3" json:"config_version,omitempty"`
+	PolicyVersion     string                 `protobuf:"bytes,8,opt,name=policy_version,json=policyVersion,proto3" json:"policy_version,omitempty"`
+	IsDeleted         bool                   `protobuf:"varint,9,opt,name=is_deleted,json=isDeleted,proto3" json:"is_deleted,omitempty"`
+	MaskedFields      []string               `protobuf:"bytes,10,rep,name=masked_fields,json=maskedFields,proto3" json:"masked_fields,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *WorkflowEventReadModel) Reset() {
+	*x = WorkflowEventReadModel{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WorkflowEventReadModel) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WorkflowEventReadModel) ProtoMessage() {}
+
+func (x *WorkflowEventReadModel) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WorkflowEventReadModel.ProtoReflect.Descriptor instead.
+func (*WorkflowEventReadModel) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *WorkflowEventReadModel) GetInstanceId() string {
+	if x != nil {
+		return x.InstanceId
+	}
+	return ""
+}
+
+func (x *WorkflowEventReadModel) GetSequence() uint64 {
+	if x != nil {
+		return x.Sequence
+	}
+	return 0
+}
+
+func (x *WorkflowEventReadModel) GetEventType() string {
+	if x != nil {
+		return x.EventType
+	}
+	return ""
+}
+
+func (x *WorkflowEventReadModel) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *WorkflowEventReadModel) GetActorId() string {
+	if x != nil {
+		return x.ActorId
+	}
+	return ""
+}
+
+func (x *WorkflowEventReadModel) GetOccurredAtEpochMs() uint64 {
+	if x != nil {
+		return x.OccurredAtEpochMs
+	}
+	return 0
+}
+
+func (x *WorkflowEventReadModel) GetConfigVersion() string {
+	if x != nil {
+		return x.ConfigVersion
+	}
+	return ""
+}
+
+func (x *WorkflowEventReadModel) GetPolicyVersion() string {
+	if x != nil {
+		return x.PolicyVersion
+	}
+	return ""
+}
+
+func (x *WorkflowEventReadModel) GetIsDeleted() bool {
+	if x != nil {
+		return x.IsDeleted
+	}
+	return false
+}
+
+func (x *WorkflowEventReadModel) GetMaskedFields() []string {
+	if x != nil {
+		return x.MaskedFields
+	}
+	return nil
+}
+
+type EventSort struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Field         EventField             `protobuf:"varint,1,opt,name=field,proto3,enum=bpmp.projection.v1.EventField" json:"field,omitempty"`
+	Direction     SortDirection          `protobuf:"varint,2,opt,name=direction,proto3,enum=bpmp.projection.v1.SortDirection" json:"direction,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EventSort) Reset() {
+	*x = EventSort{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EventSort) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EventSort) ProtoMessage() {}
+
+func (x *EventSort) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EventSort.ProtoReflect.Descriptor instead.
+func (*EventSort) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *EventSort) GetField() EventField {
+	if x != nil {
+		return x.Field
+	}
+	return EventField_EVENT_FIELD_UNSPECIFIED
+}
+
+func (x *EventSort) GetDirection() SortDirection {
+	if x != nil {
+		return x.Direction
+	}
+	return SortDirection_SORT_DIRECTION_UNSPECIFIED
+}
+
+type QueryEventsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TenantId      string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	Filter        *EventExpression       `protobuf:"bytes,2,opt,name=filter,proto3" json:"filter,omitempty"`
+	ProcessFilter *ProcessExpression     `protobuf:"bytes,3,opt,name=process_filter,json=processFilter,proto3" json:"process_filter,omitempty"`
+	Sort          []*EventSort           `protobuf:"bytes,4,rep,name=sort,proto3" json:"sort,omitempty"`
+	PageSize      uint32                 `protobuf:"varint,5,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	PageToken     string                 `protobuf:"bytes,6,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	ActorProof    *v1.ActorProof         `protobuf:"bytes,7,opt,name=actor_proof,json=actorProof,proto3" json:"actor_proof,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QueryEventsRequest) Reset() {
+	*x = QueryEventsRequest{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryEventsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryEventsRequest) ProtoMessage() {}
+
+func (x *QueryEventsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryEventsRequest.ProtoReflect.Descriptor instead.
+func (*QueryEventsRequest) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *QueryEventsRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *QueryEventsRequest) GetFilter() *EventExpression {
+	if x != nil {
+		return x.Filter
+	}
+	return nil
+}
+
+func (x *QueryEventsRequest) GetProcessFilter() *ProcessExpression {
+	if x != nil {
+		return x.ProcessFilter
+	}
+	return nil
+}
+
+func (x *QueryEventsRequest) GetSort() []*EventSort {
+	if x != nil {
+		return x.Sort
+	}
+	return nil
+}
+
+func (x *QueryEventsRequest) GetPageSize() uint32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *QueryEventsRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+func (x *QueryEventsRequest) GetActorProof() *v1.ActorProof {
+	if x != nil {
+		return x.ActorProof
+	}
+	return nil
+}
+
+type QueryEventsResponse struct {
+	state         protoimpl.MessageState    `protogen:"open.v1"`
+	Events        []*WorkflowEventReadModel `protobuf:"bytes,1,rep,name=events,proto3" json:"events,omitempty"`
+	NextPageToken string                    `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	PolicyVersion string                    `protobuf:"bytes,3,opt,name=policy_version,json=policyVersion,proto3" json:"policy_version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QueryEventsResponse) Reset() {
+	*x = QueryEventsResponse{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryEventsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryEventsResponse) ProtoMessage() {}
+
+func (x *QueryEventsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryEventsResponse.ProtoReflect.Descriptor instead.
+func (*QueryEventsResponse) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *QueryEventsResponse) GetEvents() []*WorkflowEventReadModel {
+	if x != nil {
+		return x.Events
+	}
+	return nil
+}
+
+func (x *QueryEventsResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
+func (x *QueryEventsResponse) GetPolicyVersion() string {
+	if x != nil {
+		return x.PolicyVersion
+	}
+	return ""
+}
+
+type AggregateMetric struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Alias         string                 `protobuf:"bytes,1,opt,name=alias,proto3" json:"alias,omitempty"`
+	Operation     AggregateOperation     `protobuf:"varint,2,opt,name=operation,proto3,enum=bpmp.projection.v1.AggregateOperation" json:"operation,omitempty"`
+	Field         ProcessField           `protobuf:"varint,3,opt,name=field,proto3,enum=bpmp.projection.v1.ProcessField" json:"field,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AggregateMetric) Reset() {
+	*x = AggregateMetric{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AggregateMetric) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AggregateMetric) ProtoMessage() {}
+
+func (x *AggregateMetric) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AggregateMetric.ProtoReflect.Descriptor instead.
+func (*AggregateMetric) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *AggregateMetric) GetAlias() string {
+	if x != nil {
+		return x.Alias
+	}
+	return ""
+}
+
+func (x *AggregateMetric) GetOperation() AggregateOperation {
+	if x != nil {
+		return x.Operation
+	}
+	return AggregateOperation_AGGREGATE_OPERATION_UNSPECIFIED
+}
+
+func (x *AggregateMetric) GetField() ProcessField {
+	if x != nil {
+		return x.Field
+	}
+	return ProcessField_PROCESS_FIELD_UNSPECIFIED
+}
+
+type AggregateProcessesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TenantId      string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	Scope         QueryScope             `protobuf:"varint,2,opt,name=scope,proto3,enum=bpmp.projection.v1.QueryScope" json:"scope,omitempty"`
+	Filter        *ProcessExpression     `protobuf:"bytes,3,opt,name=filter,proto3" json:"filter,omitempty"`
+	GroupBy       []ProcessField         `protobuf:"varint,4,rep,packed,name=group_by,json=groupBy,proto3,enum=bpmp.projection.v1.ProcessField" json:"group_by,omitempty"`
+	Metrics       []*AggregateMetric     `protobuf:"bytes,5,rep,name=metrics,proto3" json:"metrics,omitempty"`
+	Limit         uint32                 `protobuf:"varint,6,opt,name=limit,proto3" json:"limit,omitempty"`
+	ActorProof    *v1.ActorProof         `protobuf:"bytes,7,opt,name=actor_proof,json=actorProof,proto3" json:"actor_proof,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AggregateProcessesRequest) Reset() {
+	*x = AggregateProcessesRequest{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AggregateProcessesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AggregateProcessesRequest) ProtoMessage() {}
+
+func (x *AggregateProcessesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AggregateProcessesRequest.ProtoReflect.Descriptor instead.
+func (*AggregateProcessesRequest) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *AggregateProcessesRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *AggregateProcessesRequest) GetScope() QueryScope {
+	if x != nil {
+		return x.Scope
+	}
+	return QueryScope_QUERY_SCOPE_UNSPECIFIED
+}
+
+func (x *AggregateProcessesRequest) GetFilter() *ProcessExpression {
+	if x != nil {
+		return x.Filter
+	}
+	return nil
+}
+
+func (x *AggregateProcessesRequest) GetGroupBy() []ProcessField {
+	if x != nil {
+		return x.GroupBy
+	}
+	return nil
+}
+
+func (x *AggregateProcessesRequest) GetMetrics() []*AggregateMetric {
+	if x != nil {
+		return x.Metrics
+	}
+	return nil
+}
+
+func (x *AggregateProcessesRequest) GetLimit() uint32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *AggregateProcessesRequest) GetActorProof() *v1.ActorProof {
+	if x != nil {
+		return x.ActorProof
+	}
+	return nil
+}
+
+type AggregateCell struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Value         *QueryValue            `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AggregateCell) Reset() {
+	*x = AggregateCell{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AggregateCell) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AggregateCell) ProtoMessage() {}
+
+func (x *AggregateCell) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AggregateCell.ProtoReflect.Descriptor instead.
+func (*AggregateCell) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *AggregateCell) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *AggregateCell) GetValue() *QueryValue {
+	if x != nil {
+		return x.Value
+	}
+	return nil
+}
+
+type AggregateRow struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Dimensions    []*AggregateCell       `protobuf:"bytes,1,rep,name=dimensions,proto3" json:"dimensions,omitempty"`
+	Metrics       []*AggregateCell       `protobuf:"bytes,2,rep,name=metrics,proto3" json:"metrics,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AggregateRow) Reset() {
+	*x = AggregateRow{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AggregateRow) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AggregateRow) ProtoMessage() {}
+
+func (x *AggregateRow) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AggregateRow.ProtoReflect.Descriptor instead.
+func (*AggregateRow) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *AggregateRow) GetDimensions() []*AggregateCell {
+	if x != nil {
+		return x.Dimensions
+	}
+	return nil
+}
+
+func (x *AggregateRow) GetMetrics() []*AggregateCell {
+	if x != nil {
+		return x.Metrics
+	}
+	return nil
+}
+
+type AggregateProcessesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Rows          []*AggregateRow        `protobuf:"bytes,1,rep,name=rows,proto3" json:"rows,omitempty"`
+	PolicyVersion string                 `protobuf:"bytes,2,opt,name=policy_version,json=policyVersion,proto3" json:"policy_version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AggregateProcessesResponse) Reset() {
+	*x = AggregateProcessesResponse{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AggregateProcessesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AggregateProcessesResponse) ProtoMessage() {}
+
+func (x *AggregateProcessesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AggregateProcessesResponse.ProtoReflect.Descriptor instead.
+func (*AggregateProcessesResponse) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *AggregateProcessesResponse) GetRows() []*AggregateRow {
+	if x != nil {
+		return x.Rows
+	}
+	return nil
+}
+
+func (x *AggregateProcessesResponse) GetPolicyVersion() string {
+	if x != nil {
+		return x.PolicyVersion
+	}
+	return ""
+}
+
 type ProcessFieldCapability struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	Field             ProcessField           `protobuf:"varint,1,opt,name=field,proto3,enum=bpmp.projection.v1.ProcessField" json:"field,omitempty"`
@@ -2299,7 +3148,7 @@ type ProcessFieldCapability struct {
 
 func (x *ProcessFieldCapability) Reset() {
 	*x = ProcessFieldCapability{}
-	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[19]
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2311,7 +3160,7 @@ func (x *ProcessFieldCapability) String() string {
 func (*ProcessFieldCapability) ProtoMessage() {}
 
 func (x *ProcessFieldCapability) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[19]
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2324,7 +3173,7 @@ func (x *ProcessFieldCapability) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProcessFieldCapability.ProtoReflect.Descriptor instead.
 func (*ProcessFieldCapability) Descriptor() ([]byte, []int) {
-	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{19}
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *ProcessFieldCapability) GetField() ProcessField {
@@ -2404,7 +3253,7 @@ type EventFieldCapability struct {
 
 func (x *EventFieldCapability) Reset() {
 	*x = EventFieldCapability{}
-	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[20]
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2416,7 +3265,7 @@ func (x *EventFieldCapability) String() string {
 func (*EventFieldCapability) ProtoMessage() {}
 
 func (x *EventFieldCapability) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[20]
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2429,7 +3278,7 @@ func (x *EventFieldCapability) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventFieldCapability.ProtoReflect.Descriptor instead.
 func (*EventFieldCapability) Descriptor() ([]byte, []int) {
-	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{20}
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *EventFieldCapability) GetField() EventField {
@@ -2484,7 +3333,7 @@ type GetQueryCapabilitiesRequest struct {
 
 func (x *GetQueryCapabilitiesRequest) Reset() {
 	*x = GetQueryCapabilitiesRequest{}
-	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[21]
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2496,7 +3345,7 @@ func (x *GetQueryCapabilitiesRequest) String() string {
 func (*GetQueryCapabilitiesRequest) ProtoMessage() {}
 
 func (x *GetQueryCapabilitiesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[21]
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2509,7 +3358,7 @@ func (x *GetQueryCapabilitiesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetQueryCapabilitiesRequest.ProtoReflect.Descriptor instead.
 func (*GetQueryCapabilitiesRequest) Descriptor() ([]byte, []int) {
-	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{21}
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *GetQueryCapabilitiesRequest) GetTenantId() string {
@@ -2549,7 +3398,7 @@ type GetQueryCapabilitiesResponse struct {
 
 func (x *GetQueryCapabilitiesResponse) Reset() {
 	*x = GetQueryCapabilitiesResponse{}
-	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[22]
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2561,7 +3410,7 @@ func (x *GetQueryCapabilitiesResponse) String() string {
 func (*GetQueryCapabilitiesResponse) ProtoMessage() {}
 
 func (x *GetQueryCapabilitiesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[22]
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2574,7 +3423,7 @@ func (x *GetQueryCapabilitiesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetQueryCapabilitiesResponse.ProtoReflect.Descriptor instead.
 func (*GetQueryCapabilitiesResponse) Descriptor() ([]byte, []int) {
-	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{22}
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *GetQueryCapabilitiesResponse) GetSchemaVersion() string {
@@ -2682,6 +3531,974 @@ func (x *GetQueryCapabilitiesResponse) GetDefaultSort() []*ProcessSort {
 	return nil
 }
 
+type SavedQuery struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Id               string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name             string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Version          uint64                 `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
+	Query            *QueryProcessesRequest `protobuf:"bytes,4,opt,name=query,proto3" json:"query,omitempty"`
+	CreatedAtEpochMs uint64                 `protobuf:"varint,5,opt,name=created_at_epoch_ms,json=createdAtEpochMs,proto3" json:"created_at_epoch_ms,omitempty"`
+	UpdatedAtEpochMs uint64                 `protobuf:"varint,6,opt,name=updated_at_epoch_ms,json=updatedAtEpochMs,proto3" json:"updated_at_epoch_ms,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *SavedQuery) Reset() {
+	*x = SavedQuery{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SavedQuery) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SavedQuery) ProtoMessage() {}
+
+func (x *SavedQuery) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SavedQuery.ProtoReflect.Descriptor instead.
+func (*SavedQuery) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *SavedQuery) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *SavedQuery) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *SavedQuery) GetVersion() uint64 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *SavedQuery) GetQuery() *QueryProcessesRequest {
+	if x != nil {
+		return x.Query
+	}
+	return nil
+}
+
+func (x *SavedQuery) GetCreatedAtEpochMs() uint64 {
+	if x != nil {
+		return x.CreatedAtEpochMs
+	}
+	return 0
+}
+
+func (x *SavedQuery) GetUpdatedAtEpochMs() uint64 {
+	if x != nil {
+		return x.UpdatedAtEpochMs
+	}
+	return 0
+}
+
+type SaveQueryRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	TenantId        string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	Id              string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	Name            string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	ExpectedVersion uint64                 `protobuf:"varint,4,opt,name=expected_version,json=expectedVersion,proto3" json:"expected_version,omitempty"`
+	Query           *QueryProcessesRequest `protobuf:"bytes,5,opt,name=query,proto3" json:"query,omitempty"`
+	ActorProof      *v1.ActorProof         `protobuf:"bytes,6,opt,name=actor_proof,json=actorProof,proto3" json:"actor_proof,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *SaveQueryRequest) Reset() {
+	*x = SaveQueryRequest{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SaveQueryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SaveQueryRequest) ProtoMessage() {}
+
+func (x *SaveQueryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SaveQueryRequest.ProtoReflect.Descriptor instead.
+func (*SaveQueryRequest) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *SaveQueryRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *SaveQueryRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *SaveQueryRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *SaveQueryRequest) GetExpectedVersion() uint64 {
+	if x != nil {
+		return x.ExpectedVersion
+	}
+	return 0
+}
+
+func (x *SaveQueryRequest) GetQuery() *QueryProcessesRequest {
+	if x != nil {
+		return x.Query
+	}
+	return nil
+}
+
+func (x *SaveQueryRequest) GetActorProof() *v1.ActorProof {
+	if x != nil {
+		return x.ActorProof
+	}
+	return nil
+}
+
+type SaveQueryResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SavedQuery    *SavedQuery            `protobuf:"bytes,1,opt,name=saved_query,json=savedQuery,proto3" json:"saved_query,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SaveQueryResponse) Reset() {
+	*x = SaveQueryResponse{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SaveQueryResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SaveQueryResponse) ProtoMessage() {}
+
+func (x *SaveQueryResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SaveQueryResponse.ProtoReflect.Descriptor instead.
+func (*SaveQueryResponse) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *SaveQueryResponse) GetSavedQuery() *SavedQuery {
+	if x != nil {
+		return x.SavedQuery
+	}
+	return nil
+}
+
+type ListSavedQueriesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TenantId      string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	PageSize      uint32                 `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	PageToken     string                 `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	ActorProof    *v1.ActorProof         `protobuf:"bytes,4,opt,name=actor_proof,json=actorProof,proto3" json:"actor_proof,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListSavedQueriesRequest) Reset() {
+	*x = ListSavedQueriesRequest{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSavedQueriesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSavedQueriesRequest) ProtoMessage() {}
+
+func (x *ListSavedQueriesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[36]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListSavedQueriesRequest.ProtoReflect.Descriptor instead.
+func (*ListSavedQueriesRequest) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{36}
+}
+
+func (x *ListSavedQueriesRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *ListSavedQueriesRequest) GetPageSize() uint32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *ListSavedQueriesRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+func (x *ListSavedQueriesRequest) GetActorProof() *v1.ActorProof {
+	if x != nil {
+		return x.ActorProof
+	}
+	return nil
+}
+
+type ListSavedQueriesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SavedQueries  []*SavedQuery          `protobuf:"bytes,1,rep,name=saved_queries,json=savedQueries,proto3" json:"saved_queries,omitempty"`
+	NextPageToken string                 `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListSavedQueriesResponse) Reset() {
+	*x = ListSavedQueriesResponse{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSavedQueriesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSavedQueriesResponse) ProtoMessage() {}
+
+func (x *ListSavedQueriesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListSavedQueriesResponse.ProtoReflect.Descriptor instead.
+func (*ListSavedQueriesResponse) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{37}
+}
+
+func (x *ListSavedQueriesResponse) GetSavedQueries() []*SavedQuery {
+	if x != nil {
+		return x.SavedQueries
+	}
+	return nil
+}
+
+func (x *ListSavedQueriesResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
+type DeleteSavedQueryRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	TenantId        string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	Id              string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	ExpectedVersion uint64                 `protobuf:"varint,3,opt,name=expected_version,json=expectedVersion,proto3" json:"expected_version,omitempty"`
+	ActorProof      *v1.ActorProof         `protobuf:"bytes,4,opt,name=actor_proof,json=actorProof,proto3" json:"actor_proof,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *DeleteSavedQueryRequest) Reset() {
+	*x = DeleteSavedQueryRequest{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteSavedQueryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteSavedQueryRequest) ProtoMessage() {}
+
+func (x *DeleteSavedQueryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteSavedQueryRequest.ProtoReflect.Descriptor instead.
+func (*DeleteSavedQueryRequest) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{38}
+}
+
+func (x *DeleteSavedQueryRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *DeleteSavedQueryRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *DeleteSavedQueryRequest) GetExpectedVersion() uint64 {
+	if x != nil {
+		return x.ExpectedVersion
+	}
+	return 0
+}
+
+func (x *DeleteSavedQueryRequest) GetActorProof() *v1.ActorProof {
+	if x != nil {
+		return x.ActorProof
+	}
+	return nil
+}
+
+type DeleteSavedQueryResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteSavedQueryResponse) Reset() {
+	*x = DeleteSavedQueryResponse{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[39]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteSavedQueryResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteSavedQueryResponse) ProtoMessage() {}
+
+func (x *DeleteSavedQueryResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[39]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteSavedQueryResponse.ProtoReflect.Descriptor instead.
+func (*DeleteSavedQueryResponse) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{39}
+}
+
+type QueryExport struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Id               string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Status           QueryExportStatus      `protobuf:"varint,2,opt,name=status,proto3,enum=bpmp.projection.v1.QueryExportStatus" json:"status,omitempty"`
+	RowCount         uint64                 `protobuf:"varint,3,opt,name=row_count,json=rowCount,proto3" json:"row_count,omitempty"`
+	Csv              []byte                 `protobuf:"bytes,4,opt,name=csv,proto3" json:"csv,omitempty"`
+	ErrorCode        string                 `protobuf:"bytes,5,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
+	CreatedAtEpochMs uint64                 `protobuf:"varint,6,opt,name=created_at_epoch_ms,json=createdAtEpochMs,proto3" json:"created_at_epoch_ms,omitempty"`
+	ExpiresAtEpochMs uint64                 `protobuf:"varint,7,opt,name=expires_at_epoch_ms,json=expiresAtEpochMs,proto3" json:"expires_at_epoch_ms,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *QueryExport) Reset() {
+	*x = QueryExport{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[40]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryExport) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryExport) ProtoMessage() {}
+
+func (x *QueryExport) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[40]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryExport.ProtoReflect.Descriptor instead.
+func (*QueryExport) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{40}
+}
+
+func (x *QueryExport) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *QueryExport) GetStatus() QueryExportStatus {
+	if x != nil {
+		return x.Status
+	}
+	return QueryExportStatus_QUERY_EXPORT_STATUS_UNSPECIFIED
+}
+
+func (x *QueryExport) GetRowCount() uint64 {
+	if x != nil {
+		return x.RowCount
+	}
+	return 0
+}
+
+func (x *QueryExport) GetCsv() []byte {
+	if x != nil {
+		return x.Csv
+	}
+	return nil
+}
+
+func (x *QueryExport) GetErrorCode() string {
+	if x != nil {
+		return x.ErrorCode
+	}
+	return ""
+}
+
+func (x *QueryExport) GetCreatedAtEpochMs() uint64 {
+	if x != nil {
+		return x.CreatedAtEpochMs
+	}
+	return 0
+}
+
+func (x *QueryExport) GetExpiresAtEpochMs() uint64 {
+	if x != nil {
+		return x.ExpiresAtEpochMs
+	}
+	return 0
+}
+
+type CreateQueryExportRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TenantId      string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	Query         *QueryProcessesRequest `protobuf:"bytes,2,opt,name=query,proto3" json:"query,omitempty"`
+	MaxRows       uint32                 `protobuf:"varint,3,opt,name=max_rows,json=maxRows,proto3" json:"max_rows,omitempty"`
+	ActorProof    *v1.ActorProof         `protobuf:"bytes,4,opt,name=actor_proof,json=actorProof,proto3" json:"actor_proof,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateQueryExportRequest) Reset() {
+	*x = CreateQueryExportRequest{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateQueryExportRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateQueryExportRequest) ProtoMessage() {}
+
+func (x *CreateQueryExportRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateQueryExportRequest.ProtoReflect.Descriptor instead.
+func (*CreateQueryExportRequest) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *CreateQueryExportRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *CreateQueryExportRequest) GetQuery() *QueryProcessesRequest {
+	if x != nil {
+		return x.Query
+	}
+	return nil
+}
+
+func (x *CreateQueryExportRequest) GetMaxRows() uint32 {
+	if x != nil {
+		return x.MaxRows
+	}
+	return 0
+}
+
+func (x *CreateQueryExportRequest) GetActorProof() *v1.ActorProof {
+	if x != nil {
+		return x.ActorProof
+	}
+	return nil
+}
+
+type CreateQueryExportResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Export        *QueryExport           `protobuf:"bytes,1,opt,name=export,proto3" json:"export,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateQueryExportResponse) Reset() {
+	*x = CreateQueryExportResponse{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[42]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateQueryExportResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateQueryExportResponse) ProtoMessage() {}
+
+func (x *CreateQueryExportResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[42]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateQueryExportResponse.ProtoReflect.Descriptor instead.
+func (*CreateQueryExportResponse) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{42}
+}
+
+func (x *CreateQueryExportResponse) GetExport() *QueryExport {
+	if x != nil {
+		return x.Export
+	}
+	return nil
+}
+
+type GetQueryExportRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TenantId      string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	Id            string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	ActorProof    *v1.ActorProof         `protobuf:"bytes,3,opt,name=actor_proof,json=actorProof,proto3" json:"actor_proof,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetQueryExportRequest) Reset() {
+	*x = GetQueryExportRequest{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[43]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetQueryExportRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetQueryExportRequest) ProtoMessage() {}
+
+func (x *GetQueryExportRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[43]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetQueryExportRequest.ProtoReflect.Descriptor instead.
+func (*GetQueryExportRequest) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{43}
+}
+
+func (x *GetQueryExportRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *GetQueryExportRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *GetQueryExportRequest) GetActorProof() *v1.ActorProof {
+	if x != nil {
+		return x.ActorProof
+	}
+	return nil
+}
+
+type GetQueryExportResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Export        *QueryExport           `protobuf:"bytes,1,opt,name=export,proto3" json:"export,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetQueryExportResponse) Reset() {
+	*x = GetQueryExportResponse{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[44]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetQueryExportResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetQueryExportResponse) ProtoMessage() {}
+
+func (x *GetQueryExportResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[44]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetQueryExportResponse.ProtoReflect.Descriptor instead.
+func (*GetQueryExportResponse) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{44}
+}
+
+func (x *GetQueryExportResponse) GetExport() *QueryExport {
+	if x != nil {
+		return x.Export
+	}
+	return nil
+}
+
+type CancelQueryExportRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TenantId      string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	Id            string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	ActorProof    *v1.ActorProof         `protobuf:"bytes,3,opt,name=actor_proof,json=actorProof,proto3" json:"actor_proof,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CancelQueryExportRequest) Reset() {
+	*x = CancelQueryExportRequest{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[45]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CancelQueryExportRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CancelQueryExportRequest) ProtoMessage() {}
+
+func (x *CancelQueryExportRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[45]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CancelQueryExportRequest.ProtoReflect.Descriptor instead.
+func (*CancelQueryExportRequest) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{45}
+}
+
+func (x *CancelQueryExportRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *CancelQueryExportRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *CancelQueryExportRequest) GetActorProof() *v1.ActorProof {
+	if x != nil {
+		return x.ActorProof
+	}
+	return nil
+}
+
+type CancelQueryExportResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Export        *QueryExport           `protobuf:"bytes,1,opt,name=export,proto3" json:"export,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CancelQueryExportResponse) Reset() {
+	*x = CancelQueryExportResponse{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[46]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CancelQueryExportResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CancelQueryExportResponse) ProtoMessage() {}
+
+func (x *CancelQueryExportResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[46]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CancelQueryExportResponse.ProtoReflect.Descriptor instead.
+func (*CancelQueryExportResponse) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{46}
+}
+
+func (x *CancelQueryExportResponse) GetExport() *QueryExport {
+	if x != nil {
+		return x.Export
+	}
+	return nil
+}
+
+type ExplainQueryPlanRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TenantId      string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	Query         *QueryProcessesRequest `protobuf:"bytes,2,opt,name=query,proto3" json:"query,omitempty"`
+	Analyze       bool                   `protobuf:"varint,3,opt,name=analyze,proto3" json:"analyze,omitempty"`
+	ActorProof    *v1.ActorProof         `protobuf:"bytes,4,opt,name=actor_proof,json=actorProof,proto3" json:"actor_proof,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExplainQueryPlanRequest) Reset() {
+	*x = ExplainQueryPlanRequest{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[47]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExplainQueryPlanRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExplainQueryPlanRequest) ProtoMessage() {}
+
+func (x *ExplainQueryPlanRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[47]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExplainQueryPlanRequest.ProtoReflect.Descriptor instead.
+func (*ExplainQueryPlanRequest) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{47}
+}
+
+func (x *ExplainQueryPlanRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *ExplainQueryPlanRequest) GetQuery() *QueryProcessesRequest {
+	if x != nil {
+		return x.Query
+	}
+	return nil
+}
+
+func (x *ExplainQueryPlanRequest) GetAnalyze() bool {
+	if x != nil {
+		return x.Analyze
+	}
+	return false
+}
+
+func (x *ExplainQueryPlanRequest) GetActorProof() *v1.ActorProof {
+	if x != nil {
+		return x.ActorProof
+	}
+	return nil
+}
+
+type ExplainQueryPlanResponse struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	RedactedPlanJson string                 `protobuf:"bytes,1,opt,name=redacted_plan_json,json=redactedPlanJson,proto3" json:"redacted_plan_json,omitempty"`
+	QueryFingerprint string                 `protobuf:"bytes,2,opt,name=query_fingerprint,json=queryFingerprint,proto3" json:"query_fingerprint,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *ExplainQueryPlanResponse) Reset() {
+	*x = ExplainQueryPlanResponse{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[48]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExplainQueryPlanResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExplainQueryPlanResponse) ProtoMessage() {}
+
+func (x *ExplainQueryPlanResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[48]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExplainQueryPlanResponse.ProtoReflect.Descriptor instead.
+func (*ExplainQueryPlanResponse) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{48}
+}
+
+func (x *ExplainQueryPlanResponse) GetRedactedPlanJson() string {
+	if x != nil {
+		return x.RedactedPlanJson
+	}
+	return ""
+}
+
+func (x *ExplainQueryPlanResponse) GetQueryFingerprint() string {
+	if x != nil {
+		return x.QueryFingerprint
+	}
+	return ""
+}
+
 var File_bpmp_projection_v1_projection_proto protoreflect.FileDescriptor
 
 const file_bpmp_projection_v1_projection_proto_rawDesc = "" +
@@ -2726,13 +4543,14 @@ const file_bpmp_projection_v1_projection_proto_rawDesc = "" +
 	"actorProof\"\x94\x01\n" +
 	"\x1dListWorkflowInstancesResponse\x12K\n" +
 	"\tinstances\x18\x01 \x03(\v2-.bpmp.projection.v1.WorkflowInstanceReadModelR\tinstances\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\xb8\x01\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\xdf\x01\n" +
 	"\n" +
 	"QueryValue\x12#\n" +
 	"\fstring_value\x18\x01 \x01(\tH\x00R\vstringValue\x12%\n" +
 	"\rinteger_value\x18\x02 \x01(\x12H\x00R\fintegerValue\x12%\n" +
 	"\rboolean_value\x18\x03 \x01(\bH\x00R\fbooleanValue\x12.\n" +
-	"\x12timestamp_epoch_ms\x18\x04 \x01(\x04H\x00R\x10timestampEpochMsB\a\n" +
+	"\x12timestamp_epoch_ms\x18\x04 \x01(\x04H\x00R\x10timestampEpochMs\x12%\n" +
+	"\rdecimal_value\x18\x05 \x01(\tH\x00R\fdecimalValueB\a\n" +
 	"\x05value\"\xf4\x03\n" +
 	"\x10ProcessPredicate\x126\n" +
 	"\x05field\x18\x01 \x01(\x0e2 .bpmp.projection.v1.ProcessFieldR\x05field\x12B\n" +
@@ -2784,7 +4602,7 @@ const file_bpmp_projection_v1_projection_proto_rawDesc = "" +
 	"\x0etext_transform\x18\x03 \x01(\x0e2!.bpmp.projection.v1.TextTransformR\rtextTransform\x12E\n" +
 	"\x0ecoalesce_value\x18\x04 \x01(\v2\x1e.bpmp.projection.v1.QueryValueR\rcoalesceValue\x12Q\n" +
 	"\x11numeric_transform\x18\x05 \x01(\x0e2$.bpmp.projection.v1.NumericTransformR\x10numericTransform\x12H\n" +
-	"\x0edate_transform\x18\x06 \x01(\x0e2!.bpmp.projection.v1.DateTransformR\rdateTransform\"\x94\x03\n" +
+	"\x0edate_transform\x18\x06 \x01(\x0e2!.bpmp.projection.v1.DateTransformR\rdateTransform\"\x9b\x04\n" +
 	"\x1eQueryCompletedProcessesRequest\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12=\n" +
 	"\x06filter\x18\x02 \x01(\v2%.bpmp.projection.v1.ProcessExpressionR\x06filter\x123\n" +
@@ -2795,20 +4613,24 @@ const file_bpmp_projection_v1_projection_proto_rawDesc = "" +
 	"page_token\x18\x06 \x01(\tR\tpageToken\x12B\n" +
 	"\vactor_proof\x18\a \x01(\v2!.bpmp.authorization.v1.ActorProofR\n" +
 	"actorProof\x128\n" +
-	"\x06select\x18\b \x03(\x0e2 .bpmp.projection.v1.ProcessFieldR\x06select\"\xcd\x01\n" +
+	"\x06select\x18\b \x03(\x0e2 .bpmp.projection.v1.ProcessFieldR\x06select\x12<\n" +
+	"\bcollapse\x18\t \x01(\x0e2 .bpmp.projection.v1.ProcessFieldR\bcollapse\x12G\n" +
+	"\rexpand_events\x18\n" +
+	" \x01(\v2\".bpmp.projection.v1.EventExpansionR\fexpandEvents\"\x91\x02\n" +
 	"\x19CompletedProcessReadModel\x12I\n" +
 	"\binstance\x18\x01 \x01(\v2-.bpmp.projection.v1.WorkflowInstanceReadModelR\binstance\x12\x1f\n" +
 	"\vduration_ms\x18\x02 \x01(\x04R\n" +
 	"durationMs\x12\x1f\n" +
 	"\vevent_count\x18\x03 \x01(\x04R\n" +
 	"eventCount\x12#\n" +
-	"\rmasked_fields\x18\x04 \x03(\tR\fmaskedFields\"\xb4\x02\n" +
+	"\rmasked_fields\x18\x04 \x03(\tR\fmaskedFields\x12B\n" +
+	"\x06events\x18\x05 \x03(\v2*.bpmp.projection.v1.WorkflowEventReadModelR\x06events\"\xb4\x02\n" +
 	"\x1fQueryCompletedProcessesResponse\x12K\n" +
 	"\tprocesses\x18\x01 \x03(\v2-.bpmp.projection.v1.CompletedProcessReadModelR\tprocesses\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\x12H\n" +
 	"\x0fnormalized_sort\x18\x03 \x03(\v2\x1f.bpmp.projection.v1.ProcessSortR\x0enormalizedSort\x12%\n" +
 	"\x0epolicy_version\x18\x04 \x01(\tR\rpolicyVersion\x12+\n" +
-	"\x11query_fingerprint\x18\x05 \x01(\tR\x10queryFingerprint\"\xc1\x03\n" +
+	"\x11query_fingerprint\x18\x05 \x01(\tR\x10queryFingerprint\"\xc8\x04\n" +
 	"\x15QueryProcessesRequest\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12=\n" +
 	"\x06filter\x18\x02 \x01(\v2%.bpmp.projection.v1.ProcessExpressionR\x06filter\x123\n" +
@@ -2820,13 +4642,75 @@ const file_bpmp_projection_v1_projection_proto_rawDesc = "" +
 	"\vactor_proof\x18\a \x01(\v2!.bpmp.authorization.v1.ActorProofR\n" +
 	"actorProof\x124\n" +
 	"\x05scope\x18\b \x01(\x0e2\x1e.bpmp.projection.v1.QueryScopeR\x05scope\x128\n" +
-	"\x06select\x18\t \x03(\x0e2 .bpmp.projection.v1.ProcessFieldR\x06select\"\xab\x02\n" +
+	"\x06select\x18\t \x03(\x0e2 .bpmp.projection.v1.ProcessFieldR\x06select\x12<\n" +
+	"\bcollapse\x18\n" +
+	" \x01(\x0e2 .bpmp.projection.v1.ProcessFieldR\bcollapse\x12G\n" +
+	"\rexpand_events\x18\v \x01(\v2\".bpmp.projection.v1.EventExpansionR\fexpandEvents\"\xab\x02\n" +
 	"\x16QueryProcessesResponse\x12K\n" +
 	"\tprocesses\x18\x01 \x03(\v2-.bpmp.projection.v1.CompletedProcessReadModelR\tprocesses\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\x12H\n" +
 	"\x0fnormalized_sort\x18\x03 \x03(\v2\x1f.bpmp.projection.v1.ProcessSortR\x0enormalizedSort\x12%\n" +
 	"\x0epolicy_version\x18\x04 \x01(\tR\rpolicyVersion\x12+\n" +
-	"\x11query_fingerprint\x18\x05 \x01(\tR\x10queryFingerprint\"\xa2\x04\n" +
+	"\x11query_fingerprint\x18\x05 \x01(\tR\x10queryFingerprint\"c\n" +
+	"\x0eEventExpansion\x12;\n" +
+	"\x06filter\x18\x01 \x01(\v2#.bpmp.projection.v1.EventExpressionR\x06filter\x12\x14\n" +
+	"\x05limit\x18\x02 \x01(\rR\x05limit\"\xeb\x02\n" +
+	"\x16WorkflowEventReadModel\x12\x1f\n" +
+	"\vinstance_id\x18\x01 \x01(\tR\n" +
+	"instanceId\x12\x1a\n" +
+	"\bsequence\x18\x02 \x01(\x04R\bsequence\x12\x1d\n" +
+	"\n" +
+	"event_type\x18\x03 \x01(\tR\teventType\x12\x17\n" +
+	"\anode_id\x18\x04 \x01(\tR\x06nodeId\x12\x19\n" +
+	"\bactor_id\x18\x05 \x01(\tR\aactorId\x12/\n" +
+	"\x14occurred_at_epoch_ms\x18\x06 \x01(\x04R\x11occurredAtEpochMs\x12%\n" +
+	"\x0econfig_version\x18\a \x01(\tR\rconfigVersion\x12%\n" +
+	"\x0epolicy_version\x18\b \x01(\tR\rpolicyVersion\x12\x1d\n" +
+	"\n" +
+	"is_deleted\x18\t \x01(\bR\tisDeleted\x12#\n" +
+	"\rmasked_fields\x18\n" +
+	" \x03(\tR\fmaskedFields\"\x82\x01\n" +
+	"\tEventSort\x124\n" +
+	"\x05field\x18\x01 \x01(\x0e2\x1e.bpmp.projection.v1.EventFieldR\x05field\x12?\n" +
+	"\tdirection\x18\x02 \x01(\x0e2!.bpmp.projection.v1.SortDirectionR\tdirection\"\xef\x02\n" +
+	"\x12QueryEventsRequest\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12;\n" +
+	"\x06filter\x18\x02 \x01(\v2#.bpmp.projection.v1.EventExpressionR\x06filter\x12L\n" +
+	"\x0eprocess_filter\x18\x03 \x01(\v2%.bpmp.projection.v1.ProcessExpressionR\rprocessFilter\x121\n" +
+	"\x04sort\x18\x04 \x03(\v2\x1d.bpmp.projection.v1.EventSortR\x04sort\x12\x1b\n" +
+	"\tpage_size\x18\x05 \x01(\rR\bpageSize\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x06 \x01(\tR\tpageToken\x12B\n" +
+	"\vactor_proof\x18\a \x01(\v2!.bpmp.authorization.v1.ActorProofR\n" +
+	"actorProof\"\xa8\x01\n" +
+	"\x13QueryEventsResponse\x12B\n" +
+	"\x06events\x18\x01 \x03(\v2*.bpmp.projection.v1.WorkflowEventReadModelR\x06events\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\x12%\n" +
+	"\x0epolicy_version\x18\x03 \x01(\tR\rpolicyVersion\"\xa5\x01\n" +
+	"\x0fAggregateMetric\x12\x14\n" +
+	"\x05alias\x18\x01 \x01(\tR\x05alias\x12D\n" +
+	"\toperation\x18\x02 \x01(\x0e2&.bpmp.projection.v1.AggregateOperationR\toperation\x126\n" +
+	"\x05field\x18\x03 \x01(\x0e2 .bpmp.projection.v1.ProcessFieldR\x05field\"\x83\x03\n" +
+	"\x19AggregateProcessesRequest\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x124\n" +
+	"\x05scope\x18\x02 \x01(\x0e2\x1e.bpmp.projection.v1.QueryScopeR\x05scope\x12=\n" +
+	"\x06filter\x18\x03 \x01(\v2%.bpmp.projection.v1.ProcessExpressionR\x06filter\x12;\n" +
+	"\bgroup_by\x18\x04 \x03(\x0e2 .bpmp.projection.v1.ProcessFieldR\agroupBy\x12=\n" +
+	"\ametrics\x18\x05 \x03(\v2#.bpmp.projection.v1.AggregateMetricR\ametrics\x12\x14\n" +
+	"\x05limit\x18\x06 \x01(\rR\x05limit\x12B\n" +
+	"\vactor_proof\x18\a \x01(\v2!.bpmp.authorization.v1.ActorProofR\n" +
+	"actorProof\"Y\n" +
+	"\rAggregateCell\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x124\n" +
+	"\x05value\x18\x02 \x01(\v2\x1e.bpmp.projection.v1.QueryValueR\x05value\"\x8e\x01\n" +
+	"\fAggregateRow\x12A\n" +
+	"\n" +
+	"dimensions\x18\x01 \x03(\v2!.bpmp.projection.v1.AggregateCellR\n" +
+	"dimensions\x12;\n" +
+	"\ametrics\x18\x02 \x03(\v2!.bpmp.projection.v1.AggregateCellR\ametrics\"y\n" +
+	"\x1aAggregateProcessesResponse\x124\n" +
+	"\x04rows\x18\x01 \x03(\v2 .bpmp.projection.v1.AggregateRowR\x04rows\x12%\n" +
+	"\x0epolicy_version\x18\x02 \x01(\tR\rpolicyVersion\"\xa2\x04\n" +
 	"\x16ProcessFieldCapability\x126\n" +
 	"\x05field\x18\x01 \x01(\x0e2 .bpmp.projection.v1.ProcessFieldR\x05field\x12A\n" +
 	"\n" +
@@ -2870,7 +4754,83 @@ const file_bpmp_projection_v1_projection_proto_rawDesc = "" +
 	"\rmax_in_values\x18\f \x01(\rR\vmaxInValues\x12(\n" +
 	"\x10max_string_bytes\x18\r \x01(\rR\x0emaxStringBytes\x126\n" +
 	"\x06scopes\x18\x0e \x03(\x0e2\x1e.bpmp.projection.v1.QueryScopeR\x06scopes\x12B\n" +
-	"\fdefault_sort\x18\x0f \x03(\v2\x1f.bpmp.projection.v1.ProcessSortR\vdefaultSort*f\n" +
+	"\fdefault_sort\x18\x0f \x03(\v2\x1f.bpmp.projection.v1.ProcessSortR\vdefaultSort\"\xe9\x01\n" +
+	"\n" +
+	"SavedQuery\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
+	"\aversion\x18\x03 \x01(\x04R\aversion\x12?\n" +
+	"\x05query\x18\x04 \x01(\v2).bpmp.projection.v1.QueryProcessesRequestR\x05query\x12-\n" +
+	"\x13created_at_epoch_ms\x18\x05 \x01(\x04R\x10createdAtEpochMs\x12-\n" +
+	"\x13updated_at_epoch_ms\x18\x06 \x01(\x04R\x10updatedAtEpochMs\"\x83\x02\n" +
+	"\x10SaveQueryRequest\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\x12\x12\n" +
+	"\x04name\x18\x03 \x01(\tR\x04name\x12)\n" +
+	"\x10expected_version\x18\x04 \x01(\x04R\x0fexpectedVersion\x12?\n" +
+	"\x05query\x18\x05 \x01(\v2).bpmp.projection.v1.QueryProcessesRequestR\x05query\x12B\n" +
+	"\vactor_proof\x18\x06 \x01(\v2!.bpmp.authorization.v1.ActorProofR\n" +
+	"actorProof\"T\n" +
+	"\x11SaveQueryResponse\x12?\n" +
+	"\vsaved_query\x18\x01 \x01(\v2\x1e.bpmp.projection.v1.SavedQueryR\n" +
+	"savedQuery\"\xb6\x01\n" +
+	"\x17ListSavedQueriesRequest\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x1b\n" +
+	"\tpage_size\x18\x02 \x01(\rR\bpageSize\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x03 \x01(\tR\tpageToken\x12B\n" +
+	"\vactor_proof\x18\x04 \x01(\v2!.bpmp.authorization.v1.ActorProofR\n" +
+	"actorProof\"\x87\x01\n" +
+	"\x18ListSavedQueriesResponse\x12C\n" +
+	"\rsaved_queries\x18\x01 \x03(\v2\x1e.bpmp.projection.v1.SavedQueryR\fsavedQueries\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\xb5\x01\n" +
+	"\x17DeleteSavedQueryRequest\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\x12)\n" +
+	"\x10expected_version\x18\x03 \x01(\x04R\x0fexpectedVersion\x12B\n" +
+	"\vactor_proof\x18\x04 \x01(\v2!.bpmp.authorization.v1.ActorProofR\n" +
+	"actorProof\"\x1a\n" +
+	"\x18DeleteSavedQueryResponse\"\x88\x02\n" +
+	"\vQueryExport\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12=\n" +
+	"\x06status\x18\x02 \x01(\x0e2%.bpmp.projection.v1.QueryExportStatusR\x06status\x12\x1b\n" +
+	"\trow_count\x18\x03 \x01(\x04R\browCount\x12\x10\n" +
+	"\x03csv\x18\x04 \x01(\fR\x03csv\x12\x1d\n" +
+	"\n" +
+	"error_code\x18\x05 \x01(\tR\terrorCode\x12-\n" +
+	"\x13created_at_epoch_ms\x18\x06 \x01(\x04R\x10createdAtEpochMs\x12-\n" +
+	"\x13expires_at_epoch_ms\x18\a \x01(\x04R\x10expiresAtEpochMs\"\xd7\x01\n" +
+	"\x18CreateQueryExportRequest\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12?\n" +
+	"\x05query\x18\x02 \x01(\v2).bpmp.projection.v1.QueryProcessesRequestR\x05query\x12\x19\n" +
+	"\bmax_rows\x18\x03 \x01(\rR\amaxRows\x12B\n" +
+	"\vactor_proof\x18\x04 \x01(\v2!.bpmp.authorization.v1.ActorProofR\n" +
+	"actorProof\"T\n" +
+	"\x19CreateQueryExportResponse\x127\n" +
+	"\x06export\x18\x01 \x01(\v2\x1f.bpmp.projection.v1.QueryExportR\x06export\"\x88\x01\n" +
+	"\x15GetQueryExportRequest\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\x12B\n" +
+	"\vactor_proof\x18\x03 \x01(\v2!.bpmp.authorization.v1.ActorProofR\n" +
+	"actorProof\"Q\n" +
+	"\x16GetQueryExportResponse\x127\n" +
+	"\x06export\x18\x01 \x01(\v2\x1f.bpmp.projection.v1.QueryExportR\x06export\"\x8b\x01\n" +
+	"\x18CancelQueryExportRequest\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\x12B\n" +
+	"\vactor_proof\x18\x03 \x01(\v2!.bpmp.authorization.v1.ActorProofR\n" +
+	"actorProof\"T\n" +
+	"\x19CancelQueryExportResponse\x127\n" +
+	"\x06export\x18\x01 \x01(\v2\x1f.bpmp.projection.v1.QueryExportR\x06export\"\xd5\x01\n" +
+	"\x17ExplainQueryPlanRequest\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12?\n" +
+	"\x05query\x18\x02 \x01(\v2).bpmp.projection.v1.QueryProcessesRequestR\x05query\x12\x18\n" +
+	"\aanalyze\x18\x03 \x01(\bR\aanalyze\x12B\n" +
+	"\vactor_proof\x18\x04 \x01(\v2!.bpmp.authorization.v1.ActorProofR\n" +
+	"actorProof\"u\n" +
+	"\x18ExplainQueryPlanResponse\x12,\n" +
+	"\x12redacted_plan_json\x18\x01 \x01(\tR\x10redactedPlanJson\x12+\n" +
+	"\x11query_fingerprint\x18\x02 \x01(\tR\x10queryFingerprint*f\n" +
 	"\x0fLogicalOperator\x12 \n" +
 	"\x1cLOGICAL_OPERATOR_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14LOGICAL_OPERATOR_AND\x10\x01\x12\x17\n" +
@@ -2961,13 +4921,35 @@ const file_bpmp_projection_v1_projection_proto_rawDesc = "" +
 	"\x16DATE_TRANSFORM_UTC_DAY\x10\x02\x12\x1b\n" +
 	"\x17DATE_TRANSFORM_UTC_WEEK\x10\x03\x12\x1c\n" +
 	"\x18DATE_TRANSFORM_UTC_MONTH\x10\x04\x12\x1b\n" +
-	"\x17DATE_TRANSFORM_UTC_YEAR\x10\x052\xf7\x04\n" +
+	"\x17DATE_TRANSFORM_UTC_YEAR\x10\x05*\xcc\x01\n" +
+	"\x12AggregateOperation\x12#\n" +
+	"\x1fAGGREGATE_OPERATION_UNSPECIFIED\x10\x00\x12\x1d\n" +
+	"\x19AGGREGATE_OPERATION_COUNT\x10\x01\x12\x1b\n" +
+	"\x17AGGREGATE_OPERATION_SUM\x10\x02\x12\x1b\n" +
+	"\x17AGGREGATE_OPERATION_AVG\x10\x03\x12\x1b\n" +
+	"\x17AGGREGATE_OPERATION_MIN\x10\x04\x12\x1b\n" +
+	"\x17AGGREGATE_OPERATION_MAX\x10\x05*\xbf\x01\n" +
+	"\x11QueryExportStatus\x12#\n" +
+	"\x1fQUERY_EXPORT_STATUS_UNSPECIFIED\x10\x00\x12\x1f\n" +
+	"\x1bQUERY_EXPORT_STATUS_PENDING\x10\x01\x12!\n" +
+	"\x1dQUERY_EXPORT_STATUS_COMPLETED\x10\x02\x12\x1e\n" +
+	"\x1aQUERY_EXPORT_STATUS_FAILED\x10\x03\x12!\n" +
+	"\x1dQUERY_EXPORT_STATUS_CANCELLED\x10\x042\xc0\f\n" +
 	"\x16ProjectionQueryService\x12v\n" +
 	"\x13GetWorkflowInstance\x12..bpmp.projection.v1.GetWorkflowInstanceRequest\x1a/.bpmp.projection.v1.GetWorkflowInstanceResponse\x12|\n" +
 	"\x15ListWorkflowInstances\x120.bpmp.projection.v1.ListWorkflowInstancesRequest\x1a1.bpmp.projection.v1.ListWorkflowInstancesResponse\x12\x82\x01\n" +
 	"\x17QueryCompletedProcesses\x122.bpmp.projection.v1.QueryCompletedProcessesRequest\x1a3.bpmp.projection.v1.QueryCompletedProcessesResponse\x12g\n" +
 	"\x0eQueryProcesses\x12).bpmp.projection.v1.QueryProcessesRequest\x1a*.bpmp.projection.v1.QueryProcessesResponse\x12y\n" +
-	"\x14GetQueryCapabilities\x12/.bpmp.projection.v1.GetQueryCapabilitiesRequest\x1a0.bpmp.projection.v1.GetQueryCapabilitiesResponseB\xea\x01\n" +
+	"\x14GetQueryCapabilities\x12/.bpmp.projection.v1.GetQueryCapabilitiesRequest\x1a0.bpmp.projection.v1.GetQueryCapabilitiesResponse\x12s\n" +
+	"\x12AggregateProcesses\x12-.bpmp.projection.v1.AggregateProcessesRequest\x1a..bpmp.projection.v1.AggregateProcessesResponse\x12^\n" +
+	"\vQueryEvents\x12&.bpmp.projection.v1.QueryEventsRequest\x1a'.bpmp.projection.v1.QueryEventsResponse\x12X\n" +
+	"\tSaveQuery\x12$.bpmp.projection.v1.SaveQueryRequest\x1a%.bpmp.projection.v1.SaveQueryResponse\x12m\n" +
+	"\x10ListSavedQueries\x12+.bpmp.projection.v1.ListSavedQueriesRequest\x1a,.bpmp.projection.v1.ListSavedQueriesResponse\x12m\n" +
+	"\x10DeleteSavedQuery\x12+.bpmp.projection.v1.DeleteSavedQueryRequest\x1a,.bpmp.projection.v1.DeleteSavedQueryResponse\x12p\n" +
+	"\x11CreateQueryExport\x12,.bpmp.projection.v1.CreateQueryExportRequest\x1a-.bpmp.projection.v1.CreateQueryExportResponse\x12g\n" +
+	"\x0eGetQueryExport\x12).bpmp.projection.v1.GetQueryExportRequest\x1a*.bpmp.projection.v1.GetQueryExportResponse\x12p\n" +
+	"\x11CancelQueryExport\x12,.bpmp.projection.v1.CancelQueryExportRequest\x1a-.bpmp.projection.v1.CancelQueryExportResponse\x12m\n" +
+	"\x10ExplainQueryPlan\x12+.bpmp.projection.v1.ExplainQueryPlanRequest\x1a,.bpmp.projection.v1.ExplainQueryPlanResponseB\xea\x01\n" +
 	"\x16com.bpmp.projection.v1B\x0fProjectionProtoP\x01ZUgithub.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/projection/v1;projectionv1\xa2\x02\x03BPX\xaa\x02\x12Bpmp.Projection.V1\xca\x02\x12Bpmp\\Projection\\V1\xe2\x02\x1eBpmp\\Projection\\V1\\GPBMetadata\xea\x02\x14Bpmp::Projection::V1b\x06proto3"
 
 var (
@@ -2982,8 +4964,8 @@ func file_bpmp_projection_v1_projection_proto_rawDescGZIP() []byte {
 	return file_bpmp_projection_v1_projection_proto_rawDescData
 }
 
-var file_bpmp_projection_v1_projection_proto_enumTypes = make([]protoimpl.EnumInfo, 11)
-var file_bpmp_projection_v1_projection_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
+var file_bpmp_projection_v1_projection_proto_enumTypes = make([]protoimpl.EnumInfo, 13)
+var file_bpmp_projection_v1_projection_proto_msgTypes = make([]protoimpl.MessageInfo, 49)
 var file_bpmp_projection_v1_projection_proto_goTypes = []any{
 	(LogicalOperator)(0),                    // 0: bpmp.projection.v1.LogicalOperator
 	(ComparisonOperator)(0),                 // 1: bpmp.projection.v1.ComparisonOperator
@@ -2996,115 +4978,202 @@ var file_bpmp_projection_v1_projection_proto_goTypes = []any{
 	(TextTransform)(0),                      // 8: bpmp.projection.v1.TextTransform
 	(NumericTransform)(0),                   // 9: bpmp.projection.v1.NumericTransform
 	(DateTransform)(0),                      // 10: bpmp.projection.v1.DateTransform
-	(*WorkflowInstanceReadModel)(nil),       // 11: bpmp.projection.v1.WorkflowInstanceReadModel
-	(*GetWorkflowInstanceRequest)(nil),      // 12: bpmp.projection.v1.GetWorkflowInstanceRequest
-	(*GetWorkflowInstanceResponse)(nil),     // 13: bpmp.projection.v1.GetWorkflowInstanceResponse
-	(*ListWorkflowInstancesRequest)(nil),    // 14: bpmp.projection.v1.ListWorkflowInstancesRequest
-	(*ListWorkflowInstancesResponse)(nil),   // 15: bpmp.projection.v1.ListWorkflowInstancesResponse
-	(*QueryValue)(nil),                      // 16: bpmp.projection.v1.QueryValue
-	(*ProcessPredicate)(nil),                // 17: bpmp.projection.v1.ProcessPredicate
-	(*EventPredicate)(nil),                  // 18: bpmp.projection.v1.EventPredicate
-	(*EventExpression)(nil),                 // 19: bpmp.projection.v1.EventExpression
-	(*EventExpressionGroup)(nil),            // 20: bpmp.projection.v1.EventExpressionGroup
-	(*EventRelationPredicate)(nil),          // 21: bpmp.projection.v1.EventRelationPredicate
-	(*ProcessExpression)(nil),               // 22: bpmp.projection.v1.ProcessExpression
-	(*ProcessExpressionGroup)(nil),          // 23: bpmp.projection.v1.ProcessExpressionGroup
-	(*ProcessSort)(nil),                     // 24: bpmp.projection.v1.ProcessSort
-	(*QueryCompletedProcessesRequest)(nil),  // 25: bpmp.projection.v1.QueryCompletedProcessesRequest
-	(*CompletedProcessReadModel)(nil),       // 26: bpmp.projection.v1.CompletedProcessReadModel
-	(*QueryCompletedProcessesResponse)(nil), // 27: bpmp.projection.v1.QueryCompletedProcessesResponse
-	(*QueryProcessesRequest)(nil),           // 28: bpmp.projection.v1.QueryProcessesRequest
-	(*QueryProcessesResponse)(nil),          // 29: bpmp.projection.v1.QueryProcessesResponse
-	(*ProcessFieldCapability)(nil),          // 30: bpmp.projection.v1.ProcessFieldCapability
-	(*EventFieldCapability)(nil),            // 31: bpmp.projection.v1.EventFieldCapability
-	(*GetQueryCapabilitiesRequest)(nil),     // 32: bpmp.projection.v1.GetQueryCapabilitiesRequest
-	(*GetQueryCapabilitiesResponse)(nil),    // 33: bpmp.projection.v1.GetQueryCapabilitiesResponse
-	(*v1.ActorProof)(nil),                   // 34: bpmp.authorization.v1.ActorProof
+	(AggregateOperation)(0),                 // 11: bpmp.projection.v1.AggregateOperation
+	(QueryExportStatus)(0),                  // 12: bpmp.projection.v1.QueryExportStatus
+	(*WorkflowInstanceReadModel)(nil),       // 13: bpmp.projection.v1.WorkflowInstanceReadModel
+	(*GetWorkflowInstanceRequest)(nil),      // 14: bpmp.projection.v1.GetWorkflowInstanceRequest
+	(*GetWorkflowInstanceResponse)(nil),     // 15: bpmp.projection.v1.GetWorkflowInstanceResponse
+	(*ListWorkflowInstancesRequest)(nil),    // 16: bpmp.projection.v1.ListWorkflowInstancesRequest
+	(*ListWorkflowInstancesResponse)(nil),   // 17: bpmp.projection.v1.ListWorkflowInstancesResponse
+	(*QueryValue)(nil),                      // 18: bpmp.projection.v1.QueryValue
+	(*ProcessPredicate)(nil),                // 19: bpmp.projection.v1.ProcessPredicate
+	(*EventPredicate)(nil),                  // 20: bpmp.projection.v1.EventPredicate
+	(*EventExpression)(nil),                 // 21: bpmp.projection.v1.EventExpression
+	(*EventExpressionGroup)(nil),            // 22: bpmp.projection.v1.EventExpressionGroup
+	(*EventRelationPredicate)(nil),          // 23: bpmp.projection.v1.EventRelationPredicate
+	(*ProcessExpression)(nil),               // 24: bpmp.projection.v1.ProcessExpression
+	(*ProcessExpressionGroup)(nil),          // 25: bpmp.projection.v1.ProcessExpressionGroup
+	(*ProcessSort)(nil),                     // 26: bpmp.projection.v1.ProcessSort
+	(*QueryCompletedProcessesRequest)(nil),  // 27: bpmp.projection.v1.QueryCompletedProcessesRequest
+	(*CompletedProcessReadModel)(nil),       // 28: bpmp.projection.v1.CompletedProcessReadModel
+	(*QueryCompletedProcessesResponse)(nil), // 29: bpmp.projection.v1.QueryCompletedProcessesResponse
+	(*QueryProcessesRequest)(nil),           // 30: bpmp.projection.v1.QueryProcessesRequest
+	(*QueryProcessesResponse)(nil),          // 31: bpmp.projection.v1.QueryProcessesResponse
+	(*EventExpansion)(nil),                  // 32: bpmp.projection.v1.EventExpansion
+	(*WorkflowEventReadModel)(nil),          // 33: bpmp.projection.v1.WorkflowEventReadModel
+	(*EventSort)(nil),                       // 34: bpmp.projection.v1.EventSort
+	(*QueryEventsRequest)(nil),              // 35: bpmp.projection.v1.QueryEventsRequest
+	(*QueryEventsResponse)(nil),             // 36: bpmp.projection.v1.QueryEventsResponse
+	(*AggregateMetric)(nil),                 // 37: bpmp.projection.v1.AggregateMetric
+	(*AggregateProcessesRequest)(nil),       // 38: bpmp.projection.v1.AggregateProcessesRequest
+	(*AggregateCell)(nil),                   // 39: bpmp.projection.v1.AggregateCell
+	(*AggregateRow)(nil),                    // 40: bpmp.projection.v1.AggregateRow
+	(*AggregateProcessesResponse)(nil),      // 41: bpmp.projection.v1.AggregateProcessesResponse
+	(*ProcessFieldCapability)(nil),          // 42: bpmp.projection.v1.ProcessFieldCapability
+	(*EventFieldCapability)(nil),            // 43: bpmp.projection.v1.EventFieldCapability
+	(*GetQueryCapabilitiesRequest)(nil),     // 44: bpmp.projection.v1.GetQueryCapabilitiesRequest
+	(*GetQueryCapabilitiesResponse)(nil),    // 45: bpmp.projection.v1.GetQueryCapabilitiesResponse
+	(*SavedQuery)(nil),                      // 46: bpmp.projection.v1.SavedQuery
+	(*SaveQueryRequest)(nil),                // 47: bpmp.projection.v1.SaveQueryRequest
+	(*SaveQueryResponse)(nil),               // 48: bpmp.projection.v1.SaveQueryResponse
+	(*ListSavedQueriesRequest)(nil),         // 49: bpmp.projection.v1.ListSavedQueriesRequest
+	(*ListSavedQueriesResponse)(nil),        // 50: bpmp.projection.v1.ListSavedQueriesResponse
+	(*DeleteSavedQueryRequest)(nil),         // 51: bpmp.projection.v1.DeleteSavedQueryRequest
+	(*DeleteSavedQueryResponse)(nil),        // 52: bpmp.projection.v1.DeleteSavedQueryResponse
+	(*QueryExport)(nil),                     // 53: bpmp.projection.v1.QueryExport
+	(*CreateQueryExportRequest)(nil),        // 54: bpmp.projection.v1.CreateQueryExportRequest
+	(*CreateQueryExportResponse)(nil),       // 55: bpmp.projection.v1.CreateQueryExportResponse
+	(*GetQueryExportRequest)(nil),           // 56: bpmp.projection.v1.GetQueryExportRequest
+	(*GetQueryExportResponse)(nil),          // 57: bpmp.projection.v1.GetQueryExportResponse
+	(*CancelQueryExportRequest)(nil),        // 58: bpmp.projection.v1.CancelQueryExportRequest
+	(*CancelQueryExportResponse)(nil),       // 59: bpmp.projection.v1.CancelQueryExportResponse
+	(*ExplainQueryPlanRequest)(nil),         // 60: bpmp.projection.v1.ExplainQueryPlanRequest
+	(*ExplainQueryPlanResponse)(nil),        // 61: bpmp.projection.v1.ExplainQueryPlanResponse
+	(*v1.ActorProof)(nil),                   // 62: bpmp.authorization.v1.ActorProof
 }
 var file_bpmp_projection_v1_projection_proto_depIdxs = []int32{
-	34, // 0: bpmp.projection.v1.GetWorkflowInstanceRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
-	11, // 1: bpmp.projection.v1.GetWorkflowInstanceResponse.instance:type_name -> bpmp.projection.v1.WorkflowInstanceReadModel
-	34, // 2: bpmp.projection.v1.ListWorkflowInstancesRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
-	11, // 3: bpmp.projection.v1.ListWorkflowInstancesResponse.instances:type_name -> bpmp.projection.v1.WorkflowInstanceReadModel
-	2,  // 4: bpmp.projection.v1.ProcessPredicate.field:type_name -> bpmp.projection.v1.ProcessField
-	1,  // 5: bpmp.projection.v1.ProcessPredicate.operator:type_name -> bpmp.projection.v1.ComparisonOperator
-	16, // 6: bpmp.projection.v1.ProcessPredicate.values:type_name -> bpmp.projection.v1.QueryValue
-	8,  // 7: bpmp.projection.v1.ProcessPredicate.text_transform:type_name -> bpmp.projection.v1.TextTransform
-	16, // 8: bpmp.projection.v1.ProcessPredicate.coalesce_value:type_name -> bpmp.projection.v1.QueryValue
-	9,  // 9: bpmp.projection.v1.ProcessPredicate.numeric_transform:type_name -> bpmp.projection.v1.NumericTransform
-	10, // 10: bpmp.projection.v1.ProcessPredicate.date_transform:type_name -> bpmp.projection.v1.DateTransform
-	5,  // 11: bpmp.projection.v1.EventPredicate.field:type_name -> bpmp.projection.v1.EventField
-	1,  // 12: bpmp.projection.v1.EventPredicate.operator:type_name -> bpmp.projection.v1.ComparisonOperator
-	16, // 13: bpmp.projection.v1.EventPredicate.values:type_name -> bpmp.projection.v1.QueryValue
-	8,  // 14: bpmp.projection.v1.EventPredicate.text_transform:type_name -> bpmp.projection.v1.TextTransform
-	16, // 15: bpmp.projection.v1.EventPredicate.coalesce_value:type_name -> bpmp.projection.v1.QueryValue
-	9,  // 16: bpmp.projection.v1.EventPredicate.numeric_transform:type_name -> bpmp.projection.v1.NumericTransform
-	10, // 17: bpmp.projection.v1.EventPredicate.date_transform:type_name -> bpmp.projection.v1.DateTransform
-	18, // 18: bpmp.projection.v1.EventExpression.predicate:type_name -> bpmp.projection.v1.EventPredicate
-	20, // 19: bpmp.projection.v1.EventExpression.group:type_name -> bpmp.projection.v1.EventExpressionGroup
-	19, // 20: bpmp.projection.v1.EventExpression.negated:type_name -> bpmp.projection.v1.EventExpression
-	0,  // 21: bpmp.projection.v1.EventExpressionGroup.operator:type_name -> bpmp.projection.v1.LogicalOperator
-	19, // 22: bpmp.projection.v1.EventExpressionGroup.expressions:type_name -> bpmp.projection.v1.EventExpression
-	19, // 23: bpmp.projection.v1.EventRelationPredicate.expression:type_name -> bpmp.projection.v1.EventExpression
-	7,  // 24: bpmp.projection.v1.EventRelationPredicate.quantifier:type_name -> bpmp.projection.v1.RelationQuantifier
-	17, // 25: bpmp.projection.v1.ProcessExpression.predicate:type_name -> bpmp.projection.v1.ProcessPredicate
-	23, // 26: bpmp.projection.v1.ProcessExpression.group:type_name -> bpmp.projection.v1.ProcessExpressionGroup
-	22, // 27: bpmp.projection.v1.ProcessExpression.negated:type_name -> bpmp.projection.v1.ProcessExpression
-	21, // 28: bpmp.projection.v1.ProcessExpression.event_relation:type_name -> bpmp.projection.v1.EventRelationPredicate
-	0,  // 29: bpmp.projection.v1.ProcessExpressionGroup.operator:type_name -> bpmp.projection.v1.LogicalOperator
-	22, // 30: bpmp.projection.v1.ProcessExpressionGroup.expressions:type_name -> bpmp.projection.v1.ProcessExpression
-	2,  // 31: bpmp.projection.v1.ProcessSort.field:type_name -> bpmp.projection.v1.ProcessField
-	6,  // 32: bpmp.projection.v1.ProcessSort.direction:type_name -> bpmp.projection.v1.SortDirection
-	8,  // 33: bpmp.projection.v1.ProcessSort.text_transform:type_name -> bpmp.projection.v1.TextTransform
-	16, // 34: bpmp.projection.v1.ProcessSort.coalesce_value:type_name -> bpmp.projection.v1.QueryValue
-	9,  // 35: bpmp.projection.v1.ProcessSort.numeric_transform:type_name -> bpmp.projection.v1.NumericTransform
-	10, // 36: bpmp.projection.v1.ProcessSort.date_transform:type_name -> bpmp.projection.v1.DateTransform
-	22, // 37: bpmp.projection.v1.QueryCompletedProcessesRequest.filter:type_name -> bpmp.projection.v1.ProcessExpression
-	24, // 38: bpmp.projection.v1.QueryCompletedProcessesRequest.sort:type_name -> bpmp.projection.v1.ProcessSort
-	34, // 39: bpmp.projection.v1.QueryCompletedProcessesRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
-	2,  // 40: bpmp.projection.v1.QueryCompletedProcessesRequest.select:type_name -> bpmp.projection.v1.ProcessField
-	11, // 41: bpmp.projection.v1.CompletedProcessReadModel.instance:type_name -> bpmp.projection.v1.WorkflowInstanceReadModel
-	26, // 42: bpmp.projection.v1.QueryCompletedProcessesResponse.processes:type_name -> bpmp.projection.v1.CompletedProcessReadModel
-	24, // 43: bpmp.projection.v1.QueryCompletedProcessesResponse.normalized_sort:type_name -> bpmp.projection.v1.ProcessSort
-	22, // 44: bpmp.projection.v1.QueryProcessesRequest.filter:type_name -> bpmp.projection.v1.ProcessExpression
-	24, // 45: bpmp.projection.v1.QueryProcessesRequest.sort:type_name -> bpmp.projection.v1.ProcessSort
-	34, // 46: bpmp.projection.v1.QueryProcessesRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
-	3,  // 47: bpmp.projection.v1.QueryProcessesRequest.scope:type_name -> bpmp.projection.v1.QueryScope
-	2,  // 48: bpmp.projection.v1.QueryProcessesRequest.select:type_name -> bpmp.projection.v1.ProcessField
-	26, // 49: bpmp.projection.v1.QueryProcessesResponse.processes:type_name -> bpmp.projection.v1.CompletedProcessReadModel
-	24, // 50: bpmp.projection.v1.QueryProcessesResponse.normalized_sort:type_name -> bpmp.projection.v1.ProcessSort
-	2,  // 51: bpmp.projection.v1.ProcessFieldCapability.field:type_name -> bpmp.projection.v1.ProcessField
-	4,  // 52: bpmp.projection.v1.ProcessFieldCapability.value_kind:type_name -> bpmp.projection.v1.QueryValueKind
-	1,  // 53: bpmp.projection.v1.ProcessFieldCapability.operators:type_name -> bpmp.projection.v1.ComparisonOperator
-	8,  // 54: bpmp.projection.v1.ProcessFieldCapability.text_transforms:type_name -> bpmp.projection.v1.TextTransform
-	9,  // 55: bpmp.projection.v1.ProcessFieldCapability.numeric_transforms:type_name -> bpmp.projection.v1.NumericTransform
-	10, // 56: bpmp.projection.v1.ProcessFieldCapability.date_transforms:type_name -> bpmp.projection.v1.DateTransform
-	5,  // 57: bpmp.projection.v1.EventFieldCapability.field:type_name -> bpmp.projection.v1.EventField
-	4,  // 58: bpmp.projection.v1.EventFieldCapability.value_kind:type_name -> bpmp.projection.v1.QueryValueKind
-	1,  // 59: bpmp.projection.v1.EventFieldCapability.operators:type_name -> bpmp.projection.v1.ComparisonOperator
-	8,  // 60: bpmp.projection.v1.EventFieldCapability.text_transforms:type_name -> bpmp.projection.v1.TextTransform
-	9,  // 61: bpmp.projection.v1.EventFieldCapability.numeric_transforms:type_name -> bpmp.projection.v1.NumericTransform
-	10, // 62: bpmp.projection.v1.EventFieldCapability.date_transforms:type_name -> bpmp.projection.v1.DateTransform
-	34, // 63: bpmp.projection.v1.GetQueryCapabilitiesRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
-	30, // 64: bpmp.projection.v1.GetQueryCapabilitiesResponse.fields:type_name -> bpmp.projection.v1.ProcessFieldCapability
-	31, // 65: bpmp.projection.v1.GetQueryCapabilitiesResponse.event_fields:type_name -> bpmp.projection.v1.EventFieldCapability
-	3,  // 66: bpmp.projection.v1.GetQueryCapabilitiesResponse.scopes:type_name -> bpmp.projection.v1.QueryScope
-	24, // 67: bpmp.projection.v1.GetQueryCapabilitiesResponse.default_sort:type_name -> bpmp.projection.v1.ProcessSort
-	12, // 68: bpmp.projection.v1.ProjectionQueryService.GetWorkflowInstance:input_type -> bpmp.projection.v1.GetWorkflowInstanceRequest
-	14, // 69: bpmp.projection.v1.ProjectionQueryService.ListWorkflowInstances:input_type -> bpmp.projection.v1.ListWorkflowInstancesRequest
-	25, // 70: bpmp.projection.v1.ProjectionQueryService.QueryCompletedProcesses:input_type -> bpmp.projection.v1.QueryCompletedProcessesRequest
-	28, // 71: bpmp.projection.v1.ProjectionQueryService.QueryProcesses:input_type -> bpmp.projection.v1.QueryProcessesRequest
-	32, // 72: bpmp.projection.v1.ProjectionQueryService.GetQueryCapabilities:input_type -> bpmp.projection.v1.GetQueryCapabilitiesRequest
-	13, // 73: bpmp.projection.v1.ProjectionQueryService.GetWorkflowInstance:output_type -> bpmp.projection.v1.GetWorkflowInstanceResponse
-	15, // 74: bpmp.projection.v1.ProjectionQueryService.ListWorkflowInstances:output_type -> bpmp.projection.v1.ListWorkflowInstancesResponse
-	27, // 75: bpmp.projection.v1.ProjectionQueryService.QueryCompletedProcesses:output_type -> bpmp.projection.v1.QueryCompletedProcessesResponse
-	29, // 76: bpmp.projection.v1.ProjectionQueryService.QueryProcesses:output_type -> bpmp.projection.v1.QueryProcessesResponse
-	33, // 77: bpmp.projection.v1.ProjectionQueryService.GetQueryCapabilities:output_type -> bpmp.projection.v1.GetQueryCapabilitiesResponse
-	73, // [73:78] is the sub-list for method output_type
-	68, // [68:73] is the sub-list for method input_type
-	68, // [68:68] is the sub-list for extension type_name
-	68, // [68:68] is the sub-list for extension extendee
-	0,  // [0:68] is the sub-list for field type_name
+	62,  // 0: bpmp.projection.v1.GetWorkflowInstanceRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	13,  // 1: bpmp.projection.v1.GetWorkflowInstanceResponse.instance:type_name -> bpmp.projection.v1.WorkflowInstanceReadModel
+	62,  // 2: bpmp.projection.v1.ListWorkflowInstancesRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	13,  // 3: bpmp.projection.v1.ListWorkflowInstancesResponse.instances:type_name -> bpmp.projection.v1.WorkflowInstanceReadModel
+	2,   // 4: bpmp.projection.v1.ProcessPredicate.field:type_name -> bpmp.projection.v1.ProcessField
+	1,   // 5: bpmp.projection.v1.ProcessPredicate.operator:type_name -> bpmp.projection.v1.ComparisonOperator
+	18,  // 6: bpmp.projection.v1.ProcessPredicate.values:type_name -> bpmp.projection.v1.QueryValue
+	8,   // 7: bpmp.projection.v1.ProcessPredicate.text_transform:type_name -> bpmp.projection.v1.TextTransform
+	18,  // 8: bpmp.projection.v1.ProcessPredicate.coalesce_value:type_name -> bpmp.projection.v1.QueryValue
+	9,   // 9: bpmp.projection.v1.ProcessPredicate.numeric_transform:type_name -> bpmp.projection.v1.NumericTransform
+	10,  // 10: bpmp.projection.v1.ProcessPredicate.date_transform:type_name -> bpmp.projection.v1.DateTransform
+	5,   // 11: bpmp.projection.v1.EventPredicate.field:type_name -> bpmp.projection.v1.EventField
+	1,   // 12: bpmp.projection.v1.EventPredicate.operator:type_name -> bpmp.projection.v1.ComparisonOperator
+	18,  // 13: bpmp.projection.v1.EventPredicate.values:type_name -> bpmp.projection.v1.QueryValue
+	8,   // 14: bpmp.projection.v1.EventPredicate.text_transform:type_name -> bpmp.projection.v1.TextTransform
+	18,  // 15: bpmp.projection.v1.EventPredicate.coalesce_value:type_name -> bpmp.projection.v1.QueryValue
+	9,   // 16: bpmp.projection.v1.EventPredicate.numeric_transform:type_name -> bpmp.projection.v1.NumericTransform
+	10,  // 17: bpmp.projection.v1.EventPredicate.date_transform:type_name -> bpmp.projection.v1.DateTransform
+	20,  // 18: bpmp.projection.v1.EventExpression.predicate:type_name -> bpmp.projection.v1.EventPredicate
+	22,  // 19: bpmp.projection.v1.EventExpression.group:type_name -> bpmp.projection.v1.EventExpressionGroup
+	21,  // 20: bpmp.projection.v1.EventExpression.negated:type_name -> bpmp.projection.v1.EventExpression
+	0,   // 21: bpmp.projection.v1.EventExpressionGroup.operator:type_name -> bpmp.projection.v1.LogicalOperator
+	21,  // 22: bpmp.projection.v1.EventExpressionGroup.expressions:type_name -> bpmp.projection.v1.EventExpression
+	21,  // 23: bpmp.projection.v1.EventRelationPredicate.expression:type_name -> bpmp.projection.v1.EventExpression
+	7,   // 24: bpmp.projection.v1.EventRelationPredicate.quantifier:type_name -> bpmp.projection.v1.RelationQuantifier
+	19,  // 25: bpmp.projection.v1.ProcessExpression.predicate:type_name -> bpmp.projection.v1.ProcessPredicate
+	25,  // 26: bpmp.projection.v1.ProcessExpression.group:type_name -> bpmp.projection.v1.ProcessExpressionGroup
+	24,  // 27: bpmp.projection.v1.ProcessExpression.negated:type_name -> bpmp.projection.v1.ProcessExpression
+	23,  // 28: bpmp.projection.v1.ProcessExpression.event_relation:type_name -> bpmp.projection.v1.EventRelationPredicate
+	0,   // 29: bpmp.projection.v1.ProcessExpressionGroup.operator:type_name -> bpmp.projection.v1.LogicalOperator
+	24,  // 30: bpmp.projection.v1.ProcessExpressionGroup.expressions:type_name -> bpmp.projection.v1.ProcessExpression
+	2,   // 31: bpmp.projection.v1.ProcessSort.field:type_name -> bpmp.projection.v1.ProcessField
+	6,   // 32: bpmp.projection.v1.ProcessSort.direction:type_name -> bpmp.projection.v1.SortDirection
+	8,   // 33: bpmp.projection.v1.ProcessSort.text_transform:type_name -> bpmp.projection.v1.TextTransform
+	18,  // 34: bpmp.projection.v1.ProcessSort.coalesce_value:type_name -> bpmp.projection.v1.QueryValue
+	9,   // 35: bpmp.projection.v1.ProcessSort.numeric_transform:type_name -> bpmp.projection.v1.NumericTransform
+	10,  // 36: bpmp.projection.v1.ProcessSort.date_transform:type_name -> bpmp.projection.v1.DateTransform
+	24,  // 37: bpmp.projection.v1.QueryCompletedProcessesRequest.filter:type_name -> bpmp.projection.v1.ProcessExpression
+	26,  // 38: bpmp.projection.v1.QueryCompletedProcessesRequest.sort:type_name -> bpmp.projection.v1.ProcessSort
+	62,  // 39: bpmp.projection.v1.QueryCompletedProcessesRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	2,   // 40: bpmp.projection.v1.QueryCompletedProcessesRequest.select:type_name -> bpmp.projection.v1.ProcessField
+	2,   // 41: bpmp.projection.v1.QueryCompletedProcessesRequest.collapse:type_name -> bpmp.projection.v1.ProcessField
+	32,  // 42: bpmp.projection.v1.QueryCompletedProcessesRequest.expand_events:type_name -> bpmp.projection.v1.EventExpansion
+	13,  // 43: bpmp.projection.v1.CompletedProcessReadModel.instance:type_name -> bpmp.projection.v1.WorkflowInstanceReadModel
+	33,  // 44: bpmp.projection.v1.CompletedProcessReadModel.events:type_name -> bpmp.projection.v1.WorkflowEventReadModel
+	28,  // 45: bpmp.projection.v1.QueryCompletedProcessesResponse.processes:type_name -> bpmp.projection.v1.CompletedProcessReadModel
+	26,  // 46: bpmp.projection.v1.QueryCompletedProcessesResponse.normalized_sort:type_name -> bpmp.projection.v1.ProcessSort
+	24,  // 47: bpmp.projection.v1.QueryProcessesRequest.filter:type_name -> bpmp.projection.v1.ProcessExpression
+	26,  // 48: bpmp.projection.v1.QueryProcessesRequest.sort:type_name -> bpmp.projection.v1.ProcessSort
+	62,  // 49: bpmp.projection.v1.QueryProcessesRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	3,   // 50: bpmp.projection.v1.QueryProcessesRequest.scope:type_name -> bpmp.projection.v1.QueryScope
+	2,   // 51: bpmp.projection.v1.QueryProcessesRequest.select:type_name -> bpmp.projection.v1.ProcessField
+	2,   // 52: bpmp.projection.v1.QueryProcessesRequest.collapse:type_name -> bpmp.projection.v1.ProcessField
+	32,  // 53: bpmp.projection.v1.QueryProcessesRequest.expand_events:type_name -> bpmp.projection.v1.EventExpansion
+	28,  // 54: bpmp.projection.v1.QueryProcessesResponse.processes:type_name -> bpmp.projection.v1.CompletedProcessReadModel
+	26,  // 55: bpmp.projection.v1.QueryProcessesResponse.normalized_sort:type_name -> bpmp.projection.v1.ProcessSort
+	21,  // 56: bpmp.projection.v1.EventExpansion.filter:type_name -> bpmp.projection.v1.EventExpression
+	5,   // 57: bpmp.projection.v1.EventSort.field:type_name -> bpmp.projection.v1.EventField
+	6,   // 58: bpmp.projection.v1.EventSort.direction:type_name -> bpmp.projection.v1.SortDirection
+	21,  // 59: bpmp.projection.v1.QueryEventsRequest.filter:type_name -> bpmp.projection.v1.EventExpression
+	24,  // 60: bpmp.projection.v1.QueryEventsRequest.process_filter:type_name -> bpmp.projection.v1.ProcessExpression
+	34,  // 61: bpmp.projection.v1.QueryEventsRequest.sort:type_name -> bpmp.projection.v1.EventSort
+	62,  // 62: bpmp.projection.v1.QueryEventsRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	33,  // 63: bpmp.projection.v1.QueryEventsResponse.events:type_name -> bpmp.projection.v1.WorkflowEventReadModel
+	11,  // 64: bpmp.projection.v1.AggregateMetric.operation:type_name -> bpmp.projection.v1.AggregateOperation
+	2,   // 65: bpmp.projection.v1.AggregateMetric.field:type_name -> bpmp.projection.v1.ProcessField
+	3,   // 66: bpmp.projection.v1.AggregateProcessesRequest.scope:type_name -> bpmp.projection.v1.QueryScope
+	24,  // 67: bpmp.projection.v1.AggregateProcessesRequest.filter:type_name -> bpmp.projection.v1.ProcessExpression
+	2,   // 68: bpmp.projection.v1.AggregateProcessesRequest.group_by:type_name -> bpmp.projection.v1.ProcessField
+	37,  // 69: bpmp.projection.v1.AggregateProcessesRequest.metrics:type_name -> bpmp.projection.v1.AggregateMetric
+	62,  // 70: bpmp.projection.v1.AggregateProcessesRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	18,  // 71: bpmp.projection.v1.AggregateCell.value:type_name -> bpmp.projection.v1.QueryValue
+	39,  // 72: bpmp.projection.v1.AggregateRow.dimensions:type_name -> bpmp.projection.v1.AggregateCell
+	39,  // 73: bpmp.projection.v1.AggregateRow.metrics:type_name -> bpmp.projection.v1.AggregateCell
+	40,  // 74: bpmp.projection.v1.AggregateProcessesResponse.rows:type_name -> bpmp.projection.v1.AggregateRow
+	2,   // 75: bpmp.projection.v1.ProcessFieldCapability.field:type_name -> bpmp.projection.v1.ProcessField
+	4,   // 76: bpmp.projection.v1.ProcessFieldCapability.value_kind:type_name -> bpmp.projection.v1.QueryValueKind
+	1,   // 77: bpmp.projection.v1.ProcessFieldCapability.operators:type_name -> bpmp.projection.v1.ComparisonOperator
+	8,   // 78: bpmp.projection.v1.ProcessFieldCapability.text_transforms:type_name -> bpmp.projection.v1.TextTransform
+	9,   // 79: bpmp.projection.v1.ProcessFieldCapability.numeric_transforms:type_name -> bpmp.projection.v1.NumericTransform
+	10,  // 80: bpmp.projection.v1.ProcessFieldCapability.date_transforms:type_name -> bpmp.projection.v1.DateTransform
+	5,   // 81: bpmp.projection.v1.EventFieldCapability.field:type_name -> bpmp.projection.v1.EventField
+	4,   // 82: bpmp.projection.v1.EventFieldCapability.value_kind:type_name -> bpmp.projection.v1.QueryValueKind
+	1,   // 83: bpmp.projection.v1.EventFieldCapability.operators:type_name -> bpmp.projection.v1.ComparisonOperator
+	8,   // 84: bpmp.projection.v1.EventFieldCapability.text_transforms:type_name -> bpmp.projection.v1.TextTransform
+	9,   // 85: bpmp.projection.v1.EventFieldCapability.numeric_transforms:type_name -> bpmp.projection.v1.NumericTransform
+	10,  // 86: bpmp.projection.v1.EventFieldCapability.date_transforms:type_name -> bpmp.projection.v1.DateTransform
+	62,  // 87: bpmp.projection.v1.GetQueryCapabilitiesRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	42,  // 88: bpmp.projection.v1.GetQueryCapabilitiesResponse.fields:type_name -> bpmp.projection.v1.ProcessFieldCapability
+	43,  // 89: bpmp.projection.v1.GetQueryCapabilitiesResponse.event_fields:type_name -> bpmp.projection.v1.EventFieldCapability
+	3,   // 90: bpmp.projection.v1.GetQueryCapabilitiesResponse.scopes:type_name -> bpmp.projection.v1.QueryScope
+	26,  // 91: bpmp.projection.v1.GetQueryCapabilitiesResponse.default_sort:type_name -> bpmp.projection.v1.ProcessSort
+	30,  // 92: bpmp.projection.v1.SavedQuery.query:type_name -> bpmp.projection.v1.QueryProcessesRequest
+	30,  // 93: bpmp.projection.v1.SaveQueryRequest.query:type_name -> bpmp.projection.v1.QueryProcessesRequest
+	62,  // 94: bpmp.projection.v1.SaveQueryRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	46,  // 95: bpmp.projection.v1.SaveQueryResponse.saved_query:type_name -> bpmp.projection.v1.SavedQuery
+	62,  // 96: bpmp.projection.v1.ListSavedQueriesRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	46,  // 97: bpmp.projection.v1.ListSavedQueriesResponse.saved_queries:type_name -> bpmp.projection.v1.SavedQuery
+	62,  // 98: bpmp.projection.v1.DeleteSavedQueryRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	12,  // 99: bpmp.projection.v1.QueryExport.status:type_name -> bpmp.projection.v1.QueryExportStatus
+	30,  // 100: bpmp.projection.v1.CreateQueryExportRequest.query:type_name -> bpmp.projection.v1.QueryProcessesRequest
+	62,  // 101: bpmp.projection.v1.CreateQueryExportRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	53,  // 102: bpmp.projection.v1.CreateQueryExportResponse.export:type_name -> bpmp.projection.v1.QueryExport
+	62,  // 103: bpmp.projection.v1.GetQueryExportRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	53,  // 104: bpmp.projection.v1.GetQueryExportResponse.export:type_name -> bpmp.projection.v1.QueryExport
+	62,  // 105: bpmp.projection.v1.CancelQueryExportRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	53,  // 106: bpmp.projection.v1.CancelQueryExportResponse.export:type_name -> bpmp.projection.v1.QueryExport
+	30,  // 107: bpmp.projection.v1.ExplainQueryPlanRequest.query:type_name -> bpmp.projection.v1.QueryProcessesRequest
+	62,  // 108: bpmp.projection.v1.ExplainQueryPlanRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	14,  // 109: bpmp.projection.v1.ProjectionQueryService.GetWorkflowInstance:input_type -> bpmp.projection.v1.GetWorkflowInstanceRequest
+	16,  // 110: bpmp.projection.v1.ProjectionQueryService.ListWorkflowInstances:input_type -> bpmp.projection.v1.ListWorkflowInstancesRequest
+	27,  // 111: bpmp.projection.v1.ProjectionQueryService.QueryCompletedProcesses:input_type -> bpmp.projection.v1.QueryCompletedProcessesRequest
+	30,  // 112: bpmp.projection.v1.ProjectionQueryService.QueryProcesses:input_type -> bpmp.projection.v1.QueryProcessesRequest
+	44,  // 113: bpmp.projection.v1.ProjectionQueryService.GetQueryCapabilities:input_type -> bpmp.projection.v1.GetQueryCapabilitiesRequest
+	38,  // 114: bpmp.projection.v1.ProjectionQueryService.AggregateProcesses:input_type -> bpmp.projection.v1.AggregateProcessesRequest
+	35,  // 115: bpmp.projection.v1.ProjectionQueryService.QueryEvents:input_type -> bpmp.projection.v1.QueryEventsRequest
+	47,  // 116: bpmp.projection.v1.ProjectionQueryService.SaveQuery:input_type -> bpmp.projection.v1.SaveQueryRequest
+	49,  // 117: bpmp.projection.v1.ProjectionQueryService.ListSavedQueries:input_type -> bpmp.projection.v1.ListSavedQueriesRequest
+	51,  // 118: bpmp.projection.v1.ProjectionQueryService.DeleteSavedQuery:input_type -> bpmp.projection.v1.DeleteSavedQueryRequest
+	54,  // 119: bpmp.projection.v1.ProjectionQueryService.CreateQueryExport:input_type -> bpmp.projection.v1.CreateQueryExportRequest
+	56,  // 120: bpmp.projection.v1.ProjectionQueryService.GetQueryExport:input_type -> bpmp.projection.v1.GetQueryExportRequest
+	58,  // 121: bpmp.projection.v1.ProjectionQueryService.CancelQueryExport:input_type -> bpmp.projection.v1.CancelQueryExportRequest
+	60,  // 122: bpmp.projection.v1.ProjectionQueryService.ExplainQueryPlan:input_type -> bpmp.projection.v1.ExplainQueryPlanRequest
+	15,  // 123: bpmp.projection.v1.ProjectionQueryService.GetWorkflowInstance:output_type -> bpmp.projection.v1.GetWorkflowInstanceResponse
+	17,  // 124: bpmp.projection.v1.ProjectionQueryService.ListWorkflowInstances:output_type -> bpmp.projection.v1.ListWorkflowInstancesResponse
+	29,  // 125: bpmp.projection.v1.ProjectionQueryService.QueryCompletedProcesses:output_type -> bpmp.projection.v1.QueryCompletedProcessesResponse
+	31,  // 126: bpmp.projection.v1.ProjectionQueryService.QueryProcesses:output_type -> bpmp.projection.v1.QueryProcessesResponse
+	45,  // 127: bpmp.projection.v1.ProjectionQueryService.GetQueryCapabilities:output_type -> bpmp.projection.v1.GetQueryCapabilitiesResponse
+	41,  // 128: bpmp.projection.v1.ProjectionQueryService.AggregateProcesses:output_type -> bpmp.projection.v1.AggregateProcessesResponse
+	36,  // 129: bpmp.projection.v1.ProjectionQueryService.QueryEvents:output_type -> bpmp.projection.v1.QueryEventsResponse
+	48,  // 130: bpmp.projection.v1.ProjectionQueryService.SaveQuery:output_type -> bpmp.projection.v1.SaveQueryResponse
+	50,  // 131: bpmp.projection.v1.ProjectionQueryService.ListSavedQueries:output_type -> bpmp.projection.v1.ListSavedQueriesResponse
+	52,  // 132: bpmp.projection.v1.ProjectionQueryService.DeleteSavedQuery:output_type -> bpmp.projection.v1.DeleteSavedQueryResponse
+	55,  // 133: bpmp.projection.v1.ProjectionQueryService.CreateQueryExport:output_type -> bpmp.projection.v1.CreateQueryExportResponse
+	57,  // 134: bpmp.projection.v1.ProjectionQueryService.GetQueryExport:output_type -> bpmp.projection.v1.GetQueryExportResponse
+	59,  // 135: bpmp.projection.v1.ProjectionQueryService.CancelQueryExport:output_type -> bpmp.projection.v1.CancelQueryExportResponse
+	61,  // 136: bpmp.projection.v1.ProjectionQueryService.ExplainQueryPlan:output_type -> bpmp.projection.v1.ExplainQueryPlanResponse
+	123, // [123:137] is the sub-list for method output_type
+	109, // [109:123] is the sub-list for method input_type
+	109, // [109:109] is the sub-list for extension type_name
+	109, // [109:109] is the sub-list for extension extendee
+	0,   // [0:109] is the sub-list for field type_name
 }
 
 func init() { file_bpmp_projection_v1_projection_proto_init() }
@@ -3117,6 +5186,7 @@ func file_bpmp_projection_v1_projection_proto_init() {
 		(*QueryValue_IntegerValue)(nil),
 		(*QueryValue_BooleanValue)(nil),
 		(*QueryValue_TimestampEpochMs)(nil),
+		(*QueryValue_DecimalValue)(nil),
 	}
 	file_bpmp_projection_v1_projection_proto_msgTypes[8].OneofWrappers = []any{
 		(*EventExpression_Predicate)(nil),
@@ -3134,8 +5204,8 @@ func file_bpmp_projection_v1_projection_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bpmp_projection_v1_projection_proto_rawDesc), len(file_bpmp_projection_v1_projection_proto_rawDesc)),
-			NumEnums:      11,
-			NumMessages:   23,
+			NumEnums:      13,
+			NumMessages:   49,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

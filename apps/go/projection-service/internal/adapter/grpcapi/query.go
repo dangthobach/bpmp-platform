@@ -27,18 +27,18 @@ func (s *Server) GetQueryCapabilities(ctx context.Context, request *projectionv1
 		return nil, mapError(err)
 	}
 	response := &projectionv1.GetQueryCapabilitiesResponse{
-		SchemaVersion: capabilities.SchemaVersion,
-		ConfigVersion: capabilities.Policy.ConfigVersion,
-		PolicyVersion: capabilities.Policy.PolicyVersion,
-		DefaultPageSize: capabilities.Policy.QueryDefaultPageSize,
-		MaxPageSize: capabilities.Policy.QueryMaxPageSize,
-		MaxFilterDepth: capabilities.Policy.QueryMaxFilterDepth,
-		MaxPredicates: capabilities.Policy.QueryMaxPredicates,
-		MaxSortFields: capabilities.Policy.QueryMaxSortFields,
+		SchemaVersion:    capabilities.SchemaVersion,
+		ConfigVersion:    capabilities.Policy.ConfigVersion,
+		PolicyVersion:    capabilities.Policy.PolicyVersion,
+		DefaultPageSize:  capabilities.Policy.QueryDefaultPageSize,
+		MaxPageSize:      capabilities.Policy.QueryMaxPageSize,
+		MaxFilterDepth:   capabilities.Policy.QueryMaxFilterDepth,
+		MaxPredicates:    capabilities.Policy.QueryMaxPredicates,
+		MaxSortFields:    capabilities.Policy.QueryMaxSortFields,
 		MaxRelationJoins: capabilities.Policy.QueryMaxRelationJoins,
-		MaxInValues: capabilities.Policy.QueryMaxInValues,
-		MaxStringBytes: capabilities.Policy.QueryMaxStringBytes,
-		DefaultSort: toWireSorts(capabilities.DefaultSort),
+		MaxInValues:      capabilities.Policy.QueryMaxInValues,
+		MaxStringBytes:   capabilities.Policy.QueryMaxStringBytes,
+		DefaultSort:      toWireSorts(capabilities.DefaultSort),
 	}
 	for _, scope := range capabilities.Scopes {
 		response.Scopes = append(response.Scopes, projectionv1.QueryScope(scope))
@@ -48,18 +48,34 @@ func (s *Server) GetQueryCapabilities(ctx context.Context, request *projectionv1
 			Field: projectionv1.ProcessField(field.Field), ValueKind: projectionv1.QueryValueKind(field.Kind),
 			Filterable: field.Filterable, Sortable: field.Sortable, Selectable: field.Selectable,
 		}
-		for _, operator := range field.Operators { item.Operators = append(item.Operators, projectionv1.ComparisonOperator(operator)) }
-		for _, transform := range field.TextTransforms { item.TextTransforms = append(item.TextTransforms, projectionv1.TextTransform(transform)) }
-		for _, transform := range field.NumericTransforms { item.NumericTransforms = append(item.NumericTransforms, projectionv1.NumericTransform(transform)) }
-		for _, transform := range field.DateTransforms { item.DateTransforms = append(item.DateTransforms, projectionv1.DateTransform(transform)) }
+		for _, operator := range field.Operators {
+			item.Operators = append(item.Operators, projectionv1.ComparisonOperator(operator))
+		}
+		for _, transform := range field.TextTransforms {
+			item.TextTransforms = append(item.TextTransforms, projectionv1.TextTransform(transform))
+		}
+		for _, transform := range field.NumericTransforms {
+			item.NumericTransforms = append(item.NumericTransforms, projectionv1.NumericTransform(transform))
+		}
+		for _, transform := range field.DateTransforms {
+			item.DateTransforms = append(item.DateTransforms, projectionv1.DateTransform(transform))
+		}
 		response.Fields = append(response.Fields, item)
 	}
 	for _, field := range capabilities.EventFields {
 		item := &projectionv1.EventFieldCapability{Field: projectionv1.EventField(field.Field), ValueKind: projectionv1.QueryValueKind(field.Kind)}
-		for _, operator := range field.Operators { item.Operators = append(item.Operators, projectionv1.ComparisonOperator(operator)) }
-		for _, transform := range field.TextTransforms { item.TextTransforms = append(item.TextTransforms, projectionv1.TextTransform(transform)) }
-		for _, transform := range field.NumericTransforms { item.NumericTransforms = append(item.NumericTransforms, projectionv1.NumericTransform(transform)) }
-		for _, transform := range field.DateTransforms { item.DateTransforms = append(item.DateTransforms, projectionv1.DateTransform(transform)) }
+		for _, operator := range field.Operators {
+			item.Operators = append(item.Operators, projectionv1.ComparisonOperator(operator))
+		}
+		for _, transform := range field.TextTransforms {
+			item.TextTransforms = append(item.TextTransforms, projectionv1.TextTransform(transform))
+		}
+		for _, transform := range field.NumericTransforms {
+			item.NumericTransforms = append(item.NumericTransforms, projectionv1.NumericTransform(transform))
+		}
+		for _, transform := range field.DateTransforms {
+			item.DateTransforms = append(item.DateTransforms, projectionv1.DateTransform(transform))
+		}
 		response.EventFields = append(response.EventFields, item)
 	}
 	return response, nil
@@ -107,6 +123,7 @@ func (s *Server) QueryCompletedProcesses(
 		} else if normalized.Fields != nil && !normalized.Fields.CanRead("event_count") {
 			row.MaskedFields = append(row.MaskedFields, "event_count")
 		}
+		row.Events = toWireEvents(process.Events, normalized.Fields)
 		response.Processes = append(response.Processes, row)
 	}
 	response.NormalizedSort = toWireSorts(normalized.Sort)
@@ -130,12 +147,20 @@ func fromWireQuery(request *projectionv1.QueryCompletedProcessesRequest) (applic
 	query := application.ProcessQuery{
 		TenantID: request.GetTenantId(), Filter: filter,
 		IncludeDeleted: request.GetIncludeDeleted(), Limit: int(request.GetPageSize()),
-		Credential: credential,
-		Sort:       make([]application.ProcessSort, 0, len(request.GetSort())),
+		Credential:     credential,
+		Sort:           make([]application.ProcessSort, 0, len(request.GetSort())),
 		SelectedFields: make([]application.ProcessField, 0, len(request.GetSelect())),
+		Collapse:       application.ProcessField(request.GetCollapse()),
 	}
 	for _, field := range request.GetSelect() {
 		query.SelectedFields = append(query.SelectedFields, application.ProcessField(field))
+	}
+	if request.GetExpandEvents() != nil {
+		eventFilter, filterErr := fromWireEventExpression(request.GetExpandEvents().GetFilter(), 1)
+		if filterErr != nil {
+			return application.ProcessQuery{}, filterErr
+		}
+		query.ExpandEvents = &application.EventExpansion{Filter: eventFilter, Limit: request.GetExpandEvents().GetLimit()}
 	}
 	for _, sort := range request.GetSort() {
 		if sort == nil {
@@ -168,7 +193,7 @@ func (s *Server) QueryProcesses(ctx context.Context, request *projectionv1.Query
 	}
 	response := &projectionv1.QueryProcessesResponse{
 		NormalizedSort: toWireSorts(normalized.Sort),
-		PolicyVersion: normalized.AuthorizationPolicyVersion,
+		PolicyVersion:  normalized.AuthorizationPolicyVersion,
 	}
 	response.QueryFingerprint, _ = normalized.Fingerprint()
 	if limit > 0 && len(processes) > limit {
@@ -196,6 +221,7 @@ func (s *Server) QueryProcesses(ctx context.Context, request *projectionv1.Query
 		} else if normalized.Fields != nil && !normalized.Fields.CanRead("event_count") {
 			row.MaskedFields = append(row.MaskedFields, "event_count")
 		}
+		row.Events = toWireEvents(process.Events, normalized.Fields)
 		response.Processes = append(response.Processes, row)
 	}
 	return response, nil
@@ -214,14 +240,25 @@ func fromWireGeneralQuery(request *projectionv1.QueryProcessesRequest) (applicat
 		return application.ProcessQuery{}, err
 	}
 	scope := application.QueryScope(request.GetScope())
+	if request.GetScope() == projectionv1.QueryScope_QUERY_SCOPE_UNSPECIFIED {
+		return application.ProcessQuery{}, invalidWireQuery("scope", "required", "query scope is required")
+	}
 	query := application.ProcessQuery{
 		TenantID: request.GetTenantId(), Filter: filter, Scope: scope,
 		IncludeDeleted: request.GetIncludeDeleted(), Limit: int(request.GetPageSize()), Credential: credential,
-		Sort: make([]application.ProcessSort, 0, len(request.GetSort())),
+		Sort:           make([]application.ProcessSort, 0, len(request.GetSort())),
 		SelectedFields: make([]application.ProcessField, 0, len(request.GetSelect())),
+		Collapse:       application.ProcessField(request.GetCollapse()),
 	}
 	for _, field := range request.GetSelect() {
 		query.SelectedFields = append(query.SelectedFields, application.ProcessField(field))
+	}
+	if request.GetExpandEvents() != nil {
+		eventFilter, filterErr := fromWireEventExpression(request.GetExpandEvents().GetFilter(), 1)
+		if filterErr != nil {
+			return application.ProcessQuery{}, filterErr
+		}
+		query.ExpandEvents = &application.EventExpansion{Filter: eventFilter, Limit: request.GetExpandEvents().GetLimit()}
 	}
 	for _, sort := range request.GetSort() {
 		if sort == nil {
@@ -230,6 +267,10 @@ func fromWireGeneralQuery(request *projectionv1.QueryProcessesRequest) (applicat
 		query.Sort = append(query.Sort, fromWireSort(sort))
 	}
 	return query, nil
+}
+
+func invalidWireQuery(path, rule, message string) error {
+	return &application.QueryValidationError{Violations: []application.QueryViolation{{Path: path, Rule: rule, Message: message}}}
 }
 
 func fromWireSort(sort *projectionv1.ProcessSort) application.ProcessSort {
@@ -281,6 +322,36 @@ func toWireQueryValue(value *application.QueryValue) *projectionv1.QueryValue {
 		result.Value = &projectionv1.QueryValue_BooleanValue{BooleanValue: value.Boolean}
 	case application.ValueTimestamp:
 		result.Value = &projectionv1.QueryValue_TimestampEpochMs{TimestampEpochMs: uint64(value.Time.UnixMilli())}
+	case application.ValueDecimal:
+		result.Value = &projectionv1.QueryValue_DecimalValue{DecimalValue: value.Decimal}
+	}
+	return result
+}
+
+func toWireEvents(events []application.WorkflowEvent, fields *application.FieldAuthorization) []*projectionv1.WorkflowEventReadModel {
+	result := make([]*projectionv1.WorkflowEventReadModel, 0, len(events))
+	for _, event := range events {
+		row := &projectionv1.WorkflowEventReadModel{
+			InstanceId: event.InstanceID, Sequence: event.Sequence, EventType: event.EventType,
+			NodeId: event.NodeID, ActorId: event.ActorID, OccurredAtEpochMs: uint64(event.OccurredAt.UnixMilli()),
+			ConfigVersion: event.ConfigVersion, PolicyVersion: event.PolicyVersion, IsDeleted: event.IsDeleted,
+		}
+		values := []struct {
+			name  string
+			clear func()
+		}{
+			{"instance_id", func() { row.InstanceId = "" }}, {"event_sequence", func() { row.Sequence = 0 }},
+			{"event_type", func() { row.EventType = "" }}, {"event_node_id", func() { row.NodeId = "" }},
+			{"event_actor_id", func() { row.ActorId = "" }}, {"event_occurred_at", func() { row.OccurredAtEpochMs = 0 }},
+			{"event_config_version", func() { row.ConfigVersion = "" }}, {"event_policy_version", func() { row.PolicyVersion = "" }},
+		}
+		for _, value := range values {
+			if !fields.CanRead(value.name) {
+				value.clear()
+				row.MaskedFields = append(row.MaskedFields, value.name)
+			}
+		}
+		result = append(result, row)
 	}
 	return result
 }
@@ -436,6 +507,8 @@ func fromWireValues(values []*projectionv1.QueryValue) ([]application.QueryValue
 			}
 			mapped.Kind = application.ValueTimestamp
 			mapped.Time = time.UnixMilli(int64(item.TimestampEpochMs)).UTC()
+		case *projectionv1.QueryValue_DecimalValue:
+			mapped.Kind, mapped.Decimal = application.ValueDecimal, item.DecimalValue
 		default:
 			return nil, application.ErrInvalidQuery
 		}

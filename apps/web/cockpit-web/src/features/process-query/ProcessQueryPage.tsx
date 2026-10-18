@@ -3,9 +3,9 @@ import {
   ArrowLeft, ArrowRight, Braces, ChevronDown, ChevronRight, Filter, GitBranch, ListFilter, Plus,
   RefreshCw, Search, Trash2,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useApi } from "../../api/ApiContext";
-import type { CompletedProcessQueryInput } from "../../api/types";
+import type { CompletedProcessQueryInput, ProcessExpressionInput, ProcessField, ProcessQueryInput, QueryScope } from "../../api/types";
 import { useAuth } from "../../auth/AuthContext";
 import { Button } from "../../components/Button";
 import { EmptyState, ErrorState, LoadingRows } from "../../components/Feedback";
@@ -28,7 +28,7 @@ interface SortDraft {
 }
 
 interface ExecutedQuery {
-  request: CompletedProcessQueryInput;
+  request: ProcessQueryInput;
   signature: string;
 }
 
@@ -41,15 +41,36 @@ export function ProcessQueryPage() {
   ]);
   const [pageSize, setPageSize] = useState(50);
   const [includeDeleted, setIncludeDeleted] = useState(false);
+  const [scope, setScope] = useState<QueryScope>("QUERY_SCOPE_COMPLETED");
   const [executed, setExecuted] = useState<ExecutedQuery | null>(null);
   const [pageTokens, setPageTokens] = useState<string[]>([""]);
   const [submitErrors, setSubmitErrors] = useState<Record<string, string>>({});
   const pageToken = pageTokens.at(-1) ?? "";
-  const draft = useMemo(() => compileQuery(root), [root]);
+  const capabilities = useQuery({
+    queryKey: ["process-query-capabilities", identity?.tenantId],
+    queryFn: () => api.getProcessQueryCapabilities(),
+    enabled: Boolean(identity),
+    staleTime: 60_000,
+  });
+  const effectiveLimits = useMemo(() => capabilities.data ? {
+    maxDepth: capabilities.data.max_filter_depth,
+    maxPredicates: capabilities.data.max_predicates,
+    maxRelations: capabilities.data.max_relation_joins,
+    maxInValues: capabilities.data.max_in_values,
+    maxStringBytes: capabilities.data.max_string_bytes,
+    maxSortFields: capabilities.data.max_sort_fields,
+  } : browserQueryLimits, [capabilities.data]);
+  const draft = useMemo(() => compileQuery(root, effectiveLimits), [root, effectiveLimits]);
+
+  useEffect(() => {
+    if (!capabilities.data) return;
+    setPageSize((value) => Math.min(value, capabilities.data.max_page_size));
+    if (!capabilities.data.scopes.includes(scope)) setScope(capabilities.data.scopes[0] ?? "QUERY_SCOPE_COMPLETED");
+  }, [capabilities.data, scope]);
 
   const query = useQuery({
     queryKey: ["completed-process-query", identity?.tenantId, executed?.signature, pageToken],
-    queryFn: () => api.queryCompletedProcesses({
+    queryFn: () => api.queryProcesses({
       ...executed!.request,
       ...(pageToken ? { page_token: pageToken } : {}),
     }),
@@ -79,7 +100,7 @@ export function ProcessQueryPage() {
         : {};
       if (coalesce.error) nextErrors[`sort-${sort.id}`] = `Null fallback: ${coalesce.error}`;
       compiledSorts.push({
-        field: sort.field,
+        field: sort.field as ProcessField,
         direction: sort.direction,
         text_transform: sort.textTransform,
         numeric_transform: sort.numericTransform,
@@ -88,16 +109,18 @@ export function ProcessQueryPage() {
       });
     }
     const normalizedSortCount = sorts.length + (seen.has("PROCESS_FIELD_INSTANCE_ID") ? 0 : 1);
-    if (normalizedSortCount > browserQueryLimits.maxSortFields) {
-      nextErrors.sort = `At most ${browserQueryLimits.maxSortFields} executed sort fields are allowed, including the automatic Instance ID tie-breaker.`;
+    if (normalizedSortCount > effectiveLimits.maxSortFields) {
+      nextErrors.sort = `At most ${effectiveLimits.maxSortFields} executed sort fields are allowed, including the automatic Instance ID tie-breaker.`;
     }
-    if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) {
-      nextErrors.pageSize = "Page size must be between 1 and 100.";
+    const maxPageSize = capabilities.data?.max_page_size ?? 100;
+    if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > maxPageSize) {
+      nextErrors.pageSize = `Page size must be between 1 and ${maxPageSize}.`;
     }
     setSubmitErrors(nextErrors);
     if (!draft.expression || Object.keys(nextErrors).length > 0) return;
-    const request: CompletedProcessQueryInput = {
-      filter: draft.expression,
+    const request: ProcessQueryInput = {
+      scope,
+      filter: draft.expression as ProcessExpressionInput,
       sort: compiledSorts,
       include_deleted: includeDeleted,
       page_size: pageSize,
@@ -114,9 +137,9 @@ export function ProcessQueryPage() {
           <p>Build tenant-scoped queries with nested Boolean logic and correlated event joins.</p>
         </div>
         <div className="query-budget" aria-label="Query complexity">
-          <span>Depth {draft.summary.depth}/{browserQueryLimits.maxDepth}</span>
-          <span>Rules {draft.summary.predicates}/{browserQueryLimits.maxPredicates}</span>
-          <span>Joins {draft.summary.relations}/{browserQueryLimits.maxRelations}</span>
+          <span>Depth {draft.summary.depth}/{effectiveLimits.maxDepth}</span>
+          <span>Rules {draft.summary.predicates}/{effectiveLimits.maxPredicates}</span>
+          <span>Joins {draft.summary.relations}/{effectiveLimits.maxRelations}</span>
         </div>
       </header>
 
@@ -148,7 +171,7 @@ export function ProcessQueryPage() {
                 onClick={() => setSorts((value) => [...value, {
                   id: crypto.randomUUID(), field: "PROCESS_FIELD_UPDATED_AT", direction: "SORT_DIRECTION_DESCENDING", textTransform: "TEXT_TRANSFORM_NONE", numericTransform: "NUMERIC_TRANSFORM_NONE", dateTransform: "DATE_TRANSFORM_NONE", coalesceValue: "",
                 }])}
-                disabled={sorts.length >= browserQueryLimits.maxSortFields}
+                disabled={sorts.length >= effectiveLimits.maxSortFields}
               >Add sort</Button>
             </div>
             {sorts.map((sort) => (
@@ -191,8 +214,14 @@ export function ProcessQueryPage() {
           </div>
           <div className="query-run-options">
             <label>
+              Query scope
+              <select aria-label="Query scope" value={scope} onChange={(event) => setScope(event.target.value as QueryScope)}>
+                {(capabilities.data?.scopes ?? ["QUERY_SCOPE_COMPLETED"]).map((value) => <option key={value} value={value}>{value.replace("QUERY_SCOPE_", "").toLowerCase()}</option>)}
+              </select>
+            </label>
+            <label>
               Page size
-              <input type="number" min={1} max={100} value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))} />
+              <input type="number" min={1} max={capabilities.data?.max_page_size ?? 100} value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))} />
             </label>
             <label className="checkbox-label">
               <input type="checkbox" checked={includeDeleted} onChange={(event) => setIncludeDeleted(event.target.checked)} />

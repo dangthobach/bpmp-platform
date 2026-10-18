@@ -65,7 +65,55 @@ func (s *Store) queryProcesses(ctx context.Context, query application.ProcessQue
 		process.EventCount = uint64(eventCount)
 		processes = append(processes, process)
 	}
-	return processes, rows.Err()
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	if query.ExpandEvents != nil && len(processes) != 0 {
+		if err = s.loadExpandedEvents(ctx, query, processes); err != nil {
+			return nil, err
+		}
+	}
+	return processes, nil
+}
+
+func (s *Store) loadExpandedEvents(ctx context.Context, query application.ProcessQuery, processes []application.CompletedProcess) error {
+	instanceIDs := make([]string, 0, len(processes))
+	byID := make(map[string]int, len(processes))
+	for index := range processes {
+		instanceIDs = append(instanceIDs, processes[index].Instance.InstanceID)
+		byID[processes[index].Instance.InstanceID] = index
+	}
+	builder := &sqlBuilder{}
+	tenant := builder.bind(query.TenantID)
+	ids := builder.bind(instanceIDs)
+	conditions := []string{"e.tenant_id=" + tenant, "e.instance_id=ANY(" + ids + ")", "NOT e.is_deleted"}
+	if query.ExpandEvents.Filter != nil {
+		filter, err := builder.eventExpression("e", *query.ExpandEvents.Filter)
+		if err != nil {
+			return err
+		}
+		conditions = append(conditions, filter)
+	}
+	limit := builder.bind(int(query.ExpandEvents.Limit))
+	statement := `SELECT instance_id,event_sequence,event_type,node_id,actor_id,occurred_at,config_version,policy_version,is_deleted
+		FROM (SELECT e.*,ROW_NUMBER() OVER(PARTITION BY e.instance_id ORDER BY e.event_sequence DESC) AS expansion_rank
+		FROM workflow_event_read_models e WHERE ` + strings.Join(conditions, " AND ") + `) expanded
+		WHERE expansion_rank<=` + limit + ` ORDER BY instance_id,event_sequence DESC`
+	rows, err := s.pool.Query(ctx, statement, builder.args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var event application.WorkflowEvent
+		if err = rows.Scan(&event.InstanceID, &event.Sequence, &event.EventType, &event.NodeID, &event.ActorID, &event.OccurredAt, &event.ConfigVersion, &event.PolicyVersion, &event.IsDeleted); err != nil {
+			return err
+		}
+		if index, ok := byID[event.InstanceID]; ok {
+			processes[index].Events = append(processes[index].Events, event)
+		}
+	}
+	return rows.Err()
 }
 
 func compileCompletedQuery(query application.ProcessQuery) (string, []any, error) {
@@ -112,7 +160,15 @@ func compileCompletedQuery(query application.ProcessQuery) (string, []any, error
 		order = append(order, field+" "+direction)
 	}
 	limit := builder.bind(query.Limit)
-	statement := `SELECT p.tenant_id,p.instance_id,p.workflow_type,p.workflow_version,p.status,
+	selectPrefix := "SELECT "
+	if query.Collapse != 0 {
+		collapse, collapseErr := builder.processSortSQL(query.Sort[0])
+		if collapseErr != nil {
+			return "", nil, collapseErr
+		}
+		selectPrefix = "SELECT DISTINCT ON (" + collapse + ") "
+	}
+	statement := selectPrefix + `p.tenant_id,p.instance_id,p.workflow_type,p.workflow_version,p.status,
 		p.active_node_id,p.last_event_sequence,p.started_at,p.updated_at,p.completed_at,
 		p.config_version,p.policy_version,p.initiator_actor_id,p.is_deleted,p.version,` + durationExpression + `,
 		` + eventCountExpression + `
@@ -338,8 +394,8 @@ func processSQL(field application.ProcessField) (string, error) {
 		application.ProcessPolicyVersion:     "p.policy_version",
 		application.ProcessVersion:           "p.version",
 		application.ProcessInitiatorActorID:  "p.initiator_actor_id",
-		application.ProcessEventCount:       eventCountExpression,
-		application.ProcessIsDeleted:        "p.is_deleted",
+		application.ProcessEventCount:        eventCountExpression,
+		application.ProcessIsDeleted:         "p.is_deleted",
 	}
 	value, ok := values[field]
 	if !ok {

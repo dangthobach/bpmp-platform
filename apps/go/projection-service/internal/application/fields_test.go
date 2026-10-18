@@ -7,7 +7,7 @@ import (
 
 func TestFieldAuthorizationBlocksInferenceAndBindsCursor(t *testing.T) {
 	fields := &FieldAuthorization{ReadFields: []string{"instance_id"}, QueryFields: []string{"instance_id", "updated_at_epoch_ms"}}
-	query := ProcessQuery{Fields: fields, Scope: QueryScopeInstances, Sort: []ProcessSort{{Field: ProcessUpdatedAt, Direction: SortDescending}}, Filter: &ProcessExpression{Predicate: &ProcessPredicate{Field: ProcessInitiatorActorID, Operator: CompareEqual, Values: []QueryValue{{Kind: ValueString, String: "secret"}}}}}
+	query := ProcessQuery{Fields: fields, Scope: QueryScopeAll, Sort: []ProcessSort{{Field: ProcessUpdatedAt, Direction: SortDescending}}, Filter: &ProcessExpression{Predicate: &ProcessPredicate{Field: ProcessInitiatorActorID, Operator: CompareEqual, Values: []QueryValue{{Kind: ValueString, String: "secret"}}}}}
 	if !errors.Is(validateFieldAccess(query), ErrQueryForbidden) {
 		t.Fatal("hidden filter accepted")
 	}

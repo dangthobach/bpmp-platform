@@ -24,6 +24,15 @@ const (
 	ProjectionQueryService_QueryCompletedProcesses_FullMethodName = "/bpmp.projection.v1.ProjectionQueryService/QueryCompletedProcesses"
 	ProjectionQueryService_QueryProcesses_FullMethodName          = "/bpmp.projection.v1.ProjectionQueryService/QueryProcesses"
 	ProjectionQueryService_GetQueryCapabilities_FullMethodName    = "/bpmp.projection.v1.ProjectionQueryService/GetQueryCapabilities"
+	ProjectionQueryService_AggregateProcesses_FullMethodName      = "/bpmp.projection.v1.ProjectionQueryService/AggregateProcesses"
+	ProjectionQueryService_QueryEvents_FullMethodName             = "/bpmp.projection.v1.ProjectionQueryService/QueryEvents"
+	ProjectionQueryService_SaveQuery_FullMethodName               = "/bpmp.projection.v1.ProjectionQueryService/SaveQuery"
+	ProjectionQueryService_ListSavedQueries_FullMethodName        = "/bpmp.projection.v1.ProjectionQueryService/ListSavedQueries"
+	ProjectionQueryService_DeleteSavedQuery_FullMethodName        = "/bpmp.projection.v1.ProjectionQueryService/DeleteSavedQuery"
+	ProjectionQueryService_CreateQueryExport_FullMethodName       = "/bpmp.projection.v1.ProjectionQueryService/CreateQueryExport"
+	ProjectionQueryService_GetQueryExport_FullMethodName          = "/bpmp.projection.v1.ProjectionQueryService/GetQueryExport"
+	ProjectionQueryService_CancelQueryExport_FullMethodName       = "/bpmp.projection.v1.ProjectionQueryService/CancelQueryExport"
+	ProjectionQueryService_ExplainQueryPlan_FullMethodName        = "/bpmp.projection.v1.ProjectionQueryService/ExplainQueryPlan"
 )
 
 // ProjectionQueryServiceClient is the client API for ProjectionQueryService service.
@@ -35,6 +44,15 @@ type ProjectionQueryServiceClient interface {
 	QueryCompletedProcesses(ctx context.Context, in *QueryCompletedProcessesRequest, opts ...grpc.CallOption) (*QueryCompletedProcessesResponse, error)
 	QueryProcesses(ctx context.Context, in *QueryProcessesRequest, opts ...grpc.CallOption) (*QueryProcessesResponse, error)
 	GetQueryCapabilities(ctx context.Context, in *GetQueryCapabilitiesRequest, opts ...grpc.CallOption) (*GetQueryCapabilitiesResponse, error)
+	AggregateProcesses(ctx context.Context, in *AggregateProcessesRequest, opts ...grpc.CallOption) (*AggregateProcessesResponse, error)
+	QueryEvents(ctx context.Context, in *QueryEventsRequest, opts ...grpc.CallOption) (*QueryEventsResponse, error)
+	SaveQuery(ctx context.Context, in *SaveQueryRequest, opts ...grpc.CallOption) (*SaveQueryResponse, error)
+	ListSavedQueries(ctx context.Context, in *ListSavedQueriesRequest, opts ...grpc.CallOption) (*ListSavedQueriesResponse, error)
+	DeleteSavedQuery(ctx context.Context, in *DeleteSavedQueryRequest, opts ...grpc.CallOption) (*DeleteSavedQueryResponse, error)
+	CreateQueryExport(ctx context.Context, in *CreateQueryExportRequest, opts ...grpc.CallOption) (*CreateQueryExportResponse, error)
+	GetQueryExport(ctx context.Context, in *GetQueryExportRequest, opts ...grpc.CallOption) (*GetQueryExportResponse, error)
+	CancelQueryExport(ctx context.Context, in *CancelQueryExportRequest, opts ...grpc.CallOption) (*CancelQueryExportResponse, error)
+	ExplainQueryPlan(ctx context.Context, in *ExplainQueryPlanRequest, opts ...grpc.CallOption) (*ExplainQueryPlanResponse, error)
 }
 
 type projectionQueryServiceClient struct {
@@ -95,6 +113,96 @@ func (c *projectionQueryServiceClient) GetQueryCapabilities(ctx context.Context,
 	return out, nil
 }
 
+func (c *projectionQueryServiceClient) AggregateProcesses(ctx context.Context, in *AggregateProcessesRequest, opts ...grpc.CallOption) (*AggregateProcessesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AggregateProcessesResponse)
+	err := c.cc.Invoke(ctx, ProjectionQueryService_AggregateProcesses_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *projectionQueryServiceClient) QueryEvents(ctx context.Context, in *QueryEventsRequest, opts ...grpc.CallOption) (*QueryEventsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(QueryEventsResponse)
+	err := c.cc.Invoke(ctx, ProjectionQueryService_QueryEvents_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *projectionQueryServiceClient) SaveQuery(ctx context.Context, in *SaveQueryRequest, opts ...grpc.CallOption) (*SaveQueryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SaveQueryResponse)
+	err := c.cc.Invoke(ctx, ProjectionQueryService_SaveQuery_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *projectionQueryServiceClient) ListSavedQueries(ctx context.Context, in *ListSavedQueriesRequest, opts ...grpc.CallOption) (*ListSavedQueriesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListSavedQueriesResponse)
+	err := c.cc.Invoke(ctx, ProjectionQueryService_ListSavedQueries_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *projectionQueryServiceClient) DeleteSavedQuery(ctx context.Context, in *DeleteSavedQueryRequest, opts ...grpc.CallOption) (*DeleteSavedQueryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteSavedQueryResponse)
+	err := c.cc.Invoke(ctx, ProjectionQueryService_DeleteSavedQuery_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *projectionQueryServiceClient) CreateQueryExport(ctx context.Context, in *CreateQueryExportRequest, opts ...grpc.CallOption) (*CreateQueryExportResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateQueryExportResponse)
+	err := c.cc.Invoke(ctx, ProjectionQueryService_CreateQueryExport_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *projectionQueryServiceClient) GetQueryExport(ctx context.Context, in *GetQueryExportRequest, opts ...grpc.CallOption) (*GetQueryExportResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetQueryExportResponse)
+	err := c.cc.Invoke(ctx, ProjectionQueryService_GetQueryExport_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *projectionQueryServiceClient) CancelQueryExport(ctx context.Context, in *CancelQueryExportRequest, opts ...grpc.CallOption) (*CancelQueryExportResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CancelQueryExportResponse)
+	err := c.cc.Invoke(ctx, ProjectionQueryService_CancelQueryExport_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *projectionQueryServiceClient) ExplainQueryPlan(ctx context.Context, in *ExplainQueryPlanRequest, opts ...grpc.CallOption) (*ExplainQueryPlanResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ExplainQueryPlanResponse)
+	err := c.cc.Invoke(ctx, ProjectionQueryService_ExplainQueryPlan_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ProjectionQueryServiceServer is the server API for ProjectionQueryService service.
 // All implementations must embed UnimplementedProjectionQueryServiceServer
 // for forward compatibility.
@@ -104,6 +212,15 @@ type ProjectionQueryServiceServer interface {
 	QueryCompletedProcesses(context.Context, *QueryCompletedProcessesRequest) (*QueryCompletedProcessesResponse, error)
 	QueryProcesses(context.Context, *QueryProcessesRequest) (*QueryProcessesResponse, error)
 	GetQueryCapabilities(context.Context, *GetQueryCapabilitiesRequest) (*GetQueryCapabilitiesResponse, error)
+	AggregateProcesses(context.Context, *AggregateProcessesRequest) (*AggregateProcessesResponse, error)
+	QueryEvents(context.Context, *QueryEventsRequest) (*QueryEventsResponse, error)
+	SaveQuery(context.Context, *SaveQueryRequest) (*SaveQueryResponse, error)
+	ListSavedQueries(context.Context, *ListSavedQueriesRequest) (*ListSavedQueriesResponse, error)
+	DeleteSavedQuery(context.Context, *DeleteSavedQueryRequest) (*DeleteSavedQueryResponse, error)
+	CreateQueryExport(context.Context, *CreateQueryExportRequest) (*CreateQueryExportResponse, error)
+	GetQueryExport(context.Context, *GetQueryExportRequest) (*GetQueryExportResponse, error)
+	CancelQueryExport(context.Context, *CancelQueryExportRequest) (*CancelQueryExportResponse, error)
+	ExplainQueryPlan(context.Context, *ExplainQueryPlanRequest) (*ExplainQueryPlanResponse, error)
 	mustEmbedUnimplementedProjectionQueryServiceServer()
 }
 
@@ -128,6 +245,33 @@ func (UnimplementedProjectionQueryServiceServer) QueryProcesses(context.Context,
 }
 func (UnimplementedProjectionQueryServiceServer) GetQueryCapabilities(context.Context, *GetQueryCapabilitiesRequest) (*GetQueryCapabilitiesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetQueryCapabilities not implemented")
+}
+func (UnimplementedProjectionQueryServiceServer) AggregateProcesses(context.Context, *AggregateProcessesRequest) (*AggregateProcessesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method AggregateProcesses not implemented")
+}
+func (UnimplementedProjectionQueryServiceServer) QueryEvents(context.Context, *QueryEventsRequest) (*QueryEventsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method QueryEvents not implemented")
+}
+func (UnimplementedProjectionQueryServiceServer) SaveQuery(context.Context, *SaveQueryRequest) (*SaveQueryResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SaveQuery not implemented")
+}
+func (UnimplementedProjectionQueryServiceServer) ListSavedQueries(context.Context, *ListSavedQueriesRequest) (*ListSavedQueriesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListSavedQueries not implemented")
+}
+func (UnimplementedProjectionQueryServiceServer) DeleteSavedQuery(context.Context, *DeleteSavedQueryRequest) (*DeleteSavedQueryResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteSavedQuery not implemented")
+}
+func (UnimplementedProjectionQueryServiceServer) CreateQueryExport(context.Context, *CreateQueryExportRequest) (*CreateQueryExportResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateQueryExport not implemented")
+}
+func (UnimplementedProjectionQueryServiceServer) GetQueryExport(context.Context, *GetQueryExportRequest) (*GetQueryExportResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetQueryExport not implemented")
+}
+func (UnimplementedProjectionQueryServiceServer) CancelQueryExport(context.Context, *CancelQueryExportRequest) (*CancelQueryExportResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CancelQueryExport not implemented")
+}
+func (UnimplementedProjectionQueryServiceServer) ExplainQueryPlan(context.Context, *ExplainQueryPlanRequest) (*ExplainQueryPlanResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ExplainQueryPlan not implemented")
 }
 func (UnimplementedProjectionQueryServiceServer) mustEmbedUnimplementedProjectionQueryServiceServer() {
 }
@@ -241,6 +385,168 @@ func _ProjectionQueryService_GetQueryCapabilities_Handler(srv interface{}, ctx c
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ProjectionQueryService_AggregateProcesses_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AggregateProcessesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProjectionQueryServiceServer).AggregateProcesses(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProjectionQueryService_AggregateProcesses_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProjectionQueryServiceServer).AggregateProcesses(ctx, req.(*AggregateProcessesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProjectionQueryService_QueryEvents_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(QueryEventsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProjectionQueryServiceServer).QueryEvents(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProjectionQueryService_QueryEvents_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProjectionQueryServiceServer).QueryEvents(ctx, req.(*QueryEventsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProjectionQueryService_SaveQuery_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SaveQueryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProjectionQueryServiceServer).SaveQuery(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProjectionQueryService_SaveQuery_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProjectionQueryServiceServer).SaveQuery(ctx, req.(*SaveQueryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProjectionQueryService_ListSavedQueries_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListSavedQueriesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProjectionQueryServiceServer).ListSavedQueries(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProjectionQueryService_ListSavedQueries_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProjectionQueryServiceServer).ListSavedQueries(ctx, req.(*ListSavedQueriesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProjectionQueryService_DeleteSavedQuery_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteSavedQueryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProjectionQueryServiceServer).DeleteSavedQuery(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProjectionQueryService_DeleteSavedQuery_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProjectionQueryServiceServer).DeleteSavedQuery(ctx, req.(*DeleteSavedQueryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProjectionQueryService_CreateQueryExport_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateQueryExportRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProjectionQueryServiceServer).CreateQueryExport(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProjectionQueryService_CreateQueryExport_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProjectionQueryServiceServer).CreateQueryExport(ctx, req.(*CreateQueryExportRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProjectionQueryService_GetQueryExport_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetQueryExportRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProjectionQueryServiceServer).GetQueryExport(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProjectionQueryService_GetQueryExport_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProjectionQueryServiceServer).GetQueryExport(ctx, req.(*GetQueryExportRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProjectionQueryService_CancelQueryExport_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CancelQueryExportRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProjectionQueryServiceServer).CancelQueryExport(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProjectionQueryService_CancelQueryExport_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProjectionQueryServiceServer).CancelQueryExport(ctx, req.(*CancelQueryExportRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProjectionQueryService_ExplainQueryPlan_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExplainQueryPlanRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProjectionQueryServiceServer).ExplainQueryPlan(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProjectionQueryService_ExplainQueryPlan_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProjectionQueryServiceServer).ExplainQueryPlan(ctx, req.(*ExplainQueryPlanRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ProjectionQueryService_ServiceDesc is the grpc.ServiceDesc for ProjectionQueryService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -267,6 +573,42 @@ var ProjectionQueryService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetQueryCapabilities",
 			Handler:    _ProjectionQueryService_GetQueryCapabilities_Handler,
+		},
+		{
+			MethodName: "AggregateProcesses",
+			Handler:    _ProjectionQueryService_AggregateProcesses_Handler,
+		},
+		{
+			MethodName: "QueryEvents",
+			Handler:    _ProjectionQueryService_QueryEvents_Handler,
+		},
+		{
+			MethodName: "SaveQuery",
+			Handler:    _ProjectionQueryService_SaveQuery_Handler,
+		},
+		{
+			MethodName: "ListSavedQueries",
+			Handler:    _ProjectionQueryService_ListSavedQueries_Handler,
+		},
+		{
+			MethodName: "DeleteSavedQuery",
+			Handler:    _ProjectionQueryService_DeleteSavedQuery_Handler,
+		},
+		{
+			MethodName: "CreateQueryExport",
+			Handler:    _ProjectionQueryService_CreateQueryExport_Handler,
+		},
+		{
+			MethodName: "GetQueryExport",
+			Handler:    _ProjectionQueryService_GetQueryExport_Handler,
+		},
+		{
+			MethodName: "CancelQueryExport",
+			Handler:    _ProjectionQueryService_CancelQueryExport_Handler,
+		},
+		{
+			MethodName: "ExplainQueryPlan",
+			Handler:    _ProjectionQueryService_ExplainQueryPlan_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
