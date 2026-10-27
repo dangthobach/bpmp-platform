@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use thiserror::Error;
 
+use bpmp_adapter_kms::VaultTransitConfig;
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RuntimeConfig {
@@ -17,7 +19,11 @@ pub struct RuntimeConfig {
     pub wir: WirConfig,
     pub configuration_resolver: Option<ConfigurationResolverConfig>,
     pub authorization: AuthorizationConfig,
+    #[serde(default)]
     pub payload_keys: Vec<PayloadKeyConfig>,
+    #[serde(default)]
+    pub allow_development_file_keys: bool,
+    pub payload_kms: Option<VaultTransitConfig>,
     pub rocksdb: RocksDbRuntimeConfig,
     pub raft: RaftRuntimeConfig,
     pub grpc: GrpcConfig,
@@ -41,7 +47,6 @@ impl RuntimeConfig {
             || self.authorization.actor_keys.is_empty()
             || self.authorization.workload_keys.is_empty()
             || self.authorization.policy_keys.is_empty()
-            || self.payload_keys.is_empty()
             || self.kafka.brokers.is_empty()
             || self
                 .authorization
@@ -76,6 +81,21 @@ impl RuntimeConfig {
             return Err(RuntimeConfigError::Invalid(
                 "artifact, key, policy, and Kafka collections must not be empty",
             ));
+        }
+        if self.payload_keys.is_empty() == self.payload_kms.is_none() {
+            return Err(RuntimeConfigError::Invalid(
+                "configure exactly one payload key source: dev file keys or production KMS",
+            ));
+        }
+        if !self.payload_keys.is_empty() && !self.allow_development_file_keys {
+            return Err(RuntimeConfigError::Invalid(
+                "file payload keys are development-only and require an explicit opt-in",
+            ));
+        }
+        if let Some(kms) = &self.payload_kms {
+            kms.validate().map_err(|_| {
+                RuntimeConfigError::Invalid("production payload KMS configuration is invalid")
+            })?;
         }
         self.validate_configuration_source()?;
         self.validate_remote_workers()?;
@@ -153,7 +173,16 @@ impl RuntimeConfig {
 
     fn validate_remote_workers(&self) -> Result<(), RuntimeConfigError> {
         let remote = &self.authorization.remote_workers;
-        if remote.allowed_protocol_versions.is_empty()
+        if self
+            .authorization
+            .governance_client_certificate_sha256
+            .is_empty()
+            || self
+                .authorization
+                .governance_client_certificate_sha256
+                .iter()
+                .any(|fingerprint| !valid_sha256_hex(fingerprint))
+            || remote.allowed_protocol_versions.is_empty()
             || remote
                 .allowed_protocol_versions
                 .iter()
@@ -283,6 +312,7 @@ pub struct AuthorizationConfig {
     pub clock_skew_seconds: u64,
     pub internal_dispatch: InternalDispatchConfig,
     pub remote_workers: RemoteWorkerAuthorizationConfig,
+    pub governance_client_certificate_sha256: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

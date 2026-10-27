@@ -7,6 +7,8 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use thiserror::Error;
 
+use bpmp_adapter_kms::VaultTransitConfig;
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RuntimeConfig {
@@ -48,18 +50,16 @@ impl RuntimeConfig {
             || self.worker.poll_interval_ms == 0
             || self.worker.shred_batch_size == 0
             || self.worker.shred_lease_ms == 0
-            || self
-                .key_lifecycle
-                .revocation_barrier_endpoint
-                .trim()
-                .is_empty()
-            || self.key_lifecycle.kms_endpoint.trim().is_empty()
             || self.tls.server_certificate.as_os_str().is_empty()
             || self.tls.server_private_key.as_os_str().is_empty()
             || self.tls.client_ca.as_os_str().is_empty()
         {
             return Err(ConfigError::Invalid);
         }
+        self.key_lifecycle
+            .kms
+            .validate()
+            .map_err(|_| ConfigError::Invalid)?;
         if self.engines.iter().any(|engine| {
             engine.endpoint.trim().is_empty()
                 || engine.tls_domain.trim().is_empty()
@@ -136,8 +136,7 @@ pub struct KafkaConfig {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct KeyLifecycleConfig {
-    pub revocation_barrier_endpoint: String,
-    pub kms_endpoint: String,
+    pub kms: VaultTransitConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -218,8 +217,17 @@ mod tests {
                 "max_message_bytes": 1_048_576
             },
             "key_lifecycle": {
-                "revocation_barrier_endpoint": "https://keys/barrier",
-                "kms_endpoint": "https://keys/shred"
+                "kms": {
+                    "address": "https://vault.internal:8200",
+                    "token_path": "vault-token",
+                    "namespace": "bpmp/production",
+                    "transit_mount": "transit",
+                    "kv_mount": "bpmp-wrapped-deks",
+                    "master_key_name": "bpmp-payload-root",
+                    "request_timeout_ms": 1500,
+                    "cache_capacity": 1,
+                    "cache_ttl_ms": 1000
+                }
             },
             "worker": {
                 "worker_id": "governance-1",

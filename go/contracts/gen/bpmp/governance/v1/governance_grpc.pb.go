@@ -21,6 +21,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	EngineGovernanceService_PrepareAbortAndReconcile_FullMethodName = "/bpmp.governance.v1.EngineGovernanceService/PrepareAbortAndReconcile"
 	EngineGovernanceService_CommitAbortAndReconcile_FullMethodName  = "/bpmp.governance.v1.EngineGovernanceService/CommitAbortAndReconcile"
+	EngineGovernanceService_RevokeDataKeyCache_FullMethodName       = "/bpmp.governance.v1.EngineGovernanceService/RevokeDataKeyCache"
 )
 
 // EngineGovernanceServiceClient is the client API for EngineGovernanceService service.
@@ -29,6 +30,7 @@ const (
 type EngineGovernanceServiceClient interface {
 	PrepareAbortAndReconcile(ctx context.Context, in *PrepareAbortAndReconcileRequest, opts ...grpc.CallOption) (*PrepareAbortAndReconcileResponse, error)
 	CommitAbortAndReconcile(ctx context.Context, in *CommitAbortAndReconcileRequest, opts ...grpc.CallOption) (*CommitAbortAndReconcileResponse, error)
+	RevokeDataKeyCache(ctx context.Context, in *RevokeDataKeyCacheRequest, opts ...grpc.CallOption) (*RevokeDataKeyCacheResponse, error)
 }
 
 type engineGovernanceServiceClient struct {
@@ -59,12 +61,23 @@ func (c *engineGovernanceServiceClient) CommitAbortAndReconcile(ctx context.Cont
 	return out, nil
 }
 
+func (c *engineGovernanceServiceClient) RevokeDataKeyCache(ctx context.Context, in *RevokeDataKeyCacheRequest, opts ...grpc.CallOption) (*RevokeDataKeyCacheResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RevokeDataKeyCacheResponse)
+	err := c.cc.Invoke(ctx, EngineGovernanceService_RevokeDataKeyCache_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // EngineGovernanceServiceServer is the server API for EngineGovernanceService service.
 // All implementations must embed UnimplementedEngineGovernanceServiceServer
 // for forward compatibility.
 type EngineGovernanceServiceServer interface {
 	PrepareAbortAndReconcile(context.Context, *PrepareAbortAndReconcileRequest) (*PrepareAbortAndReconcileResponse, error)
 	CommitAbortAndReconcile(context.Context, *CommitAbortAndReconcileRequest) (*CommitAbortAndReconcileResponse, error)
+	RevokeDataKeyCache(context.Context, *RevokeDataKeyCacheRequest) (*RevokeDataKeyCacheResponse, error)
 	mustEmbedUnimplementedEngineGovernanceServiceServer()
 }
 
@@ -80,6 +93,9 @@ func (UnimplementedEngineGovernanceServiceServer) PrepareAbortAndReconcile(conte
 }
 func (UnimplementedEngineGovernanceServiceServer) CommitAbortAndReconcile(context.Context, *CommitAbortAndReconcileRequest) (*CommitAbortAndReconcileResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CommitAbortAndReconcile not implemented")
+}
+func (UnimplementedEngineGovernanceServiceServer) RevokeDataKeyCache(context.Context, *RevokeDataKeyCacheRequest) (*RevokeDataKeyCacheResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RevokeDataKeyCache not implemented")
 }
 func (UnimplementedEngineGovernanceServiceServer) mustEmbedUnimplementedEngineGovernanceServiceServer() {
 }
@@ -139,6 +155,24 @@ func _EngineGovernanceService_CommitAbortAndReconcile_Handler(srv interface{}, c
 	return interceptor(ctx, in, info, handler)
 }
 
+func _EngineGovernanceService_RevokeDataKeyCache_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RevokeDataKeyCacheRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EngineGovernanceServiceServer).RevokeDataKeyCache(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: EngineGovernanceService_RevokeDataKeyCache_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EngineGovernanceServiceServer).RevokeDataKeyCache(ctx, req.(*RevokeDataKeyCacheRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // EngineGovernanceService_ServiceDesc is the grpc.ServiceDesc for EngineGovernanceService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -153,6 +187,10 @@ var EngineGovernanceService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CommitAbortAndReconcile",
 			Handler:    _EngineGovernanceService_CommitAbortAndReconcile_Handler,
+		},
+		{
+			MethodName: "RevokeDataKeyCache",
+			Handler:    _EngineGovernanceService_RevokeDataKeyCache_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

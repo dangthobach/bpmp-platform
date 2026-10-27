@@ -1,10 +1,12 @@
 use std::sync::Arc;
 
+use bpmp_adapter_kms::RevocationBarrierPort;
 use bpmp_adapter_rocksdb::RocksDbWorkflowStore;
 use bpmp_contracts::governance::v1::{
     AbortAndReconcileSpec as WireSpec, CommitAbortAndReconcileRequest,
     CommitAbortAndReconcileResponse, PrepareAbortAndReconcileRequest,
-    PrepareAbortAndReconcileResponse, SignedApproval as WireApproval,
+    PrepareAbortAndReconcileResponse, RevokeDataKeyCacheRequest, RevokeDataKeyCacheResponse,
+    SignedApproval as WireApproval,
 };
 use bpmp_contracts::storage::v1::StoredCommandResult;
 use bpmp_domain_core::{
@@ -30,6 +32,7 @@ pub struct AuthoritativeGovernanceHandler<C> {
     local: Arc<RocksDbWorkflowStore<C>>,
     raft: Arc<RaftWorkflowStore<C>>,
     registry: Arc<RuntimeRegistry>,
+    revocation_barrier: Arc<dyn RevocationBarrierPort>,
 }
 
 impl<C> AuthoritativeGovernanceHandler<C> {
@@ -37,11 +40,13 @@ impl<C> AuthoritativeGovernanceHandler<C> {
         local: Arc<RocksDbWorkflowStore<C>>,
         raft: Arc<RaftWorkflowStore<C>>,
         registry: Arc<RuntimeRegistry>,
+        revocation_barrier: Arc<dyn RevocationBarrierPort>,
     ) -> Self {
         Self {
             local,
             raft,
             registry,
+            revocation_barrier,
         }
     }
 }
@@ -246,6 +251,29 @@ where
             duplicate,
             request_digest: digest.to_vec(),
         })
+    }
+
+    fn revoke_data_key_cache(
+        &self,
+        request: RevokeDataKeyCacheRequest,
+    ) -> Result<RevokeDataKeyCacheResponse, GovernanceTransportError> {
+        let tenant_id = TenantId::new(request.tenant_id).map_err(invalid("tenant_id"))?;
+        let key_scope =
+            bpmp_domain_core::KeyScope::new(request.key_scope).map_err(invalid("key_scope"))?;
+        if request.key_epoch == 0
+            || request.committed_command_id.trim().is_empty()
+            || !key_scope
+                .as_str()
+                .starts_with(&format!("{}/", tenant_id.as_str()))
+        {
+            return Err(GovernanceTransportError::InvalidField(
+                "key scope, epoch, or committed command",
+            ));
+        }
+        self.revocation_barrier
+            .revoke_through(&key_scope, request.key_epoch)
+            .map_err(|error| GovernanceTransportError::Unavailable(error.to_string()))?;
+        Ok(RevokeDataKeyCacheResponse { acknowledged: true })
     }
 }
 

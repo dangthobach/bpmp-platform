@@ -162,6 +162,30 @@ impl WorkloadAuthorization {
         self.authorize_certificate(leaf.as_ref())
     }
 
+    /// Returns whether the request's leaf mTLS certificate and RPC path match
+    /// this exact workload allowlist.
+    pub fn is_authorized<B>(&self, request: &Request<B>) -> bool {
+        self.authorize(request).is_ok()
+    }
+
+    /// Returns whether a decoded tonic request carries an allowed leaf mTLS
+    /// certificate for the supplied fully-qualified RPC path.
+    pub fn is_tonic_request_authorized<B>(
+        &self,
+        request: &tonic::Request<B>,
+        method: &str,
+    ) -> bool {
+        if !self.methods.contains(method) {
+            return false;
+        }
+        request
+            .extensions()
+            .get::<TlsConnectInfo<TcpConnectInfo>>()
+            .and_then(TlsConnectInfo::peer_certs)
+            .and_then(|certificates| certificates.first().cloned())
+            .is_some_and(|leaf| self.authorize_certificate(leaf.as_ref()).is_ok())
+    }
+
     fn authorize_certificate(&self, certificate_der: &[u8]) -> Result<(), AuthorizationFailure> {
         let actual: [u8; 32] = Sha256::digest(certificate_der).into();
         if self

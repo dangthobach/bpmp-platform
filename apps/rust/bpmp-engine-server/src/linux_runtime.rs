@@ -8,6 +8,7 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use base64::Engine as _;
 use bpmp_adapter_identity_jwt::{JwtIdentityVerifier, JwtVerificationConfig};
+use bpmp_adapter_kms::{RevocationBarrierPort, VaultTransitKeyManagement};
 use bpmp_adapter_policy_bundle::VerifiedAuthorizationStore;
 use bpmp_adapter_rocksdb::{RocksDbConfig, RocksDbWorkflowStore};
 use bpmp_adapter_wasmtime::{WasmExecutionLimits, WasmWorkerConfig, WasmtimeWorker};
@@ -65,19 +66,34 @@ use zeroize::Zeroizing;
 
 fn open_workflow_store(
     config: &RuntimeConfig,
-) -> Result<RocksDbWorkflowStore<AesGcmPayloadCrypto<FileDataKeyResolver>>> {
-    let crypto = AesGcmPayloadCrypto::new(FileDataKeyResolver::load(&config.payload_keys)?);
+) -> Result<(
+    RocksDbWorkflowStore<AesGcmPayloadCrypto<Arc<dyn DataKeyResolverPort>>>,
+    Arc<dyn RevocationBarrierPort>,
+)> {
+    let (resolver, barrier): (Arc<dyn DataKeyResolverPort>, Arc<dyn RevocationBarrierPort>) =
+        if let Some(kms) = &config.payload_kms {
+            let cached =
+                Arc::new(VaultTransitKeyManagement::load(kms.clone())?.into_cached_resolver()?);
+            (cached.clone(), cached)
+        } else {
+            let files = Arc::new(FileDataKeyResolver::load(&config.payload_keys)?);
+            (files.clone(), files)
+        };
+    let crypto = AesGcmPayloadCrypto::new(resolver);
     let rocks = &config.rocksdb;
-    Ok(RocksDbWorkflowStore::open(
-        RocksDbConfig {
-            path: config.data_path.clone(),
-            max_open_files: rocks.max_open_files,
-            write_buffer_size_bytes: rocks.write_buffer_size_bytes,
-            max_background_jobs: rocks.max_background_jobs,
-            max_replay_events: rocks.max_replay_events,
-        },
-        crypto,
-    )?)
+    Ok((
+        RocksDbWorkflowStore::open(
+            RocksDbConfig {
+                path: config.data_path.clone(),
+                max_open_files: rocks.max_open_files,
+                write_buffer_size_bytes: rocks.write_buffer_size_bytes,
+                max_background_jobs: rocks.max_background_jobs,
+                max_replay_events: rocks.max_replay_events,
+            },
+            crypto,
+        )?,
+        barrier,
+    ))
 }
 
 pub fn storage_maintenance(path: &Path, checkpoint: Option<&Path>) -> Result<()> {
@@ -87,7 +103,7 @@ pub fn storage_maintenance(path: &Path, checkpoint: Option<&Path>) -> Result<()>
         config.data_path.join("CURRENT").is_file(),
         "existing RocksDB CURRENT file required; maintenance will not create an empty database"
     );
-    let store = open_workflow_store(&config)?;
+    let (store, _) = open_workflow_store(&config)?;
     let metadata = store
         .authoritative_state_storage(config.raft.max_snapshot_bytes)?
         .load_metadata()?;
@@ -138,7 +154,8 @@ pub async fn run(path: PathBuf) -> Result<()> {
         LocalTaskRetryPolicyHandle::new(local_task_retry_policy(&worker_policy.snapshot()?))?;
     let safe_point_gate = RuntimeSafePointGate::default();
     let authorization = Arc::new(load_authorization(&config)?);
-    let store = Arc::new(open_workflow_store(&config)?);
+    let (store, revocation_barrier) = open_workflow_store(&config)?;
+    let store = Arc::new(store);
     let server_certificate = fs::read(&config.tls.server_certificate)?;
     let server_private_key = fs::read(&config.tls.server_private_key)?;
     let client_ca = fs::read(&config.tls.client_ca)?;
@@ -215,7 +232,15 @@ pub async fn run(path: PathBuf) -> Result<()> {
         store.clone(),
         raft_store.clone(),
         registry.clone(),
+        revocation_barrier,
     ))
+    .with_revocation_authorization(
+        WorkloadAuthorization::try_new(
+            &config.authorization.governance_client_certificate_sha256,
+            &["/bpmp.governance.v1.EngineGovernanceService/RevokeDataKeyCache".into()],
+        )
+        .map_err(anyhow::Error::msg)?,
+    )
     .into_server(
         config.grpc.max_decoding_bytes,
         config.grpc.max_encoding_bytes,
@@ -1719,6 +1744,18 @@ impl DataKeyResolverPort for FileDataKeyResolver {
             key_epoch: epoch,
             key_bytes: Zeroizing::new(*bytes),
         })
+    }
+}
+
+impl RevocationBarrierPort for FileDataKeyResolver {
+    fn revoke_through(
+        &self,
+        _scope: &KeyScope,
+        _epoch: u64,
+    ) -> Result<(), bpmp_adapter_kms::KmsError> {
+        Err(bpmp_adapter_kms::KmsError::InvalidConfiguration(
+            "development file keys do not support a revocation barrier",
+        ))
     }
 }
 

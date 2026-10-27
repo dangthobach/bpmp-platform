@@ -1,5 +1,7 @@
 //! Fail-closed payload encryption contract used by durable storage adapters.
 
+use std::sync::Arc;
+
 use bpmp_domain_core::KeyScope;
 use thiserror::Error;
 use zeroize::Zeroizing;
@@ -36,6 +38,21 @@ pub trait DataKeyResolverPort: Send + Sync {
         key_version: &str,
         key_epoch: u64,
     ) -> Result<ResolvedDataKey, CryptoError>;
+}
+
+impl<R: DataKeyResolverPort + ?Sized> DataKeyResolverPort for Arc<R> {
+    fn resolve_for_encrypt(&self, key_scope: &KeyScope) -> Result<ResolvedDataKey, CryptoError> {
+        (**self).resolve_for_encrypt(key_scope)
+    }
+
+    fn resolve_for_decrypt(
+        &self,
+        key_scope: &KeyScope,
+        key_version: &str,
+        key_epoch: u64,
+    ) -> Result<ResolvedDataKey, CryptoError> {
+        (**self).resolve_for_decrypt(key_scope, key_version, key_epoch)
+    }
 }
 
 pub struct AesGcmPayloadCrypto<R> {

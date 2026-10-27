@@ -11,6 +11,7 @@ members = [
     "crates/bpmp-authz-engine",
     "crates/bpmp-adapter-policy-bundle",
     "crates/bpmp-adapter-identity-jwt",
+    "crates/bpmp-adapter-kms",
     "crates/bpmp-adapter-rocksdb",
     "crates/bpmp-adapter-wasmtime",
     "crates/bpmp-governance-domain",
@@ -35,6 +36,7 @@ bpmp-payload-crypto = { path = "crates/bpmp-payload-crypto" }
 bpmp-authz-engine = { path = "crates/bpmp-authz-engine" }
 bpmp-adapter-policy-bundle = { path = "crates/bpmp-adapter-policy-bundle" }
 bpmp-adapter-identity-jwt = { path = "crates/bpmp-adapter-identity-jwt" }
+bpmp-adapter-kms = { path = "crates/bpmp-adapter-kms" }
 bpmp-adapter-rocksdb = { path = "crates/bpmp-adapter-rocksdb" }
 bpmp-governance-domain = { path = "crates/bpmp-governance-domain" }
 bpmp-raft-state-machine = { path = "crates/bpmp-raft-state-machine" }

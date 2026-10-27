@@ -5,10 +5,13 @@ use bpmp_contracts::governance::v1::engine_governance_service_server::{
 };
 use bpmp_contracts::governance::v1::{
     CommitAbortAndReconcileRequest, CommitAbortAndReconcileResponse,
-    PrepareAbortAndReconcileRequest, PrepareAbortAndReconcileResponse,
+    PrepareAbortAndReconcileRequest, PrepareAbortAndReconcileResponse, RevokeDataKeyCacheRequest,
+    RevokeDataKeyCacheResponse,
 };
 use thiserror::Error;
 use tonic::{Request, Response, Status};
+
+use bpmp_transport_observability::WorkloadAuthorization;
 
 pub trait EngineGovernanceHandlerPort: Send + Sync + 'static {
     /// Returns a digest bound to the current authoritative workflow and ledger.
@@ -32,18 +35,36 @@ pub trait EngineGovernanceHandlerPort: Send + Sync + 'static {
         &self,
         request: CommitAbortAndReconcileRequest,
     ) -> Result<CommitAbortAndReconcileResponse, GovernanceTransportError>;
+
+    /// Installs the local cache revocation fence after the compliance terminal
+    /// transition commits and before governance destroys the wrapped DEK.
+    ///
+    /// # Errors
+    /// Fails closed for invalid scope or when the local fence cannot be installed.
+    fn revoke_data_key_cache(
+        &self,
+        request: RevokeDataKeyCacheRequest,
+    ) -> Result<RevokeDataKeyCacheResponse, GovernanceTransportError>;
 }
 
 #[derive(Clone)]
 pub struct GrpcEngineGovernanceService<H> {
     handler: Arc<H>,
+    revocation_authorization: Option<WorkloadAuthorization>,
 }
 
 impl<H> GrpcEngineGovernanceService<H> {
     pub fn new(handler: H) -> Self {
         Self {
             handler: Arc::new(handler),
+            revocation_authorization: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_revocation_authorization(mut self, authorization: WorkloadAuthorization) -> Self {
+        self.revocation_authorization = Some(authorization);
+        self
     }
 
     pub fn into_server(
@@ -83,6 +104,32 @@ where
     ) -> Result<Response<CommitAbortAndReconcileResponse>, Status> {
         let handler = Arc::clone(&self.handler);
         tokio::task::spawn_blocking(move || handler.commit(request.into_inner()))
+            .await
+            .map_err(|error| Status::internal(format!("governance worker failed: {error}")))?
+            .map(Response::new)
+            .map_err(Status::from)
+    }
+
+    async fn revoke_data_key_cache(
+        &self,
+        request: Request<RevokeDataKeyCacheRequest>,
+    ) -> Result<Response<RevokeDataKeyCacheResponse>, Status> {
+        if !self
+            .revocation_authorization
+            .as_ref()
+            .is_some_and(|authorization| {
+                authorization.is_tonic_request_authorized(
+                    &request,
+                    "/bpmp.governance.v1.EngineGovernanceService/RevokeDataKeyCache",
+                )
+            })
+        {
+            return Err(Status::permission_denied(
+                "governance workload identity is not authorized for key revocation",
+            ));
+        }
+        let handler = Arc::clone(&self.handler);
+        tokio::task::spawn_blocking(move || handler.revoke_data_key_cache(request.into_inner()))
             .await
             .map_err(|error| Status::internal(format!("governance worker failed: {error}")))?
             .map(Response::new)

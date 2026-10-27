@@ -651,6 +651,118 @@ func (x *CommitAbortAndReconcileResponse) GetRequestDigest() []byte {
 	return nil
 }
 
+type RevokeDataKeyCacheRequest struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	TenantId           string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	KeyScope           string                 `protobuf:"bytes,2,opt,name=key_scope,json=keyScope,proto3" json:"key_scope,omitempty"`
+	KeyEpoch           uint64                 `protobuf:"varint,3,opt,name=key_epoch,json=keyEpoch,proto3" json:"key_epoch,omitempty"`
+	CommittedCommandId string                 `protobuf:"bytes,4,opt,name=committed_command_id,json=committedCommandId,proto3" json:"committed_command_id,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *RevokeDataKeyCacheRequest) Reset() {
+	*x = RevokeDataKeyCacheRequest{}
+	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RevokeDataKeyCacheRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RevokeDataKeyCacheRequest) ProtoMessage() {}
+
+func (x *RevokeDataKeyCacheRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RevokeDataKeyCacheRequest.ProtoReflect.Descriptor instead.
+func (*RevokeDataKeyCacheRequest) Descriptor() ([]byte, []int) {
+	return file_bpmp_governance_v1_governance_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *RevokeDataKeyCacheRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *RevokeDataKeyCacheRequest) GetKeyScope() string {
+	if x != nil {
+		return x.KeyScope
+	}
+	return ""
+}
+
+func (x *RevokeDataKeyCacheRequest) GetKeyEpoch() uint64 {
+	if x != nil {
+		return x.KeyEpoch
+	}
+	return 0
+}
+
+func (x *RevokeDataKeyCacheRequest) GetCommittedCommandId() string {
+	if x != nil {
+		return x.CommittedCommandId
+	}
+	return ""
+}
+
+type RevokeDataKeyCacheResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Acknowledged  bool                   `protobuf:"varint,1,opt,name=acknowledged,proto3" json:"acknowledged,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RevokeDataKeyCacheResponse) Reset() {
+	*x = RevokeDataKeyCacheResponse{}
+	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RevokeDataKeyCacheResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RevokeDataKeyCacheResponse) ProtoMessage() {}
+
+func (x *RevokeDataKeyCacheResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RevokeDataKeyCacheResponse.ProtoReflect.Descriptor instead.
+func (*RevokeDataKeyCacheResponse) Descriptor() ([]byte, []int) {
+	return file_bpmp_governance_v1_governance_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *RevokeDataKeyCacheResponse) GetAcknowledged() bool {
+	if x != nil {
+		return x.Acknowledged
+	}
+	return false
+}
+
 type CreateApprovalRequest struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	RequestId        string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
@@ -663,7 +775,7 @@ type CreateApprovalRequest struct {
 
 func (x *CreateApprovalRequest) Reset() {
 	*x = CreateApprovalRequest{}
-	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[6]
+	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -675,7 +787,7 @@ func (x *CreateApprovalRequest) String() string {
 func (*CreateApprovalRequest) ProtoMessage() {}
 
 func (x *CreateApprovalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[6]
+	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -688,7 +800,7 @@ func (x *CreateApprovalRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateApprovalRequest.ProtoReflect.Descriptor instead.
 func (*CreateApprovalRequest) Descriptor() ([]byte, []int) {
-	return file_bpmp_governance_v1_governance_proto_rawDescGZIP(), []int{6}
+	return file_bpmp_governance_v1_governance_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *CreateApprovalRequest) GetRequestId() string {
@@ -731,7 +843,7 @@ type RecordApprovalRequest struct {
 
 func (x *RecordApprovalRequest) Reset() {
 	*x = RecordApprovalRequest{}
-	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[7]
+	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -743,7 +855,7 @@ func (x *RecordApprovalRequest) String() string {
 func (*RecordApprovalRequest) ProtoMessage() {}
 
 func (x *RecordApprovalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[7]
+	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -756,7 +868,7 @@ func (x *RecordApprovalRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecordApprovalRequest.ProtoReflect.Descriptor instead.
 func (*RecordApprovalRequest) Descriptor() ([]byte, []int) {
-	return file_bpmp_governance_v1_governance_proto_rawDescGZIP(), []int{7}
+	return file_bpmp_governance_v1_governance_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *RecordApprovalRequest) GetTenantId() string {
@@ -801,7 +913,7 @@ type SubmitApprovalRequest struct {
 
 func (x *SubmitApprovalRequest) Reset() {
 	*x = SubmitApprovalRequest{}
-	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[8]
+	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -813,7 +925,7 @@ func (x *SubmitApprovalRequest) String() string {
 func (*SubmitApprovalRequest) ProtoMessage() {}
 
 func (x *SubmitApprovalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[8]
+	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -826,7 +938,7 @@ func (x *SubmitApprovalRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitApprovalRequest.ProtoReflect.Descriptor instead.
 func (*SubmitApprovalRequest) Descriptor() ([]byte, []int) {
-	return file_bpmp_governance_v1_governance_proto_rawDescGZIP(), []int{8}
+	return file_bpmp_governance_v1_governance_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *SubmitApprovalRequest) GetTenantId() string {
@@ -881,7 +993,7 @@ type GetApprovalRequest struct {
 
 func (x *GetApprovalRequest) Reset() {
 	*x = GetApprovalRequest{}
-	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[9]
+	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -893,7 +1005,7 @@ func (x *GetApprovalRequest) String() string {
 func (*GetApprovalRequest) ProtoMessage() {}
 
 func (x *GetApprovalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[9]
+	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -906,7 +1018,7 @@ func (x *GetApprovalRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetApprovalRequest.ProtoReflect.Descriptor instead.
 func (*GetApprovalRequest) Descriptor() ([]byte, []int) {
-	return file_bpmp_governance_v1_governance_proto_rawDescGZIP(), []int{9}
+	return file_bpmp_governance_v1_governance_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *GetApprovalRequest) GetTenantId() string {
@@ -948,7 +1060,7 @@ type ApprovalRequestView struct {
 
 func (x *ApprovalRequestView) Reset() {
 	*x = ApprovalRequestView{}
-	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[10]
+	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -960,7 +1072,7 @@ func (x *ApprovalRequestView) String() string {
 func (*ApprovalRequestView) ProtoMessage() {}
 
 func (x *ApprovalRequestView) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[10]
+	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -973,7 +1085,7 @@ func (x *ApprovalRequestView) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApprovalRequestView.ProtoReflect.Descriptor instead.
 func (*ApprovalRequestView) Descriptor() ([]byte, []int) {
-	return file_bpmp_governance_v1_governance_proto_rawDescGZIP(), []int{10}
+	return file_bpmp_governance_v1_governance_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ApprovalRequestView) GetRequestId() string {
@@ -1104,7 +1216,7 @@ type CreateApprovalResponse struct {
 
 func (x *CreateApprovalResponse) Reset() {
 	*x = CreateApprovalResponse{}
-	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[11]
+	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1116,7 +1228,7 @@ func (x *CreateApprovalResponse) String() string {
 func (*CreateApprovalResponse) ProtoMessage() {}
 
 func (x *CreateApprovalResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[11]
+	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1129,7 +1241,7 @@ func (x *CreateApprovalResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateApprovalResponse.ProtoReflect.Descriptor instead.
 func (*CreateApprovalResponse) Descriptor() ([]byte, []int) {
-	return file_bpmp_governance_v1_governance_proto_rawDescGZIP(), []int{11}
+	return file_bpmp_governance_v1_governance_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *CreateApprovalResponse) GetApproval() *ApprovalRequestView {
@@ -1148,7 +1260,7 @@ type RecordApprovalResponse struct {
 
 func (x *RecordApprovalResponse) Reset() {
 	*x = RecordApprovalResponse{}
-	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[12]
+	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1160,7 +1272,7 @@ func (x *RecordApprovalResponse) String() string {
 func (*RecordApprovalResponse) ProtoMessage() {}
 
 func (x *RecordApprovalResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[12]
+	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1173,7 +1285,7 @@ func (x *RecordApprovalResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecordApprovalResponse.ProtoReflect.Descriptor instead.
 func (*RecordApprovalResponse) Descriptor() ([]byte, []int) {
-	return file_bpmp_governance_v1_governance_proto_rawDescGZIP(), []int{12}
+	return file_bpmp_governance_v1_governance_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *RecordApprovalResponse) GetApproval() *ApprovalRequestView {
@@ -1192,7 +1304,7 @@ type SubmitApprovalResponse struct {
 
 func (x *SubmitApprovalResponse) Reset() {
 	*x = SubmitApprovalResponse{}
-	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[13]
+	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1204,7 +1316,7 @@ func (x *SubmitApprovalResponse) String() string {
 func (*SubmitApprovalResponse) ProtoMessage() {}
 
 func (x *SubmitApprovalResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[13]
+	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1217,7 +1329,7 @@ func (x *SubmitApprovalResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitApprovalResponse.ProtoReflect.Descriptor instead.
 func (*SubmitApprovalResponse) Descriptor() ([]byte, []int) {
-	return file_bpmp_governance_v1_governance_proto_rawDescGZIP(), []int{13}
+	return file_bpmp_governance_v1_governance_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *SubmitApprovalResponse) GetApproval() *ApprovalRequestView {
@@ -1236,7 +1348,7 @@ type GetApprovalResponse struct {
 
 func (x *GetApprovalResponse) Reset() {
 	*x = GetApprovalResponse{}
-	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[14]
+	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1248,7 +1360,7 @@ func (x *GetApprovalResponse) String() string {
 func (*GetApprovalResponse) ProtoMessage() {}
 
 func (x *GetApprovalResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[14]
+	mi := &file_bpmp_governance_v1_governance_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1261,7 +1373,7 @@ func (x *GetApprovalResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetApprovalResponse.ProtoReflect.Descriptor instead.
 func (*GetApprovalResponse) Descriptor() ([]byte, []int) {
-	return file_bpmp_governance_v1_governance_proto_rawDescGZIP(), []int{14}
+	return file_bpmp_governance_v1_governance_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *GetApprovalResponse) GetApproval() *ApprovalRequestView {
@@ -1326,7 +1438,14 @@ const file_bpmp_governance_v1_governance_proto_rawDesc = "" +
 	"command_id\x18\x01 \x01(\tR\tcommandId\x12-\n" +
 	"\x12committed_sequence\x18\x02 \x01(\x04R\x11committedSequence\x12\x1c\n" +
 	"\tduplicate\x18\x03 \x01(\bR\tduplicate\x12%\n" +
-	"\x0erequest_digest\x18\x04 \x01(\fR\rrequestDigest\"\xcd\x01\n" +
+	"\x0erequest_digest\x18\x04 \x01(\fR\rrequestDigest\"\xa4\x01\n" +
+	"\x19RevokeDataKeyCacheRequest\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x1b\n" +
+	"\tkey_scope\x18\x02 \x01(\tR\bkeyScope\x12\x1b\n" +
+	"\tkey_epoch\x18\x03 \x01(\x04R\bkeyEpoch\x120\n" +
+	"\x14committed_command_id\x18\x04 \x01(\tR\x12committedCommandId\"@\n" +
+	"\x1aRevokeDataKeyCacheResponse\x12\"\n" +
+	"\facknowledged\x18\x01 \x01(\bR\facknowledged\"\xcd\x01\n" +
 	"\x15CreateApprovalRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12'\n" +
@@ -1392,10 +1511,11 @@ const file_bpmp_governance_v1_governance_proto_rawDesc = "" +
 	"!APPROVAL_REQUEST_STATUS_COMMITTED\x10\x03\x12-\n" +
 	")APPROVAL_REQUEST_STATUS_KEY_SHRED_PENDING\x10\x04\x12%\n" +
 	"!APPROVAL_REQUEST_STATUS_COMPLETED\x10\x05\x12$\n" +
-	" APPROVAL_REQUEST_STATUS_REJECTED\x10\x062\xa6\x02\n" +
+	" APPROVAL_REQUEST_STATUS_REJECTED\x10\x062\x9b\x03\n" +
 	"\x17EngineGovernanceService\x12\x85\x01\n" +
 	"\x18PrepareAbortAndReconcile\x123.bpmp.governance.v1.PrepareAbortAndReconcileRequest\x1a4.bpmp.governance.v1.PrepareAbortAndReconcileResponse\x12\x82\x01\n" +
-	"\x17CommitAbortAndReconcile\x122.bpmp.governance.v1.CommitAbortAndReconcileRequest\x1a3.bpmp.governance.v1.CommitAbortAndReconcileResponse2\xb6\x03\n" +
+	"\x17CommitAbortAndReconcile\x122.bpmp.governance.v1.CommitAbortAndReconcileRequest\x1a3.bpmp.governance.v1.CommitAbortAndReconcileResponse\x12s\n" +
+	"\x12RevokeDataKeyCache\x12-.bpmp.governance.v1.RevokeDataKeyCacheRequest\x1a..bpmp.governance.v1.RevokeDataKeyCacheResponse2\xb6\x03\n" +
 	"\x19GovernanceApprovalService\x12g\n" +
 	"\x0eCreateApproval\x12).bpmp.governance.v1.CreateApprovalRequest\x1a*.bpmp.governance.v1.CreateApprovalResponse\x12g\n" +
 	"\x0eRecordApproval\x12).bpmp.governance.v1.RecordApprovalRequest\x1a*.bpmp.governance.v1.RecordApprovalResponse\x12g\n" +
@@ -1416,7 +1536,7 @@ func file_bpmp_governance_v1_governance_proto_rawDescGZIP() []byte {
 }
 
 var file_bpmp_governance_v1_governance_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_bpmp_governance_v1_governance_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_bpmp_governance_v1_governance_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_bpmp_governance_v1_governance_proto_goTypes = []any{
 	(ApprovalRole)(0),                        // 0: bpmp.governance.v1.ApprovalRole
 	(ApprovalRequestStatus)(0),               // 1: bpmp.governance.v1.ApprovalRequestStatus
@@ -1426,15 +1546,17 @@ var file_bpmp_governance_v1_governance_proto_goTypes = []any{
 	(*PrepareAbortAndReconcileResponse)(nil), // 5: bpmp.governance.v1.PrepareAbortAndReconcileResponse
 	(*CommitAbortAndReconcileRequest)(nil),   // 6: bpmp.governance.v1.CommitAbortAndReconcileRequest
 	(*CommitAbortAndReconcileResponse)(nil),  // 7: bpmp.governance.v1.CommitAbortAndReconcileResponse
-	(*CreateApprovalRequest)(nil),            // 8: bpmp.governance.v1.CreateApprovalRequest
-	(*RecordApprovalRequest)(nil),            // 9: bpmp.governance.v1.RecordApprovalRequest
-	(*SubmitApprovalRequest)(nil),            // 10: bpmp.governance.v1.SubmitApprovalRequest
-	(*GetApprovalRequest)(nil),               // 11: bpmp.governance.v1.GetApprovalRequest
-	(*ApprovalRequestView)(nil),              // 12: bpmp.governance.v1.ApprovalRequestView
-	(*CreateApprovalResponse)(nil),           // 13: bpmp.governance.v1.CreateApprovalResponse
-	(*RecordApprovalResponse)(nil),           // 14: bpmp.governance.v1.RecordApprovalResponse
-	(*SubmitApprovalResponse)(nil),           // 15: bpmp.governance.v1.SubmitApprovalResponse
-	(*GetApprovalResponse)(nil),              // 16: bpmp.governance.v1.GetApprovalResponse
+	(*RevokeDataKeyCacheRequest)(nil),        // 8: bpmp.governance.v1.RevokeDataKeyCacheRequest
+	(*RevokeDataKeyCacheResponse)(nil),       // 9: bpmp.governance.v1.RevokeDataKeyCacheResponse
+	(*CreateApprovalRequest)(nil),            // 10: bpmp.governance.v1.CreateApprovalRequest
+	(*RecordApprovalRequest)(nil),            // 11: bpmp.governance.v1.RecordApprovalRequest
+	(*SubmitApprovalRequest)(nil),            // 12: bpmp.governance.v1.SubmitApprovalRequest
+	(*GetApprovalRequest)(nil),               // 13: bpmp.governance.v1.GetApprovalRequest
+	(*ApprovalRequestView)(nil),              // 14: bpmp.governance.v1.ApprovalRequestView
+	(*CreateApprovalResponse)(nil),           // 15: bpmp.governance.v1.CreateApprovalResponse
+	(*RecordApprovalResponse)(nil),           // 16: bpmp.governance.v1.RecordApprovalResponse
+	(*SubmitApprovalResponse)(nil),           // 17: bpmp.governance.v1.SubmitApprovalResponse
+	(*GetApprovalResponse)(nil),              // 18: bpmp.governance.v1.GetApprovalResponse
 }
 var file_bpmp_governance_v1_governance_proto_depIdxs = []int32{
 	2,  // 0: bpmp.governance.v1.PrepareAbortAndReconcileRequest.spec:type_name -> bpmp.governance.v1.AbortAndReconcileSpec
@@ -1448,24 +1570,26 @@ var file_bpmp_governance_v1_governance_proto_depIdxs = []int32{
 	1,  // 8: bpmp.governance.v1.ApprovalRequestView.status:type_name -> bpmp.governance.v1.ApprovalRequestStatus
 	3,  // 9: bpmp.governance.v1.ApprovalRequestView.requester_approvals:type_name -> bpmp.governance.v1.SignedApproval
 	3,  // 10: bpmp.governance.v1.ApprovalRequestView.approver_approvals:type_name -> bpmp.governance.v1.SignedApproval
-	12, // 11: bpmp.governance.v1.CreateApprovalResponse.approval:type_name -> bpmp.governance.v1.ApprovalRequestView
-	12, // 12: bpmp.governance.v1.RecordApprovalResponse.approval:type_name -> bpmp.governance.v1.ApprovalRequestView
-	12, // 13: bpmp.governance.v1.SubmitApprovalResponse.approval:type_name -> bpmp.governance.v1.ApprovalRequestView
-	12, // 14: bpmp.governance.v1.GetApprovalResponse.approval:type_name -> bpmp.governance.v1.ApprovalRequestView
+	14, // 11: bpmp.governance.v1.CreateApprovalResponse.approval:type_name -> bpmp.governance.v1.ApprovalRequestView
+	14, // 12: bpmp.governance.v1.RecordApprovalResponse.approval:type_name -> bpmp.governance.v1.ApprovalRequestView
+	14, // 13: bpmp.governance.v1.SubmitApprovalResponse.approval:type_name -> bpmp.governance.v1.ApprovalRequestView
+	14, // 14: bpmp.governance.v1.GetApprovalResponse.approval:type_name -> bpmp.governance.v1.ApprovalRequestView
 	4,  // 15: bpmp.governance.v1.EngineGovernanceService.PrepareAbortAndReconcile:input_type -> bpmp.governance.v1.PrepareAbortAndReconcileRequest
 	6,  // 16: bpmp.governance.v1.EngineGovernanceService.CommitAbortAndReconcile:input_type -> bpmp.governance.v1.CommitAbortAndReconcileRequest
-	8,  // 17: bpmp.governance.v1.GovernanceApprovalService.CreateApproval:input_type -> bpmp.governance.v1.CreateApprovalRequest
-	9,  // 18: bpmp.governance.v1.GovernanceApprovalService.RecordApproval:input_type -> bpmp.governance.v1.RecordApprovalRequest
-	10, // 19: bpmp.governance.v1.GovernanceApprovalService.SubmitApproval:input_type -> bpmp.governance.v1.SubmitApprovalRequest
-	11, // 20: bpmp.governance.v1.GovernanceApprovalService.GetApproval:input_type -> bpmp.governance.v1.GetApprovalRequest
-	5,  // 21: bpmp.governance.v1.EngineGovernanceService.PrepareAbortAndReconcile:output_type -> bpmp.governance.v1.PrepareAbortAndReconcileResponse
-	7,  // 22: bpmp.governance.v1.EngineGovernanceService.CommitAbortAndReconcile:output_type -> bpmp.governance.v1.CommitAbortAndReconcileResponse
-	13, // 23: bpmp.governance.v1.GovernanceApprovalService.CreateApproval:output_type -> bpmp.governance.v1.CreateApprovalResponse
-	14, // 24: bpmp.governance.v1.GovernanceApprovalService.RecordApproval:output_type -> bpmp.governance.v1.RecordApprovalResponse
-	15, // 25: bpmp.governance.v1.GovernanceApprovalService.SubmitApproval:output_type -> bpmp.governance.v1.SubmitApprovalResponse
-	16, // 26: bpmp.governance.v1.GovernanceApprovalService.GetApproval:output_type -> bpmp.governance.v1.GetApprovalResponse
-	21, // [21:27] is the sub-list for method output_type
-	15, // [15:21] is the sub-list for method input_type
+	8,  // 17: bpmp.governance.v1.EngineGovernanceService.RevokeDataKeyCache:input_type -> bpmp.governance.v1.RevokeDataKeyCacheRequest
+	10, // 18: bpmp.governance.v1.GovernanceApprovalService.CreateApproval:input_type -> bpmp.governance.v1.CreateApprovalRequest
+	11, // 19: bpmp.governance.v1.GovernanceApprovalService.RecordApproval:input_type -> bpmp.governance.v1.RecordApprovalRequest
+	12, // 20: bpmp.governance.v1.GovernanceApprovalService.SubmitApproval:input_type -> bpmp.governance.v1.SubmitApprovalRequest
+	13, // 21: bpmp.governance.v1.GovernanceApprovalService.GetApproval:input_type -> bpmp.governance.v1.GetApprovalRequest
+	5,  // 22: bpmp.governance.v1.EngineGovernanceService.PrepareAbortAndReconcile:output_type -> bpmp.governance.v1.PrepareAbortAndReconcileResponse
+	7,  // 23: bpmp.governance.v1.EngineGovernanceService.CommitAbortAndReconcile:output_type -> bpmp.governance.v1.CommitAbortAndReconcileResponse
+	9,  // 24: bpmp.governance.v1.EngineGovernanceService.RevokeDataKeyCache:output_type -> bpmp.governance.v1.RevokeDataKeyCacheResponse
+	15, // 25: bpmp.governance.v1.GovernanceApprovalService.CreateApproval:output_type -> bpmp.governance.v1.CreateApprovalResponse
+	16, // 26: bpmp.governance.v1.GovernanceApprovalService.RecordApproval:output_type -> bpmp.governance.v1.RecordApprovalResponse
+	17, // 27: bpmp.governance.v1.GovernanceApprovalService.SubmitApproval:output_type -> bpmp.governance.v1.SubmitApprovalResponse
+	18, // 28: bpmp.governance.v1.GovernanceApprovalService.GetApproval:output_type -> bpmp.governance.v1.GetApprovalResponse
+	22, // [22:29] is the sub-list for method output_type
+	15, // [15:22] is the sub-list for method input_type
 	15, // [15:15] is the sub-list for extension type_name
 	15, // [15:15] is the sub-list for extension extendee
 	0,  // [0:15] is the sub-list for field type_name
@@ -1482,7 +1606,7 @@ func file_bpmp_governance_v1_governance_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bpmp_governance_v1_governance_proto_rawDesc), len(file_bpmp_governance_v1_governance_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   15,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

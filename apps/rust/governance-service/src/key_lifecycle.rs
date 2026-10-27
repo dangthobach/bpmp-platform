@@ -1,12 +1,14 @@
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
+use bpmp_adapter_kms::VaultTransitKeyManagement;
 use bpmp_contracts::configuration::v1 as configurationv1;
-use reqwest::Client;
-use serde::Serialize;
+use bpmp_domain_core::KeyScope;
 use tracing::{error, info};
 
-use crate::config::{KeyLifecycleConfig, WorkerConfig};
+use crate::config::WorkerConfig;
+use crate::engine::EngineCluster;
 use crate::policy::{PolicyCache, PolicyScope, ResolvedPolicy};
 use crate::store::GovernanceStore;
 
@@ -14,43 +16,25 @@ use crate::store::GovernanceStore;
 pub struct KeyLifecycleWorker {
     store: GovernanceStore,
     policies: PolicyCache,
-    client: Client,
-    endpoints: KeyLifecycleConfig,
     worker: WorkerConfig,
-}
-
-#[derive(Serialize)]
-struct BarrierRequest<'a> {
-    tenant_id: &'a str,
-    key_scope: &'a str,
-    key_epoch: u64,
-    committed_command_id: &'a str,
-    timeout_ms: u64,
-    key_cache_ttl_ms: u64,
-}
-
-#[derive(Serialize)]
-struct ShredRequest<'a> {
-    tenant_id: &'a str,
-    key_scope: &'a str,
-    key_epoch: u64,
-    committed_command_id: &'a str,
-    reconciliation_batch_size: u32,
+    kms: Arc<VaultTransitKeyManagement>,
+    engines: EngineCluster,
 }
 
 impl KeyLifecycleWorker {
     pub fn new(
         store: GovernanceStore,
         policies: PolicyCache,
-        endpoints: KeyLifecycleConfig,
         worker: WorkerConfig,
+        kms: VaultTransitKeyManagement,
+        engines: EngineCluster,
     ) -> Self {
         Self {
             store,
             policies,
-            client: Client::new(),
-            endpoints,
             worker,
+            kms: Arc::new(kms),
+            engines,
         }
     }
 
@@ -132,23 +116,7 @@ impl KeyLifecycleWorker {
             .context("KMS retry policy is missing")?;
         let mut delay_ms = retry.initial_backoff_ms;
         for attempt in 1..=retry.max_attempts {
-            let result = self
-                .client
-                .post(&self.endpoints.revocation_barrier_endpoint)
-                .timeout(Duration::from_millis(
-                    policy.policy.revocation_barrier_timeout_ms,
-                ))
-                .json(&BarrierRequest {
-                    tenant_id: &spec.tenant_id,
-                    key_scope: &spec.key_scope,
-                    key_epoch: spec.key_epoch,
-                    committed_command_id: command_id,
-                    timeout_ms: policy.policy.revocation_barrier_timeout_ms,
-                    key_cache_ttl_ms: policy.policy.key_cache_ttl_ms,
-                })
-                .send()
-                .await
-                .and_then(reqwest::Response::error_for_status);
+            let result = self.engines.revoke_data_key_cache(spec, command_id).await;
             match result {
                 Ok(_) => break,
                 Err(error) if attempt == retry.max_attempts => {
@@ -161,21 +129,13 @@ impl KeyLifecycleWorker {
             }
         }
         delay_ms = retry.initial_backoff_ms;
+        let key_scope = KeyScope::new(spec.key_scope.clone())?;
         for attempt in 1..=retry.max_attempts {
-            let result = self
-                .client
-                .post(&self.endpoints.kms_endpoint)
-                .timeout(Duration::from_millis(policy.policy.kms_request_timeout_ms))
-                .json(&ShredRequest {
-                    tenant_id: &spec.tenant_id,
-                    key_scope: &spec.key_scope,
-                    key_epoch: spec.key_epoch,
-                    committed_command_id: command_id,
-                    reconciliation_batch_size: policy.policy.reconciliation_batch_size,
-                })
-                .send()
+            let kms = self.kms.clone();
+            let scope = key_scope.clone();
+            let result = tokio::task::spawn_blocking(move || kms.shred(&scope))
                 .await
-                .and_then(reqwest::Response::error_for_status);
+                .context("KMS shred task panicked")?;
             match result {
                 Ok(_) => break,
                 Err(error) if attempt == retry.max_attempts => {

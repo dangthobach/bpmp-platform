@@ -58,11 +58,24 @@ message CommitAbortAndReconcileResponse {
   bytes request_digest = 4;
 }
 
+message RevokeDataKeyCacheRequest {
+  string tenant_id = 1;
+  string key_scope = 2;
+  uint64 key_epoch = 3;
+  string committed_command_id = 4;
+}
+
+message RevokeDataKeyCacheResponse {
+  bool acknowledged = 1;
+}
+
 service EngineGovernanceService {
   rpc PrepareAbortAndReconcile(PrepareAbortAndReconcileRequest)
       returns (PrepareAbortAndReconcileResponse);
   rpc CommitAbortAndReconcile(CommitAbortAndReconcileRequest)
       returns (CommitAbortAndReconcileResponse);
+  rpc RevokeDataKeyCache(RevokeDataKeyCacheRequest)
+      returns (RevokeDataKeyCacheResponse);
 }
 
 enum ApprovalRole {

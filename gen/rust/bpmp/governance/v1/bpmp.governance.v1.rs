@@ -95,6 +95,22 @@ pub struct CommitAbortAndReconcileResponse {
     pub request_digest: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct RevokeDataKeyCacheRequest {
+    #[prost(string, tag="1")]
+    pub tenant_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub key_scope: ::prost::alloc::string::String,
+    #[prost(uint64, tag="3")]
+    pub key_epoch: u64,
+    #[prost(string, tag="4")]
+    pub committed_command_id: ::prost::alloc::string::String,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct RevokeDataKeyCacheResponse {
+    #[prost(bool, tag="1")]
+    pub acknowledged: bool,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct CreateApprovalRequest {
     #[prost(string, tag="1")]
     pub request_id: ::prost::alloc::string::String,

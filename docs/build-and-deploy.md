@@ -211,7 +211,9 @@ that no longer retains the cursor produces `resync-required`.
 7. Start Projection Service. Readiness requires its PostgreSQL schema,
    Configuration resolver and Kafka subscription; it owns read models,
    transactional inbox and checkpoints only.
-8. Start Governance Service after the revocation barrier and KMS endpoints are
+8. Configure the production payload-key adapter per
+   [Vault KMS Operations](vault-kms-operations.md), then start Governance Service
+   after the revocation barrier and KMS endpoints are
    ready. It owns approval/audit/key-shred workflow in PostgreSQL and calls the
    Engine governance API; it never writes Engine RocksDB or Raft state directly.
 9. Start Human Runtime, then API Gateway. Readiness requires PostgreSQL/Redis,

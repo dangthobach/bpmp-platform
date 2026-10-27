@@ -11,7 +11,9 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
+bpmp-adapter-kms.workspace = true
 bpmp-contracts.workspace = true
+bpmp-domain-core.workspace = true
 bpmp-transport-observability.workspace = true
 clap.workspace = true
 prost.workspace = true

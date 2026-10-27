@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use bpmp_contracts::governance::v1::engine_governance_service_client::EngineGovernanceServiceClient;
 use bpmp_contracts::governance::v1::{
     CommitAbortAndReconcileRequest, CommitAbortAndReconcileResponse,
-    PrepareAbortAndReconcileRequest, PrepareAbortAndReconcileResponse,
+    PrepareAbortAndReconcileRequest, PrepareAbortAndReconcileResponse, RevokeDataKeyCacheRequest,
 };
 use bpmp_transport_observability::inject_tonic_metadata;
 use tonic::Code;
@@ -100,6 +100,29 @@ impl EngineCluster {
         Err(anyhow::Error::new(
             last.context("no governance engine endpoint is configured")?,
         ))
+    }
+
+    pub async fn revoke_data_key_cache(
+        &self,
+        spec: &bpmp_contracts::governance::v1::AbortAndReconcileSpec,
+        committed_command_id: &str,
+    ) -> Result<()> {
+        let request = RevokeDataKeyCacheRequest {
+            tenant_id: spec.tenant_id.clone(),
+            key_scope: spec.key_scope.clone(),
+            key_epoch: spec.key_epoch,
+            committed_command_id: committed_command_id.to_owned(),
+        };
+        for client in &self.clients {
+            let mut outbound = tonic::Request::new(request.clone());
+            inject_tonic_metadata(&mut outbound);
+            let response = client.clone().revoke_data_key_cache(outbound).await?;
+            anyhow::ensure!(
+                response.into_inner().acknowledged,
+                "engine did not acknowledge the data-key revocation barrier"
+            );
+        }
+        Ok(())
     }
 }
 

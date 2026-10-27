@@ -433,6 +433,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "bpmp-adapter-kms"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "bpmp-domain-core",
+ "bpmp-payload-crypto",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tracing",
+ "zeroize",
+]
+
+[[package]]
 name = "bpmp-adapter-policy-bundle"
 version = "0.1.0"
 dependencies = [
@@ -547,6 +562,7 @@ dependencies = [
  "bpmp-contracts",
  "bpmp-domain-core",
  "bpmp-governance-domain",
+ "bpmp-transport-observability",
  "ed25519-dalek",
  "proptest",
  "prost",
@@ -566,6 +582,7 @@ dependencies = [
  "anyhow",
  "base64",
  "bpmp-adapter-identity-jwt",
+ "bpmp-adapter-kms",
  "bpmp-adapter-policy-bundle",
  "bpmp-adapter-rocksdb",
  "bpmp-adapter-wasmtime",
@@ -1585,7 +1602,9 @@ name = "governance-service"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bpmp-adapter-kms",
  "bpmp-contracts",
+ "bpmp-domain-core",
  "bpmp-transport-observability",
  "clap",
  "prost",
@@ -3187,7 +3206,9 @@ checksum = "eddd3ca559203180a307f12d114c268abf583f59b03cb906fd0b3ff8646c1147"
 dependencies = [
  "base64",
  "bytes",
+ "futures-channel",
  "futures-core",
+ "futures-util",
  "http",
  "http-body",
  "http-body-util",

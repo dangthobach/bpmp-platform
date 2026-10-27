@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use bpmp_adapter_kms::VaultTransitKeyManagement;
 use bpmp_contracts::configuration::v1 as configurationv1;
 use bpmp_transport_observability::{AdmissionLimiter, RequestMetadataLayer, WorkloadAuthorization};
 use prost::Message;
@@ -29,10 +30,11 @@ pub async fn run(path: PathBuf) -> Result<()> {
         .context("governance schema is not initialized")?;
     let policies = PolicyCache::connect(config.configuration_resolver.clone(), &config.tls).await?;
     let engines = EngineCluster::connect(&config.engines, &config.tls).await?;
-    let grpc = GovernanceGrpcService::new(store.clone(), engines, policies.clone()).into_server(
-        config.grpc.max_decoding_bytes,
-        config.grpc.max_encoding_bytes,
-    );
+    let grpc = GovernanceGrpcService::new(store.clone(), engines.clone(), policies.clone())
+        .into_server(
+            config.grpc.max_decoding_bytes,
+            config.grpc.max_encoding_bytes,
+        );
     let workload_authorization = WorkloadAuthorization::try_new(
         &config.grpc.authorized_client_certificate_sha256,
         &config.grpc.authorized_methods,
@@ -58,8 +60,9 @@ pub async fn run(path: PathBuf) -> Result<()> {
         KeyLifecycleWorker::new(
             store.clone(),
             policies,
-            config.key_lifecycle.clone(),
             config.worker.clone(),
+            VaultTransitKeyManagement::load(config.key_lifecycle.kms.clone())?,
+            engines,
         )
         .run(),
     );
