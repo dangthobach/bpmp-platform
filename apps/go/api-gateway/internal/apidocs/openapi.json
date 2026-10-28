@@ -7,7 +7,7 @@
     "license": {"name": "Apache-2.0", "identifier": "Apache-2.0"}
   },
   "servers": [{"url": "/"}],
-  "security": [{"bearerAuth": []}],
+  "security": [{"bearerAuth": []}, {"bffSession": []}],
   "tags": [
     {"name": "Workflow", "description": "Authoritative workflow commands."},
     {"name": "Human Work", "description": "Human work-item and case operations."},
@@ -345,13 +345,17 @@
     }
   },
   "components": {
-    "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}},
+    "securitySchemes": {
+      "bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"},
+      "bffSession": {"type": "apiKey", "in": "cookie", "name": "__Host-bpmp_session", "description": "Opaque Unified Portal BFF session. Unsafe methods also require X-CSRF-Token."}
+    },
     "parameters": {
-      "TenantID": {"name": "X-BPMP-Tenant-ID", "in": "header", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}},
+      "TenantID": {"name": "X-BPMP-Tenant-ID", "in": "header", "required": false, "description": "Required for Bearer authentication. Optional for BFF sessions and must match the authoritative session tenant when present.", "schema": {"$ref": "#/components/schemas/Identifier"}},
       "CorrelationID": {"name": "X-Correlation-ID", "in": "header", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}},
 	  "RequestID": {"name": "X-Request-ID", "in": "header", "required": false, "description": "Caller request identifier. The platform validates and echoes it, or generates a new value.", "schema": {"$ref": "#/components/schemas/Identifier"}},
       "CommandID": {"name": "X-Command-ID", "in": "header", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}},
       "IdempotencyKey": {"name": "Idempotency-Key", "in": "header", "required": true, "schema": {"type": "string", "minLength": 1, "maxLength": 256}},
+      "CSRFToken": {"name": "X-CSRF-Token", "in": "header", "required": false, "description": "Required on unsafe methods authenticated by bffSession.", "schema": {"type": "string", "minLength": 1, "maxLength": 4096}},
       "PageSize": {"name": "page_size", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 4294967295}},
       "PageToken": {"name": "page_token", "in": "query", "schema": {"type": "string"}},
       "ProfileID": {"name": "profileID", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}},

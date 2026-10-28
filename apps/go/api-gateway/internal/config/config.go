@@ -15,22 +15,23 @@ import (
 )
 
 type Config struct {
-	ListenAddress     string        `json:"listen_address"`
-	EngineAddress     string        `json:"engine_address"`
-	HumanAddress      string        `json:"human_address"`
-	ProjectionAddress string        `json:"projection_address"`
-	ConfigurationURL  string        `json:"configuration_url"`
-	PublicTLS         PublicTLS     `json:"public_tls"`
-	UpstreamTLS       UpstreamTLS   `json:"upstream_tls"`
-	Identity          Identity      `json:"identity"`
-	Workload          Workload      `json:"workload"`
-	RateLimit         RateLimit     `json:"rate_limit"`
-	HTTP              HTTP          `json:"http"`
-	GRPC              GRPC          `json:"grpc"`
-	Health            Health        `json:"health"`
-	Telemetry         Telemetry     `json:"telemetry"`
-	APIDocs           APIDocs       `json:"api_docs"`
-	RuntimeConfig     RuntimeConfig `json:"runtime_configuration"`
+	ListenAddress     string         `json:"listen_address"`
+	EngineAddress     string         `json:"engine_address"`
+	HumanAddress      string         `json:"human_address"`
+	ProjectionAddress string         `json:"projection_address"`
+	ConfigurationURL  string         `json:"configuration_url"`
+	PublicTLS         PublicTLS      `json:"public_tls"`
+	UpstreamTLS       UpstreamTLS    `json:"upstream_tls"`
+	Identity          Identity       `json:"identity"`
+	Workload          Workload       `json:"workload"`
+	RateLimit         RateLimit      `json:"rate_limit"`
+	HTTP              HTTP           `json:"http"`
+	GRPC              GRPC           `json:"grpc"`
+	Health            Health         `json:"health"`
+	Telemetry         Telemetry      `json:"telemetry"`
+	APIDocs           APIDocs        `json:"api_docs"`
+	RuntimeConfig     RuntimeConfig  `json:"runtime_configuration"`
+	BrowserSession    BrowserSession `json:"browser_session"`
 }
 
 type PublicTLS struct {
@@ -68,6 +69,15 @@ type RateLimit struct {
 	RedisDatabase      int    `json:"redis_database"`
 	RedisKeyPrefix     string `json:"redis_key_prefix"`
 	OperationTimeoutMS int64  `json:"operation_timeout_ms"`
+}
+type BrowserSession struct {
+	Enabled            bool   `json:"enabled"`
+	CookieName         string `json:"cookie_name"`
+	CSRFHeaderName     string `json:"csrf_header_name"`
+	RedisKeyPrefix     string `json:"redis_key_prefix"`
+	OperationTimeoutMS int64  `json:"operation_timeout_ms"`
+	MaxTokenBytes      int    `json:"max_token_bytes"`
+	MaxRecordBytes     int64  `json:"max_record_bytes"`
 }
 type HTTP struct {
 	ReadHeaderTimeoutMS int64  `json:"read_header_timeout_ms"`
@@ -171,7 +181,34 @@ func (c Config) Validate() error {
 	if err := c.APIDocs.Validate(); err != nil {
 		return err
 	}
+	if err := c.BrowserSession.Validate(); err != nil {
+		return err
+	}
 	return nil
+}
+func (c BrowserSession) Validate() error {
+	if !c.Enabled {
+		return nil
+	}
+	if c.CookieName != "__Host-bpmp_session" || c.CSRFHeaderName != "X-CSRF-Token" ||
+		!validHTTPToken(c.CookieName) || !validHTTPToken(c.CSRFHeaderName) ||
+		c.RedisKeyPrefix == "" || c.OperationTimeoutMS <= 0 || c.OperationTimeoutMS > 5_000 ||
+		c.MaxTokenBytes <= 0 || c.MaxTokenBytes > 4_096 ||
+		c.MaxRecordBytes <= 0 || c.MaxRecordBytes > 65_536 {
+		return errors.New("api-gateway browser session configuration is invalid")
+	}
+	return nil
+}
+func validHTTPToken(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, character := range value {
+		if character <= 32 || character >= 127 || strings.ContainsRune("()<>@,;:\\\"/[]?={}\t", character) {
+			return false
+		}
+	}
+	return true
 }
 func (c APIDocs) Validate() error {
 	if !c.Enabled {

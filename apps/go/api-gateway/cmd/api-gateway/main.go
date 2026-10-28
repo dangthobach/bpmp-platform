@@ -22,6 +22,7 @@ import (
 	"google.golang.org/grpc/credentials"
 
 	"github.com/dangthobach/bpmp-platform/apps/go/api-gateway/internal/adapter/redislimit"
+	"github.com/dangthobach/bpmp-platform/apps/go/api-gateway/internal/adapter/redissession"
 	"github.com/dangthobach/bpmp-platform/apps/go/api-gateway/internal/adapter/runtimepolicy"
 	"github.com/dangthobach/bpmp-platform/apps/go/api-gateway/internal/apidocs"
 	"github.com/dangthobach/bpmp-platform/apps/go/api-gateway/internal/config"
@@ -191,6 +192,21 @@ func run(path string) error {
 	if err != nil {
 		return fmt.Errorf("ping rate-limit Redis: %w", err)
 	}
+	var handlerOptions []gateway.HandlerOption
+	if value.BrowserSession.Enabled {
+		sessionStore, sessionErr := redissession.New(redisClient, redissession.Config{
+			Prefix:           value.BrowserSession.RedisKeyPrefix,
+			OperationTimeout: time.Duration(value.BrowserSession.OperationTimeoutMS) * time.Millisecond,
+			MaxRecordBytes:   value.BrowserSession.MaxRecordBytes,
+		})
+		if sessionErr != nil {
+			return sessionErr
+		}
+		handlerOptions = append(
+			handlerOptions,
+			gateway.WithBrowserSessions(sessionStore, value.BrowserSession),
+		)
+	}
 	handler, err := gateway.NewWithPolicy(
 		enginev1.NewEngineCommandServiceClient(engineConn),
 		humanv1.NewHumanRuntimeServiceClient(humanConn),
@@ -199,6 +215,7 @@ func run(path string) error {
 		configurationClient,
 		value,
 		policyProvider,
+		handlerOptions...,
 	)
 	if err != nil {
 		return err

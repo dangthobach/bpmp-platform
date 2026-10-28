@@ -37,6 +37,8 @@ type Handler struct {
 	configurationProxy *configurationProxy
 	policyProvider     PolicyProvider
 	upstreams          *upstreamController
+	sessionStore       ports.BrowserSessionStore
+	sessionConfig      config.BrowserSession
 }
 
 type RuntimePolicy struct {
@@ -84,6 +86,7 @@ func NewWithPolicy(
 	configurationClient httpDoer,
 	value config.Config,
 	policyProvider PolicyProvider,
+	options ...HandlerOption,
 ) (*Handler, error) {
 	if projection == nil {
 		return nil, errors.New("projection client is required")
@@ -103,6 +106,7 @@ func NewWithPolicy(
 		workload,
 		limiter,
 		policyProvider,
+		options...,
 	)
 	if err != nil {
 		return nil, err
@@ -125,16 +129,26 @@ func NewHandler(
 	workload *workloadSigner,
 	limiter ports.RateLimiter,
 	policyProvider PolicyProvider,
+	options ...HandlerOption,
 ) (*Handler, error) {
 	if engine == nil || human == nil || verifier == nil || workload == nil ||
 		limiter == nil || policyProvider == nil {
 		return nil, errors.New("gateway dependencies are incomplete")
 	}
-	return &Handler{
+	handler := &Handler{
 		engine: engine, human: human, verifier: verifier, workload: workload,
 		limiter: limiter, policyProvider: policyProvider,
 		upstreams: newUpstreamController(), now: time.Now,
-	}, nil
+	}
+	for _, option := range options {
+		if option == nil {
+			return nil, errors.New("gateway option is nil")
+		}
+		if err := option(handler); err != nil {
+			return nil, err
+		}
+	}
+	return handler, nil
 }
 
 func (h *Handler) Routes() http.Handler {
@@ -552,10 +566,12 @@ func PublicOperations() []PublicOperation {
 }
 
 type requestScope struct {
-	tenantID, commandID, idempotencyKey, correlationID, rawToken, actorID string
-	traceParent, traceState                                               string
-	occurredAt                                                            time.Time
-	runtimePolicy                                                         RuntimePolicy
+	tenantID, commandID, idempotencyKey, correlationID, actorID string
+	traceParent, traceState                                     string
+	actorProofType                                              authv1.ActorProofType
+	signedActorProof                                            []byte
+	occurredAt                                                  time.Time
+	runtimePolicy                                               RuntimePolicy
 }
 
 func (h *Handler) authenticate(r *http.Request) (requestScope, error) {
@@ -573,29 +589,24 @@ func (h *Handler) authenticateRequest(r *http.Request, commandRequired bool) (re
 	correlation := r.Header.Get("X-Correlation-ID")
 	traceParent := r.Header.Get("traceparent")
 	traceState := r.Header.Get("tracestate")
-	if !validID(tenant) ||
-		!validID(correlation) ||
+	if (tenant != "" && !validID(tenant)) || !validID(correlation) ||
 		(commandRequired && (!validID(command) || !validID(idempotency))) {
 		return requestScope{}, errors.New("request scope headers are invalid")
 	}
 	if len(traceParent) > 512 || len(traceState) > 512 || strings.ContainsAny(traceParent+traceState, "\r\n") {
 		return requestScope{}, errors.New("trace propagation headers are invalid")
 	}
-	authorization := r.Header.Get("Authorization")
-	if !strings.HasPrefix(authorization, "Bearer ") {
-		return requestScope{}, errUnauthorized
-	}
-	raw := strings.TrimPrefix(authorization, "Bearer ")
 	now := h.now().UTC()
-	actor, err := h.verifier.verify(raw, tenant, now)
+	identity, err := h.authenticateActor(r, tenant, now)
 	if err != nil {
-		return requestScope{}, errUnauthorized
+		return requestScope{}, err
 	}
+	tenant = identity.tenantID
 	policy, err := h.policyProvider.Policy(tenant)
 	if err != nil {
 		return requestScope{}, errUpstream
 	}
-	subject := tenant + "\x00" + actor.ID
+	subject := tenant + "\x00" + identity.actorID
 	allowed := false
 	if limiter, dynamic := h.limiter.(dynamicRateLimiter); dynamic {
 		allowed, err = limiter.AllowPolicy(
@@ -614,16 +625,23 @@ func (h *Handler) authenticateRequest(r *http.Request, commandRequired bool) (re
 		return requestScope{}, errRateLimited
 	}
 	requestmeta.Enrich(r.Context(), requestmeta.Values{
-		TenantID: tenant, CommandID: command, ActorID: actor.ID,
+		TenantID: tenant, CommandID: command, ActorID: identity.actorID,
 		PolicyVersion: policy.PolicyVersion,
 	})
-	return requestScope{tenantID: tenant, commandID: command, idempotencyKey: idempotency, correlationID: correlation, rawToken: raw, actorID: actor.ID, traceParent: traceParent, traceState: traceState, occurredAt: now, runtimePolicy: policy}, nil
+	return requestScope{
+		tenantID: tenant, commandID: command, idempotencyKey: idempotency,
+		correlationID: correlation, actorID: identity.actorID,
+		actorProofType:   identity.proofType,
+		signedActorProof: append([]byte(nil), identity.signedProof...),
+		traceParent:      traceParent, traceState: traceState,
+		occurredAt: now, runtimePolicy: policy,
+	}, nil
 }
 
 func actorProof(scope requestScope) *authv1.ActorProof {
 	return &authv1.ActorProof{
-		Type:        authv1.ActorProofType_ACTOR_PROOF_TYPE_ORIGINAL_JWT,
-		SignedProof: []byte(scope.rawToken),
+		Type:        scope.actorProofType,
+		SignedProof: append([]byte(nil), scope.signedActorProof...),
 	}
 }
 
@@ -958,9 +976,18 @@ func writeProjectionError(w http.ResponseWriter, err error) {
 		writeError(w, errForbidden)
 		return
 	}
-	if grpcStatus.Code() == codes.NotFound { requestmeta.WriteProblemResponse(w,http.StatusNotFound,"not_found","Not found",grpcStatus.Message(),false);return }
-	if grpcStatus.Code() == codes.Aborted { requestmeta.WriteProblemResponse(w,http.StatusConflict,"version_conflict","Version conflict",grpcStatus.Message(),false);return }
-	if grpcStatus.Code() == codes.DeadlineExceeded { requestmeta.WriteProblemResponse(w,http.StatusGatewayTimeout,"query_timeout","Query timed out",grpcStatus.Message(),true);return }
+	if grpcStatus.Code() == codes.NotFound {
+		requestmeta.WriteProblemResponse(w, http.StatusNotFound, "not_found", "Not found", grpcStatus.Message(), false)
+		return
+	}
+	if grpcStatus.Code() == codes.Aborted {
+		requestmeta.WriteProblemResponse(w, http.StatusConflict, "version_conflict", "Version conflict", grpcStatus.Message(), false)
+		return
+	}
+	if grpcStatus.Code() == codes.DeadlineExceeded {
+		requestmeta.WriteProblemResponse(w, http.StatusGatewayTimeout, "query_timeout", "Query timed out", grpcStatus.Message(), true)
+		return
+	}
 	if grpcStatus.Code() != codes.InvalidArgument {
 		writeError(w, errUpstream)
 		return
