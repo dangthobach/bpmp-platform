@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "1",
+  "shellVersion": "1.0",
+  "catalogUrl": "/mfe-catalog.json",
+  "catalogTimeoutMs": 5000,
+  "remoteTimeoutMs": 10000,
+  "apiTimeoutMs": 15000,
+  "maxApiResponseBytes": 4194304,
+  "maxCatalogLifetimeMs": 604800000,
+  "allowedRemoteOrigins": ["https://task.ods.example.test"],
+  "catalogVerificationKeys": {
+    "ci-key": {"crv": "Ed25519", "x": "Mqr0igvX3ghrFwGPfGwqVcDuNzL_s2w_WKjcuZjohjA", "kty": "OKP"}
+  }
+}

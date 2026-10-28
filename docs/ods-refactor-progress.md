@@ -9,14 +9,14 @@ This ledger is the source of truth for execution status. Percentages are weighte
 | Phase | Status | Progress | Current evidence | Next gate |
 |---|---|---:|---|---|
 | 0 - Discovery and decisions | complete | 100% | Discovery baseline plus ADR-009/010/011 | Start Phase 1 vertical foundation |
-| 1 - Platform foundations | in_progress | 95% | Shell, Task remote, signed catalog, callApi, BFF session/CSRF, CI quality workflow and immutable image pipeline | Helm promotion/rollback and trace evidence gates |
+| 1 - Platform foundations | in_progress | 99% | Foundation code, CI gates, digest-only Helm chart, signed-catalog promotion verifier and rollback runbook | Hosted image build and staging rollback rehearsal evidence |
 | 2 - Task vertical slice | not_started | 0% | Existing gateway/Human Runtime provide the migration source | Complete task flow through new MFE/BFF contract |
 | 3 - Case domain | not_started | 0% | Existing Human Runtime case projection is not the target Case aggregate | Separate Case owner/database/outbox |
 | 4 - Documents and integrations | not_started | 0% | Requirements only | Streaming/quarantine and idempotent callback paths |
 | 5 - ODS Common and operations | not_started | 0% | Existing observability/configuration plumbing is reusable | Versioned master data, notification and audit projection |
 | 6 - Cutover and hardening | not_started | 0% | Strangler strategy documented | Canary/rollback/DR and legacy retirement evidence |
 
-Overall evidenced progress: **26%**. This is 100% of Phase 0 plus the evidenced portion of Phase 1; later phases receive no scaffolding credit.
+Overall evidenced progress: **27%**. This is 100% of Phase 0 plus the evidenced portion of Phase 1; later phases receive no scaffolding credit.
 
 ## Phase 1 evidence
 
@@ -29,7 +29,7 @@ Overall evidenced progress: **26%**. This is 100% of Phase 0 plus the evidenced 
 | `callApi` SDK | 15% | complete | Typed success/error, IDs, timeout/cancel, same-origin guard, credentials and injectable CSRF token |
 | Signed production catalog | 10% | complete | Canonical signed bytes, Ed25519 WebCrypto verification, key-id rotation map, freshness/lifetime checks and runtime config |
 | Portal Gateway BFF session and async tracing | 10% | complete | Session-store port/Redis adapter, signed actor context, tenant/CSRF enforcement and existing trace propagation |
-| CI/CD, immutable publish, Helm/rollback | 10% | in_progress | Linux quality/E2E/image workflow, non-root containers and digest-producing tagged publish; Helm promotion/rollback pending |
+| CI/CD, immutable publish, Helm/rollback | 10% | in_progress | Linux gates, non-root images, provenance publish, digest-only Helm chart, signed promotion verifier and rollback runbook; hosted build/rehearsal evidence pending |
 
 ## Phase 0 evidence
 
@@ -64,10 +64,13 @@ Overall evidenced progress: **26%**. This is 100% of Phase 0 plus the evidenced 
 | 2026-10-29 | Session edge cases | Gateway and Redis adapter tests | Passed: CSRF missing/wrong, duplicate/ambiguous credentials, expiry, tenant mismatch, missing/malformed/oversized/versioned record and store failure |
 | 2026-10-29 | ODS CI quality commands | `npm run verify:ods`, production audit and self-starting Playwright E2E | Passed: 16 unit/component tests, 2 browser E2E and 0 production dependency vulnerabilities |
 | 2026-10-29 | ODS container definitions | Linux CI BuildKit matrix | Implemented; local image build not evidenced because the workstation Docker daemon is unavailable; first hosted CI run remains required |
+| 2026-10-29 | Signed release promotion | `npm run test:ods-release` | 4 tests passed; valid catalog accepted and tampered, expired and unapproved-origin variants rejected |
+| 2026-10-29 | Helm release gates | `helm lint`, `helm template` and negative mutable-image check | Passed; digest-only images, signed envelope, HA replicas, probes/PDB and runtime config mounts rendered |
+| 2026-10-29 | Trace propagation evidence | Gateway race suite plus existing actor/idempotency trace test | Passed for HTTP `traceparent` to downstream gRPC metadata; staging collector trace remains an environment gate |
 
 ## Active slice
 
-Next: **Phase 1.3b - Helm signed-catalog promotion/rollback and trace evidence gates**.
+Next gate: **run the hosted ODS workflow, deploy its digests to staging, capture one end-to-end trace and rehearse signed-catalog plus Helm rollback**. Phase 2 does not start until this evidence is recorded.
 
 Owner boundaries:
 

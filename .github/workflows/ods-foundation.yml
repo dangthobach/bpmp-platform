@@ -10,6 +10,7 @@ on:
       - "packages/frontend/**"
       - "platform/ods/**"
       - "tools/check-ods-frontend-boundaries.mjs"
+      - "tools/verify-ods-catalog.mjs"
       - "package.json"
       - "package-lock.json"
       - "tsconfig.ods.json"
@@ -66,8 +67,30 @@ jobs:
       - run: go vet ./apps/go/api-gateway/...
       - run: go test -race ./apps/go/api-gateway/...
 
+  deployment-quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.0
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.13.1
+      - name: Verify signed catalog fixture
+        run: npm run test:ods-release
+      - name: Lint and render digest-only release
+        run: |
+          helm lint platform/ods/helm/ods-foundation -f platform/ods/helm/ods-foundation/ci/values.yaml
+          helm template ods platform/ods/helm/ods-foundation -f platform/ods/helm/ods-foundation/ci/values.yaml > /dev/null
+          if helm lint platform/ods/helm/ods-foundation -f platform/ods/helm/ods-foundation/ci/values.yaml --set shell.image.digest=latest; then
+            echo "mutable image reference unexpectedly passed"
+            exit 1
+          fi
+
   container-images:
-    needs: [frontend-quality]
+    needs: [frontend-quality, deployment-quality]
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:

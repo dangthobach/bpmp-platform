@@ -1,0 +1,23 @@
+{{- $shellConfig := required "runtime.shellConfigJSON is required" .Values.runtime.shellConfigJSON -}}
+{{- $catalogJSON := required "runtime.catalogJSON is required" .Values.runtime.catalogJSON -}}
+{{- $shell := $shellConfig | mustFromJson -}}
+{{- $catalog := $catalogJSON | mustFromJson -}}
+{{- if not (and (hasKey $shell "catalogVerificationKeys") (hasKey $shell "allowedRemoteOrigins")) -}}
+{{- fail "runtime.shellConfigJSON must contain verification keys and allowed origins" -}}
+{{- end -}}
+{{- if not (and (hasKey $catalog "signature") (hasKey $catalog "keyId")) -}}
+{{- fail "runtime.catalogJSON must contain signature and keyId" -}}
+{{- end -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ods-foundation.fullname" . }}-runtime
+  labels:
+    {{- include "ods-foundation.labels" . | nindent 4 }}
+  annotations:
+    bpmp.dev/catalog-version: {{ required "catalogVersion is required" $catalog.catalogVersion | quote }}
+data:
+  shell-config.json: |-
+    {{- $shellConfig | nindent 4 }}
+  mfe-catalog.json: |-
+    {{- $catalogJSON | nindent 4 }}

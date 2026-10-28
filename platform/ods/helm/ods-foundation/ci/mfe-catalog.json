@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1",
+  "catalogVersion": "ci-1",
+  "generatedAt": "2026-10-29T00:00:00Z",
+  "expiresAt": "2026-11-05T00:00:00Z",
+  "keyId": "ci-key",
+  "remotes": [{
+    "name": "task-mfe",
+    "entry": "https://task.ods.example.test/releases/ci-1/mf-manifest.json",
+    "exposedModule": "route",
+    "contractVersion": "1.0",
+    "minShellVersion": "1.0",
+    "requiredCapabilities": ["task.read"]
+  }],
+  "signature": "9J-xuvaYWxm6m-FiQ0L692MGT4LBwZT91nLboXoGOj5GrA29PLU99aUyzJvB585g50cQmz0JqdNV1HjeONjsDw"
+}

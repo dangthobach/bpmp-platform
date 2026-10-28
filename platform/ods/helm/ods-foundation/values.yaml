@@ -1,0 +1,31 @@
+nameOverride: ""
+fullnameOverride: ""
+
+shell:
+  replicas: 2
+  image:
+    repository: ghcr.io/example/bpmp-platform/ods-shell
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {cpu: 500m, memory: 256Mi}
+
+taskMfe:
+  replicas: 2
+  image:
+    repository: ghcr.io/example/bpmp-platform/task-mfe
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {cpu: 500m, memory: 256Mi}
+
+runtime:
+  shellConfigJSON: ""
+  catalogJSON: ""
+
+service:
+  port: 8080
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: ods-foundation
+description: BPMP ODS Shell and independently deployable frontend remotes
+type: application
+version: 0.1.0
+appVersion: "1.0"

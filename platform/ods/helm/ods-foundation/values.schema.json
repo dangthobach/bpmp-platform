@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["shell", "taskMfe", "runtime", "service"],
+  "properties": {
+    "shell": {"$ref": "#/definitions/workload"},
+    "taskMfe": {"$ref": "#/definitions/workload"},
+    "runtime": {
+      "type": "object",
+      "required": ["shellConfigJSON", "catalogJSON"],
+      "properties": {
+        "shellConfigJSON": {"type": "string"},
+        "catalogJSON": {"type": "string"}
+      }
+    },
+    "service": {
+      "type": "object",
+      "required": ["port"],
+      "properties": {"port": {"type": "integer", "minimum": 1, "maximum": 65535}}
+    }
+  },
+  "definitions": {
+    "workload": {
+      "type": "object",
+      "required": ["replicas", "image", "resources"],
+      "properties": {
+        "replicas": {"type": "integer", "minimum": 2},
+        "image": {
+          "type": "object",
+          "required": ["repository", "digest"],
+          "properties": {
+            "repository": {"type": "string", "minLength": 1},
+            "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}
+          }
+        },
+        "resources": {"type": "object"}
+      }
+    }
+  }
+}

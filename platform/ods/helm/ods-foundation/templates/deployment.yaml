@@ -1,0 +1,101 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ods-foundation.fullname" . }}-shell
+  labels:
+    {{- include "ods-foundation.labels" . | nindent 4 }}
+    app.kubernetes.io/component: shell
+spec:
+  replicas: {{ .Values.shell.replicas }}
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: shell
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "ods-foundation.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: shell
+      annotations:
+        checksum/runtime: {{ printf "%s\n%s" .Values.runtime.shellConfigJSON .Values.runtime.catalogJSON | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: shell
+          image: {{ printf "%s@%s" .Values.shell.image.repository .Values.shell.image.digest | quote }}
+          imagePullPolicy: IfNotPresent
+          ports: [{name: http, containerPort: 8080, protocol: TCP}]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            readOnlyRootFilesystem: true
+          readinessProbe: {httpGet: {path: /healthz, port: http}, initialDelaySeconds: 2, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /healthz, port: http}, initialDelaySeconds: 10, periodSeconds: 10}
+          resources:
+            {{- toYaml .Values.shell.resources | nindent 12 }}
+          volumeMounts:
+            - {name: runtime, mountPath: /usr/share/nginx/html/shell-config.json, subPath: shell-config.json, readOnly: true}
+            - {name: runtime, mountPath: /usr/share/nginx/html/mfe-catalog.json, subPath: mfe-catalog.json, readOnly: true}
+            - {name: nginx-cache, mountPath: /var/cache/nginx}
+            - {name: nginx-run, mountPath: /var/run}
+            - {name: nginx-tmp, mountPath: /tmp}
+      volumes:
+        - name: runtime
+          configMap: {name: {{ include "ods-foundation.fullname" . }}-runtime}
+        - {name: nginx-cache, emptyDir: {}}
+        - {name: nginx-run, emptyDir: {}}
+        - {name: nginx-tmp, emptyDir: {}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ods-foundation.fullname" . }}-task-mfe
+  labels:
+    {{- include "ods-foundation.labels" . | nindent 4 }}
+    app.kubernetes.io/component: task-mfe
+spec:
+  replicas: {{ .Values.taskMfe.replicas }}
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: task-mfe
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "ods-foundation.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: task-mfe
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: task-mfe
+          image: {{ printf "%s@%s" .Values.taskMfe.image.repository .Values.taskMfe.image.digest | quote }}
+          imagePullPolicy: IfNotPresent
+          ports: [{name: http, containerPort: 8080, protocol: TCP}]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            readOnlyRootFilesystem: true
+          readinessProbe: {httpGet: {path: /healthz, port: http}, initialDelaySeconds: 2, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /healthz, port: http}, initialDelaySeconds: 10, periodSeconds: 10}
+          resources:
+            {{- toYaml .Values.taskMfe.resources | nindent 12 }}
+          volumeMounts:
+            - {name: nginx-cache, mountPath: /var/cache/nginx}
+            - {name: nginx-run, mountPath: /var/run}
+            - {name: nginx-tmp, mountPath: /tmp}
+      volumes:
+        - {name: nginx-cache, emptyDir: {}}
+        - {name: nginx-run, emptyDir: {}}
+        - {name: nginx-tmp, emptyDir: {}}

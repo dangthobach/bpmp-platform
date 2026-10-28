@@ -14,6 +14,7 @@
     "typecheck:ods": "npm run typecheck --workspaces --if-present",
     "test:ods": "npm run test --workspaces --if-present",
     "test:ods-e2e": "playwright test --config apps/web/ods-shell/playwright.config.ts",
+    "test:ods-release": "node --test tools/verify-ods-catalog.test.mjs",
     "check:ods-boundaries": "node tools/check-ods-frontend-boundaries.mjs",
     "verify:ods": "npm run check:ods-boundaries && npm run typecheck:ods && npm run test:ods && npm run build:ods"
   },
