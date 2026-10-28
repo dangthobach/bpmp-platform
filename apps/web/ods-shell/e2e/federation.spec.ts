@@ -27,7 +27,8 @@ test("a missing remote manifest does not take down the Shell", async ({ page }) 
       body: JSON.stringify({
         schemaVersion: "1",
         catalogVersion: "broken-remote",
-        generatedAt: "2026-10-28T00:00:00Z",
+        generatedAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
         remotes: [{
           name: "task-mfe",
           entry: "http://127.0.0.1:4301/missing/mf-manifest.json",

@@ -1,6 +1,6 @@
 # ODS Refactor Progress
 
-Last updated: 2026-10-28 (Asia/Saigon)
+Last updated: 2026-10-29 (Asia/Saigon)
 
 This ledger is the source of truth for execution status. Percentages are weighted by evidenced deliverables; phase completion is controlled by exit criteria, not the percentage.
 
@@ -9,14 +9,14 @@ This ledger is the source of truth for execution status. Percentages are weighte
 | Phase | Status | Progress | Current evidence | Next gate |
 |---|---|---:|---|---|
 | 0 - Discovery and decisions | complete | 100% | Discovery baseline plus ADR-009/010/011 | Start Phase 1 vertical foundation |
-| 1 - Platform foundations | in_progress | 55% | Shell, Task remote, MFE contract, callApi, shared UI, boundary gate and federation E2E | Production catalog signature, BFF session, trace/CI/K8s gates |
+| 1 - Platform foundations | in_progress | 65% | Shell, Task remote, signed runtime catalog, MFE contract, callApi, shared UI, boundary gate and federation E2E | BFF session, trace/CI/K8s gates |
 | 2 - Task vertical slice | not_started | 0% | Existing gateway/Human Runtime provide the migration source | Complete task flow through new MFE/BFF contract |
 | 3 - Case domain | not_started | 0% | Existing Human Runtime case projection is not the target Case aggregate | Separate Case owner/database/outbox |
 | 4 - Documents and integrations | not_started | 0% | Requirements only | Streaming/quarantine and idempotent callback paths |
 | 5 - ODS Common and operations | not_started | 0% | Existing observability/configuration plumbing is reusable | Versioned master data, notification and audit projection |
 | 6 - Cutover and hardening | not_started | 0% | Strangler strategy documented | Canary/rollback/DR and legacy retirement evidence |
 
-Overall evidenced progress: **18%**. This is 100% of Phase 0 plus the evidenced portion of Phase 1; later phases receive no scaffolding credit.
+Overall evidenced progress: **20%**. This is 100% of Phase 0 plus the evidenced portion of Phase 1; later phases receive no scaffolding credit.
 
 ## Phase 1 evidence
 
@@ -27,7 +27,7 @@ Overall evidenced progress: **18%**. This is 100% of Phase 0 plus the evidenced 
 | MFE contract and failure isolation | 15% | complete | Catalog allowlist/parser, timeout, load/render boundaries and failure tests |
 | Shared UI and dependency policy | 10% | complete | `@ods/shared-ui` plus deterministic boundary check |
 | `callApi` SDK | 15% | in_progress | Typed success/error, IDs, timeout/cancel, same-origin guard; auth/CSRF production session pending |
-| Signed production catalog | 10% | in_progress | Fail-closed verifier port exists; production signature implementation/key rotation pending |
+| Signed production catalog | 10% | complete | Canonical signed bytes, Ed25519 WebCrypto verification, key-id rotation map, freshness/lifetime checks and runtime config |
 | Portal Gateway BFF session and async tracing | 10% | not_started | Existing gateway plumbing is the implementation base |
 | CI/CD, immutable publish, Helm/rollback | 10% | not_started | Build artifacts exist; pipeline/deployment policy pending |
 
@@ -57,10 +57,13 @@ Overall evidenced progress: **18%**. This is 100% of Phase 0 plus the evidenced 
 | 2026-10-28 | Federation browser E2E | `npm run test:ods-e2e` | 2 tests passed, including missing-manifest isolation |
 | 2026-10-28 | Production dependency audit | `npm audit --omit=dev --audit-level=high` | Passed: 0 production vulnerabilities |
 | 2026-10-28 | Full dependency audit | `npm audit` | Blocked: Module Federation build/DTS dependency pins vulnerable `undici`; DTS generation disabled, vendor patch/exception still required |
+| 2026-10-29 | Signed catalog unit/edge tests | `npm run test:ods` | 16 tests passed; valid signature accepted; tampering, unknown key, expiry and cross-origin config rejected |
+| 2026-10-29 | Signed catalog quality gates | boundary check, typecheck, production build, production dependency audit and `git diff --check` | Passed |
+| 2026-10-29 | Federation browser E2E | `npm run test:ods-e2e` | 2 tests passed; independent remote loaded and missing manifest remained isolated |
 
 ## Active slice
 
-Next: **Phase 1.2 - Portal Gateway browser session/CSRF boundary and signed MFE catalog verification**.
+Next: **Phase 1.2 - Portal Gateway browser session/CSRF boundary**.
 
 Owner boundaries:
 

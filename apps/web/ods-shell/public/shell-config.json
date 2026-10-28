@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "1",
+  "shellVersion": "1.0",
+  "catalogUrl": "/mfe-catalog.json",
+  "catalogTimeoutMs": 5000,
+  "remoteTimeoutMs": 10000,
+  "apiTimeoutMs": 15000,
+  "maxApiResponseBytes": 4194304,
+  "maxCatalogLifetimeMs": 3155760000000,
+  "allowedRemoteOrigins": ["http://127.0.0.1:4301"],
+  "catalogVerificationKeys": {}
+}

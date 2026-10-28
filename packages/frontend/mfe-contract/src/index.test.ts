@@ -5,6 +5,7 @@ const validCatalog = {
   schemaVersion: "1",
   catalogVersion: "catalog-1",
   generatedAt: "2026-10-28T00:00:00Z",
+  expiresAt: "2026-10-29T00:00:00Z",
   remotes: [{
     name: "task-mfe",
     entry: "https://assets.example/task/v1/mf-manifest.json",

@@ -36,6 +36,7 @@ export interface RemoteCatalog {
   schemaVersion: "1";
   catalogVersion: string;
   generatedAt: string;
+  expiresAt: string;
   remotes: RemoteCatalogEntry[];
   signature?: string;
   keyId?: string;
@@ -43,10 +44,12 @@ export interface RemoteCatalog {
 
 export function parseRemoteCatalog(value: unknown, allowedOrigins: ReadonlySet<string>): RemoteCatalog {
   if (!isRecord(value) || value.schemaVersion !== "1" || typeof value.catalogVersion !== "string"
-    || typeof value.generatedAt !== "string" || !Array.isArray(value.remotes)) {
+    || typeof value.generatedAt !== "string" || typeof value.expiresAt !== "string"
+    || !Array.isArray(value.remotes)) {
     throw new TypeError("invalid MFE catalog envelope");
   }
   if (Number.isNaN(Date.parse(value.generatedAt))) throw new TypeError("invalid catalog timestamp");
+  if (Number.isNaN(Date.parse(value.expiresAt))) throw new TypeError("invalid catalog expiry");
   const names = new Set<string>();
   const remotes = value.remotes.map((remote, index) => parseRemote(remote, index, allowedOrigins));
   for (const remote of remotes) {
@@ -57,11 +60,32 @@ export function parseRemoteCatalog(value: unknown, allowedOrigins: ReadonlySet<s
     schemaVersion: "1",
     catalogVersion: value.catalogVersion,
     generatedAt: value.generatedAt,
+    expiresAt: value.expiresAt,
     remotes,
   };
   if (typeof value.signature === "string") catalog.signature = value.signature;
   if (typeof value.keyId === "string") catalog.keyId = value.keyId;
   return catalog;
+}
+
+export function catalogSigningBytes(catalog: RemoteCatalog): Uint8Array {
+  const payload = {
+    catalogVersion: catalog.catalogVersion,
+    expiresAt: catalog.expiresAt,
+    generatedAt: catalog.generatedAt,
+    keyId: catalog.keyId ?? "",
+    remotes: catalog.remotes.map((remote) => ({
+      contractVersion: remote.contractVersion,
+      entry: remote.entry,
+      exposedModule: remote.exposedModule,
+      integrity: remote.integrity ?? "",
+      minShellVersion: remote.minShellVersion,
+      name: remote.name,
+      requiredCapabilities: [...remote.requiredCapabilities],
+    })),
+    schemaVersion: catalog.schemaVersion,
+  };
+  return new TextEncoder().encode(JSON.stringify(payload));
 }
 
 export function assertRemoteRouteModule(value: unknown, expectedContract: string): RemoteRouteModule {
