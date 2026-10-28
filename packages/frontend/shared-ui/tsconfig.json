@@ -1,0 +1,4 @@
+{
+  "extends": "../../../tsconfig.ods.json",
+  "include": ["src"]
+}

@@ -1,0 +1,7 @@
+{
+  "extends": "../../../tsconfig.ods.json",
+  "compilerOptions": {
+    "types": ["vitest/globals"]
+  },
+  "include": ["src"]
+}

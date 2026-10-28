@@ -1,0 +1,33 @@
+{
+  "name": "bpmp-ods-frontend-workspace",
+  "private": true,
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "workspaces": [
+    "apps/web/ods-shell",
+    "apps/web/task-mfe",
+    "packages/frontend/*"
+  ],
+  "scripts": {
+    "build:ods": "npm run build --workspaces --if-present",
+    "typecheck:ods": "npm run typecheck --workspaces --if-present",
+    "test:ods": "npm run test --workspaces --if-present",
+    "test:ods-e2e": "playwright test --config apps/web/ods-shell/playwright.config.ts",
+    "check:ods-boundaries": "node tools/check-ods-frontend-boundaries.mjs",
+    "verify:ods": "npm run check:ods-boundaries && npm run typecheck:ods && npm run test:ods && npm run build:ods"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "16.3.3",
+    "@types/node": "24.10.0",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "5.2.0",
+    "jsdom": "29.0.1",
+    "typescript": "5.8.3",
+    "vite": "7.3.7",
+    "vitest": "5.0.5"
+  }
+}

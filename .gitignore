@@ -16,6 +16,14 @@
 /apps/web/cockpit-web/vite.config.d.ts
 /apps/web/cockpit-web/playwright-report/
 /apps/web/cockpit-web/test-results/
+node_modules/
+/apps/web/ods-shell/dist/
+/apps/web/ods-shell/playwright-report/
+/apps/web/ods-shell/test-results/
+/apps/web/task-mfe/dist/
+/apps/web/task-mfe/@mf-types/
+/apps/web/ods-shell/@mf-types/
+@mf-types/
 /.agents/
 clippy_output.txt
 check_output.txt

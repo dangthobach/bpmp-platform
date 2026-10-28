@@ -1,0 +1,23 @@
+{
+  "name": "@ods/task-mfe",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 4301",
+    "build": "vite build",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ods/call-api": "0.1.0",
+    "@ods/mfe-contract": "0.1.0",
+    "@ods/shared-ui": "0.1.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "swr": "2.5.1"
+  },
+  "devDependencies": {
+    "@module-federation/vite": "1.23.6"
+  }
+}

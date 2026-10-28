@@ -1,0 +1,17 @@
+{
+  "name": "@ods/mfe-contract",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ods/call-api": "0.1.0",
+    "react": "19.2.8"
+  }
+}

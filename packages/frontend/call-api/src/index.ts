@@ -1,0 +1,185 @@
+import axios, { AxiosError, type AxiosInstance, type AxiosRequestConfig } from "axios";
+
+const validIdentifier = /^[A-Za-z0-9_.:-]{1,128}$/;
+
+export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+
+export interface ProblemDetails {
+  type: string;
+  title: string;
+  status: number;
+  code: string;
+  detail?: string;
+  retryable: boolean;
+  request_id: string;
+  correlation_id: string;
+  trace_id?: string;
+}
+
+export type ApiResult<T> =
+  | { ok: true; data: T; requestId: string; correlationId: string }
+  | { ok: false; problem: ProblemDetails; requestId: string; correlationId: string };
+
+export interface CallApiOptions<TBody = unknown> {
+  method: HttpMethod;
+  path: string;
+  body?: TBody;
+  signal?: AbortSignal;
+  idempotencyKey?: string;
+  correlationId?: string;
+  timeoutMs?: number;
+}
+
+export type CallApi = <TResponse, TBody = unknown>(
+  options: CallApiOptions<TBody>,
+) => Promise<ApiResult<TResponse>>;
+
+export interface CallApiConfiguration {
+  baseURL?: string;
+  defaultTimeoutMs: number;
+  maxResponseBytes: number;
+  csrfToken?: () => string | undefined;
+  onProtocolError?: (error: Error) => void;
+  transport?: AxiosInstance;
+}
+
+export function createCallApi(configuration: CallApiConfiguration): CallApi {
+  const transport = configuration.transport ?? axios.create({
+    baseURL: configuration.baseURL ?? "/",
+    withCredentials: true,
+    maxContentLength: configuration.maxResponseBytes,
+    maxBodyLength: configuration.maxResponseBytes,
+    validateStatus: () => true,
+  });
+
+  return async function callApi<TResponse, TBody = unknown>(
+    options: CallApiOptions<TBody>,
+  ): Promise<ApiResult<TResponse>> {
+    assertSafePath(options.path);
+    const requestId = createIdentifier();
+    const correlationId = normalizeIdentifier(options.correlationId) ?? requestId;
+    const headers: Record<string, string> = {
+      Accept: "application/json, application/problem+json",
+      "X-Request-ID": requestId,
+      "X-Correlation-ID": correlationId,
+    };
+    const csrfToken = configuration.csrfToken?.();
+    if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
+    if (options.idempotencyKey) headers["Idempotency-Key"] = options.idempotencyKey;
+
+    const request: AxiosRequestConfig<TBody> = {
+      method: options.method,
+      url: options.path,
+      headers,
+      timeout: options.timeoutMs ?? configuration.defaultTimeoutMs,
+    };
+    if (options.signal !== undefined) request.signal = options.signal;
+    if (options.body !== undefined) request.data = options.body;
+
+    try {
+      const response = await transport.request<TResponse>(request);
+      const responseRequestId = headerIdentifier(response.headers["x-request-id"]) ?? requestId;
+      const responseCorrelationId = headerIdentifier(response.headers["x-correlation-id"]) ?? correlationId;
+      if (response.status >= 200 && response.status < 300) {
+        return {
+          ok: true,
+          data: response.data,
+          requestId: responseRequestId,
+          correlationId: responseCorrelationId,
+        };
+      }
+      return failureResult(
+        response.status,
+        response.data,
+        responseRequestId,
+        responseCorrelationId,
+        configuration.onProtocolError,
+      );
+    } catch (error) {
+      if (options.signal?.aborted) throw error;
+      const axiosError = error as AxiosError;
+      const code = axiosError.code === "ECONNABORTED" ? "request_timeout" : "network_unavailable";
+      return {
+        ok: false,
+        problem: {
+          type: `https://docs.bpmp.dev/problems/${code}`,
+          title: code === "request_timeout" ? "Request timed out" : "Network unavailable",
+          status: 0,
+          code,
+          retryable: true,
+          request_id: requestId,
+          correlation_id: correlationId,
+        },
+        requestId,
+        correlationId,
+      };
+    }
+  };
+}
+
+function failureResult<T>(
+  status: number,
+  value: T,
+  requestId: string,
+  correlationId: string,
+  onProtocolError: CallApiConfiguration["onProtocolError"],
+): ApiResult<never> {
+  if (isProblemDetails(value)) {
+    return {
+      ok: false,
+      problem: {
+        ...value,
+        status,
+        request_id: normalizeIdentifier(value.request_id) ?? requestId,
+        correlation_id: normalizeIdentifier(value.correlation_id) ?? correlationId,
+      },
+      requestId,
+      correlationId,
+    };
+  }
+  const error = new Error(`API returned ${status} without valid Problem Details`);
+  onProtocolError?.(error);
+  return {
+    ok: false,
+    problem: {
+      type: "https://docs.bpmp.dev/problems/invalid_upstream_response",
+      title: "Invalid upstream response",
+      status,
+      code: "invalid_upstream_response",
+      retryable: status >= 500,
+      request_id: requestId,
+      correlation_id: correlationId,
+    },
+    requestId,
+    correlationId,
+  };
+}
+
+function isProblemDetails(value: unknown): value is ProblemDetails {
+  if (value === null || typeof value !== "object") return false;
+  const candidate = value as Partial<ProblemDetails>;
+  return typeof candidate.type === "string"
+    && typeof candidate.title === "string"
+    && typeof candidate.code === "string"
+    && typeof candidate.retryable === "boolean"
+    && typeof candidate.request_id === "string"
+    && typeof candidate.correlation_id === "string";
+}
+
+function assertSafePath(path: string): void {
+  if (!path.startsWith("/") || path.startsWith("//") || /^https?:/i.test(path)) {
+    throw new TypeError("callApi path must be a same-origin absolute path");
+  }
+}
+
+function normalizeIdentifier(value: string | undefined): string | undefined {
+  return value && validIdentifier.test(value) ? value : undefined;
+}
+
+function headerIdentifier(value: unknown): string | undefined {
+  return typeof value === "string" ? normalizeIdentifier(value) : undefined;
+}
+
+function createIdentifier(): string {
+  return crypto.randomUUID().replaceAll("-", "");
+}
