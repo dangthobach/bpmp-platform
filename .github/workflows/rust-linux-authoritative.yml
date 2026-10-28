@@ -51,7 +51,7 @@ jobs:
       - name: Install native build dependencies
         run: sudo apt-get update && sudo apt-get install -y clang cmake libclang-dev
       - name: Cache Rust build artifacts
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
