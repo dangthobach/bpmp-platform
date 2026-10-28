@@ -1,0 +1,113 @@
+name: ODS Foundation
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/ods-foundation.yml"
+      - "apps/go/api-gateway/**"
+      - "apps/web/ods-shell/**"
+      - "apps/web/task-mfe/**"
+      - "packages/frontend/**"
+      - "platform/ods/**"
+      - "tools/check-ods-frontend-boundaries.mjs"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig.ods.json"
+  push:
+    branches: ["main"]
+    tags: ["ods-v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ods-foundation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend-quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.0
+          cache: npm
+      - run: npm ci
+      - name: Boundaries, types, tests and production builds
+        run: npm run verify:ods
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+      - name: Install browser runtime
+        run: npx playwright install --with-deps chromium
+      - name: Federation and failure-isolation E2E
+        run: npm run test:ods-e2e
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ods-frontend-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            apps/web/ods-shell/dist
+            apps/web/task-mfe/dist
+
+  gateway-quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.25.12
+          cache-dependency-path: |
+            go.work.sum
+            apps/go/api-gateway/go.sum
+      - run: go vet ./apps/go/api-gateway/...
+      - run: go test -race ./apps/go/api-gateway/...
+
+  container-images:
+    needs: [frontend-quality]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: ods-shell
+            dockerfile: platform/ods/Dockerfile.ods-shell
+          - app: task-mfe
+            dockerfile: platform/ods/Dockerfile.task-mfe
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Authenticate to GHCR
+        if: startsWith(github.ref, 'refs/tags/ods-v')
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and optionally publish immutable image
+        id: image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: ${{ startsWith(github.ref, 'refs/tags/ods-v') }}
+          tags: ghcr.io/${{ github.repository }}/${{ matrix.app }}:${{ github.sha }}
+          labels: org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}
+      - name: Attest published image
+        if: startsWith(github.ref, 'refs/tags/ods-v')
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ghcr.io/${{ github.repository }}/${{ matrix.app }}
+          subject-digest: ${{ steps.image.outputs.digest }}
+          push-to-registry: true
