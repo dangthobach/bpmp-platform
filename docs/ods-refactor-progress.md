@@ -88,6 +88,7 @@ Mandatory edge cases for the slice:
 
 ## Blockers and decisions needing external evidence
 
+- Phase 1 final environment gate is pending: Docker Desktop 4.94 on this workstation crashes while initializing its secrets-engine socket, so local image builds cannot be evidenced without repairing/resetting Docker state. No Docker data was deleted or reset. The available `docker-desktop` and `minikube` contexts were not assumed to be authorized staging targets.
 - Production CCU, request distribution, domain cardinality, document throughput and retention figures are not yet supplied. Phase 0 records conservative design assumptions; performance acceptance cannot be claimed until sanitized production-like data is available.
 - Unified Portal OIDC endpoints, cookie/session policy and signing keys are external dependencies. Phase 1 uses explicit ports/configuration and test doubles; production activation remains gated on those inputs.
 - CSP upload/callback and external-system contracts are required before Phase 4 implementation.
