@@ -4,472 +4,3420 @@
     "title": "BPMP Platform Public API",
     "version": "1.0.0",
     "description": "Authoritative public HTTP contract for workflow commands, human work, completed-process queries, audit queries, and runtime configuration lifecycle.",
-    "license": {"name": "Apache-2.0", "identifier": "Apache-2.0"}
+    "license": {
+      "name": "Apache-2.0",
+      "identifier": "Apache-2.0"
+    }
   },
-  "servers": [{"url": "/"}],
-  "security": [{"bearerAuth": []}, {"bffSession": []}],
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    },
+    {
+      "bffSession": []
+    }
+  ],
   "tags": [
-    {"name": "Workflow", "description": "Authoritative workflow commands."},
-    {"name": "Human Work", "description": "Human work-item and case operations."},
-    {"name": "Process Query", "description": "Bounded typed queries over completed process projections."},
-    {"name": "Audit", "description": "Immutable audit queries."},
-    {"name": "Configuration", "description": "Versioned runtime-configuration lifecycle."}
+    {
+      "name": "Workflow",
+      "description": "Authoritative workflow commands."
+    },
+    {
+      "name": "Human Work",
+      "description": "Human work-item and case operations."
+    },
+    {
+      "name": "Process Query",
+      "description": "Bounded typed queries over completed process projections."
+    },
+    {
+      "name": "Audit",
+      "description": "Immutable audit queries."
+    },
+    {
+      "name": "Configuration",
+      "description": "Versioned runtime-configuration lifecycle."
+    }
   ],
   "paths": {
     "/v1/runtime/browser-configuration": {
       "parameters": [
-        {"$ref": "#/components/parameters/TenantID"},
-        {"$ref": "#/components/parameters/CorrelationID"}
+        {
+          "$ref": "#/components/parameters/TenantID"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationID"
+        }
       ],
       "get": {
         "summary": "Resolve browser-safe tenant configuration",
         "operationId": "getBrowserConfiguration",
-        "tags": ["Configuration"],
+        "tags": [
+          "Configuration"
+        ],
         "responses": {
           "200": {
             "description": "Browser-safe resolved configuration",
-            "headers": {"ETag": {"schema": {"type": "string"}}},
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BrowserConfiguration"}}}
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrowserConfiguration"
+                }
+              }
+            }
           },
-          "304": {"description": "Configuration version has not changed"},
-          "403": {"$ref": "#/components/responses/Forbidden"},
-          "429": {"$ref": "#/components/responses/RateLimited"},
-          "502": {"$ref": "#/components/responses/UpstreamUnavailable"}
+          "304": {
+            "description": "Configuration version has not changed"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
         }
       }
     },
     "/v1/workflows/{workflowType}/instances": {
       "parameters": [
-        {"$ref": "#/components/parameters/TenantID"},
-        {"$ref": "#/components/parameters/CorrelationID"},
-        {"$ref": "#/components/parameters/CommandID"},
-        {"$ref": "#/components/parameters/IdempotencyKey"},
-        {"name": "workflowType", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}}
+        {
+          "$ref": "#/components/parameters/TenantID"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationID"
+        },
+        {
+          "$ref": "#/components/parameters/CommandID"
+        },
+        {
+          "$ref": "#/components/parameters/IdempotencyKey"
+        },
+        {
+          "name": "workflowType",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
       ],
       "post": {
         "summary": "Start a workflow instance",
         "operationId": "startWorkflow",
-        "tags": ["Workflow"],
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/StartWorkflowRequest"}}}},
+        "tags": [
+          "Workflow"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartWorkflowRequest"
+              }
+            }
+          }
+        },
         "responses": {
-          "202": {"description": "Command durably committed", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CommandReceipt"}}}},
-          "400": {"$ref": "#/components/responses/BadRequest"},
-          "403": {"$ref": "#/components/responses/Forbidden"},
-          "429": {"$ref": "#/components/responses/RateLimited"},
-          "502": {"$ref": "#/components/responses/UpstreamUnavailable"}
+          "202": {
+            "description": "Command durably committed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
         }
       }
     },
     "/v1/work-items": {
-      "parameters": [{"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"}],
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantID"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationID"
+        }
+      ],
       "get": {
         "summary": "List work items",
         "operationId": "listWorkItems",
-        "tags": ["Human Work"],
-        "parameters": [{"$ref": "#/components/parameters/PageSize"}, {"$ref": "#/components/parameters/PageToken"}],
+        "tags": [
+          "Human Work"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PageSize"
+          },
+          {
+            "$ref": "#/components/parameters/PageToken"
+          }
+        ],
         "responses": {
-          "200": {"description": "Work-item page", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ListWorkItemsResponse"}}}},
-          "400": {"$ref": "#/components/responses/BadRequest"},
-          "403": {"$ref": "#/components/responses/Forbidden"},
-          "429": {"$ref": "#/components/responses/RateLimited"},
-          "502": {"$ref": "#/components/responses/UpstreamUnavailable"}
+          "200": {
+            "description": "Work-item page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListWorkItemsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
         }
       }
     },
     "/v1/work-items/{workItemID}": {
       "parameters": [
-        {"$ref": "#/components/parameters/TenantID"},
-        {"$ref": "#/components/parameters/CorrelationID"},
-        {"name": "workItemID", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}}
+        {
+          "$ref": "#/components/parameters/TenantID"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationID"
+        },
+        {
+          "name": "workItemID",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
       ],
       "get": {
         "summary": "Get a work item",
         "operationId": "getWorkItem",
-        "tags": ["Human Work"],
+        "tags": [
+          "Human Work"
+        ],
         "responses": {
-          "200": {"description": "Work item", "content": {"application/json": {"schema": {"type": "object", "required": ["work_item"], "properties": {"work_item": {"$ref": "#/components/schemas/WorkItem"}}}}}},
-          "400": {"$ref": "#/components/responses/BadRequest"},
-          "403": {"$ref": "#/components/responses/Forbidden"},
-          "502": {"$ref": "#/components/responses/UpstreamUnavailable"}
+          "200": {
+            "description": "Work item",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "work_item"
+                  ],
+                  "properties": {
+                    "work_item": {
+                      "$ref": "#/components/schemas/WorkItem"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
         }
       }
     },
     "/v1/work-items/{workItemID}/complete": {
       "parameters": [
-        {"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"},
-        {"$ref": "#/components/parameters/CommandID"}, {"$ref": "#/components/parameters/IdempotencyKey"},
-        {"name": "workItemID", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}}
+        {
+          "$ref": "#/components/parameters/TenantID"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationID"
+        },
+        {
+          "$ref": "#/components/parameters/CommandID"
+        },
+        {
+          "$ref": "#/components/parameters/IdempotencyKey"
+        },
+        {
+          "name": "workItemID",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
       ],
       "post": {
         "summary": "Complete a work item",
         "operationId": "completeWorkItem",
-        "tags": ["Human Work"],
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CompleteWorkItemRequest"}}}},
+        "tags": [
+          "Human Work"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteWorkItemRequest"
+              }
+            }
+          }
+        },
         "responses": {
-          "202": {"description": "Completion accepted", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WorkItemCommandResponse"}}}},
-          "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"},
-          "429": {"$ref": "#/components/responses/RateLimited"}, "502": {"$ref": "#/components/responses/UpstreamUnavailable"}
+          "202": {
+            "description": "Completion accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkItemCommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
         }
       }
     },
     "/v1/work-items/{workItemID}/delegate": {
       "parameters": [
-        {"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"},
-        {"$ref": "#/components/parameters/CommandID"}, {"$ref": "#/components/parameters/IdempotencyKey"},
-        {"name": "workItemID", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}}
+        {
+          "$ref": "#/components/parameters/TenantID"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationID"
+        },
+        {
+          "$ref": "#/components/parameters/CommandID"
+        },
+        {
+          "$ref": "#/components/parameters/IdempotencyKey"
+        },
+        {
+          "name": "workItemID",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
       ],
       "post": {
         "summary": "Delegate a work item",
         "operationId": "delegateWorkItem",
-        "tags": ["Human Work"],
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DelegateWorkItemRequest"}}}},
+        "tags": [
+          "Human Work"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DelegateWorkItemRequest"
+              }
+            }
+          }
+        },
         "responses": {
-          "200": {"description": "Delegation committed", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WorkItemCommandResponse"}}}},
-          "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"},
-          "429": {"$ref": "#/components/responses/RateLimited"}, "502": {"$ref": "#/components/responses/UpstreamUnavailable"}
+          "200": {
+            "description": "Delegation committed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkItemCommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
         }
       }
     },
     "/v1/cases/{caseID}": {
       "parameters": [
-        {"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"},
-        {"name": "caseID", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}}
+        {
+          "$ref": "#/components/parameters/TenantID"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationID"
+        },
+        {
+          "name": "caseID",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
       ],
       "get": {
         "summary": "Get a case",
         "operationId": "getCase",
-        "tags": ["Human Work"],
+        "tags": [
+          "Human Work"
+        ],
         "responses": {
-          "200": {"description": "Case view", "content": {"application/json": {"schema": {"type": "object", "required": ["case"], "properties": {"case": {"$ref": "#/components/schemas/Case"}}}}}},
-          "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"},
-          "502": {"$ref": "#/components/responses/UpstreamUnavailable"}
+          "200": {
+            "description": "Case view",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "case"
+                  ],
+                  "properties": {
+                    "case": {
+                      "$ref": "#/components/schemas/Case"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
         }
       }
     },
     "/v1/audit-records": {
-      "parameters": [{"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"}],
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantID"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationID"
+        }
+      ],
       "get": {
         "summary": "List immutable audit records",
         "operationId": "listAuditRecords",
-        "tags": ["Audit"],
+        "tags": [
+          "Audit"
+        ],
         "parameters": [
-          {"$ref": "#/components/parameters/PageSize"}, {"$ref": "#/components/parameters/PageToken"},
-          {"name": "work_item_id", "in": "query", "schema": {"$ref": "#/components/schemas/Identifier"}},
-          {"name": "case_id", "in": "query", "schema": {"$ref": "#/components/schemas/Identifier"}}
+          {
+            "$ref": "#/components/parameters/PageSize"
+          },
+          {
+            "$ref": "#/components/parameters/PageToken"
+          },
+          {
+            "name": "work_item_id",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/Identifier"
+            }
+          },
+          {
+            "name": "case_id",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/Identifier"
+            }
+          }
         ],
         "responses": {
-          "200": {"description": "Immutable audit page", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ListAuditRecordsResponse"}}}},
-          "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"},
-          "502": {"$ref": "#/components/responses/UpstreamUnavailable"}
+          "200": {
+            "description": "Immutable audit page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListAuditRecordsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
         }
       }
     },
     "/v1/process-instances/completed/query": {
-      "parameters": [{"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"}],
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantID"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationID"
+        }
+      ],
       "post": {
         "summary": "Query completed process projections",
-		"description": "Executes a tenant-scoped typed filter tree with stable multi-field keyset pagination. Actor row-level authorization is compiled into the same typed DSL and intersected with the client filter. Raw SQL and arbitrary field names are not accepted.",
+        "description": "Executes a tenant-scoped typed filter tree with stable multi-field keyset pagination. Actor row-level authorization is compiled into the same typed DSL and intersected with the client filter. Raw SQL and arbitrary field names are not accepted.",
         "operationId": "queryCompletedProcesses",
-        "tags": ["Process Query"],
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CompletedProcessQuery"}}}},
+        "tags": [
+          "Process Query"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompletedProcessQuery"
+              }
+            }
+          }
+        },
         "responses": {
-          "200": {"description": "Completed process page", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CompletedProcessQueryResponse"}}}},
-          "400": {"$ref": "#/components/responses/BadRequest"},
-          "403": {"$ref": "#/components/responses/Forbidden"},
-          "429": {"$ref": "#/components/responses/RateLimited"},
-          "502": {"$ref": "#/components/responses/UpstreamUnavailable"}
+          "200": {
+            "description": "Completed process page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompletedProcessQueryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
         }
       }
     },
     "/v1/process-instances/query": {
-      "parameters": [{"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"}],
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantID"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationID"
+        }
+      ],
       "post": {
         "summary": "Query process projections",
         "description": "Executes a tenant-scoped typed query across all, active, completed, or deleted process projections.",
         "operationId": "queryProcesses",
-        "tags": ["Process Query"],
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ProcessQuery"}}}},
+        "tags": [
+          "Process Query"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProcessQuery"
+              }
+            }
+          }
+        },
         "responses": {
-          "200": {"description": "Process page", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CompletedProcessQueryResponse"}}}},
-          "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"},
-          "429": {"$ref": "#/components/responses/RateLimited"}, "502": {"$ref": "#/components/responses/UpstreamUnavailable"}
+          "200": {
+            "description": "Process page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompletedProcessQueryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
         }
       }
     },
     "/v1/process-instances/query-capabilities": {
-      "parameters": [{"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"}],
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantID"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationID"
+        }
+      ],
       "get": {
         "summary": "Get actor-scoped process query capabilities",
         "operationId": "getProcessQueryCapabilities",
-        "tags": ["Process Query"],
+        "tags": [
+          "Process Query"
+        ],
         "responses": {
-          "200": {"description": "Query capability catalog and tenant limits", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/QueryCapabilities"}}}},
-          "403": {"$ref": "#/components/responses/Forbidden"}, "502": {"$ref": "#/components/responses/UpstreamUnavailable"}
+          "200": {
+            "description": "Query capability catalog and tenant limits",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryCapabilities"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
         }
       }
     },
     "/v1/process-instances/aggregate": {
-      "parameters": [{"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"}],
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantID"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationID"
+        }
+      ],
       "post": {
-        "summary": "Aggregate process projections", "operationId": "aggregateProcesses", "tags": ["Process Query"],
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object"}}}},
-        "responses": {"200": {"description": "Bounded aggregate rows", "content": {"application/json": {"schema": {"type": "object"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"}, "502": {"$ref": "#/components/responses/UpstreamUnavailable"}}
+        "summary": "Aggregate process projections",
+        "operationId": "aggregateProcesses",
+        "tags": [
+          "Process Query"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Bounded aggregate rows",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        }
       }
     },
     "/v1/process-events/query": {
-      "parameters": [{"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"}],
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantID"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationID"
+        }
+      ],
       "post": {
-        "summary": "Query projected workflow events", "operationId": "queryProcessEvents", "tags": ["Process Query"],
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object"}}}},
-        "responses": {"200": {"description": "Event page", "content": {"application/json": {"schema": {"type": "object"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"}, "502": {"$ref": "#/components/responses/UpstreamUnavailable"}}
+        "summary": "Query projected workflow events",
+        "operationId": "queryProcessEvents",
+        "tags": [
+          "Process Query"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Event page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        }
       }
     },
     "/v1/saved-queries": {
-      "parameters": [{"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"}],
-      "post": {"summary": "Create or update a saved query", "operationId": "saveProcessQuery", "tags": ["Process Query"], "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object"}}}}, "responses": {"200": {"description": "Saved query", "content": {"application/json": {"schema": {"type": "object"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"}, "502": {"$ref": "#/components/responses/UpstreamUnavailable"}}},
-      "get": {"summary": "List saved queries", "operationId": "listSavedQueries", "tags": ["Process Query"], "parameters": [{"$ref": "#/components/parameters/PageSize"}, {"$ref": "#/components/parameters/PageToken"}], "responses": {"200": {"description": "Saved query page", "content": {"application/json": {"schema": {"type": "object"}}}}, "403": {"$ref": "#/components/responses/Forbidden"}, "502": {"$ref": "#/components/responses/UpstreamUnavailable"}}}
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantID"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationID"
+        }
+      ],
+      "post": {
+        "summary": "Create or update a saved query",
+        "operationId": "saveProcessQuery",
+        "tags": [
+          "Process Query"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Saved query",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        }
+      },
+      "get": {
+        "summary": "List saved queries",
+        "operationId": "listSavedQueries",
+        "tags": [
+          "Process Query"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PageSize"
+          },
+          {
+            "$ref": "#/components/parameters/PageToken"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Saved query page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        }
+      }
     },
     "/v1/saved-queries/{savedQueryID}": {
-      "parameters": [{"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"}, {"name": "savedQueryID", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}}],
-      "delete": {"summary": "Delete a saved query with optimistic concurrency", "operationId": "deleteSavedQuery", "tags": ["Process Query"], "parameters": [{"name": "expected_version", "in": "query", "required": true, "schema": {"type": "integer", "minimum": 1}}], "responses": {"204": {"description": "Deleted"}, "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"}, "502": {"$ref": "#/components/responses/UpstreamUnavailable"}}}
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantID"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationID"
+        },
+        {
+          "name": "savedQueryID",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      ],
+      "delete": {
+        "summary": "Delete a saved query with optimistic concurrency",
+        "operationId": "deleteSavedQuery",
+        "tags": [
+          "Process Query"
+        ],
+        "parameters": [
+          {
+            "name": "expected_version",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        }
+      }
     },
     "/v1/query-exports": {
-      "parameters": [{"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"}],
-      "post": {"summary": "Create an asynchronous CSV query export", "operationId": "createQueryExport", "tags": ["Process Query"], "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object"}}}}, "responses": {"202": {"description": "Export accepted", "content": {"application/json": {"schema": {"type": "object"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"}, "502": {"$ref": "#/components/responses/UpstreamUnavailable"}}}
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantID"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationID"
+        }
+      ],
+      "post": {
+        "summary": "Create an asynchronous CSV query export",
+        "operationId": "createQueryExport",
+        "tags": [
+          "Process Query"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Export accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        }
+      }
     },
     "/v1/query-exports/{exportID}": {
-      "parameters": [{"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"}, {"name": "exportID", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}}],
-      "get": {"summary": "Get query export status or result", "operationId": "getQueryExport", "tags": ["Process Query"], "responses": {"200": {"description": "Export state", "content": {"application/json": {"schema": {"type": "object"}}}}, "403": {"$ref": "#/components/responses/Forbidden"}, "404": {"$ref": "#/components/responses/NotFound"}, "502": {"$ref": "#/components/responses/UpstreamUnavailable"}}},
-      "delete": {"summary": "Cancel a pending query export", "operationId": "cancelQueryExport", "tags": ["Process Query"], "responses": {"200": {"description": "Cancelled export", "content": {"application/json": {"schema": {"type": "object"}}}}, "403": {"$ref": "#/components/responses/Forbidden"}, "404": {"$ref": "#/components/responses/NotFound"}, "502": {"$ref": "#/components/responses/UpstreamUnavailable"}}}
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantID"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationID"
+        },
+        {
+          "name": "exportID",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      ],
+      "get": {
+        "summary": "Get query export status or result",
+        "operationId": "getQueryExport",
+        "tags": [
+          "Process Query"
+        ],
+        "responses": {
+          "200": {
+            "description": "Export state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Cancel a pending query export",
+        "operationId": "cancelQueryExport",
+        "tags": [
+          "Process Query"
+        ],
+        "responses": {
+          "200": {
+            "description": "Cancelled export",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        }
+      }
     },
     "/v1/ops/query-plan": {
-      "parameters": [{"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"}],
-      "post": {"summary": "Explain a typed query with a redacted PostgreSQL plan", "description": "Requires the tenant-configured diagnostics capability. SQL, arguments, relation names, index names, predicates and constants are never returned.", "operationId": "explainQueryPlan", "tags": ["Operations"], "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object"}}}}, "responses": {"200": {"description": "Redacted query plan", "content": {"application/json": {"schema": {"type": "object"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"}, "502": {"$ref": "#/components/responses/UpstreamUnavailable"}}}
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantID"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationID"
+        }
+      ],
+      "post": {
+        "summary": "Explain a typed query with a redacted PostgreSQL plan",
+        "description": "Requires the tenant-configured diagnostics capability. SQL, arguments, relation names, index names, predicates and constants are never returned.",
+        "operationId": "explainQueryPlan",
+        "tags": [
+          "Operations"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Redacted query plan",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        }
+      }
     },
     "/v1/configuration/profiles": {
-      "parameters": [{"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"}],
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantID"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationID"
+        }
+      ],
       "get": {
         "summary": "List configuration profiles",
         "operationId": "listConfigurationProfiles",
-        "tags": ["Configuration"],
-        "parameters": [{"$ref": "#/components/parameters/PageSize"}, {"$ref": "#/components/parameters/PageToken"}],
-        "responses": {"200": {"description": "Configuration profile page", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConfigurationProfilePage"}}}}, "403": {"$ref": "#/components/responses/Forbidden"}, "502": {"$ref": "#/components/responses/UpstreamUnavailable"}}
+        "tags": [
+          "Configuration"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PageSize"
+          },
+          {
+            "$ref": "#/components/parameters/PageToken"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Configuration profile page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigurationProfilePage"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        }
       },
       "post": {
         "summary": "Create a configuration profile",
         "operationId": "createConfigurationProfile",
-        "tags": ["Configuration"],
-        "parameters": [{"$ref": "#/components/parameters/CommandID"}, {"$ref": "#/components/parameters/IdempotencyKey"}],
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateConfigurationProfileRequest"}}}},
-        "responses": {"201": {"description": "Profile created", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConfigurationProfile"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"}, "502": {"$ref": "#/components/responses/UpstreamUnavailable"}}
+        "tags": [
+          "Configuration"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CommandID"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateConfigurationProfileRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Profile created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigurationProfile"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        }
       }
     },
     "/v1/configuration/profiles/{profileID}": {
       "parameters": [
-        {"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"},
-        {"name": "profileID", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}}
+        {
+          "$ref": "#/components/parameters/TenantID"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationID"
+        },
+        {
+          "name": "profileID",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
       ],
       "get": {
         "summary": "Get a configuration profile and its versions",
         "operationId": "getConfigurationProfile",
-        "tags": ["Configuration"],
-        "responses": {"200": {"description": "Profile and version history", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConfigurationProfileDetail"}}}}, "403": {"$ref": "#/components/responses/Forbidden"}, "404": {"$ref": "#/components/responses/NotFound"}, "502": {"$ref": "#/components/responses/UpstreamUnavailable"}}
+        "tags": [
+          "Configuration"
+        ],
+        "responses": {
+          "200": {
+            "description": "Profile and version history",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigurationProfileDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        }
       }
     },
     "/v1/configuration/profiles/{profileID}/versions": {
       "parameters": [
-        {"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"},
-        {"$ref": "#/components/parameters/CommandID"}, {"$ref": "#/components/parameters/IdempotencyKey"},
-        {"name": "profileID", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}}
+        {
+          "$ref": "#/components/parameters/TenantID"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationID"
+        },
+        {
+          "$ref": "#/components/parameters/CommandID"
+        },
+        {
+          "$ref": "#/components/parameters/IdempotencyKey"
+        },
+        {
+          "name": "profileID",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
       ],
       "post": {
         "summary": "Add a draft configuration version",
         "operationId": "addConfigurationDraft",
-        "tags": ["Configuration"],
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AddConfigurationDraftRequest"}}}},
-        "responses": {"201": {"description": "Draft version created", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConfigurationProfile"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"}, "409": {"$ref": "#/components/responses/Conflict"}, "502": {"$ref": "#/components/responses/UpstreamUnavailable"}}
+        "tags": [
+          "Configuration"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddConfigurationDraftRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Draft version created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigurationProfile"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        }
       }
     },
     "/v1/configuration/profiles/{profileID}/versions/{versionID}/publish": {
-      "parameters": [{"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"}, {"$ref": "#/components/parameters/CommandID"}, {"$ref": "#/components/parameters/IdempotencyKey"}, {"$ref": "#/components/parameters/ProfileID"}, {"$ref": "#/components/parameters/VersionID"}],
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantID"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationID"
+        },
+        {
+          "$ref": "#/components/parameters/CommandID"
+        },
+        {
+          "$ref": "#/components/parameters/IdempotencyKey"
+        },
+        {
+          "$ref": "#/components/parameters/ProfileID"
+        },
+        {
+          "$ref": "#/components/parameters/VersionID"
+        }
+      ],
       "post": {
         "summary": "Publish a configuration version",
         "operationId": "publishConfigurationVersion",
-        "tags": ["Configuration"],
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConfigurationTransitionRequest"}}}},
-        "responses": {"200": {"description": "Version published", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConfigurationProfile"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"}, "409": {"$ref": "#/components/responses/Conflict"}, "502": {"$ref": "#/components/responses/UpstreamUnavailable"}}
+        "tags": [
+          "Configuration"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigurationTransitionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Version published",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigurationProfile"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        }
       }
     },
     "/v1/configuration/profiles/{profileID}/versions/{versionID}/rollback": {
-      "parameters": [{"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"}, {"$ref": "#/components/parameters/CommandID"}, {"$ref": "#/components/parameters/IdempotencyKey"}, {"$ref": "#/components/parameters/ProfileID"}, {"$ref": "#/components/parameters/VersionID"}],
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantID"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationID"
+        },
+        {
+          "$ref": "#/components/parameters/CommandID"
+        },
+        {
+          "$ref": "#/components/parameters/IdempotencyKey"
+        },
+        {
+          "$ref": "#/components/parameters/ProfileID"
+        },
+        {
+          "$ref": "#/components/parameters/VersionID"
+        }
+      ],
       "post": {
         "summary": "Rollback to a configuration version",
         "operationId": "rollbackConfigurationVersion",
-        "tags": ["Configuration"],
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConfigurationTransitionRequest"}}}},
-        "responses": {"200": {"description": "Rollback version published", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConfigurationProfile"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"}, "409": {"$ref": "#/components/responses/Conflict"}, "502": {"$ref": "#/components/responses/UpstreamUnavailable"}}
+        "tags": [
+          "Configuration"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigurationTransitionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Rollback version published",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigurationProfile"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        }
       }
     },
     "/v1/configuration/profiles/{profileID}/versions/{versionID}/restore": {
-      "parameters": [{"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"}, {"$ref": "#/components/parameters/CommandID"}, {"$ref": "#/components/parameters/IdempotencyKey"}, {"$ref": "#/components/parameters/ProfileID"}, {"$ref": "#/components/parameters/VersionID"}],
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantID"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationID"
+        },
+        {
+          "$ref": "#/components/parameters/CommandID"
+        },
+        {
+          "$ref": "#/components/parameters/IdempotencyKey"
+        },
+        {
+          "$ref": "#/components/parameters/ProfileID"
+        },
+        {
+          "$ref": "#/components/parameters/VersionID"
+        }
+      ],
       "post": {
         "summary": "Restore an immutable configuration version as a new version",
         "operationId": "restoreConfigurationVersion",
-        "tags": ["Configuration"],
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConfigurationTransitionRequest"}}}},
-        "responses": {"200": {"description": "Restored version published", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConfigurationProfile"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"}, "409": {"$ref": "#/components/responses/Conflict"}, "502": {"$ref": "#/components/responses/UpstreamUnavailable"}}
+        "tags": [
+          "Configuration"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigurationTransitionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Restored version published",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigurationProfile"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        }
       }
     },
     "/v1/configuration/profiles/{profileID}/retire": {
-      "parameters": [{"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"}, {"$ref": "#/components/parameters/CommandID"}, {"$ref": "#/components/parameters/IdempotencyKey"}, {"$ref": "#/components/parameters/ProfileID"}],
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantID"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationID"
+        },
+        {
+          "$ref": "#/components/parameters/CommandID"
+        },
+        {
+          "$ref": "#/components/parameters/IdempotencyKey"
+        },
+        {
+          "$ref": "#/components/parameters/ProfileID"
+        }
+      ],
       "post": {
         "summary": "Retire the effective configuration profile",
         "operationId": "retireConfigurationProfile",
-        "tags": ["Configuration"],
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConfigurationTransitionRequest"}}}},
-        "responses": {"200": {"description": "Profile retired", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConfigurationProfile"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"}, "409": {"$ref": "#/components/responses/Conflict"}, "502": {"$ref": "#/components/responses/UpstreamUnavailable"}}
+        "tags": [
+          "Configuration"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigurationTransitionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Profile retired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigurationProfile"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        }
       }
     },
     "/v1/configuration/profiles/{profileID}/diff": {
       "parameters": [
-        {"$ref": "#/components/parameters/TenantID"}, {"$ref": "#/components/parameters/CorrelationID"}, {"$ref": "#/components/parameters/ProfileID"},
-        {"name": "from_version", "in": "query", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}},
-        {"name": "to_version", "in": "query", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}}
+        {
+          "$ref": "#/components/parameters/TenantID"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationID"
+        },
+        {
+          "$ref": "#/components/parameters/ProfileID"
+        },
+        {
+          "name": "from_version",
+          "in": "query",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        },
+        {
+          "name": "to_version",
+          "in": "query",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
       ],
       "get": {
         "summary": "Diff two immutable configuration versions",
         "operationId": "diffConfigurationVersions",
-        "tags": ["Configuration"],
-        "responses": {"200": {"description": "Deterministic version diff", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConfigurationVersionDiff"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"}, "404": {"$ref": "#/components/responses/NotFound"}, "502": {"$ref": "#/components/responses/UpstreamUnavailable"}}
+        "tags": [
+          "Configuration"
+        ],
+        "responses": {
+          "200": {
+            "description": "Deterministic version diff",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigurationVersionDiff"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        }
+      }
+    },
+    "/v1/work-items/{workItemID}/claim": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantID"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationID"
+        },
+        {
+          "$ref": "#/components/parameters/CommandID"
+        },
+        {
+          "$ref": "#/components/parameters/IdempotencyKey"
+        },
+        {
+          "name": "workItemID",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      ],
+      "post": {
+        "summary": "Claim a work item for the authenticated actor",
+        "operationId": "claimWorkItem",
+        "tags": [
+          "Human Work"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClaimWorkItemRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Claim committed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkItemCommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        }
+      }
+    },
+    "/v1/work-items/{workItemID}/unclaim": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantID"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationID"
+        },
+        {
+          "$ref": "#/components/parameters/CommandID"
+        },
+        {
+          "$ref": "#/components/parameters/IdempotencyKey"
+        },
+        {
+          "name": "workItemID",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      ],
+      "post": {
+        "summary": "Unclaim a work item and return it to a candidate group",
+        "operationId": "unclaimWorkItem",
+        "tags": [
+          "Human Work"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnclaimWorkItemRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Unclaim committed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkItemCommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        }
       }
     }
   },
   "components": {
     "securitySchemes": {
-      "bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"},
-      "bffSession": {"type": "apiKey", "in": "cookie", "name": "__Host-bpmp_session", "description": "Opaque Unified Portal BFF session. Unsafe methods also require X-CSRF-Token."}
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      },
+      "bffSession": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "__Host-bpmp_session",
+        "description": "Opaque Unified Portal BFF session. Unsafe methods also require X-CSRF-Token."
+      }
     },
     "parameters": {
-      "TenantID": {"name": "X-BPMP-Tenant-ID", "in": "header", "required": false, "description": "Required for Bearer authentication. Optional for BFF sessions and must match the authoritative session tenant when present.", "schema": {"$ref": "#/components/schemas/Identifier"}},
-      "CorrelationID": {"name": "X-Correlation-ID", "in": "header", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}},
-	  "RequestID": {"name": "X-Request-ID", "in": "header", "required": false, "description": "Caller request identifier. The platform validates and echoes it, or generates a new value.", "schema": {"$ref": "#/components/schemas/Identifier"}},
-      "CommandID": {"name": "X-Command-ID", "in": "header", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}},
-      "IdempotencyKey": {"name": "Idempotency-Key", "in": "header", "required": true, "schema": {"type": "string", "minLength": 1, "maxLength": 256}},
-      "CSRFToken": {"name": "X-CSRF-Token", "in": "header", "required": false, "description": "Required on unsafe methods authenticated by bffSession.", "schema": {"type": "string", "minLength": 1, "maxLength": 4096}},
-      "PageSize": {"name": "page_size", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 4294967295}},
-      "PageToken": {"name": "page_token", "in": "query", "schema": {"type": "string"}},
-      "ProfileID": {"name": "profileID", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}},
-      "VersionID": {"name": "versionID", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}}
+      "TenantID": {
+        "name": "X-BPMP-Tenant-ID",
+        "in": "header",
+        "required": false,
+        "description": "Required for Bearer authentication. Optional for BFF sessions and must match the authoritative session tenant when present.",
+        "schema": {
+          "$ref": "#/components/schemas/Identifier"
+        }
+      },
+      "CorrelationID": {
+        "name": "X-Correlation-ID",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/Identifier"
+        }
+      },
+      "RequestID": {
+        "name": "X-Request-ID",
+        "in": "header",
+        "required": false,
+        "description": "Caller request identifier. The platform validates and echoes it, or generates a new value.",
+        "schema": {
+          "$ref": "#/components/schemas/Identifier"
+        }
+      },
+      "CommandID": {
+        "name": "X-Command-ID",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/Identifier"
+        }
+      },
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "CSRFToken": {
+        "name": "X-CSRF-Token",
+        "in": "header",
+        "required": false,
+        "description": "Required on unsafe methods authenticated by bffSession.",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "PageSize": {
+        "name": "page_size",
+        "in": "query",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        }
+      },
+      "PageToken": {
+        "name": "page_token",
+        "in": "query",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "ProfileID": {
+        "name": "profileID",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/Identifier"
+        }
+      },
+      "VersionID": {
+        "name": "versionID",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/Identifier"
+        }
+      }
     },
     "responses": {
-	  "BadRequest": {"description": "Invalid request", "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestID"}, "X-Correlation-ID": {"$ref": "#/components/headers/CorrelationID"}, "X-Trace-ID": {"$ref": "#/components/headers/TraceID"}}, "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}},
-	  "Forbidden": {"description": "Authentication or tenant authorization failed", "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestID"}, "X-Correlation-ID": {"$ref": "#/components/headers/CorrelationID"}, "X-Trace-ID": {"$ref": "#/components/headers/TraceID"}}, "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}},
-	  "NotFound": {"description": "Resource not found", "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestID"}, "X-Correlation-ID": {"$ref": "#/components/headers/CorrelationID"}, "X-Trace-ID": {"$ref": "#/components/headers/TraceID"}}, "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}},
-	  "Conflict": {"description": "Optimistic version conflict", "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestID"}, "X-Correlation-ID": {"$ref": "#/components/headers/CorrelationID"}, "X-Trace-ID": {"$ref": "#/components/headers/TraceID"}}, "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}},
-	  "RateLimited": {"description": "Rate limit exceeded", "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestID"}, "X-Correlation-ID": {"$ref": "#/components/headers/CorrelationID"}, "X-Trace-ID": {"$ref": "#/components/headers/TraceID"}}, "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}},
-	  "UpstreamUnavailable": {"description": "Authoritative service unavailable", "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestID"}, "X-Correlation-ID": {"$ref": "#/components/headers/CorrelationID"}, "X-Trace-ID": {"$ref": "#/components/headers/TraceID"}}, "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}}
+      "BadRequest": {
+        "description": "Invalid request",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestID"
+          },
+          "X-Correlation-ID": {
+            "$ref": "#/components/headers/CorrelationID"
+          },
+          "X-Trace-ID": {
+            "$ref": "#/components/headers/TraceID"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "Authentication or tenant authorization failed",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestID"
+          },
+          "X-Correlation-ID": {
+            "$ref": "#/components/headers/CorrelationID"
+          },
+          "X-Trace-ID": {
+            "$ref": "#/components/headers/TraceID"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Resource not found",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestID"
+          },
+          "X-Correlation-ID": {
+            "$ref": "#/components/headers/CorrelationID"
+          },
+          "X-Trace-ID": {
+            "$ref": "#/components/headers/TraceID"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "Optimistic version conflict",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestID"
+          },
+          "X-Correlation-ID": {
+            "$ref": "#/components/headers/CorrelationID"
+          },
+          "X-Trace-ID": {
+            "$ref": "#/components/headers/TraceID"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "Rate limit exceeded",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestID"
+          },
+          "X-Correlation-ID": {
+            "$ref": "#/components/headers/CorrelationID"
+          },
+          "X-Trace-ID": {
+            "$ref": "#/components/headers/TraceID"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "UpstreamUnavailable": {
+        "description": "Authoritative service unavailable",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestID"
+          },
+          "X-Correlation-ID": {
+            "$ref": "#/components/headers/CorrelationID"
+          },
+          "X-Trace-ID": {
+            "$ref": "#/components/headers/TraceID"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      }
     },
-	"headers": {
-	  "RequestID": {"description": "Identifier for this request across service hops.", "schema": {"$ref": "#/components/schemas/Identifier"}},
-	  "CorrelationID": {"description": "Identifier for the end-to-end business operation.", "schema": {"$ref": "#/components/schemas/Identifier"}},
-	  "TraceID": {"description": "W3C/OpenTelemetry trace identifier.", "schema": {"type": "string", "pattern": "^[0-9a-f]{32}$"}}
-	},
+    "headers": {
+      "RequestID": {
+        "description": "Identifier for this request across service hops.",
+        "schema": {
+          "$ref": "#/components/schemas/Identifier"
+        }
+      },
+      "CorrelationID": {
+        "description": "Identifier for the end-to-end business operation.",
+        "schema": {
+          "$ref": "#/components/schemas/Identifier"
+        }
+      },
+      "TraceID": {
+        "description": "W3C/OpenTelemetry trace identifier.",
+        "schema": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        }
+      }
+    },
     "schemas": {
-      "Identifier": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9_.:-]+$"},
+      "Identifier": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128,
+        "pattern": "^[A-Za-z0-9_.:-]+$"
+      },
       "QueryValue": {
         "oneOf": [
-          {"type": "object", "additionalProperties": false, "required": ["string_value"], "properties": {"string_value": {"type": "string"}}},
-          {"type": "object", "additionalProperties": false, "required": ["integer_value"], "properties": {"integer_value": {"type": "integer", "format": "int64"}}},
-          {"type": "object", "additionalProperties": false, "required": ["boolean_value"], "properties": {"boolean_value": {"type": "boolean"}}},
-          {"type": "object", "additionalProperties": false, "required": ["timestamp_epoch_ms"], "properties": {"timestamp_epoch_ms": {"type": "integer", "format": "uint64", "minimum": 1}}}
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "string_value"
+            ],
+            "properties": {
+              "string_value": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "integer_value"
+            ],
+            "properties": {
+              "integer_value": {
+                "type": "integer",
+                "format": "int64"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "boolean_value"
+            ],
+            "properties": {
+              "boolean_value": {
+                "type": "boolean"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "timestamp_epoch_ms"
+            ],
+            "properties": {
+              "timestamp_epoch_ms": {
+                "type": "integer",
+                "format": "uint64",
+                "minimum": 1
+              }
+            }
+          }
         ]
       },
-	  "ComparisonOperator": {"type": "string", "enum": ["COMPARISON_OPERATOR_EQUAL", "COMPARISON_OPERATOR_NOT_EQUAL", "COMPARISON_OPERATOR_GREATER_THAN", "COMPARISON_OPERATOR_GREATER_THAN_OR_EQUAL", "COMPARISON_OPERATOR_LESS_THAN", "COMPARISON_OPERATOR_LESS_THAN_OR_EQUAL", "COMPARISON_OPERATOR_IN", "COMPARISON_OPERATOR_NOT_IN", "COMPARISON_OPERATOR_CONTAINS", "COMPARISON_OPERATOR_STARTS_WITH", "COMPARISON_OPERATOR_IS_NULL", "COMPARISON_OPERATOR_IS_NOT_NULL", "COMPARISON_OPERATOR_ENDS_WITH", "COMPARISON_OPERATOR_BETWEEN", "COMPARISON_OPERATOR_NOT_BETWEEN"]},
-	  "ProcessField": {"type": "string", "enum": ["PROCESS_FIELD_INSTANCE_ID", "PROCESS_FIELD_WORKFLOW_TYPE", "PROCESS_FIELD_WORKFLOW_VERSION", "PROCESS_FIELD_STATUS", "PROCESS_FIELD_ACTIVE_NODE_ID", "PROCESS_FIELD_LAST_EVENT_SEQUENCE", "PROCESS_FIELD_STARTED_AT", "PROCESS_FIELD_UPDATED_AT", "PROCESS_FIELD_COMPLETED_AT", "PROCESS_FIELD_DURATION_MS", "PROCESS_FIELD_CONFIG_VERSION", "PROCESS_FIELD_POLICY_VERSION", "PROCESS_FIELD_VERSION", "PROCESS_FIELD_INITIATOR_ACTOR_ID", "PROCESS_FIELD_EVENT_COUNT", "PROCESS_FIELD_IS_DELETED"]},
-      "EventField": {"type": "string", "enum": ["EVENT_FIELD_EVENT_TYPE", "EVENT_FIELD_NODE_ID", "EVENT_FIELD_ACTOR_ID", "EVENT_FIELD_SEQUENCE", "EVENT_FIELD_OCCURRED_AT", "EVENT_FIELD_CONFIG_VERSION", "EVENT_FIELD_POLICY_VERSION"]},
-      "TextTransform": {"type": "string", "enum": ["TEXT_TRANSFORM_NONE", "TEXT_TRANSFORM_TRIM", "TEXT_TRANSFORM_LOWER", "TEXT_TRANSFORM_UPPER", "TEXT_TRANSFORM_TRIM_LOWER", "TEXT_TRANSFORM_TRIM_UPPER"]},
-	  "NumericTransform": {"type": "string", "enum": ["NUMERIC_TRANSFORM_NONE", "NUMERIC_TRANSFORM_ABS"]},
-	  "DateTransform": {"type": "string", "enum": ["DATE_TRANSFORM_NONE", "DATE_TRANSFORM_UTC_DAY", "DATE_TRANSFORM_UTC_WEEK", "DATE_TRANSFORM_UTC_MONTH", "DATE_TRANSFORM_UTC_YEAR"]},
-	  "ProcessPredicate": {"type": "object", "additionalProperties": false, "required": ["field", "operator"], "properties": {"field": {"$ref": "#/components/schemas/ProcessField"}, "operator": {"$ref": "#/components/schemas/ComparisonOperator"}, "values": {"type": "array", "items": {"$ref": "#/components/schemas/QueryValue"}}, "text_transform": {"$ref": "#/components/schemas/TextTransform"}, "numeric_transform": {"$ref": "#/components/schemas/NumericTransform"}, "date_transform": {"$ref": "#/components/schemas/DateTransform"}, "coalesce_value": {"$ref": "#/components/schemas/QueryValue"}}},
-	  "EventPredicate": {"type": "object", "additionalProperties": false, "required": ["field", "operator"], "properties": {"field": {"$ref": "#/components/schemas/EventField"}, "operator": {"$ref": "#/components/schemas/ComparisonOperator"}, "values": {"type": "array", "items": {"$ref": "#/components/schemas/QueryValue"}}, "text_transform": {"$ref": "#/components/schemas/TextTransform"}, "numeric_transform": {"$ref": "#/components/schemas/NumericTransform"}, "date_transform": {"$ref": "#/components/schemas/DateTransform"}, "coalesce_value": {"$ref": "#/components/schemas/QueryValue"}}},
+      "ComparisonOperator": {
+        "type": "string",
+        "enum": [
+          "COMPARISON_OPERATOR_EQUAL",
+          "COMPARISON_OPERATOR_NOT_EQUAL",
+          "COMPARISON_OPERATOR_GREATER_THAN",
+          "COMPARISON_OPERATOR_GREATER_THAN_OR_EQUAL",
+          "COMPARISON_OPERATOR_LESS_THAN",
+          "COMPARISON_OPERATOR_LESS_THAN_OR_EQUAL",
+          "COMPARISON_OPERATOR_IN",
+          "COMPARISON_OPERATOR_NOT_IN",
+          "COMPARISON_OPERATOR_CONTAINS",
+          "COMPARISON_OPERATOR_STARTS_WITH",
+          "COMPARISON_OPERATOR_IS_NULL",
+          "COMPARISON_OPERATOR_IS_NOT_NULL",
+          "COMPARISON_OPERATOR_ENDS_WITH",
+          "COMPARISON_OPERATOR_BETWEEN",
+          "COMPARISON_OPERATOR_NOT_BETWEEN"
+        ]
+      },
+      "ProcessField": {
+        "type": "string",
+        "enum": [
+          "PROCESS_FIELD_INSTANCE_ID",
+          "PROCESS_FIELD_WORKFLOW_TYPE",
+          "PROCESS_FIELD_WORKFLOW_VERSION",
+          "PROCESS_FIELD_STATUS",
+          "PROCESS_FIELD_ACTIVE_NODE_ID",
+          "PROCESS_FIELD_LAST_EVENT_SEQUENCE",
+          "PROCESS_FIELD_STARTED_AT",
+          "PROCESS_FIELD_UPDATED_AT",
+          "PROCESS_FIELD_COMPLETED_AT",
+          "PROCESS_FIELD_DURATION_MS",
+          "PROCESS_FIELD_CONFIG_VERSION",
+          "PROCESS_FIELD_POLICY_VERSION",
+          "PROCESS_FIELD_VERSION",
+          "PROCESS_FIELD_INITIATOR_ACTOR_ID",
+          "PROCESS_FIELD_EVENT_COUNT",
+          "PROCESS_FIELD_IS_DELETED"
+        ]
+      },
+      "EventField": {
+        "type": "string",
+        "enum": [
+          "EVENT_FIELD_EVENT_TYPE",
+          "EVENT_FIELD_NODE_ID",
+          "EVENT_FIELD_ACTOR_ID",
+          "EVENT_FIELD_SEQUENCE",
+          "EVENT_FIELD_OCCURRED_AT",
+          "EVENT_FIELD_CONFIG_VERSION",
+          "EVENT_FIELD_POLICY_VERSION"
+        ]
+      },
+      "TextTransform": {
+        "type": "string",
+        "enum": [
+          "TEXT_TRANSFORM_NONE",
+          "TEXT_TRANSFORM_TRIM",
+          "TEXT_TRANSFORM_LOWER",
+          "TEXT_TRANSFORM_UPPER",
+          "TEXT_TRANSFORM_TRIM_LOWER",
+          "TEXT_TRANSFORM_TRIM_UPPER"
+        ]
+      },
+      "NumericTransform": {
+        "type": "string",
+        "enum": [
+          "NUMERIC_TRANSFORM_NONE",
+          "NUMERIC_TRANSFORM_ABS"
+        ]
+      },
+      "DateTransform": {
+        "type": "string",
+        "enum": [
+          "DATE_TRANSFORM_NONE",
+          "DATE_TRANSFORM_UTC_DAY",
+          "DATE_TRANSFORM_UTC_WEEK",
+          "DATE_TRANSFORM_UTC_MONTH",
+          "DATE_TRANSFORM_UTC_YEAR"
+        ]
+      },
+      "ProcessPredicate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "field",
+          "operator"
+        ],
+        "properties": {
+          "field": {
+            "$ref": "#/components/schemas/ProcessField"
+          },
+          "operator": {
+            "$ref": "#/components/schemas/ComparisonOperator"
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QueryValue"
+            }
+          },
+          "text_transform": {
+            "$ref": "#/components/schemas/TextTransform"
+          },
+          "numeric_transform": {
+            "$ref": "#/components/schemas/NumericTransform"
+          },
+          "date_transform": {
+            "$ref": "#/components/schemas/DateTransform"
+          },
+          "coalesce_value": {
+            "$ref": "#/components/schemas/QueryValue"
+          }
+        }
+      },
+      "EventPredicate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "field",
+          "operator"
+        ],
+        "properties": {
+          "field": {
+            "$ref": "#/components/schemas/EventField"
+          },
+          "operator": {
+            "$ref": "#/components/schemas/ComparisonOperator"
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QueryValue"
+            }
+          },
+          "text_transform": {
+            "$ref": "#/components/schemas/TextTransform"
+          },
+          "numeric_transform": {
+            "$ref": "#/components/schemas/NumericTransform"
+          },
+          "date_transform": {
+            "$ref": "#/components/schemas/DateTransform"
+          },
+          "coalesce_value": {
+            "$ref": "#/components/schemas/QueryValue"
+          }
+        }
+      },
       "EventExpression": {
         "oneOf": [
-          {"type": "object", "required": ["predicate"], "properties": {"predicate": {"$ref": "#/components/schemas/EventPredicate"}}},
-          {"type": "object", "required": ["group"], "properties": {"group": {"type": "object", "required": ["operator", "expressions"], "properties": {"operator": {"type": "string", "enum": ["LOGICAL_OPERATOR_AND", "LOGICAL_OPERATOR_OR"]}, "expressions": {"type": "array", "minItems": 2, "items": {"$ref": "#/components/schemas/EventExpression"}}}}}},
-          {"type": "object", "required": ["negated"], "properties": {"negated": {"$ref": "#/components/schemas/EventExpression"}}}
+          {
+            "type": "object",
+            "required": [
+              "predicate"
+            ],
+            "properties": {
+              "predicate": {
+                "$ref": "#/components/schemas/EventPredicate"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "group"
+            ],
+            "properties": {
+              "group": {
+                "type": "object",
+                "required": [
+                  "operator",
+                  "expressions"
+                ],
+                "properties": {
+                  "operator": {
+                    "type": "string",
+                    "enum": [
+                      "LOGICAL_OPERATOR_AND",
+                      "LOGICAL_OPERATOR_OR"
+                    ]
+                  },
+                  "expressions": {
+                    "type": "array",
+                    "minItems": 2,
+                    "items": {
+                      "$ref": "#/components/schemas/EventExpression"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "negated"
+            ],
+            "properties": {
+              "negated": {
+                "$ref": "#/components/schemas/EventExpression"
+              }
+            }
+          }
         ]
       },
       "ProcessExpression": {
         "oneOf": [
-          {"type": "object", "required": ["predicate"], "properties": {"predicate": {"$ref": "#/components/schemas/ProcessPredicate"}}},
-          {"type": "object", "required": ["group"], "properties": {"group": {"type": "object", "required": ["operator", "expressions"], "properties": {"operator": {"type": "string", "enum": ["LOGICAL_OPERATOR_AND", "LOGICAL_OPERATOR_OR"]}, "expressions": {"type": "array", "minItems": 2, "items": {"$ref": "#/components/schemas/ProcessExpression"}}}}}},
-          {"type": "object", "required": ["negated"], "properties": {"negated": {"$ref": "#/components/schemas/ProcessExpression"}}},
-		  {"type": "object", "required": ["event_relation"], "properties": {"event_relation": {"type": "object", "additionalProperties": false, "required": ["expression", "quantifier"], "properties": {"expression": {"$ref": "#/components/schemas/EventExpression"}, "quantifier": {"type": "string", "enum": ["RELATION_QUANTIFIER_EXISTS", "RELATION_QUANTIFIER_NOT_EXISTS"]}}}}}
+          {
+            "type": "object",
+            "required": [
+              "predicate"
+            ],
+            "properties": {
+              "predicate": {
+                "$ref": "#/components/schemas/ProcessPredicate"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "group"
+            ],
+            "properties": {
+              "group": {
+                "type": "object",
+                "required": [
+                  "operator",
+                  "expressions"
+                ],
+                "properties": {
+                  "operator": {
+                    "type": "string",
+                    "enum": [
+                      "LOGICAL_OPERATOR_AND",
+                      "LOGICAL_OPERATOR_OR"
+                    ]
+                  },
+                  "expressions": {
+                    "type": "array",
+                    "minItems": 2,
+                    "items": {
+                      "$ref": "#/components/schemas/ProcessExpression"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "negated"
+            ],
+            "properties": {
+              "negated": {
+                "$ref": "#/components/schemas/ProcessExpression"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "event_relation"
+            ],
+            "properties": {
+              "event_relation": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "expression",
+                  "quantifier"
+                ],
+                "properties": {
+                  "expression": {
+                    "$ref": "#/components/schemas/EventExpression"
+                  },
+                  "quantifier": {
+                    "type": "string",
+                    "enum": [
+                      "RELATION_QUANTIFIER_EXISTS",
+                      "RELATION_QUANTIFIER_NOT_EXISTS"
+                    ]
+                  }
+                }
+              }
+            }
+          }
         ]
       },
-	  "ProcessSort": {"type": "object", "additionalProperties": false, "required": ["field", "direction"], "properties": {"field": {"$ref": "#/components/schemas/ProcessField"}, "direction": {"type": "string", "enum": ["SORT_DIRECTION_ASCENDING", "SORT_DIRECTION_DESCENDING"]}, "text_transform": {"$ref": "#/components/schemas/TextTransform"}, "numeric_transform": {"$ref": "#/components/schemas/NumericTransform"}, "date_transform": {"$ref": "#/components/schemas/DateTransform"}, "coalesce_value": {"$ref": "#/components/schemas/QueryValue"}}},
-	  "CompletedProcessQuery": {"type": "object", "additionalProperties": false, "properties": {"filter": {"$ref": "#/components/schemas/ProcessExpression"}, "sort": {"type": "array", "items": {"$ref": "#/components/schemas/ProcessSort"}}, "select": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/components/schemas/ProcessField"}}, "collapse": {"$ref": "#/components/schemas/ProcessField"}, "expand_events": {"type": "object", "additionalProperties": false, "required": ["limit"], "properties": {"filter": {"$ref": "#/components/schemas/EventExpression"}, "limit": {"type": "integer", "minimum": 1}}}, "include_deleted": {"type": "boolean"}, "page_size": {"type": "integer", "minimum": 1}, "page_token": {"type": "string"}}},
-	  "ProcessQuery": {"type": "object", "additionalProperties": false, "required": ["scope"], "properties": {"scope": {"type": "string", "enum": ["QUERY_SCOPE_ALL", "QUERY_SCOPE_ACTIVE", "QUERY_SCOPE_COMPLETED", "QUERY_SCOPE_DELETED"]}, "filter": {"$ref": "#/components/schemas/ProcessExpression"}, "sort": {"type": "array", "items": {"$ref": "#/components/schemas/ProcessSort"}}, "select": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/components/schemas/ProcessField"}}, "collapse": {"$ref": "#/components/schemas/ProcessField"}, "expand_events": {"type": "object", "additionalProperties": false, "required": ["limit"], "properties": {"filter": {"$ref": "#/components/schemas/EventExpression"}, "limit": {"type": "integer", "minimum": 1}}}, "include_deleted": {"type": "boolean"}, "page_size": {"type": "integer", "minimum": 1}, "page_token": {"type": "string"}}},
-	  "QueryCapabilities": {"type": "object", "additionalProperties": false, "required": ["schema_version", "config_version", "policy_version", "fields", "event_fields", "default_page_size", "max_page_size", "max_filter_depth", "max_predicates", "max_sort_fields", "max_relation_joins", "max_in_values", "max_string_bytes", "scopes", "default_sort"], "properties": {"schema_version": {"type": "string"}, "config_version": {"type": "string"}, "policy_version": {"type": "string"}, "fields": {"type": "array", "items": {"type": "object"}}, "event_fields": {"type": "array", "items": {"type": "object"}}, "default_page_size": {"type": "integer"}, "max_page_size": {"type": "integer"}, "max_filter_depth": {"type": "integer"}, "max_predicates": {"type": "integer"}, "max_sort_fields": {"type": "integer"}, "max_relation_joins": {"type": "integer"}, "max_in_values": {"type": "integer"}, "max_string_bytes": {"type": "integer"}, "scopes": {"type": "array", "items": {"type": "string"}}, "default_sort": {"type": "array", "items": {"$ref": "#/components/schemas/ProcessSort"}}}},
-	  "WorkflowInstanceReadModel": {"type": "object", "additionalProperties": false, "required": ["tenant_id", "instance_id", "workflow_type", "workflow_version", "status", "last_event_sequence", "started_at_epoch_ms", "updated_at_epoch_ms", "completed_at_epoch_ms", "config_version", "policy_version", "initiator_actor_id", "version"], "properties": {"tenant_id": {"$ref": "#/components/schemas/Identifier"}, "instance_id": {"$ref": "#/components/schemas/Identifier"}, "workflow_type": {"type": "string"}, "workflow_version": {"type": "string"}, "status": {"type": "string"}, "active_node_id": {"type": "string"}, "last_event_sequence": {"type": "integer", "format": "uint64"}, "started_at_epoch_ms": {"type": "integer", "format": "uint64"}, "updated_at_epoch_ms": {"type": "integer", "format": "uint64"}, "completed_at_epoch_ms": {"type": "integer", "format": "uint64"}, "config_version": {"type": "string"}, "policy_version": {"type": "string"}, "initiator_actor_id": {"$ref": "#/components/schemas/Identifier"}, "is_deleted": {"type": "boolean"}, "version": {"type": "integer", "format": "uint64"}}},
-      "CompletedProcessQueryResponse": {"type": "object", "additionalProperties": false, "properties": {"processes": {"type": "array", "items": {"type": "object", "required": ["instance"], "properties": {"instance": {"$ref": "#/components/schemas/WorkflowInstanceReadModel"}, "duration_ms": {"type": "integer", "format": "uint64"}, "event_count": {"type": "integer", "format": "uint64"}, "masked_fields": {"type": "array", "items": {"type": "string"}}}}}, "next_page_token": {"type": "string"}, "normalized_sort": {"type": "array", "items": {"$ref": "#/components/schemas/ProcessSort"}}, "policy_version": {"type": "string"}, "query_fingerprint": {"type": "string"}}},
+      "ProcessSort": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "field",
+          "direction"
+        ],
+        "properties": {
+          "field": {
+            "$ref": "#/components/schemas/ProcessField"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "SORT_DIRECTION_ASCENDING",
+              "SORT_DIRECTION_DESCENDING"
+            ]
+          },
+          "text_transform": {
+            "$ref": "#/components/schemas/TextTransform"
+          },
+          "numeric_transform": {
+            "$ref": "#/components/schemas/NumericTransform"
+          },
+          "date_transform": {
+            "$ref": "#/components/schemas/DateTransform"
+          },
+          "coalesce_value": {
+            "$ref": "#/components/schemas/QueryValue"
+          }
+        }
+      },
+      "CompletedProcessQuery": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "filter": {
+            "$ref": "#/components/schemas/ProcessExpression"
+          },
+          "sort": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProcessSort"
+            }
+          },
+          "select": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/components/schemas/ProcessField"
+            }
+          },
+          "collapse": {
+            "$ref": "#/components/schemas/ProcessField"
+          },
+          "expand_events": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "limit"
+            ],
+            "properties": {
+              "filter": {
+                "$ref": "#/components/schemas/EventExpression"
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          },
+          "include_deleted": {
+            "type": "boolean"
+          },
+          "page_size": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "page_token": {
+            "type": "string"
+          }
+        }
+      },
+      "ProcessQuery": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope"
+        ],
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "QUERY_SCOPE_ALL",
+              "QUERY_SCOPE_ACTIVE",
+              "QUERY_SCOPE_COMPLETED",
+              "QUERY_SCOPE_DELETED"
+            ]
+          },
+          "filter": {
+            "$ref": "#/components/schemas/ProcessExpression"
+          },
+          "sort": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProcessSort"
+            }
+          },
+          "select": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/components/schemas/ProcessField"
+            }
+          },
+          "collapse": {
+            "$ref": "#/components/schemas/ProcessField"
+          },
+          "expand_events": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "limit"
+            ],
+            "properties": {
+              "filter": {
+                "$ref": "#/components/schemas/EventExpression"
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          },
+          "include_deleted": {
+            "type": "boolean"
+          },
+          "page_size": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "page_token": {
+            "type": "string"
+          }
+        }
+      },
+      "QueryCapabilities": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema_version",
+          "config_version",
+          "policy_version",
+          "fields",
+          "event_fields",
+          "default_page_size",
+          "max_page_size",
+          "max_filter_depth",
+          "max_predicates",
+          "max_sort_fields",
+          "max_relation_joins",
+          "max_in_values",
+          "max_string_bytes",
+          "scopes",
+          "default_sort"
+        ],
+        "properties": {
+          "schema_version": {
+            "type": "string"
+          },
+          "config_version": {
+            "type": "string"
+          },
+          "policy_version": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "event_fields": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "default_page_size": {
+            "type": "integer"
+          },
+          "max_page_size": {
+            "type": "integer"
+          },
+          "max_filter_depth": {
+            "type": "integer"
+          },
+          "max_predicates": {
+            "type": "integer"
+          },
+          "max_sort_fields": {
+            "type": "integer"
+          },
+          "max_relation_joins": {
+            "type": "integer"
+          },
+          "max_in_values": {
+            "type": "integer"
+          },
+          "max_string_bytes": {
+            "type": "integer"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "default_sort": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProcessSort"
+            }
+          }
+        }
+      },
+      "WorkflowInstanceReadModel": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tenant_id",
+          "instance_id",
+          "workflow_type",
+          "workflow_version",
+          "status",
+          "last_event_sequence",
+          "started_at_epoch_ms",
+          "updated_at_epoch_ms",
+          "completed_at_epoch_ms",
+          "config_version",
+          "policy_version",
+          "initiator_actor_id",
+          "version"
+        ],
+        "properties": {
+          "tenant_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "instance_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "workflow_type": {
+            "type": "string"
+          },
+          "workflow_version": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "active_node_id": {
+            "type": "string"
+          },
+          "last_event_sequence": {
+            "type": "integer",
+            "format": "uint64"
+          },
+          "started_at_epoch_ms": {
+            "type": "integer",
+            "format": "uint64"
+          },
+          "updated_at_epoch_ms": {
+            "type": "integer",
+            "format": "uint64"
+          },
+          "completed_at_epoch_ms": {
+            "type": "integer",
+            "format": "uint64"
+          },
+          "config_version": {
+            "type": "string"
+          },
+          "policy_version": {
+            "type": "string"
+          },
+          "initiator_actor_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "is_deleted": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "integer",
+            "format": "uint64"
+          }
+        }
+      },
+      "CompletedProcessQueryResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "processes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "instance"
+              ],
+              "properties": {
+                "instance": {
+                  "$ref": "#/components/schemas/WorkflowInstanceReadModel"
+                },
+                "duration_ms": {
+                  "type": "integer",
+                  "format": "uint64"
+                },
+                "event_count": {
+                  "type": "integer",
+                  "format": "uint64"
+                },
+                "masked_fields": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "next_page_token": {
+            "type": "string"
+          },
+          "normalized_sort": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProcessSort"
+            }
+          },
+          "policy_version": {
+            "type": "string"
+          },
+          "query_fingerprint": {
+            "type": "string"
+          }
+        }
+      },
       "BrowserConfiguration": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["config_version", "policy_version", "batch_chunk_size", "batch_concurrency"],
+        "required": [
+          "config_version",
+          "policy_version",
+          "batch_chunk_size",
+          "batch_concurrency"
+        ],
         "properties": {
-          "config_version": {"type": "string", "minLength": 1},
-          "policy_version": {"type": "string", "minLength": 1},
-          "batch_chunk_size": {"type": "integer", "minimum": 1},
-          "batch_concurrency": {"type": "integer", "minimum": 1}
+          "config_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "policy_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "batch_chunk_size": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "batch_concurrency": {
+            "type": "integer",
+            "minimum": 1
+          }
         }
       },
       "ConfigurationVersionDiff": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["profile_id", "from_version", "to_version", "differences", "from_hash", "to_hash", "schema_change"],
+        "required": [
+          "profile_id",
+          "from_version",
+          "to_version",
+          "differences",
+          "from_hash",
+          "to_hash",
+          "schema_change"
+        ],
         "properties": {
-          "profile_id": {"$ref": "#/components/schemas/Identifier"},
-          "from_version": {"$ref": "#/components/schemas/Identifier"},
-          "to_version": {"$ref": "#/components/schemas/Identifier"},
+          "profile_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "from_version": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "to_version": {
+            "$ref": "#/components/schemas/Identifier"
+          },
           "differences": {
             "type": "array",
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["path", "before", "after"],
+              "required": [
+                "path",
+                "before",
+                "after"
+              ],
               "properties": {
-                "path": {"type": "string"},
+                "path": {
+                  "type": "string"
+                },
                 "before": {},
                 "after": {}
               }
             }
           },
-          "from_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-          "to_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-          "schema_change": {"type": "boolean"}
+          "from_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "to_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "schema_change": {
+            "type": "boolean"
+          }
         }
       },
-	  "Problem": {"type": "object", "additionalProperties": false, "required": ["type", "title", "status", "code", "request_id", "correlation_id", "retryable"], "properties": {"type": {"type": "string", "format": "uri-reference"}, "title": {"type": "string"}, "status": {"type": "integer", "minimum": 400, "maximum": 599}, "detail": {"type": "string"}, "code": {"type": "string", "pattern": "^[a-z0-9_]+$"}, "instance": {"type": "string"}, "request_id": {"$ref": "#/components/schemas/Identifier"}, "correlation_id": {"$ref": "#/components/schemas/Identifier"}, "trace_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}, "retryable": {"type": "boolean"}, "violations": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["path", "rule", "message"], "properties": {"path": {"type": "string"}, "rule": {"type": "string"}, "message": {"type": "string"}}}}}},
-      "StartWorkflowRequest": {"type": "object", "additionalProperties": false, "required": ["instance_id", "workflow_version", "start_node_id"], "properties": {"instance_id": {"$ref": "#/components/schemas/Identifier"}, "workflow_version": {"$ref": "#/components/schemas/Identifier"}, "start_node_id": {"$ref": "#/components/schemas/Identifier"}}},
-      "CommandReceipt": {"type": "object", "required": ["command_id", "committed_sequence", "duplicate"], "properties": {"command_id": {"type": "string"}, "committed_sequence": {"type": "integer", "minimum": 0}, "duplicate": {"type": "boolean"}}},
-      "CompleteWorkItemRequest": {"type": "object", "additionalProperties": false, "required": ["decision", "expected_version"], "properties": {"decision": {"type": "string", "minLength": 1}, "expected_version": {"type": "integer", "minimum": 0}}},
-      "DelegateWorkItemRequest": {"type": "object", "additionalProperties": false, "required": ["expected_version"], "properties": {"expected_version": {"type": "integer", "minimum": 0}, "assignee_id": {"type": "string", "minLength": 1}, "candidate_group": {"type": "string", "minLength": 1}}, "oneOf": [{"required": ["assignee_id"], "properties": {"assignee_id": {"type": "string", "minLength": 1}}}, {"required": ["candidate_group"], "properties": {"candidate_group": {"type": "string", "minLength": 1}}}]},
-      "WorkItemCommandResponse": {"type": "object", "required": ["command_id", "work_item_version"], "properties": {"command_id": {"type": "string"}, "work_item_version": {"type": "integer"}}},
-      "WorkItem": {"type": "object", "required": ["tenant_id", "work_item_id", "instance_id", "workflow_type", "workflow_version", "node_id", "task_type", "status", "version"], "properties": {"tenant_id": {"type": "string"}, "work_item_id": {"type": "string"}, "instance_id": {"type": "string"}, "workflow_type": {"type": "string"}, "workflow_version": {"type": "string"}, "node_id": {"type": "string"}, "task_type": {"type": "string"}, "assignee_id": {"type": "string"}, "candidate_group": {"type": "string"}, "form_key": {"type": "string"}, "status": {"type": "string"}, "decision": {"type": "string"}, "sla_deadline_epoch_ms": {"type": "integer", "minimum": 0}, "version": {"type": "integer"}, "delegation_depth": {"type": "integer", "minimum": 0}}},
-      "ListWorkItemsResponse": {"type": "object", "required": ["work_items"], "properties": {"work_items": {"type": "array", "items": {"$ref": "#/components/schemas/WorkItem"}}, "next_page_token": {"type": "string"}}},
-      "CasePlanItem": {"type": "object", "required": ["plan_item_id", "kind", "status", "version"], "properties": {"plan_item_id": {"type": "string"}, "kind": {"type": "string"}, "status": {"type": "string"}, "version": {"type": "integer"}}},
-      "Case": {"type": "object", "required": ["tenant_id", "case_id", "case_type", "status", "plan_items", "version"], "properties": {"tenant_id": {"type": "string"}, "case_id": {"type": "string"}, "case_type": {"type": "string"}, "status": {"type": "string"}, "plan_items": {"type": "array", "items": {"$ref": "#/components/schemas/CasePlanItem"}}, "version": {"type": "integer"}}},
-      "AuditRecord": {"type": "object", "required": ["audit_id", "actor_id", "action", "occurred_at_epoch_ms", "correlation_id"], "properties": {"audit_id": {"type": "string"}, "work_item_id": {"type": "string"}, "case_id": {"type": "string"}, "actor_id": {"type": "string"}, "action": {"type": "string"}, "occurred_at_epoch_ms": {"type": "integer", "minimum": 0}, "command_id": {"type": "string"}, "correlation_id": {"type": "string"}, "from_version": {"type": "integer"}, "to_version": {"type": "integer"}, "details_json": {"type": "string", "contentEncoding": "base64"}}},
-      "ListAuditRecordsResponse": {"type": "object", "required": ["records"], "properties": {"records": {"type": "array", "items": {"$ref": "#/components/schemas/AuditRecord"}}, "next_page_token": {"type": "string"}}},
-      "ConfigurationScope": {"type": "object", "additionalProperties": false, "required": ["type", "reference"], "properties": {"type": {"type": "string", "enum": ["PLATFORM", "ENVIRONMENT", "TENANT", "WORKFLOW_TYPE", "WORKFLOW_VERSION", "APPROVED_INSTANCE_OVERRIDE"]}, "reference": {"type": "string", "minLength": 1}}},
-      "CreateConfigurationProfileRequest": {"type": "object", "additionalProperties": false, "required": ["name", "owner", "scope", "schema_version", "policy_version", "reason", "values"], "properties": {"name": {"type": "string"}, "owner": {"type": "string", "enum": ["ENGINE", "API_GATEWAY", "HUMAN_RUNTIME", "PROJECTION", "GOVERNANCE", "CONFIGURATION_SERVICE", "COCKPIT_GATEWAY", "AUTHZ_CONTROL_PLANE"]}, "scope": {"$ref": "#/components/schemas/ConfigurationScope"}, "schema_version": {"type": "integer", "minimum": 1}, "policy_version": {"type": "string"}, "reason": {"type": "string"}, "values": {"type": "object", "additionalProperties": true}}},
-      "AddConfigurationDraftRequest": {"type": "object", "additionalProperties": false, "required": ["expected_version", "schema_version", "policy_version", "reason", "values"], "properties": {"expected_version": {"type": "integer", "minimum": 0}, "schema_version": {"type": "integer", "minimum": 1}, "policy_version": {"type": "string"}, "reason": {"type": "string"}, "values": {"type": "object", "additionalProperties": true}}},
-      "ConfigurationTransitionRequest": {"type": "object", "additionalProperties": false, "required": ["expected_version", "reason"], "properties": {"expected_version": {"type": "integer", "minimum": 0}, "policy_version": {"type": "string"}, "reason": {"type": "string"}}},
-      "ConfigurationProfile": {"type": "object", "additionalProperties": false, "required": ["id", "tenant_id", "owner", "name", "scope", "aggregate_version", "is_deleted", "created_at", "updated_at"], "properties": {"id": {"type": "string"}, "tenant_id": {"type": "string"}, "owner": {"type": "string", "enum": ["ENGINE", "API_GATEWAY", "HUMAN_RUNTIME", "PROJECTION", "GOVERNANCE", "CONFIGURATION_SERVICE", "COCKPIT_GATEWAY", "AUTHZ_CONTROL_PLANE"]}, "name": {"type": "string"}, "scope": {"$ref": "#/components/schemas/ConfigurationScope"}, "aggregate_version": {"type": "integer"}, "current_published_version_id": {"type": "string"}, "is_deleted": {"type": "boolean"}, "created_at": {"type": "string", "format": "date-time"}, "updated_at": {"type": "string", "format": "date-time"}, "latest": {"$ref": "#/components/schemas/ConfigurationVersion"}}},
-      "ConfigurationVersion": {"type": "object", "additionalProperties": true, "required": ["id", "config_version", "schema_version", "status", "values"], "properties": {"id": {"type": "string"}, "ordinal": {"type": "integer"}, "config_version": {"type": "string"}, "policy_version": {"type": "string"}, "schema_version": {"type": "integer"}, "status": {"type": "string"}, "values": {"type": "object", "additionalProperties": true}, "content_hash": {"type": "string"}, "reason": {"type": "string"}, "created_at": {"type": "string", "format": "date-time"}, "created_by": {"type": "string"}, "published_at": {"type": ["string", "null"], "format": "date-time"}, "published_by": {"type": ["string", "null"]}}},
-      "ConfigurationProfileDetail": {"type": "object", "required": ["profile", "versions"], "properties": {"profile": {"$ref": "#/components/schemas/ConfigurationProfile"}, "versions": {"type": "array", "items": {"$ref": "#/components/schemas/ConfigurationVersion"}}}},
-      "ConfigurationProfilePage": {"type": "object", "additionalProperties": true, "properties": {"profiles": {"type": "array", "items": {"$ref": "#/components/schemas/ConfigurationProfile"}}, "next_page_token": {"type": "string"}}}
+      "Problem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "request_id",
+          "correlation_id",
+          "retryable"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "format": "uri-reference"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer",
+            "minimum": 400,
+            "maximum": 599
+          },
+          "detail": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^[a-z0-9_]+$"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "request_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "correlation_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "trace_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{32}$"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "violations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path",
+                "rule",
+                "message"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "rule": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "StartWorkflowRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "instance_id",
+          "workflow_version",
+          "start_node_id"
+        ],
+        "properties": {
+          "instance_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "workflow_version": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "start_node_id": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      },
+      "CommandReceipt": {
+        "type": "object",
+        "required": [
+          "command_id",
+          "committed_sequence",
+          "duplicate"
+        ],
+        "properties": {
+          "command_id": {
+            "type": "string"
+          },
+          "committed_sequence": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "duplicate": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CompleteWorkItemRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "decision",
+          "expected_version"
+        ],
+        "properties": {
+          "decision": {
+            "type": "string",
+            "minLength": 1
+          },
+          "expected_version": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "DelegateWorkItemRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expected_version"
+        ],
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "assignee_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "candidate_group": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "oneOf": [
+          {
+            "required": [
+              "assignee_id"
+            ],
+            "properties": {
+              "assignee_id": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          {
+            "required": [
+              "candidate_group"
+            ],
+            "properties": {
+              "candidate_group": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        ]
+      },
+      "WorkItemCommandResponse": {
+        "type": "object",
+        "required": [
+          "command_id",
+          "work_item_version"
+        ],
+        "properties": {
+          "command_id": {
+            "type": "string"
+          },
+          "work_item_version": {
+            "type": "integer"
+          }
+        }
+      },
+      "WorkItem": {
+        "type": "object",
+        "required": [
+          "tenant_id",
+          "work_item_id",
+          "instance_id",
+          "workflow_type",
+          "workflow_version",
+          "node_id",
+          "task_type",
+          "status",
+          "version"
+        ],
+        "properties": {
+          "tenant_id": {
+            "type": "string"
+          },
+          "work_item_id": {
+            "type": "string"
+          },
+          "instance_id": {
+            "type": "string"
+          },
+          "workflow_type": {
+            "type": "string"
+          },
+          "workflow_version": {
+            "type": "string"
+          },
+          "node_id": {
+            "type": "string"
+          },
+          "task_type": {
+            "type": "string"
+          },
+          "assignee_id": {
+            "type": "string"
+          },
+          "candidate_group": {
+            "type": "string"
+          },
+          "form_key": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "decision": {
+            "type": "string"
+          },
+          "sla_deadline_epoch_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "version": {
+            "type": "integer"
+          },
+          "delegation_depth": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "ListWorkItemsResponse": {
+        "type": "object",
+        "required": [
+          "work_items"
+        ],
+        "properties": {
+          "work_items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkItem"
+            }
+          },
+          "next_page_token": {
+            "type": "string"
+          }
+        }
+      },
+      "CasePlanItem": {
+        "type": "object",
+        "required": [
+          "plan_item_id",
+          "kind",
+          "status",
+          "version"
+        ],
+        "properties": {
+          "plan_item_id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer"
+          }
+        }
+      },
+      "Case": {
+        "type": "object",
+        "required": [
+          "tenant_id",
+          "case_id",
+          "case_type",
+          "status",
+          "plan_items",
+          "version"
+        ],
+        "properties": {
+          "tenant_id": {
+            "type": "string"
+          },
+          "case_id": {
+            "type": "string"
+          },
+          "case_type": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "plan_items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CasePlanItem"
+            }
+          },
+          "version": {
+            "type": "integer"
+          }
+        }
+      },
+      "AuditRecord": {
+        "type": "object",
+        "required": [
+          "audit_id",
+          "actor_id",
+          "action",
+          "occurred_at_epoch_ms",
+          "correlation_id"
+        ],
+        "properties": {
+          "audit_id": {
+            "type": "string"
+          },
+          "work_item_id": {
+            "type": "string"
+          },
+          "case_id": {
+            "type": "string"
+          },
+          "actor_id": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "occurred_at_epoch_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "command_id": {
+            "type": "string"
+          },
+          "correlation_id": {
+            "type": "string"
+          },
+          "from_version": {
+            "type": "integer"
+          },
+          "to_version": {
+            "type": "integer"
+          },
+          "details_json": {
+            "type": "string",
+            "contentEncoding": "base64"
+          }
+        }
+      },
+      "ListAuditRecordsResponse": {
+        "type": "object",
+        "required": [
+          "records"
+        ],
+        "properties": {
+          "records": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuditRecord"
+            }
+          },
+          "next_page_token": {
+            "type": "string"
+          }
+        }
+      },
+      "ConfigurationScope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "reference"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "PLATFORM",
+              "ENVIRONMENT",
+              "TENANT",
+              "WORKFLOW_TYPE",
+              "WORKFLOW_VERSION",
+              "APPROVED_INSTANCE_OVERRIDE"
+            ]
+          },
+          "reference": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "CreateConfigurationProfileRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "owner",
+          "scope",
+          "schema_version",
+          "policy_version",
+          "reason",
+          "values"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string",
+            "enum": [
+              "ENGINE",
+              "API_GATEWAY",
+              "HUMAN_RUNTIME",
+              "PROJECTION",
+              "GOVERNANCE",
+              "CONFIGURATION_SERVICE",
+              "COCKPIT_GATEWAY",
+              "AUTHZ_CONTROL_PLANE"
+            ]
+          },
+          "scope": {
+            "$ref": "#/components/schemas/ConfigurationScope"
+          },
+          "schema_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "policy_version": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "values": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "AddConfigurationDraftRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expected_version",
+          "schema_version",
+          "policy_version",
+          "reason",
+          "values"
+        ],
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "schema_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "policy_version": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "values": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "ConfigurationTransitionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expected_version",
+          "reason"
+        ],
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "policy_version": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "ConfigurationProfile": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "tenant_id",
+          "owner",
+          "name",
+          "scope",
+          "aggregate_version",
+          "is_deleted",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string",
+            "enum": [
+              "ENGINE",
+              "API_GATEWAY",
+              "HUMAN_RUNTIME",
+              "PROJECTION",
+              "GOVERNANCE",
+              "CONFIGURATION_SERVICE",
+              "COCKPIT_GATEWAY",
+              "AUTHZ_CONTROL_PLANE"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/ConfigurationScope"
+          },
+          "aggregate_version": {
+            "type": "integer"
+          },
+          "current_published_version_id": {
+            "type": "string"
+          },
+          "is_deleted": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "latest": {
+            "$ref": "#/components/schemas/ConfigurationVersion"
+          }
+        }
+      },
+      "ConfigurationVersion": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "config_version",
+          "schema_version",
+          "status",
+          "values"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "ordinal": {
+            "type": "integer"
+          },
+          "config_version": {
+            "type": "string"
+          },
+          "policy_version": {
+            "type": "string"
+          },
+          "schema_version": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          },
+          "values": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "content_hash": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "published_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "published_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ConfigurationProfileDetail": {
+        "type": "object",
+        "required": [
+          "profile",
+          "versions"
+        ],
+        "properties": {
+          "profile": {
+            "$ref": "#/components/schemas/ConfigurationProfile"
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConfigurationVersion"
+            }
+          }
+        }
+      },
+      "ConfigurationProfilePage": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "profiles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConfigurationProfile"
+            }
+          },
+          "next_page_token": {
+            "type": "string"
+          }
+        }
+      },
+      "ClaimWorkItemRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expected_version"
+        ],
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "UnclaimWorkItemRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expected_version",
+          "candidate_group"
+        ],
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "candidate_group": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
     }
   }
 }

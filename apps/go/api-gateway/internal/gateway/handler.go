@@ -187,6 +187,8 @@ var publicOperationDefinitions = []publicOperationDefinition{
 	{PublicOperation{http.MethodGet, "/v1/work-items/{workItemID}", "getWorkItem"}, (*Handler).getWorkItem, false},
 	{PublicOperation{http.MethodPost, "/v1/work-items/{workItemID}/complete", "completeWorkItem"}, (*Handler).completeWorkItem, false},
 	{PublicOperation{http.MethodPost, "/v1/work-items/{workItemID}/delegate", "delegateWorkItem"}, (*Handler).delegateWorkItem, false},
+	{PublicOperation{http.MethodPost, "/v1/work-items/{workItemID}/claim", "claimWorkItem"}, (*Handler).claimWorkItem, false},
+	{PublicOperation{http.MethodPost, "/v1/work-items/{workItemID}/unclaim", "unclaimWorkItem"}, (*Handler).unclaimWorkItem, false},
 	{PublicOperation{http.MethodGet, "/v1/cases/{caseID}", "getCase"}, (*Handler).getCase, false},
 	{PublicOperation{http.MethodGet, "/v1/audit-records", "listAuditRecords"}, (*Handler).listAuditRecords, false},
 	{PublicOperation{http.MethodPost, "/v1/process-instances/completed/query", "queryCompletedProcesses"}, (*Handler).queryCompletedProcesses, false},
@@ -881,6 +883,75 @@ func (h *Handler) delegateWorkItem(w http.ResponseWriter, r *http.Request) {
 	response, err := invokeUpstream(h, upstreamContext(r, scope), scope, humanDependency,
 		func(ctx context.Context) (*humanv1.DelegateWorkItemResponse, error) {
 			return h.human.DelegateWorkItem(ctx, &humanv1.DelegateWorkItemRequest{TenantId: scope.tenantID, WorkItemId: id, CommandId: scope.commandID, IdempotencyKey: scope.idempotencyKey, CorrelationId: scope.correlationID, ExpectedVersion: body.ExpectedVersion, AssigneeId: body.AssigneeID, CandidateGroup: body.CandidateGroup, ActorProof: actorProof(scope)})
+		})
+	if err != nil {
+		writeError(w, errUpstream)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+type claimRequest struct {
+	ExpectedVersion int64 `json:"expected_version"`
+}
+
+func (h *Handler) claimWorkItem(w http.ResponseWriter, r *http.Request) {
+	setCorrelationHeader(w, r)
+	scope, err := h.authenticate(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	id := r.PathValue("workItemID")
+	var body claimRequest
+	if err = decodeBody(w, r, &body, scope.runtimePolicy.MaxRequestBodyBytes); err != nil || !validID(id) || scope.actorID == "" {
+		writeError(w, errInvalid)
+		return
+	}
+	response, err := invokeUpstream(h, upstreamContext(r, scope), scope, humanDependency,
+		func(ctx context.Context) (*humanv1.DelegateWorkItemResponse, error) {
+			return h.human.DelegateWorkItem(ctx, &humanv1.DelegateWorkItemRequest{
+				TenantId: scope.tenantID, WorkItemId: id,
+				CommandId: scope.commandID, IdempotencyKey: scope.idempotencyKey,
+				CorrelationId: scope.correlationID, ExpectedVersion: body.ExpectedVersion,
+				AssigneeId: scope.actorID, CandidateGroup: "",
+				ActorProof: actorProof(scope),
+			})
+		})
+	if err != nil {
+		writeError(w, errUpstream)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+type unclaimRequest struct {
+	ExpectedVersion int64  `json:"expected_version"`
+	CandidateGroup  string `json:"candidate_group"`
+}
+
+func (h *Handler) unclaimWorkItem(w http.ResponseWriter, r *http.Request) {
+	setCorrelationHeader(w, r)
+	scope, err := h.authenticate(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	id := r.PathValue("workItemID")
+	var body unclaimRequest
+	if err = decodeBody(w, r, &body, scope.runtimePolicy.MaxRequestBodyBytes); err != nil || !validID(id) || strings.TrimSpace(body.CandidateGroup) == "" {
+		writeError(w, errInvalid)
+		return
+	}
+	response, err := invokeUpstream(h, upstreamContext(r, scope), scope, humanDependency,
+		func(ctx context.Context) (*humanv1.DelegateWorkItemResponse, error) {
+			return h.human.DelegateWorkItem(ctx, &humanv1.DelegateWorkItemRequest{
+				TenantId: scope.tenantID, WorkItemId: id,
+				CommandId: scope.commandID, IdempotencyKey: scope.idempotencyKey,
+				CorrelationId: scope.correlationID, ExpectedVersion: body.ExpectedVersion,
+				AssigneeId: "", CandidateGroup: strings.TrimSpace(body.CandidateGroup),
+				ActorProof: actorProof(scope),
+			})
 		})
 	if err != nil {
 		writeError(w, errUpstream)
