@@ -1,6 +1,7 @@
 {
   "schemaVersion": "1",
   "shellVersion": "1.0",
+  "remoteContractVersion": "1.0",
   "catalogUrl": "/mfe-catalog.json",
   "catalogTimeoutMs": 5000,
   "remoteTimeoutMs": 10000,

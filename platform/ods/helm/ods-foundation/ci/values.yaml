@@ -8,6 +8,6 @@ taskMfe:
     digest: sha256:2222222222222222222222222222222222222222222222222222222222222222
 runtime:
   shellConfigJSON: |-
-    {"schemaVersion":"1","shellVersion":"1.0","catalogUrl":"/mfe-catalog.json","catalogTimeoutMs":5000,"remoteTimeoutMs":10000,"apiTimeoutMs":15000,"maxApiResponseBytes":4194304,"maxCatalogLifetimeMs":604800000,"telemetryTraceEndpoint":"/otlp/v1/traces","allowedRemoteOrigins":["https://task.ods.example.test"],"catalogVerificationKeys":{"ci-key":{"crv":"Ed25519","x":"Mqr0igvX3ghrFwGPfGwqVcDuNzL_s2w_WKjcuZjohjA","kty":"OKP"}}}
+    {"schemaVersion":"1","shellVersion":"1.0","remoteContractVersion":"1.0","catalogUrl":"/mfe-catalog.json","catalogTimeoutMs":5000,"remoteTimeoutMs":10000,"apiTimeoutMs":15000,"maxApiResponseBytes":4194304,"maxCatalogLifetimeMs":604800000,"telemetryTraceEndpoint":"/otlp/v1/traces","allowedRemoteOrigins":["https://task.ods.example.test"],"catalogVerificationKeys":{"ci-key":{"crv":"Ed25519","x":"Mqr0igvX3ghrFwGPfGwqVcDuNzL_s2w_WKjcuZjohjA","kty":"OKP"}}}
   catalogJSON: |-
     {"schemaVersion":"1","catalogVersion":"ci-1","generatedAt":"2026-10-29T00:00:00Z","expiresAt":"2026-11-05T00:00:00Z","keyId":"ci-key","remotes":[{"name":"task-mfe","entry":"https://task.ods.example.test/releases/ci-1/mf-manifest.json","exposedModule":"route","contractVersion":"1.0","minShellVersion":"1.0","requiredCapabilities":["task.read"]}],"signature":"9J-xuvaYWxm6m-FiQ0L692MGT4LBwZT91nLboXoGOj5GrA29PLU99aUyzJvB585g50cQmz0JqdNV1HjeONjsDw"}

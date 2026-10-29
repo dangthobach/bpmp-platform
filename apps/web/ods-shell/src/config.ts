@@ -1,5 +1,8 @@
+import { shellContractVersion } from "@ods/mfe-contract";
+
 export interface ShellConfig {
   shellVersion: string;
+  remoteContractVersion: string;
   catalogUrl: string;
   catalogTimeoutMs: number;
   remoteTimeoutMs: number;
@@ -15,6 +18,7 @@ export interface ShellConfig {
 interface ShellConfigDocument {
   schemaVersion: "1";
   shellVersion: string;
+  remoteContractVersion: string;
   catalogUrl: string;
   catalogTimeoutMs: number;
   remoteTimeoutMs: number;
@@ -52,6 +56,7 @@ export async function loadShellConfig(
   }
   const config: ShellConfig = {
     shellVersion: document.shellVersion,
+    remoteContractVersion: document.remoteContractVersion,
     catalogUrl: catalogURL.pathname + catalogURL.search,
     catalogTimeoutMs: document.catalogTimeoutMs,
     remoteTimeoutMs: document.remoteTimeoutMs,
@@ -70,9 +75,13 @@ export async function loadShellConfig(
 
 function parseShellConfigDocument(value: unknown): ShellConfigDocument {
   if (!isRecord(value) || value.schemaVersion !== "1" || typeof value.shellVersion !== "string"
+    || typeof value.remoteContractVersion !== "string"
     || typeof value.catalogUrl !== "string" || !Array.isArray(value.allowedRemoteOrigins)
     || !isRecord(value.catalogVerificationKeys)) {
     throw new TypeError("invalid Shell configuration");
+  }
+  if (value.remoteContractVersion !== shellContractVersion) {
+    throw new TypeError("runtime remote contract does not match the compiled Shell contract");
   }
   for (const field of ["catalogTimeoutMs", "remoteTimeoutMs", "apiTimeoutMs", "maxApiResponseBytes", "maxCatalogLifetimeMs"] as const) {
     if (!Number.isSafeInteger(value[field]) || (value[field] as number) <= 0) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseRemoteCatalog } from "./index";
+import { assertRemoteRouteModule, parseRemoteCatalog } from "./index";
 
 const validCatalog = {
   schemaVersion: "1",
@@ -32,5 +32,21 @@ describe("parseRemoteCatalog", () => {
       { ...validCatalog, remotes: [validCatalog.remotes[0], validCatalog.remotes[0]] },
       new Set(["https://assets.example"]),
     )).toThrow("duplicate remote name");
+  });
+
+  it("rejects a malformed remote version before registration", () => {
+    expect(() => parseRemoteCatalog(
+      { ...validCatalog, remotes: [{ ...validCatalog.remotes[0], minShellVersion: "latest" }] },
+      new Set(["https://assets.example"]),
+    )).toThrow("numeric major.minor");
+  });
+});
+
+describe("assertRemoteRouteModule", () => {
+  it("rejects a malformed imported module", () => {
+    expect(() => assertRemoteRouteModule({
+      contractVersion: "1.0",
+      route: { path: "tasks", title: "Tasks", Component: "not-a-component" },
+    }, "1.0")).toThrow("incompatible");
   });
 });

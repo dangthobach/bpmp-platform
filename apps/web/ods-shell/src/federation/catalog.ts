@@ -1,4 +1,4 @@
-import { parseRemoteCatalog, type RemoteCatalog } from "@ods/mfe-contract";
+import { assertRemoteCatalogCompatibility, parseRemoteCatalog, type RemoteCatalog } from "@ods/mfe-contract";
 import type { ShellConfig } from "../config";
 
 export type CatalogSignatureVerifier = (catalog: RemoteCatalog) => Promise<boolean>;
@@ -26,6 +26,10 @@ export async function loadCatalog(
     if (catalog.signature !== undefined && !await verifySignature(catalog)) {
       throw new Error("MFE catalog signature is invalid");
     }
+    assertRemoteCatalogCompatibility(catalog, {
+      shellVersion: config.shellVersion,
+      remoteContractVersion: config.remoteContractVersion,
+    });
     return catalog;
   } finally {
     clearTimeout(timeout);

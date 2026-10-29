@@ -33,6 +33,23 @@ test("rejects a cross-origin telemetry endpoint", () => {
   }
 });
 
+test("rejects a signed catalog when the configured Shell is too old", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ods-compat-test-"));
+  try {
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    config.shellVersion = "0.9";
+    const candidate = join(directory, "shell-config.json");
+    writeFileSync(candidate, JSON.stringify(config));
+    const result = spawnSync(process.execPath, [
+      verifier, "--config", candidate, "--catalog", catalogPath, "--now", fixedNow,
+    ], { encoding: "utf8" });
+    assert.notEqual(result.status, 0, "newer remote unexpectedly passed an older Shell gate");
+    assert.match(result.stderr, /requires a newer shell/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 for (const [name, mutate] of [
   ["tampered", (catalog) => { catalog.remotes[0].contractVersion = "9.9"; }],
   ["expired", (catalog) => { catalog.expiresAt = "2026-10-29T11:00:00Z"; }],

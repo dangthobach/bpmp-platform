@@ -36,6 +36,7 @@ async function readJSON(path) {
 
 function validateShellConfig(value) {
   if (!record(value) || value.schemaVersion !== "1" || typeof value.shellVersion !== "string"
+    || typeof value.remoteContractVersion !== "string"
     || value.catalogUrl !== "/mfe-catalog.json" || !Array.isArray(value.allowedRemoteOrigins)
     || !record(value.catalogVerificationKeys)) fail("invalid shell configuration");
   for (const field of ["catalogTimeoutMs", "remoteTimeoutMs", "apiTimeoutMs", "maxApiResponseBytes", "maxCatalogLifetimeMs"]) {
@@ -64,6 +65,8 @@ function validateCatalog(value, config, now) {
   if (generatedAt > now.getTime() + 60_000 || expiresAt <= now.getTime()) fail("catalog is not currently valid");
   if (expiresAt <= generatedAt || expiresAt - generatedAt > config.maxCatalogLifetimeMs) fail("catalog lifetime exceeds policy");
   const allowedOrigins = new Set(config.allowedRemoteOrigins);
+  const shellVersion = parseComparableVersion(config.shellVersion, "shell version");
+  parseComparableVersion(config.remoteContractVersion, "remote contract version");
   const names = new Set();
   for (const remote of value.remotes) {
     if (!record(remote) || !/^[a-z][a-z0-9-]{1,63}$/.test(remote.name)
@@ -74,6 +77,10 @@ function validateCatalog(value, config, now) {
     const entry = new URL(remote.entry);
     if (!allowedOrigins.has(entry.origin) || !entry.pathname.endsWith("/mf-manifest.json")) fail(`remote ${remote.name} is not allowlisted`);
     if (names.has(remote.name)) fail(`duplicate remote ${remote.name}`);
+    parseComparableVersion(remote.contractVersion, `remote ${remote.name} contract version`);
+    const minimumShellVersion = parseComparableVersion(remote.minShellVersion, `remote ${remote.name} minimum shell version`);
+    if (remote.contractVersion !== config.remoteContractVersion) fail(`remote ${remote.name} contract is incompatible`);
+    if (compareVersions(shellVersion, minimumShellVersion) < 0) fail(`remote ${remote.name} requires a newer shell`);
     names.add(remote.name);
   }
   const key = config.catalogVerificationKeys[value.keyId];
@@ -106,6 +113,20 @@ function validateCatalog(value, config, now) {
     valid = false;
   }
   if (!valid) fail("catalog signature is invalid");
+}
+
+function parseComparableVersion(value, field) {
+  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)(?:\.(0|[1-9]\d*))?$/.exec(value);
+  if (match === null) fail(`${field} must be a numeric major.minor[.patch] version`);
+  return [Number(match[1]), Number(match[2]), Number(match[3] ?? 0)];
+}
+
+function compareVersions(left, right) {
+  for (let index = 0; index < 3; index += 1) {
+    const difference = left[index] - right[index];
+    if (difference !== 0) return difference;
+  }
+  return 0;
 }
 
 function record(value) {

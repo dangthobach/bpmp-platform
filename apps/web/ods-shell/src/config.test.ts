@@ -4,6 +4,7 @@ import { loadShellConfig } from "./config";
 const valid = {
   schemaVersion: "1",
   shellVersion: "1.0",
+  remoteContractVersion: "1.0",
   catalogUrl: "/mfe-catalog.json",
   catalogTimeoutMs: 5_000,
   remoteTimeoutMs: 10_000,
@@ -41,5 +42,13 @@ describe("loadShellConfig", () => {
       catalogUrl: "https://attacker.example/catalog.json",
     }), { status: 200 }));
     await expect(loadShellConfig(fetchConfig, "https://portal.example", false)).rejects.toThrow("same-origin");
+  });
+
+  it("rejects a runtime contract override that the compiled Shell does not support", async () => {
+    const fetchConfig = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      ...valid,
+      remoteContractVersion: "2.0",
+    }), { status: 200 }));
+    await expect(loadShellConfig(fetchConfig, "https://portal.example", false)).rejects.toThrow("compiled Shell contract");
   });
 });

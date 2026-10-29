@@ -42,6 +42,11 @@ export interface RemoteCatalog {
   keyId?: string;
 }
 
+export interface RemoteCompatibilityTarget {
+  shellVersion: string;
+  remoteContractVersion: string;
+}
+
 export function parseRemoteCatalog(value: unknown, allowedOrigins: ReadonlySet<string>): RemoteCatalog {
   if (!isRecord(value) || value.schemaVersion !== "1" || typeof value.catalogVersion !== "string"
     || typeof value.generatedAt !== "string" || typeof value.expiresAt !== "string"
@@ -97,6 +102,23 @@ export function assertRemoteRouteModule(value: unknown, expectedContract: string
   return value as unknown as RemoteRouteModule;
 }
 
+export function assertRemoteCatalogCompatibility(
+  catalog: RemoteCatalog,
+  target: RemoteCompatibilityTarget,
+): void {
+  const shellVersion = parseComparableVersion(target.shellVersion, "shell version");
+  parseComparableVersion(target.remoteContractVersion, "remote contract version");
+  for (const remote of catalog.remotes) {
+    if (remote.contractVersion !== target.remoteContractVersion) {
+      throw new TypeError(`remote ${remote.name} contract ${remote.contractVersion} is incompatible`);
+    }
+    const minimumShellVersion = parseComparableVersion(remote.minShellVersion, `remote ${remote.name} minimum shell version`);
+    if (compareVersions(shellVersion, minimumShellVersion) < 0) {
+      throw new TypeError(`remote ${remote.name} requires shell ${remote.minShellVersion}`);
+    }
+  }
+}
+
 function parseRemote(value: unknown, index: number, allowedOrigins: ReadonlySet<string>): RemoteCatalogEntry {
   if (!isRecord(value)) throw new TypeError(`remote[${index}] must be an object`);
   for (const key of ["name", "entry", "exposedModule", "contractVersion", "minShellVersion"] as const) {
@@ -112,6 +134,8 @@ function parseRemote(value: unknown, index: number, allowedOrigins: ReadonlySet<
     || value.requiredCapabilities.some((item) => typeof item !== "string")) {
     throw new TypeError("requiredCapabilities must be a string array");
   }
+  parseComparableVersion(value.contractVersion as string, `remote[${index}].contractVersion`);
+  parseComparableVersion(value.minShellVersion as string, `remote[${index}].minShellVersion`);
   const remote: RemoteCatalogEntry = {
     name: value.name as string,
     entry: entry.href,
@@ -122,6 +146,20 @@ function parseRemote(value: unknown, index: number, allowedOrigins: ReadonlySet<
   };
   if (typeof value.integrity === "string") remote.integrity = value.integrity;
   return remote;
+}
+
+function parseComparableVersion(value: string, field: string): readonly [number, number, number] {
+  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)(?:\.(0|[1-9]\d*))?$/.exec(value);
+  if (match === null) throw new TypeError(`${field} must be a numeric major.minor[.patch] version`);
+  return [Number(match[1]), Number(match[2]), Number(match[3] ?? 0)];
+}
+
+function compareVersions(left: readonly number[], right: readonly number[]): number {
+  for (let index = 0; index < 3; index += 1) {
+    const difference = (left[index] ?? 0) - (right[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
