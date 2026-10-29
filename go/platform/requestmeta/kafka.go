@@ -13,7 +13,15 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-var kafkaTracer = otel.Tracer("github.com/dangthobach/bpmp-platform/go/platform/requestmeta")
+var kafkaTracerName = "github.com/dangthobach/bpmp-platform/go/platform/requestmeta"
+
+// kafkaTracer returns the current global tracer for the requestmeta
+// instrumentation library. It is called on every use so tests can swap the
+// global TracerProvider via otel.SetTracerProvider before exercising the
+// consumer/producer helpers.
+func kafkaTracer() trace.Tracer {
+	return otel.Tracer(kafkaTracerName)
+}
 
 type KafkaOperation struct {
 	trace.Span
@@ -29,7 +37,7 @@ type KafkaOperation struct {
 func StartKafkaConsumerSpan(ctx context.Context, record *kgo.Record) (context.Context, *KafkaOperation) {
 	started := time.Now()
 	ctx = ExtractKafka(ctx, record)
-	ctx, span := kafkaTracer.Start(ctx, "kafka consume "+record.Topic,
+	ctx, span := kafkaTracer().Start(ctx, "kafka consume "+record.Topic,
 		trace.WithSpanKind(trace.SpanKindConsumer),
 		trace.WithAttributes(
 			attribute.String("messaging.system", "kafka"),
@@ -47,7 +55,7 @@ func StartKafkaConsumerSpan(ctx context.Context, record *kgo.Record) (context.Co
 func StartKafkaProducerSpan(ctx context.Context, record *kgo.Record) (context.Context, *KafkaOperation) {
 	started := time.Now()
 	ctx = Ensure(ctx)
-	ctx, span := kafkaTracer.Start(ctx, "kafka publish "+record.Topic,
+	ctx, span := kafkaTracer().Start(ctx, "kafka publish "+record.Topic,
 		trace.WithSpanKind(trace.SpanKindProducer),
 		trace.WithAttributes(
 			attribute.String("messaging.system", "kafka"),
