@@ -83,9 +83,17 @@ jobs:
       - name: Lint and render digest-only release
         run: |
           helm lint platform/ods/helm/ods-foundation -f platform/ods/helm/ods-foundation/ci/values.yaml
-          helm template ods platform/ods/helm/ods-foundation -f platform/ods/helm/ods-foundation/ci/values.yaml > /dev/null
+          rendered="$(helm template ods platform/ods/helm/ods-foundation -f platform/ods/helm/ods-foundation/ci/values.yaml)"
+          test "$(grep -c '^kind: HorizontalPodAutoscaler$' <<< "$rendered")" -eq 2
+          test "$(grep -c '^kind: NetworkPolicy$' <<< "$rendered")" -eq 2
+          grep -q 'topologyKey: "topology.kubernetes.io/zone"' <<< "$rendered"
+          grep -q 'topologyKey: "kubernetes.io/hostname"' <<< "$rendered"
           if helm lint platform/ods/helm/ods-foundation -f platform/ods/helm/ods-foundation/ci/values.yaml --set shell.image.digest=latest; then
             echo "mutable image reference unexpectedly passed"
+            exit 1
+          fi
+          if helm template ods platform/ods/helm/ods-foundation -f platform/ods/helm/ods-foundation/ci/values.yaml --set autoscaling.minReplicas=5 --set autoscaling.maxReplicas=2; then
+            echo "invalid autoscaling range unexpectedly passed"
             exit 1
           fi
 
@@ -125,6 +133,8 @@ jobs:
           push: ${{ startsWith(github.ref, 'refs/tags/ods-v') }}
           tags: ghcr.io/${{ github.repository }}/${{ matrix.app }}:${{ github.sha }}
           labels: org.opencontainers.image.revision=${{ github.sha }}
+          provenance: mode=max
+          sbom: true
           cache-from: type=gha,scope=${{ matrix.app }}
           cache-to: type=gha,mode=max,scope=${{ matrix.app }}
       - name: Attest published image

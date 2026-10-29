@@ -6,7 +6,9 @@ metadata:
     {{- include "ods-foundation.labels" . | nindent 4 }}
     app.kubernetes.io/component: shell
 spec:
+  {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.shell.replicas }}
+  {{- end }}
   revisionHistoryLimit: 5
   strategy:
     type: RollingUpdate
@@ -26,6 +28,7 @@ spec:
     spec:
       automountServiceAccountToken: false
       securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      {{- include "ods-foundation.topologySpreadConstraints" (dict "root" . "component" "shell") | nindent 6 }}
       containers:
         - name: shell
           image: {{ printf "%s@%s" .Values.shell.image.repository .Values.shell.image.digest | quote }}
@@ -60,7 +63,9 @@ metadata:
     {{- include "ods-foundation.labels" . | nindent 4 }}
     app.kubernetes.io/component: task-mfe
 spec:
+  {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.taskMfe.replicas }}
+  {{- end }}
   revisionHistoryLimit: 5
   strategy:
     type: RollingUpdate
@@ -78,6 +83,7 @@ spec:
     spec:
       automountServiceAccountToken: false
       securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      {{- include "ods-foundation.topologySpreadConstraints" (dict "root" . "component" "task-mfe") | nindent 6 }}
       containers:
         - name: task-mfe
           image: {{ printf "%s@%s" .Values.taskMfe.image.repository .Values.taskMfe.image.digest | quote }}

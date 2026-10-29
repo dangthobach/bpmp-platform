@@ -29,3 +29,25 @@ service:
 podDisruptionBudget:
   enabled: true
   minAvailable: 1
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+topologySpread:
+  enabled: true
+  constraints:
+    - topologyKey: topology.kubernetes.io/zone
+      maxSkew: 1
+      whenUnsatisfiable: ScheduleAnyway
+    - topologyKey: kubernetes.io/hostname
+      maxSkew: 1
+      whenUnsatisfiable: ScheduleAnyway
+
+networkPolicy:
+  enabled: true
+  # Same-namespace callers are allowed by default. Add narrowly scoped selectors
+  # for an ingress/gateway namespace when it is deployed separately.
+  additionalIngressNamespaceSelectors: []

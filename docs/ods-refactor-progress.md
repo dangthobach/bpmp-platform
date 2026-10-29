@@ -9,14 +9,14 @@ This ledger is the source of truth for execution status. Percentages are weighte
 | Phase | Status | Progress | Current evidence | Next gate |
 |---|---|---:|---|---|
 | 0 - Discovery and decisions | complete | 100% | Discovery baseline plus ADR-009/010/011 | Start Phase 1 vertical foundation |
-| 1 - Platform foundations | in_progress | 92% | Foundation code, browser-to-gateway trace context, CI gates, digest-only Helm chart, signed-catalog promotion verifier and rollback runbook | Resilience manifests, compatibility matrix, hosted image build and staging rollback rehearsal evidence |
+| 1 - Platform foundations | in_progress | 95% | Foundation code, browser-to-gateway trace context, CI gates, resilient digest-only Helm chart, signed-catalog promotion verifier and rollback runbook | Compatibility matrix, hosted image build and staging rollback rehearsal evidence |
 | 2 - Task vertical slice | not_started | 0% | Existing gateway/Human Runtime provide the migration source | Complete task flow through new MFE/BFF contract |
 | 3 - Case domain | not_started | 0% | Existing Human Runtime case projection is not the target Case aggregate | Separate Case owner/database/outbox |
 | 4 - Documents and integrations | not_started | 0% | Requirements only | Streaming/quarantine and idempotent callback paths |
 | 5 - ODS Common and operations | not_started | 0% | Existing observability/configuration plumbing is reusable | Versioned master data, notification and audit projection |
 | 6 - Cutover and hardening | not_started | 0% | Strangler strategy documented | Canary/rollback/DR and legacy retirement evidence |
 
-Overall evidenced progress: **26%**. This is 100% of Phase 0 plus the evidenced portion of Phase 1; later phases receive no scaffolding credit. The Phase 1 figure was recalibrated after a gate audit found that environment rehearsal, Kubernetes resilience controls and the full compatibility/failure matrix were not yet evidenced.
+Overall evidenced progress: **27%**. This is 100% of Phase 0 plus the evidenced portion of Phase 1; later phases receive no scaffolding credit. The Phase 1 figure remains below its former optimistic estimate because environment rehearsal and the full compatibility/failure matrix are not yet evidenced.
 
 ## Phase 1 evidence
 
@@ -29,7 +29,7 @@ Overall evidenced progress: **26%**. This is 100% of Phase 0 plus the evidenced 
 | `callApi` SDK | 15% | complete | Typed success/error, IDs, timeout/cancel, same-origin guard, credentials and injectable CSRF token |
 | Signed production catalog | 10% | complete | Canonical signed bytes, Ed25519 WebCrypto verification, key-id rotation map, freshness/lifetime checks and runtime config |
 | Portal Gateway BFF session and async tracing | 10% | in_progress | Session-store port/Redis adapter, signed actor context, tenant/CSRF enforcement, browser W3C trace injection and gateway-to-gRPC propagation; Kafka consumer continuity and collector evidence pending |
-| CI/CD, immutable publish, Helm/rollback | 10% | in_progress | Linux gates, non-root images, provenance publish, digest-only Helm chart, signed promotion verifier and rollback runbook; hosted build/rehearsal evidence pending |
+| CI/CD, immutable publish, Helm/rollback | 10% | in_progress | Linux gates, non-root images, signed provenance plus SBOM request, digest-only Helm chart, HPA/PDB/topology spread/NetworkPolicy, signed promotion verifier and rollback runbook; hosted build/rehearsal evidence pending |
 
 ## Phase 0 evidence
 
@@ -70,10 +70,11 @@ Overall evidenced progress: **26%**. This is 100% of Phase 0 plus the evidenced 
 | 2026-10-29 | Browser OpenTelemetry boundary | `npm run verify:ods` | Passed for six workspaces and 20 unit/component tests; telemetry start/end failures are isolated and do not retry business commands |
 | 2026-10-29 | Browser trace E2E | `npm run test:ods-e2e` | 2 tests passed; API request carried a valid W3C `traceparent` and missing remote remained isolated |
 | 2026-10-29 | Browser trace release gates | `npm run test:ods-release`, production audit, Helm lint and `git diff --check` | Passed; cross-origin telemetry endpoint rejected and 0 production dependency vulnerabilities |
+| 2026-10-29 | Kubernetes resilience controls | `helm lint` plus positive/negative `helm template` matrix | Passed; 2 HPAs, 2 ingress NetworkPolicies, zone/host spreading and explicit replicas when autoscaling is disabled; invalid HPA range rejected |
 
 ## Active slice
 
-Next gate: **add and verify Kubernetes autoscaling, scheduling and network-isolation controls, then complete the current/previous/canary compatibility and failure matrix**. The hosted build, staging trace and rollback rehearsal remain the Phase 1 environment exit gate; Phase 2 does not start before that evidence exists.
+Next gate: **complete the current/previous/canary compatibility and failure matrix**. The hosted build, staging trace and rollback rehearsal remain the Phase 1 environment exit gate; Phase 2 does not start before that evidence exists.
 
 Owner boundaries:
 
