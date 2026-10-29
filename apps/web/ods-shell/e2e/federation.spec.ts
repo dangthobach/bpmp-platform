@@ -2,6 +2,9 @@ import { expect, test } from "@playwright/test";
 
 test("loads the independently served Task remote and keeps API errors scoped", async ({ page }) => {
   await page.route("**/v1/work-items?*", async (route) => {
+    expect(route.request().headers()["traceparent"]).toMatch(
+      /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/,
+    );
     await route.fulfill({
       status: 200,
       contentType: "application/json",

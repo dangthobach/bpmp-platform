@@ -7,6 +7,7 @@
   "apiTimeoutMs": 15000,
   "maxApiResponseBytes": 4194304,
   "maxCatalogLifetimeMs": 604800000,
+  "telemetryTraceEndpoint": "/otlp/v1/traces",
   "allowedRemoteOrigins": ["https://task.ods.example.test"],
   "catalogVerificationKeys": {
     "ci-key": {"crv": "Ed25519", "x": "Mqr0igvX3ghrFwGPfGwqVcDuNzL_s2w_WKjcuZjohjA", "kty": "OKP"}

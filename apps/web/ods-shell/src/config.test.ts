@@ -12,6 +12,7 @@ const valid = {
   maxCatalogLifetimeMs: 86_400_000,
   allowedRemoteOrigins: ["https://assets.example"],
   catalogVerificationKeys: {},
+  telemetryTraceEndpoint: "/otlp/v1/traces",
 };
 
 describe("loadShellConfig", () => {
@@ -21,6 +22,17 @@ describe("loadShellConfig", () => {
     expect(config.catalogUrl).toBe("/mfe-catalog.json");
     expect(config.allowedRemoteOrigins).toEqual(new Set(["https://assets.example", "https://portal.example"]));
     expect(config.allowUnsignedCatalog).toBe(false);
+    expect(config.telemetryTraceEndpoint).toBe("/otlp/v1/traces");
+  });
+
+  it("rejects a cross-origin telemetry exporter", async () => {
+    const fetchConfig = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      ...valid,
+      telemetryTraceEndpoint: "https://collector.evil.example/v1/traces",
+    }), { status: 200 }));
+    await expect(loadShellConfig(fetchConfig, "https://portal.example", false)).rejects.toThrow(
+      "telemetryTraceEndpoint must be same-origin",
+    );
   });
 
   it("rejects a cross-origin catalog URL", async () => {

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { createCallApi } from "@ods/call-api";
 import type { PlatformServices, RemoteCatalog } from "@ods/mfe-contract";
 import { ErrorPanel, LoadingPanel, OdsThemeProvider, Page, ShellHeader } from "@ods/shared-ui";
+import { initializeBrowserTelemetry, recordComponentError, startApiTrace } from "@ods/telemetry";
 import { loadShellConfig, type ShellConfig } from "./config";
 import { loadCatalog } from "./federation/catalog";
 import { createCatalogSignatureVerifier } from "./federation/signature";
@@ -22,6 +23,7 @@ export function App(): ReactNode {
     callApi: createCallApi({
       defaultTimeoutMs: config?.apiTimeoutMs ?? 15_000,
       maxResponseBytes: config?.maxApiResponseBytes ?? 4 * 1024 * 1024,
+      ...(config === undefined ? {} : { startTrace: startApiTrace }),
       onProtocolError: (error) => reportError(error, { remote: "shell", phase: "api-protocol" }),
     }),
     navigate: (path) => history.pushState({}, "", path),
@@ -32,10 +34,19 @@ export function App(): ReactNode {
     let active = true;
     setState({ status: "loading" });
     setBootstrap(null);
-    void loadShellConfig().then(async (loadedConfig) => ({
-      config: loadedConfig,
-      catalog: await loadCatalog(loadedConfig, createCatalogSignatureVerifier(loadedConfig.catalogVerificationKeys)),
-    })).then(
+    void loadShellConfig().then(async (loadedConfig) => {
+      initializeBrowserTelemetry({
+        serviceName: "ods-shell",
+        serviceVersion: loadedConfig.shellVersion,
+        ...(loadedConfig.telemetryTraceEndpoint === undefined
+          ? {}
+          : { otlpTraceEndpoint: loadedConfig.telemetryTraceEndpoint }),
+      });
+      return {
+        config: loadedConfig,
+        catalog: await loadCatalog(loadedConfig, createCatalogSignatureVerifier(loadedConfig.catalogVerificationKeys)),
+      };
+    }).then(
       (loaded) => { if (active) { setBootstrap(loaded); setState({ status: "ready", catalog: loaded.catalog }); } },
       (error: unknown) => {
         if (active) setState({ status: "failed", error: error instanceof Error ? error : new Error("catalog failure") });
@@ -60,7 +71,6 @@ export function App(): ReactNode {
 }
 
 function reportError(error: unknown, context: { remote: string; phase: string }): void {
-  const message = error instanceof Error ? error.message : "unknown error";
-  // The telemetry adapter intentionally accepts metadata only. Never attach response bodies, tokens or PII.
-  console.error("ODS component failure", { ...context, message });
+  void error;
+  recordComponentError(context);
 }

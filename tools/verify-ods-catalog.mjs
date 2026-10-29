@@ -42,6 +42,12 @@ function validateShellConfig(value) {
     if (!Number.isSafeInteger(value[field]) || value[field] <= 0) fail(`invalid shell field ${field}`);
   }
   if (value.maxCatalogLifetimeMs > 7 * 24 * 60 * 60 * 1_000) fail("catalog lifetime policy exceeds seven days");
+  if (value.telemetryTraceEndpoint !== undefined
+    && (typeof value.telemetryTraceEndpoint !== "string"
+      || !value.telemetryTraceEndpoint.startsWith("/")
+      || value.telemetryTraceEndpoint.startsWith("//"))) {
+    fail("telemetry trace endpoint must be same-origin");
+  }
   for (const origin of value.allowedRemoteOrigins) {
     if (typeof origin !== "string" || new URL(origin).origin !== origin) fail(`invalid allowed remote origin ${origin}`);
   }

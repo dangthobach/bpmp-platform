@@ -39,9 +39,23 @@ export interface CallApiConfiguration {
   defaultTimeoutMs: number;
   maxResponseBytes: number;
   csrfToken?: () => string | undefined;
+  startTrace?: StartApiTrace;
   onProtocolError?: (error: Error) => void;
   transport?: AxiosInstance;
 }
+
+export interface ApiTraceOutcome {
+  status: number;
+  error: boolean;
+}
+
+export interface ApiTraceSpan {
+  traceparent: string;
+  tracestate?: string;
+  end(outcome: ApiTraceOutcome): void;
+}
+
+export type StartApiTrace = (request: Readonly<{ method: HttpMethod }>) => ApiTraceSpan | undefined;
 
 export function createCallApi(configuration: CallApiConfiguration): CallApi {
   const transport = configuration.transport ?? axios.create({
@@ -76,8 +90,15 @@ export function createCallApi(configuration: CallApiConfiguration): CallApi {
     if (options.signal !== undefined) request.signal = options.signal;
     if (options.body !== undefined) request.data = options.body;
 
+    const traceSpan = safeStartTrace(configuration.startTrace, options.method, configuration.onProtocolError);
+    if (traceSpan !== undefined) {
+      headers.traceparent = traceSpan.traceparent;
+      if (traceSpan.tracestate !== undefined) headers.tracestate = traceSpan.tracestate;
+    }
+
     try {
       const response = await transport.request<TResponse>(request);
+      safeEndTrace(traceSpan, { status: response.status, error: response.status >= 400 }, configuration.onProtocolError);
       const responseRequestId = headerIdentifier(response.headers["x-request-id"]) ?? requestId;
       const responseCorrelationId = headerIdentifier(response.headers["x-correlation-id"]) ?? correlationId;
       if (response.status >= 200 && response.status < 300) {
@@ -96,6 +117,7 @@ export function createCallApi(configuration: CallApiConfiguration): CallApi {
         configuration.onProtocolError,
       );
     } catch (error) {
+      safeEndTrace(traceSpan, { status: 0, error: true }, configuration.onProtocolError);
       if (options.signal?.aborted) throw error;
       const axiosError = error as AxiosError;
       const code = axiosError.code === "ECONNABORTED" ? "request_timeout" : "network_unavailable";
@@ -115,6 +137,49 @@ export function createCallApi(configuration: CallApiConfiguration): CallApi {
       };
     }
   };
+}
+
+function safeStartTrace(
+  startTrace: StartApiTrace | undefined,
+  method: HttpMethod,
+  onProtocolError: CallApiConfiguration["onProtocolError"],
+): ApiTraceSpan | undefined {
+  if (startTrace === undefined) return undefined;
+  try {
+    const span = startTrace({ method });
+    if (span === undefined || !validTraceParent(span.traceparent)
+      || (span.tracestate !== undefined && !validTraceState(span.tracestate))) {
+      onProtocolError?.(new Error("telemetry adapter returned invalid W3C trace context"));
+      return undefined;
+    }
+    return span;
+  } catch {
+    onProtocolError?.(new Error("telemetry adapter could not start API trace"));
+    return undefined;
+  }
+}
+
+function safeEndTrace(
+  span: ApiTraceSpan | undefined,
+  outcome: ApiTraceOutcome,
+  onProtocolError: CallApiConfiguration["onProtocolError"],
+): void {
+  if (span === undefined) return;
+  try {
+    span.end(outcome);
+  } catch {
+    onProtocolError?.(new Error("telemetry adapter could not end API trace"));
+  }
+}
+
+function validTraceParent(value: string): boolean {
+  return /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/.test(value)
+    && !/^00-0{32}-/.test(value)
+    && !/-0{16}-/.test(value);
+}
+
+function validTraceState(value: string): boolean {
+  return value.length <= 512 && !/[\r\n]/.test(value);
 }
 
 function failureResult<T>(

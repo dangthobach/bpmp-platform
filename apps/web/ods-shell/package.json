@@ -14,6 +14,7 @@
     "@ods/call-api": "0.1.0",
     "@ods/mfe-contract": "0.1.0",
     "@ods/shared-ui": "0.1.0",
+    "@ods/telemetry": "0.1.0",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },

@@ -6,6 +6,7 @@ COPY apps/web/task-mfe/package.json apps/web/task-mfe/package.json
 COPY packages/frontend/call-api/package.json packages/frontend/call-api/package.json
 COPY packages/frontend/mfe-contract/package.json packages/frontend/mfe-contract/package.json
 COPY packages/frontend/shared-ui/package.json packages/frontend/shared-ui/package.json
+COPY packages/frontend/telemetry/package.json packages/frontend/telemetry/package.json
 RUN --mount=type=cache,target=/root/.npm npm ci
 COPY apps/web/ods-shell apps/web/ods-shell
 COPY packages/frontend packages/frontend
