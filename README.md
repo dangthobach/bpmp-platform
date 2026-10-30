@@ -10,23 +10,42 @@ incrementally from the deterministic Rust engine outward.
 - SHA-256 integrity digest and Ed25519-signed WIR artifacts with fail-closed loading.
 - Pure Rust `decide`, `evolve`, and replay functions.
 - Versioned configuration snapshots passed explicitly to every decision.
-- Engine application layer with atomic in-memory event/idempotency storage for
-  development and tests only.
+- Engine application layer with authoritative transition authorization,
+  idempotency, deterministic replay, and an in-memory adapter for focused tests.
 - Linux RocksDB adapter with synchronous WAL, encrypted event records, dedup,
   idempotency, and outbox entries committed in one WriteBatch.
+- Three-node OpenRaft deployment path, peer RPC, snapshots, leader forwarding,
+  and leader-only outbox/timer/local/remote-worker schedulers.
+- Go API Gateway, Human Runtime, Configuration, Projection, and Cockpit Gateway
+  services with versioned gRPC/Kafka contracts and service-owned PostgreSQL.
+- PostgreSQL-backed Authz Control Plane, embedded fail-closed Engine evaluator,
+  actor/workload identity separation, and signed query-revocation feed.
+- Governance approval and key-lifecycle service with Engine revocation barrier
+  and Vault Transit adapter.
 - Configured interval snapshots encrypted and committed atomically with events;
   replay loads only the bounded event tail after the latest snapshot.
 - AES-256-GCM payload crypto adapter backed by an external data-key resolver port.
 - Wasmtime 36 LTS local worker with ABI v1 linear-memory transfer, fuel metering,
   strict resource quotas, and isolated typed failures.
 
-The in-memory adapter does not provide production durability. Raft replication,
-production key management, outbox publication, and actor authorization remain
-required before the engine can be used outside local development with synthetic data.
+The in-memory adapter does not provide production durability. Production uses
+the Linux RocksDB/Raft path. Real-PII deployment remains gated on production KMS
+qualification, recovery/chaos evidence, and the production-readiness items
+tracked in [`docs/repository-gap-remediation.md`](docs/repository-gap-remediation.md).
 
-The current compiler deliberately rejects gateways, human/script tasks,
-sub-processes, DMN, and CMMN until their validation and lowering passes are
-implemented. It never lowers unsupported behavior to an implicit default.
+The compiler implements the documented executable BPMN/DMN/CMMN profile and
+fails closed for unclassified or unsupported model elements. Passing that
+profile does not claim full standards breadth; current coverage and residual
+gaps are recorded in
+[`docs/requirement-1-compliance.md`](docs/requirement-1-compliance.md).
+
+## Architecture and documentation
+
+Start with the [documentation index](docs/README.md) and the
+[current architecture map](docs/architecture/README.md). The architecture
+section links deployable ownership, service workflows, identity/trust flows,
+background workers, accepted ADRs, and the contract/topic/store/test
+traceability matrix.
 
 ## Compile BPMN
 

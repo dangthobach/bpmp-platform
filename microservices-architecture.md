@@ -283,12 +283,18 @@ Nguồn baseline chính thức:
 
 Không deploy production với dữ liệu PII thật trước khi P2 hoàn tất, dù P0/P1 đã đủ cho functional MVP trong môi trường dữ liệu giả lập.
 
-## 10. Quyết định cần ghi ADR trước khi code
+## 10. ADR registry
 
-1. ADR-001: Rust-only deterministic core và cấm WIR interpretation ngoài engine.
-2. ADR-002: RocksDB + Raft là authoritative event log; Kafka chỉ là integration feed.
-3. ADR-003: Protobuf/Buf cho contracts và WIR artifact; không dùng `bincode` làm durable contract.
-4. ADR-004: Database-per-bounded-context, không cross-service SQL.
-5. ADR-005: Compensation Ledger được engine ghi atomically; governance chỉ orchestrate.
-6. ADR-006: Production dependency upgrade policy ưu tiên supported/LTS, không chạy theo newest release một cách tự động.
-7. ADR-007: Dynamic Configuration governance, versioned Configuration_Profile, scope override và danh mục giá trị tuyệt đối không được hardcode trong domain/application logic.
+Các quyết định nền đã được ghi nhận trong `docs/adr/`:
+
+1. [ADR-001](docs/adr/ADR-001-rust-deterministic-core.md): Rust-only deterministic core và cấm WIR interpretation ngoài engine.
+2. [ADR-002](docs/adr/ADR-002-authoritative-event-log-and-kafka.md): RocksDB + Raft là authoritative event log; Kafka chỉ là integration feed.
+3. [ADR-003](docs/adr/ADR-003-protobuf-durable-contracts.md): Protobuf/Buf cho contracts và WIR artifact; không dùng `bincode` làm durable contract.
+4. [ADR-004](docs/adr/ADR-004-database-per-bounded-context.md): Database-per-bounded-context, không cross-service SQL.
+5. [ADR-005](docs/adr/ADR-005-governance-atomicity-and-compensation-ledger.md): Compensation Ledger được engine ghi atomically; governance chỉ orchestrate.
+6. [ADR-006](docs/adr/ADR-006-supported-and-pinned-dependencies.md): Production dependency upgrade policy ưu tiên supported/LTS, không chạy theo newest release một cách tự động.
+7. [ADR-007](docs/adr/ADR-007-dynamic-configuration.md): Dynamic Configuration governance, versioned Configuration_Profile, scope override và danh mục giá trị tuyệt đối không được hardcode trong domain/application logic.
+
+Các quyết định security/frontend/ODS tiếp theo dùng ADR-008 trở đi. Inventory
+deployable hiện tại, workflow, trust flow, background worker và traceability nằm
+trong [docs/architecture/README.md](docs/architecture/README.md).
