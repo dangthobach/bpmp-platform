@@ -77,6 +77,30 @@ describe("createCallApi", () => {
     }));
   });
 
+  it("sends the stable command and idempotency identities required by the gateway", async () => {
+    const request = vi.fn().mockResolvedValue({ status: 202, data: {}, headers: {} });
+    const callApi = createCallApi({
+      defaultTimeoutMs: 1_000,
+      maxResponseBytes: 1_000_000,
+      transport: { request } as unknown as AxiosInstance,
+    });
+
+    await callApi({
+      method: "POST",
+      path: "/v1/work-items/task-1/complete",
+      commandId: "command-1",
+      idempotencyKey: "intent-1",
+      body: { expected_version: 1, decision: "APPROVED" },
+    });
+
+    expect(request).toHaveBeenCalledWith(expect.objectContaining({
+      headers: expect.objectContaining({
+        "X-Command-ID": "command-1",
+        "Idempotency-Key": "intent-1",
+      }),
+    }));
+  });
+
   it("maps an invalid error body without exposing it", async () => {
     const protocolError = vi.fn();
     const callApi = createCallApi({

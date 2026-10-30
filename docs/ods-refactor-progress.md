@@ -10,13 +10,13 @@ This ledger is the source of truth for execution status. Percentages are weighte
 |---|---|---:|---|---|
 | 0 - Discovery and decisions | complete | 100% | Discovery baseline plus ADR-009/010/011 | Start Phase 1 vertical foundation |
 | 1 - Platform foundations | in_progress | 98% | Foundation code, browser-to-gateway trace context, CI gates, resilient digest-only Helm chart, signed-catalog promotion verifier and rollback runbook, compatibility/failure isolation matrix, Kafka consumer trace continuity and isolated metrics endpoint | Hosted image build and staging rollback rehearsal evidence |
-| 2 - Task vertical slice | not_started | 0% | Existing gateway/Human Runtime provide the migration source | Complete task flow through new MFE/BFF contract |
+| 2 - Task vertical slice | blocked | 65% | Task BFF plus Task MFE personal/group worklists, bounded pagination, claim/unclaim/complete/delegate, stable idempotent retry, command/projection reconciliation and browser command E2E | Phase 1 environment exit gate; then unit worklist contract, SSE hints, concurrent-claim/integration load evidence |
 | 3 - Case domain | not_started | 0% | Existing Human Runtime case projection is not the target Case aggregate | Separate Case owner/database/outbox |
 | 4 - Documents and integrations | not_started | 0% | Requirements only | Streaming/quarantine and idempotent callback paths |
 | 5 - ODS Common and operations | not_started | 0% | Existing observability/configuration plumbing is reusable | Versioned master data, notification and audit projection |
 | 6 - Cutover and hardening | not_started | 0% | Strangler strategy documented | Canary/rollback/DR and legacy retirement evidence |
 
-Overall evidenced progress: **29%**. This is 100% of Phase 0 plus the evidenced portion of Phase 1 (98%); later phases receive no scaffolding credit. The compatibility matrix and Kafka consumer trace continuity + isolated metrics port are now complete. The remaining Phase 1 gap is strictly the hosted image build and staging rollback rehearsal (blocked on Docker Desktop environment socket issue).
+Overall gate-counted progress: **29%**. This is 100% of Phase 0 plus the evidenced portion of Phase 1 (98%); Phase 2 implementation evidence is recorded below but is not counted in the overall figure until the mandatory Phase 1 environment gate passes. The remaining Phase 1 gap is strictly the hosted image build and staging rollback rehearsal (blocked on Docker Desktop environment socket issue).
 
 ## Phase 1 evidence
 
@@ -30,6 +30,17 @@ Overall evidenced progress: **29%**. This is 100% of Phase 0 plus the evidenced 
 | Signed production catalog | 10% | complete | Canonical signed bytes, Ed25519 WebCrypto verification, key-id rotation map, freshness/lifetime checks and runtime config |
 | Portal Gateway BFF session and async tracing | 10% | complete | Session-store port/Redis adapter, signed actor context, tenant/CSRF enforcement, browser W3C trace injection and gateway-to-gRPC propagation; Kafka consumer trace continuity (child span linking, missing header fallback, malformed traceparent recovery, error resilience) and isolated metrics endpoint |
 | CI/CD, immutable publish, Helm/rollback | 10% | in_progress | Linux gates, non-root images, signed provenance plus SBOM request, digest-only Helm chart, HPA/PDB/topology spread/NetworkPolicy, signed promotion verifier and rollback runbook; hosted build/rehearsal evidence pending |
+
+## Phase 2 evidence (pre-entry work; phase remains blocked)
+
+| Deliverable | Weight | Status | Evidence |
+|---|---:|---|---|
+| Task MFE worklists and actions | 30% | in_progress | Personal/group worklists, current-page search/status filter, bounded keyset navigation, claim/unclaim/complete/delegate and task detail; unit worklist contract is not yet available |
+| Task BFF facade | 25% | complete | Gateway list/detail/audit plus claim/unclaim/complete/delegate facade; authenticated actor proof, tenant, correlation and idempotency are forwarded to Human Runtime |
+| SLA/history/idempotent UX | 15% | complete | SLA badge, typed audit failure/retry, stable command/idempotency identities retaining the same key and payload across retry, and no fabricated candidate group fallback |
+| Realtime and convergence UX | 10% | in_progress | Command acceptance is separate from projection convergence; manual reconcile and last-reconciled time are explicit; SSE hint/cursor integration remains |
+| Conflict/duplicate/concurrency safety | 10% | in_progress | UI retry and 409 reconciliation tests plus existing Human Runtime idempotency/domain race suite; real concurrent-claim integration evidence remains |
+| Representative latency/error budget | 10% | not_started | Existing Human Runtime microbenchmarks are not accepted as end-to-end representative Task vertical evidence |
 
 ## Phase 0 evidence
 
@@ -73,12 +84,30 @@ Overall evidenced progress: **29%**. This is 100% of Phase 0 plus the evidenced 
 | 2026-10-30 | Compatibility and failure matrix | `npm run verify:ods`, `npm run test:ods-release`, `git diff --check`, production audit | Passed: 16 Shell tests, 5 mfe-contract tests, 6 release gate tests; contractVersion/minShellVersion gates enforced; Shell config locks remoteContractVersion to compiled constant; RemoteBoundary contains render exceptions and retries without blocking siblings; CLI verifier rejects catalog when Shell is too old |
 | 2026-10-30 | Kafka consumer trace & metrics endpoint | `go test -race ./...` (platform + gateway) | Passed: 4 Kafka consumer trace lifecycle tests (remote linking, missing header root span, malformed traceparent recovery, nil error resilience), 5 metrics endpoint & port isolation tests, full platform & gateway -race suites clean |
 | 2026-10-30 | Kubernetes resilience controls | `helm lint` plus positive/negative `helm template` matrix | Passed; 2 HPAs, 2 ingress NetworkPolicies, zone/host spreading and explicit replicas when autoscaling is disabled; invalid HPA range rejected |
+| 2026-10-30 | Phase 2 Task MFE local quality gates | `npm run verify:ods` | Passed: dependency boundaries, all workspace typechecks, 38 unit/component tests and production builds; Task MFE contributes 10 interaction/edge tests |
+| 2026-10-30 | Task command browser path | `npm run test:ods-e2e` | Passed: 2 browser tests; independently served remote completed a task with expected version, command ID and idempotency key, then reconciled committed projection version |
+| 2026-10-30 | Task owner/backend safety baseline | `go test -race ./apps/go/api-gateway/... ./apps/go/human-runtime/...` | Passed; Gateway/Human Runtime packages are race-clean, including existing actor proof, idempotency and projection tests |
 
 ## Active slice
 
-Current status: **All local code, tests, and configuration deliverables for Phase 1 are complete (98% of Phase 1, 29% overall)**.
-Remaining gate to close Phase 1 and enter Phase 2:
+Current status: **Phase 1 is 98% and Phase 2 pre-entry implementation evidence is 65%; Phase 2 remains blocked rather than advanced because its entry gate has not passed**.
+
+Active Phase 2 slice contract:
+- Owning deployables: `task-mfe` for UI composition, Portal Gateway for the Task BFF facade, Human Runtime for work-item projection/assignment, and `bpmp-engine` for final transition authorization and write-side idempotency.
+- Authoritative data and consistency: engine RocksDB/Raft command commit is authoritative; Human Runtime and Task MFE are asynchronously reconciled projections. Realtime may only trigger refetch.
+- Workload assumption: bounded 50-item pages; production task cardinality/query mix and p95 targets are still external inputs, so no capacity claim is made.
+- Failure semantics: retryable transport/upstream failures retain the exact command key and payload; version conflict does not auto-retry; audit failure remains scoped; command acceptance is not presented as projection convergence.
+
+Completed in the current slice:
+- Personal/group worklists, current-page search/status filtering and bounded next/previous pagination.
+- Claim/unclaim/complete/delegate using expected version and stable command/idempotency intent.
+- SLA state, task details/history, explicit audit failure and command receipt/projection synchronization UX.
+- Component coverage for happy path, retry with the same key/payload, 409 reconciliation and pagination; Playwright remote-to-command contract coverage.
+
+Remaining gate to close Phase 1 and formally enter Phase 2:
 - **Hosted build & staging rehearsal**: Workstation Docker Desktop secrets-engine socket prevents local container builds without destructive reset. The remaining verification must occur via hosted CI / staging container registry & cluster (or upon resolving workstation container runtime).
+
+Exact next Phase 2 slice after that gate: define the unit-worklist query contract without client-side policy, wire bounded SSE hints/cursor reconciliation, then exercise two-actor concurrent claim and representative p95/projection-lag measurement against PostgreSQL + engine integration infrastructure.
 
 Mandatory edge cases verified in Phase 1:
 - Missing CI gate or mutable artifact reference (blocked by Helm template & verifier).

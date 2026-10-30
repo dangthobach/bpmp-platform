@@ -26,6 +26,7 @@ export interface CallApiOptions<TBody = unknown> {
   body?: TBody;
   signal?: AbortSignal;
   idempotencyKey?: string;
+  commandId?: string;
   correlationId?: string;
   timeoutMs?: number;
 }
@@ -79,7 +80,18 @@ export function createCallApi(configuration: CallApiConfiguration): CallApi {
     };
     const csrfToken = configuration.csrfToken?.();
     if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
-    if (options.idempotencyKey) headers["Idempotency-Key"] = options.idempotencyKey;
+    if (options.idempotencyKey) {
+      const idempotencyKey = normalizeIdentifier(options.idempotencyKey);
+      if (!idempotencyKey) throw new TypeError("idempotency key must be a valid identifier");
+      const commandId = options.commandId === undefined
+        ? createIdentifier()
+        : normalizeIdentifier(options.commandId);
+      if (!commandId) throw new TypeError("command ID must be a valid identifier");
+      headers["Idempotency-Key"] = idempotencyKey;
+      headers["X-Command-ID"] = commandId;
+    } else if (options.commandId !== undefined) {
+      throw new TypeError("command ID requires an idempotency key");
+    }
 
     const request: AxiosRequestConfig<TBody> = {
       method: options.method,
