@@ -92,3 +92,15 @@ owner, contract, topic, store, job, runbook, or evidence path. Verify that:
 4. Consumers cover duplicate, crash-before/after-effect, and checkpoint recovery.
 5. Actor/workload identity and tenant scope are preserved end to end.
 6. Operations can detect lag, retry exhaustion, lease loss, or divergence.
+
+## Proposed reporting extension
+
+The [database/reporting proposal](../refactor-prototype/databases-and-reporting.md) maps existing and planned source owners to analytical facts and details future reporting contracts, stores and sink guarantees. No Report consumer group, topic, OLAP store or new service is deployed by this documentation change; the current tables above remain the implementation inventory.
+
+## API and entity design extension
+
+The [API design catalog](../refactor-prototype/api-spec.md) preserves the current Gateway contract and inventories proposed core/UI operations separately. [Entity conventions](../refactor-prototype/entity-conventions.md) require audit, soft deletion and optimistic concurrency for new/refactored business entities, with immutable/technical storage safety mappings. These are design/contribution requirements; existing runtime schemas and APIs are not migrated by this change.
+
+## Operational contract rollout requirement
+
+Track UUID identity mapping, per-service `/healthz`/readiness/metrics and owner-local scheduled outbox/log cleanup against [backend standards](../refactor-prototype/backend-operations.md). Mark compliance only with endpoint/probe, retention eligibility, checkpoint/hold protection and crash-recovery evidence from the owning deployable.

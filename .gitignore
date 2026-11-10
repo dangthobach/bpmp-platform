@@ -27,3 +27,5 @@ node_modules/
 /.agents/
 clippy_output.txt
 check_output.txt
+__pycache__/
+*.py[cod]

@@ -130,3 +130,15 @@ retry/DLQ policy, or recovery procedure must update the relevant document in
 this directory in the same change. A new background loop is incomplete until
 its ownership, bounds, idempotency, recovery, telemetry, and shutdown behavior
 are documented.
+
+## MDM target extension
+
+[MDM Service design](../refactor-prototype/mdm-service.md) is a proposed expansion of the Master Data context in ADR-011: centralized model/record administration, scoped immutable publications and consumer-local reads. No MDM deployable or new background worker is implemented by this documentation change.
+
+## Database and reporting target extension
+
+[Service–database matrix and Reporting](../refactor-prototype/databases-and-reporting.md) distinguishes current stores from proposed databases and describes source ownership, asynchronous ingestion, query APIs, scale gates and recovery. Existing Projection query/export ownership remains current; a separate Report/OLAP deployment is proposed, not implemented.
+
+## Backend implementation requirements
+
+[UUID, healthz/metrics and scheduled retention standards](../refactor-prototype/backend-operations.md) define required target behavior for every backend deployable and outbox/log owner. Existing endpoints, metrics formats and cleanup workers still require per-service implementation evidence; this proposal does not certify fleet-wide compliance.

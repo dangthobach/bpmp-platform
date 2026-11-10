@@ -1,0 +1,163 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "BPMP per-service management API — target design",
+    "version": "0.1.0-design",
+    "description": "Applies to every long-running backend deployable on private management listener. Not Gateway business API. Endpoints are required target behavior, not implementation evidence."
+  },
+  "servers": [
+    {
+      "url": "https://service-management.invalid",
+      "description": "Placeholder for each deployable management listener"
+    }
+  ],
+  "security": [],
+  "x-status": "proposed",
+  "x-applies-to-all-long-running-backend-services": true,
+  "paths": {
+    "/healthz": {
+      "get": {
+        "operationId": "getHealthz",
+        "description": "Liveness: bounded local process/event-loop check; no dependency fan-out.",
+        "responses": {
+          "200": {
+            "description": "Healthy / ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable / not ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/readyz": {
+      "get": {
+        "operationId": "getReadiness",
+        "description": "Readiness for service role; bootstrap, policy freshness, local store and required dependency budgets.",
+        "responses": {
+          "200": {
+            "description": "Healthy / ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable / not ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/livez": {
+      "get": {
+        "operationId": "getLivenessAlias",
+        "description": "Compatibility alias while legacy probes remain; healthz is required target.",
+        "responses": {
+          "200": {
+            "description": "Healthy / ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable / not ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/metrics": {
+      "get": {
+        "operationId": "getServiceMetrics",
+        "description": "Format must match deployed scraper. JSON compatibility and text exposition here describe alternatives, not proof every service supports both. No PII or entity UUID labels. Private monitoring reachability.",
+        "responses": {
+          "200": {
+            "description": "Service telemetry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExistingJsonMetrics"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "# TYPE bpmp_service_uptime_seconds gauge\nbpmp_service_uptime_seconds 42\n"
+              }
+            }
+          },
+          "503": {
+            "description": "Exporter unavailable; must not alter business command outcome."
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "HealthResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "service",
+          "version"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "unavailable"
+            ]
+          },
+          "service": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "ExistingJsonMetrics": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Compatibility format: existing Go metrics JSON. Not Prometheus text exposition."
+      }
+    }
+  }
+}

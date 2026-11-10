@@ -148,3 +148,11 @@ At minimum, alert on sustained user-visible or safety-margin failures:
 
 Metrics must avoid actor/resource high-cardinality labels and sensitive payloads.
 Every alert needs a linked recovery or escalation procedure before production.
+
+## Proposed reporting workers (not current)
+
+Future reporting ingest, dimension sync, aggregate correction, export and reconciliation workers are specified with ownership, durable state, bounds and recovery in [Reporting design, section 8](../refactor-prototype/databases-and-reporting.md). They are not running workers in the current inventory. Implementation must add entry points, metrics, fencing and executable crash/recovery evidence here.
+
+## Required scheduled retention workers (target)
+
+Every outbox/log owner must implement configured periodic cleanup according to [backend standards](../refactor-prototype/backend-operations.md): terminal/ACK eligibility, local-reader checkpoint floor, archive/hold policy, bounded batch/lease/fencing, restart recovery and cleanup metrics. Engine pruning must respect all local readers and authoritative Raft/storage rules. This is a target requirement, not evidence that these workers are currently running.

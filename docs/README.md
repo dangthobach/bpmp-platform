@@ -46,3 +46,16 @@ documents are linked from the root (`SECURITY.md`, `CONTRIBUTING.md`, and
 - [ODS current progress](ods-refactor-progress.md) — current evidence snapshot
 - [ODS browser session contract](ods-browser-session-contract.md)
 - [ODS release and rollback](ods-release-and-rollback.md)
+
+## Prototype-driven architecture proposal
+
+- [BPMP prototype audit, target architecture, ERD and component system](refactor-prototype/README.md) — proposed; source inventory and logical design, not delivered runtime functionality.
+
+- [MDM Service: centralized administration and versioned local reads](refactor-prototype/mdm-service.md) — proposed; configurable models, publication bundles, batch resolution and deterministic replay evidence.
+
+- [Service–database ownership and Reporting data flows](refactor-prototype/databases-and-reporting.md) — current storage inventory plus proposed Report contracts, event sources, large-volume design and recovery gates.
+
+- [Entity audit, soft-delete and optimistic locking conventions](refactor-prototype/entity-conventions.md).
+- [BPMP API Specification and UI action traceability](refactor-prototype/api-spec.md) — current Gateway snapshot plus proposed target API catalog, not a deployed contract.
+
+- [Backend standards: UUID IDs, healthz/metrics and scheduled outbox/log retention](refactor-prototype/backend-operations.md) — required target behavior; per-service implementation evidence remains a rollout gate.

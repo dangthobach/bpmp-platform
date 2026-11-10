@@ -1,0 +1,3059 @@
+// Audit/soft-delete/version are logical envelope fields; immutable/technical storage mapping: entity-conventions.md
+// PROPOSED logical model. Schema names denote separate owners/databases.
+// Common UUID IDs are design choices, not claims about existing physical columns.
+
+Table access.organizations {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  code text [not null]
+  name text [not null]
+  parent_id uuid
+  status text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table access.subjects {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  external_subject text [not null]
+  kind text [not null]
+  display_name text [not null]
+  email text
+  status text [not null]
+  organization_id uuid
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table access.memberships {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  subject_id uuid [not null]
+  organization_id uuid [not null]
+  status text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table access.roles {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  code text [not null]
+  name text [not null]
+  role_type text [not null]
+  status text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table access.permissions {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  code text [not null]
+  resource_type text [not null]
+  action text [not null]
+  mandatory_audit boolean [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table access.role_permissions {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  role_id uuid [not null]
+  permission_id uuid [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table access.role_bindings {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  role_id uuid [not null]
+  subject_id uuid [not null]
+  scope_type text [not null]
+  scope_id text [not null]
+  expires_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table access.direct_grants {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  subject_id uuid [not null]
+  permission_id uuid [not null]
+  scope_type text [not null]
+  scope_id text [not null]
+  effect text [not null]
+  expires_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table access.policy_versions {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  policy_key text [not null]
+  version bigint [not null]
+  rules jsonb [not null]
+  digest text [not null]
+  status text [not null]
+  published_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table access.policy_bindings {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  policy_version_id uuid [not null]
+  resource_type text [not null]
+  resource_id text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table access.workload_principals {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  external_subject text [not null]
+  name text [not null]
+  status text [not null]
+  credential_ref text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table access.certificate_rotations {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  principal_id uuid [not null]
+  external_job_id text
+  fingerprint text
+  not_after timestamptz
+  status text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table access.outbox {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  event_id uuid [not null]
+  aggregate_id uuid [not null]
+  aggregate_version bigint [not null]
+  event_type text [not null]
+  payload jsonb [not null]
+  published_at timestamptz
+  attempts int [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table access.inbox {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  source text [not null]
+  event_id text [not null]
+  payload_digest text [not null]
+  applied_at timestamptz [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table access.command_receipts {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  command_id uuid [not null]
+  intent_digest text [not null]
+  actor_ref uuid [not null]
+  aggregate_id uuid [not null]
+  status text [not null]
+  result jsonb [not null]
+  expires_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table access.audit_evidence {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  actor_ref uuid [not null]
+  action text [not null]
+  resource_ref text [not null]
+  command_id uuid
+  before_digest text
+  after_digest text
+  occurred_at timestamptz [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table authoring.process_models {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  model_key text [not null]
+  name text [not null]
+  category text [not null]
+  description text
+  status text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table authoring.process_drafts {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  model_id uuid [not null]
+  base_version_id uuid
+  revision bigint [not null]
+  graph jsonb [not null]
+  xml text
+  validation jsonb [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table authoring.process_versions {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  model_id uuid [not null]
+  version bigint [not null]
+  source_uri text [not null]
+  digest text [not null]
+  engine_profile text [not null]
+  compiler_version text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table authoring.process_elements {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  process_version_id uuid [not null]
+  element_key text [not null]
+  element_type text [not null]
+  name text [not null]
+  properties jsonb [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table authoring.process_flows {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  process_version_id uuid [not null]
+  source_id uuid [not null]
+  target_id uuid [not null]
+  condition text
+  waypoints jsonb [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table authoring.process_pools {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  process_version_id uuid [not null]
+  pool_key text [not null]
+  participant_ref text [not null]
+  geometry jsonb [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table authoring.process_lanes {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  pool_id uuid [not null]
+  lane_key text [not null]
+  actor_role_ref text [not null]
+  geometry jsonb [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table authoring.node_assignments {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  element_id uuid [not null]
+  lane_id uuid
+  candidate_subjects jsonb [not null]
+  candidate_roles jsonb [not null]
+  sla_policy_ref text
+  form_version_id uuid
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table authoring.decision_models {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  decision_key text [not null]
+  name text [not null]
+  description text
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table authoring.decision_drafts {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  decision_id uuid [not null]
+  base_version_id uuid
+  revision bigint [not null]
+  definition jsonb [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table authoring.decision_versions {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  decision_id uuid [not null]
+  version bigint [not null]
+  version_tag text [not null]
+  summary text [not null]
+  hit_policy text [not null]
+  digest text [not null]
+  source_uri text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table authoring.decision_clauses {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  decision_version_id uuid [not null]
+  clause_key text [not null]
+  direction text [not null]
+  ordinal int [not null]
+  label text [not null]
+  expression text [not null]
+  type_ref text [not null]
+  allowed_values jsonb [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table authoring.decision_rules {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  decision_version_id uuid [not null]
+  rule_key text [not null]
+  ordinal int [not null]
+  active boolean [not null]
+  annotation text
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table authoring.decision_cells {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  rule_id uuid [not null]
+  clause_id uuid [not null]
+  expression text [not null]
+  value jsonb
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table authoring.decision_evaluations {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  decision_version_id uuid [not null]
+  input_digest text [not null]
+  result jsonb [not null]
+  status text [not null]
+  duration_ms bigint [not null]
+  expires_at timestamptz [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table authoring.form_definitions {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  form_key text [not null]
+  name text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table authoring.form_versions {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  form_id uuid [not null]
+  version bigint [not null]
+  schema jsonb [not null]
+  ui_schema jsonb [not null]
+  digest text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table authoring.workflow_templates {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  template_key text [not null]
+  name text [not null]
+  domain text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table authoring.workflow_template_versions {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  template_id uuid [not null]
+  version bigint [not null]
+  graph jsonb [not null]
+  parameter_schema jsonb [not null]
+  digest text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table authoring.model_dependencies {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  process_version_id uuid [not null]
+  decision_version_id uuid
+  form_version_id uuid
+  called_process_version_id uuid
+  binding_type text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table authoring.deployments {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  process_version_id uuid [not null]
+  environment_ref text [not null]
+  engine_profile text [not null]
+  artifact_digest text
+  status text [not null]
+  command_id uuid [not null]
+  receipt_ref text
+  error_code text
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table authoring.outbox {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  event_id uuid [not null]
+  aggregate_id uuid [not null]
+  aggregate_version bigint [not null]
+  event_type text [not null]
+  payload jsonb [not null]
+  published_at timestamptz
+  attempts int [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table authoring.inbox {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  source text [not null]
+  event_id text [not null]
+  payload_digest text [not null]
+  applied_at timestamptz [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table authoring.command_receipts {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  command_id uuid [not null]
+  intent_digest text [not null]
+  actor_ref uuid [not null]
+  aggregate_id uuid [not null]
+  status text [not null]
+  result jsonb [not null]
+  expires_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table authoring.audit_evidence {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  actor_ref uuid [not null]
+  action text [not null]
+  resource_ref text [not null]
+  command_id uuid
+  before_digest text
+  after_digest text
+  occurred_at timestamptz [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table human.queues {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  queue_key text [not null]
+  name text [not null]
+  process_key text [not null]
+  status text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table human.queue_memberships {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  queue_id uuid [not null]
+  subject_ref uuid
+  role_ref uuid
+  scope jsonb [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table human.assignment_policy_versions {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  queue_id uuid [not null]
+  version bigint [not null]
+  strategy text [not null]
+  max_active int [not null]
+  escalation_seconds bigint [not null]
+  target_group_ref text [not null]
+  active boolean [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table human.work_items {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  instance_ref text [not null]
+  element_key text [not null]
+  queue_id uuid
+  assignee_ref uuid
+  status text [not null]
+  priority text [not null]
+  due_at timestamptz
+  engine_version bigint [not null]
+  form_version_ref uuid
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table human.work_item_candidates {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  work_item_id uuid [not null]
+  subject_ref uuid
+  role_ref uuid
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table human.assignment_history {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  work_item_id uuid [not null]
+  from_subject_ref uuid
+  to_subject_ref uuid
+  command_id uuid [not null]
+  reason text
+  effective_at timestamptz [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table human.delegations {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  work_item_id uuid [not null]
+  from_subject_ref uuid [not null]
+  to_subject_ref uuid [not null]
+  depth int [not null]
+  expires_at timestamptz
+  command_id uuid [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table human.sla_policies {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  policy_key text [not null]
+  version bigint [not null]
+  calendar_ref text
+  warning_seconds bigint [not null]
+  deadline_seconds bigint [not null]
+  escalation_action jsonb [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table human.sla_timers {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  work_item_id uuid [not null]
+  policy_id uuid [not null]
+  due_at timestamptz [not null]
+  status text [not null]
+  attempt int [not null]
+  lease_until timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table human.outbox {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  event_id uuid [not null]
+  aggregate_id uuid [not null]
+  aggregate_version bigint [not null]
+  event_type text [not null]
+  payload jsonb [not null]
+  published_at timestamptz
+  attempts int [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table human.inbox {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  source text [not null]
+  event_id text [not null]
+  payload_digest text [not null]
+  applied_at timestamptz [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table human.command_receipts {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  command_id uuid [not null]
+  intent_digest text [not null]
+  actor_ref uuid [not null]
+  aggregate_id uuid [not null]
+  status text [not null]
+  result jsonb [not null]
+  expires_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table human.audit_evidence {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  actor_ref uuid [not null]
+  action text [not null]
+  resource_ref text [not null]
+  command_id uuid
+  before_digest text
+  after_digest text
+  occurred_at timestamptz [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table case.service_offerings {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  service_key text [not null]
+  name text [not null]
+  category text [not null]
+  description text [not null]
+  status text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table case.service_offering_versions {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  offering_id uuid [not null]
+  version bigint [not null]
+  process_version_ref uuid [not null]
+  form_version_ref uuid [not null]
+  document_requirements jsonb [not null]
+  sla_policy_ref uuid
+  presentation jsonb [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table case.customers {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  external_customer_ref text
+  subject_ref uuid [not null]
+  name text [not null]
+  organization_name text
+  tax_id_ciphertext text
+  phone_ciphertext text
+  email_ciphertext text
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table case.cases {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  tracking_code text [not null]
+  offering_version_id uuid [not null]
+  customer_id uuid [not null]
+  business_key text [not null]
+  branch_ref text
+  status text [not null]
+  orchestration_state text [not null]
+  assigned_officer_ref uuid
+  amount decimal
+  currency text
+  term_months int
+  purpose text
+  deadline_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table case.case_variables {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  case_id uuid [not null]
+  name text [not null]
+  type_ref text [not null]
+  value jsonb [not null]
+  classification text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table case.case_workflow_links {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  case_id uuid [not null]
+  instance_ref text [not null]
+  process_version_ref uuid [not null]
+  start_command_id uuid [not null]
+  engine_receipt_ref text
+  status text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table case.case_steps {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  case_id uuid [not null]
+  element_key text [not null]
+  execution_ref text
+  name text [not null]
+  status text [not null]
+  handler_ref uuid
+  started_at timestamptz
+  completed_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table case.case_comments {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  case_id uuid [not null]
+  author_ref uuid [not null]
+  visibility text [not null]
+  body text [not null]
+  edited_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table case.case_document_links {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  case_id uuid [not null]
+  document_ref uuid [not null]
+  document_version_ref uuid [not null]
+  category text [not null]
+  requirement_key text
+  status_projection text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table case.case_decisions {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  case_id uuid [not null]
+  task_ref text [not null]
+  command_id uuid [not null]
+  outcome text [not null]
+  reason text [not null]
+  engine_receipt_ref text
+  status text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table case.workflow_start_jobs {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  case_id uuid [not null]
+  command_id uuid [not null]
+  payload_digest text [not null]
+  attempts int [not null]
+  next_attempt_at timestamptz
+  lease_until timestamptz
+  status text [not null]
+  last_error text
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table case.outbox {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  event_id uuid [not null]
+  aggregate_id uuid [not null]
+  aggregate_version bigint [not null]
+  event_type text [not null]
+  payload jsonb [not null]
+  published_at timestamptz
+  attempts int [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table case.inbox {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  source text [not null]
+  event_id text [not null]
+  payload_digest text [not null]
+  applied_at timestamptz [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table case.command_receipts {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  command_id uuid [not null]
+  intent_digest text [not null]
+  actor_ref uuid [not null]
+  aggregate_id uuid [not null]
+  status text [not null]
+  result jsonb [not null]
+  expires_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table case.audit_evidence {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  actor_ref uuid [not null]
+  action text [not null]
+  resource_ref text [not null]
+  command_id uuid
+  before_digest text
+  after_digest text
+  occurred_at timestamptz [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table document.documents {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  document_key text [not null]
+  owner_kind text [not null]
+  owner_ref text [not null]
+  classification text [not null]
+  retention_policy_ref text
+  status text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table document.document_versions {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  document_id uuid [not null]
+  version bigint [not null]
+  object_key text [not null]
+  checksum text [not null]
+  media_type text [not null]
+  byte_size bigint [not null]
+  original_name text [not null]
+  scan_status text [not null]
+  verified_by uuid
+  verified_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table document.upload_sessions {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  document_id uuid [not null]
+  expected_size bigint [not null]
+  expected_checksum text
+  expires_at timestamptz [not null]
+  status text [not null]
+  object_key text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table document.scan_jobs {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  document_version_id uuid [not null]
+  scanner_profile text [not null]
+  verdict text
+  attempts int [not null]
+  status text [not null]
+  lease_until timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table document.document_access_grants {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  document_id uuid [not null]
+  subject_ref uuid [not null]
+  action text [not null]
+  expires_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table document.retention_holds {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  document_id uuid [not null]
+  reason text [not null]
+  placed_by uuid [not null]
+  released_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table document.outbox {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  event_id uuid [not null]
+  aggregate_id uuid [not null]
+  aggregate_version bigint [not null]
+  event_type text [not null]
+  payload jsonb [not null]
+  published_at timestamptz
+  attempts int [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table document.inbox {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  source text [not null]
+  event_id text [not null]
+  payload_digest text [not null]
+  applied_at timestamptz [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table document.command_receipts {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  command_id uuid [not null]
+  intent_digest text [not null]
+  actor_ref uuid [not null]
+  aggregate_id uuid [not null]
+  status text [not null]
+  result jsonb [not null]
+  expires_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table document.audit_evidence {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  actor_ref uuid [not null]
+  action text [not null]
+  resource_ref text [not null]
+  command_id uuid
+  before_digest text
+  after_digest text
+  occurred_at timestamptz [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table integration.endpoints {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  endpoint_key text [not null]
+  name text [not null]
+  service_type text [not null]
+  status text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table integration.endpoint_versions {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  endpoint_id uuid [not null]
+  version bigint [not null]
+  url text [not null]
+  http_method text [not null]
+  auth_type text [not null]
+  secret_ref text
+  timeout_ms int [not null]
+  retry_policy jsonb [not null]
+  allowed_destinations jsonb [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table integration.integration_bindings {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  endpoint_version_id uuid [not null]
+  process_version_ref uuid [not null]
+  element_key text [not null]
+  mapping jsonb [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table integration.probe_jobs {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  endpoint_id uuid [not null]
+  status text [not null]
+  latency_ms int
+  observed_at timestamptz
+  error_code text
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table integration.delivery_attempts {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  endpoint_version_id uuid [not null]
+  command_id uuid [not null]
+  request_digest text [not null]
+  attempt int [not null]
+  status text [not null]
+  next_attempt_at timestamptz
+  response_code int
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table integration.callback_receipts {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  endpoint_id uuid [not null]
+  external_event_id text [not null]
+  signature_key_ref text [not null]
+  payload_digest text [not null]
+  received_at timestamptz [not null]
+  status text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table integration.outbox {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  event_id uuid [not null]
+  aggregate_id uuid [not null]
+  aggregate_version bigint [not null]
+  event_type text [not null]
+  payload jsonb [not null]
+  published_at timestamptz
+  attempts int [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table integration.inbox {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  source text [not null]
+  event_id text [not null]
+  payload_digest text [not null]
+  applied_at timestamptz [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table integration.command_receipts {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  command_id uuid [not null]
+  intent_digest text [not null]
+  actor_ref uuid [not null]
+  aggregate_id uuid [not null]
+  status text [not null]
+  result jsonb [not null]
+  expires_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table integration.audit_evidence {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  actor_ref uuid [not null]
+  action text [not null]
+  resource_ref text [not null]
+  command_id uuid
+  before_digest text
+  after_digest text
+  occurred_at timestamptz [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.notification_templates {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  template_key text [not null]
+  channel text [not null]
+  name text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.notification_template_versions {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  template_id uuid [not null]
+  version bigint [not null]
+  locale text [not null]
+  subject text
+  body text [not null]
+  variable_schema jsonb [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.notification_subscriptions {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  subject_ref uuid [not null]
+  event_type text [not null]
+  channel text [not null]
+  enabled boolean [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.notification_deliveries {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  template_version_id uuid [not null]
+  recipient_ref uuid [not null]
+  source_event_id text [not null]
+  channel text [not null]
+  status text [not null]
+  provider_ref text
+  attempts int [not null]
+  next_attempt_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.outbox {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  event_id uuid [not null]
+  aggregate_id uuid [not null]
+  aggregate_version bigint [not null]
+  event_type text [not null]
+  payload jsonb [not null]
+  published_at timestamptz
+  attempts int [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.inbox {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  source text [not null]
+  event_id text [not null]
+  payload_digest text [not null]
+  applied_at timestamptz [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.command_receipts {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  command_id uuid [not null]
+  intent_digest text [not null]
+  actor_ref uuid [not null]
+  aggregate_id uuid [not null]
+  status text [not null]
+  result jsonb [not null]
+  expires_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.audit_evidence {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  actor_ref uuid [not null]
+  action text [not null]
+  resource_ref text [not null]
+  command_id uuid
+  before_digest text
+  after_digest text
+  occurred_at timestamptz [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table projection.instance_views {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  instance_ref text [not null]
+  process_key text [not null]
+  process_version bigint [not null]
+  business_key text [not null]
+  case_ref uuid
+  status text [not null]
+  branch_ref text
+  started_at timestamptz [not null]
+  completed_at timestamptz
+  source_version bigint [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table projection.node_execution_facts {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  instance_view_id uuid [not null]
+  execution_ref text [not null]
+  element_key text [not null]
+  started_at timestamptz
+  completed_at timestamptz
+  wait_ms bigint
+  processing_ms bigint
+  outcome text
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table projection.incident_views {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  instance_view_id uuid [not null]
+  element_key text [not null]
+  error_code text [not null]
+  retry_count int [not null]
+  status text [not null]
+  source_version bigint [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table projection.metric_buckets {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  process_key text [not null]
+  process_version bigint [not null]
+  element_key text
+  bucket_start timestamptz [not null]
+  bucket_seconds int [not null]
+  dimensions jsonb [not null]
+  measures jsonb [not null]
+  watermark text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table projection.saved_queries {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  owner_subject_ref uuid [not null]
+  name text [not null]
+  resource_type text [not null]
+  query jsonb [not null]
+  visibility text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table projection.export_jobs {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  owner_subject_ref uuid [not null]
+  query jsonb [not null]
+  status text [not null]
+  object_ref text
+  expires_at timestamptz
+  watermark text
+  policy_version text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table projection.consumer_checkpoints {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  consumer text [not null]
+  partition int [not null]
+  offset bigint [not null]
+  source_event_id text [not null]
+  applied_at timestamptz [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table projection.inbox {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  source text [not null]
+  event_id text [not null]
+  payload_digest text [not null]
+  applied_at timestamptz [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table audit_search.audit_entries {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  source_service text [not null]
+  source_event_id text [not null]
+  actor_ref uuid [not null]
+  action text [not null]
+  resource_type text [not null]
+  resource_ref text [not null]
+  before_digest text
+  after_digest text
+  evidence_ref text [not null]
+  occurred_at timestamptz [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table audit_search.consumer_checkpoints {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  consumer text [not null]
+  partition int [not null]
+  offset bigint [not null]
+  source_event_id text [not null]
+  applied_at timestamptz [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table audit_search.inbox {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  source text [not null]
+  event_id text [not null]
+  payload_digest text [not null]
+  applied_at timestamptz [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+Ref: access.organizations.(tenant_id, parent_id) > access.organizations.(tenant_id, id)
+Ref: access.subjects.(tenant_id, organization_id) > access.organizations.(tenant_id, id)
+Ref: access.memberships.(tenant_id, subject_id) > access.subjects.(tenant_id, id)
+Ref: access.memberships.(tenant_id, organization_id) > access.organizations.(tenant_id, id)
+Ref: access.role_permissions.(tenant_id, role_id) > access.roles.(tenant_id, id)
+Ref: access.role_permissions.(tenant_id, permission_id) > access.permissions.(tenant_id, id)
+Ref: access.role_bindings.(tenant_id, role_id) > access.roles.(tenant_id, id)
+Ref: access.role_bindings.(tenant_id, subject_id) > access.subjects.(tenant_id, id)
+Ref: access.direct_grants.(tenant_id, subject_id) > access.subjects.(tenant_id, id)
+Ref: access.direct_grants.(tenant_id, permission_id) > access.permissions.(tenant_id, id)
+Ref: access.policy_bindings.(tenant_id, policy_version_id) > access.policy_versions.(tenant_id, id)
+Ref: access.certificate_rotations.(tenant_id, principal_id) > access.workload_principals.(tenant_id, id)
+Ref: authoring.process_drafts.(tenant_id, model_id) > authoring.process_models.(tenant_id, id)
+Ref: authoring.process_drafts.(tenant_id, base_version_id) > authoring.process_versions.(tenant_id, id)
+Ref: authoring.process_versions.(tenant_id, model_id) > authoring.process_models.(tenant_id, id)
+Ref: authoring.process_elements.(tenant_id, process_version_id) > authoring.process_versions.(tenant_id, id)
+Ref: authoring.process_flows.(tenant_id, process_version_id) > authoring.process_versions.(tenant_id, id)
+Ref: authoring.process_flows.(tenant_id, source_id) > authoring.process_elements.(tenant_id, id)
+Ref: authoring.process_flows.(tenant_id, target_id) > authoring.process_elements.(tenant_id, id)
+Ref: authoring.process_pools.(tenant_id, process_version_id) > authoring.process_versions.(tenant_id, id)
+Ref: authoring.process_lanes.(tenant_id, pool_id) > authoring.process_pools.(tenant_id, id)
+Ref: authoring.node_assignments.(tenant_id, element_id) > authoring.process_elements.(tenant_id, id)
+Ref: authoring.node_assignments.(tenant_id, lane_id) > authoring.process_lanes.(tenant_id, id)
+Ref: authoring.node_assignments.(tenant_id, form_version_id) > authoring.form_versions.(tenant_id, id)
+Ref: authoring.decision_drafts.(tenant_id, decision_id) > authoring.decision_models.(tenant_id, id)
+Ref: authoring.decision_drafts.(tenant_id, base_version_id) > authoring.decision_versions.(tenant_id, id)
+Ref: authoring.decision_versions.(tenant_id, decision_id) > authoring.decision_models.(tenant_id, id)
+Ref: authoring.decision_clauses.(tenant_id, decision_version_id) > authoring.decision_versions.(tenant_id, id)
+Ref: authoring.decision_rules.(tenant_id, decision_version_id) > authoring.decision_versions.(tenant_id, id)
+Ref: authoring.decision_cells.(tenant_id, rule_id) > authoring.decision_rules.(tenant_id, id)
+Ref: authoring.decision_cells.(tenant_id, clause_id) > authoring.decision_clauses.(tenant_id, id)
+Ref: authoring.decision_evaluations.(tenant_id, decision_version_id) > authoring.decision_versions.(tenant_id, id)
+Ref: authoring.form_versions.(tenant_id, form_id) > authoring.form_definitions.(tenant_id, id)
+Ref: authoring.workflow_template_versions.(tenant_id, template_id) > authoring.workflow_templates.(tenant_id, id)
+Ref: authoring.model_dependencies.(tenant_id, process_version_id) > authoring.process_versions.(tenant_id, id)
+Ref: authoring.model_dependencies.(tenant_id, decision_version_id) > authoring.decision_versions.(tenant_id, id)
+Ref: authoring.model_dependencies.(tenant_id, form_version_id) > authoring.form_versions.(tenant_id, id)
+Ref: authoring.model_dependencies.(tenant_id, called_process_version_id) > authoring.process_versions.(tenant_id, id)
+Ref: authoring.deployments.(tenant_id, process_version_id) > authoring.process_versions.(tenant_id, id)
+Ref: human.queue_memberships.(tenant_id, queue_id) > human.queues.(tenant_id, id)
+Ref: human.assignment_policy_versions.(tenant_id, queue_id) > human.queues.(tenant_id, id)
+Ref: human.work_items.(tenant_id, queue_id) > human.queues.(tenant_id, id)
+Ref: human.work_item_candidates.(tenant_id, work_item_id) > human.work_items.(tenant_id, id)
+Ref: human.assignment_history.(tenant_id, work_item_id) > human.work_items.(tenant_id, id)
+Ref: human.delegations.(tenant_id, work_item_id) > human.work_items.(tenant_id, id)
+Ref: human.sla_timers.(tenant_id, work_item_id) > human.work_items.(tenant_id, id)
+Ref: human.sla_timers.(tenant_id, policy_id) > human.sla_policies.(tenant_id, id)
+Ref: case.service_offering_versions.(tenant_id, offering_id) > case.service_offerings.(tenant_id, id)
+Ref: case.cases.(tenant_id, offering_version_id) > case.service_offering_versions.(tenant_id, id)
+Ref: case.cases.(tenant_id, customer_id) > case.customers.(tenant_id, id)
+Ref: case.case_variables.(tenant_id, case_id) > case.cases.(tenant_id, id)
+Ref: case.case_workflow_links.(tenant_id, case_id) > case.cases.(tenant_id, id)
+Ref: case.case_steps.(tenant_id, case_id) > case.cases.(tenant_id, id)
+Ref: case.case_comments.(tenant_id, case_id) > case.cases.(tenant_id, id)
+Ref: case.case_document_links.(tenant_id, case_id) > case.cases.(tenant_id, id)
+Ref: case.case_decisions.(tenant_id, case_id) > case.cases.(tenant_id, id)
+Ref: case.workflow_start_jobs.(tenant_id, case_id) > case.cases.(tenant_id, id)
+Ref: document.document_versions.(tenant_id, document_id) > document.documents.(tenant_id, id)
+Ref: document.upload_sessions.(tenant_id, document_id) > document.documents.(tenant_id, id)
+Ref: document.scan_jobs.(tenant_id, document_version_id) > document.document_versions.(tenant_id, id)
+Ref: document.document_access_grants.(tenant_id, document_id) > document.documents.(tenant_id, id)
+Ref: document.retention_holds.(tenant_id, document_id) > document.documents.(tenant_id, id)
+Ref: integration.endpoint_versions.(tenant_id, endpoint_id) > integration.endpoints.(tenant_id, id)
+Ref: integration.integration_bindings.(tenant_id, endpoint_version_id) > integration.endpoint_versions.(tenant_id, id)
+Ref: integration.probe_jobs.(tenant_id, endpoint_id) > integration.endpoints.(tenant_id, id)
+Ref: integration.delivery_attempts.(tenant_id, endpoint_version_id) > integration.endpoint_versions.(tenant_id, id)
+Ref: integration.callback_receipts.(tenant_id, endpoint_id) > integration.endpoints.(tenant_id, id)
+Ref: notification.notification_template_versions.(tenant_id, template_id) > notification.notification_templates.(tenant_id, id)
+Ref: notification.notification_deliveries.(tenant_id, template_version_id) > notification.notification_template_versions.(tenant_id, id)
+Ref: projection.node_execution_facts.(tenant_id, instance_view_id) > projection.instance_views.(tenant_id, id)
+Ref: projection.incident_views.(tenant_id, instance_view_id) > projection.instance_views.(tenant_id, id)
+
+// MDM extension: proposed owner-local model, not production DDL.
+
+Table mdm.data_models {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  model_key text [not null]
+  name text [not null]
+  description text
+  status text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table mdm.model_drafts {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  model_id uuid [not null]
+  base_version_id uuid
+  revision bigint [not null]
+  field_schema jsonb [not null]
+  constraints jsonb [not null]
+  ui_schema jsonb [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table mdm.model_versions {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  model_id uuid [not null]
+  version bigint [not null]
+  field_schema jsonb [not null]
+  constraints jsonb [not null]
+  ui_schema jsonb [not null]
+  digest text [not null]
+  compatibility text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table mdm.master_datasets {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  dataset_key text [not null]
+  model_id uuid [not null]
+  name text [not null]
+  status text [not null]
+  source_owner text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table mdm.record_drafts {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  dataset_id uuid [not null]
+  model_version_id uuid [not null]
+  record_key text [not null]
+  revision bigint [not null]
+  payload jsonb [not null]
+  valid_from timestamptz [not null]
+  valid_to timestamptz
+  operation text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table mdm.master_records {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  dataset_id uuid [not null]
+  record_key text [not null]
+  status text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table mdm.record_versions {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  record_id uuid [not null]
+  model_version_id uuid [not null]
+  version bigint [not null]
+  payload jsonb [not null]
+  digest text [not null]
+  valid_from timestamptz [not null]
+  valid_to timestamptz
+  tombstone boolean [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table mdm.record_references {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  source_version_id uuid [not null]
+  field_key text [not null]
+  target_record_version_id uuid [not null]
+  relation_type text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table mdm.source_mappings {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  record_version_id uuid [not null]
+  source_system text [not null]
+  external_code text [not null]
+  valid_from timestamptz [not null]
+  valid_to timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table mdm.dataset_releases {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  dataset_id uuid [not null]
+  model_version_id uuid [not null]
+  release_number bigint [not null]
+  manifest_ref text [not null]
+  digest text [not null]
+  status text [not null]
+  published_at timestamptz [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table mdm.release_members {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  release_id uuid [not null]
+  record_version_id uuid [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table mdm.publication_bundles {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  publication_scope text [not null]
+  generation bigint [not null]
+  previous_generation bigint
+  digest text [not null]
+  manifest_ref text [not null]
+  approval_ref text
+  active_at timestamptz [not null]
+  status text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table mdm.bundle_items {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  bundle_id uuid [not null]
+  dataset_release_id uuid [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table mdm.publication_heads {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  publication_scope text [not null]
+  generation bigint [not null]
+  bundle_id uuid [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table mdm.validation_reports {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  dataset_id uuid [not null]
+  draft_revision_digest text [not null]
+  schema_digest text [not null]
+  result jsonb [not null]
+  status text [not null]
+  expires_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table mdm.consumer_subscriptions {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  workload_ref text [not null]
+  dataset_id uuid [not null]
+  view_scope jsonb [not null]
+  supported_schemas jsonb [not null]
+  distribution_policy_epoch bigint [not null]
+  lease_policy jsonb [not null]
+  status text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table mdm.consumer_sync_status {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  subscription_id uuid [not null]
+  consumer_instance_ref text [not null]
+  generation bigint [not null]
+  checkpoint text [not null]
+  last_seen_at timestamptz [not null]
+  status text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table mdm.mdm_jobs {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  job_type text [not null]
+  dataset_id uuid
+  command_id uuid [not null]
+  expected_revision_digest text
+  status text [not null]
+  result jsonb
+  attempts int [not null]
+  next_attempt_at timestamptz
+  lease_until timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table mdm.outbox {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  event_id uuid [not null]
+  aggregate_id uuid [not null]
+  aggregate_version bigint [not null]
+  event_type text [not null]
+  payload jsonb [not null]
+  published_at timestamptz
+  attempts int [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table mdm.inbox {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  source text [not null]
+  event_id text [not null]
+  payload_digest text [not null]
+  applied_at timestamptz [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table mdm.command_receipts {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  command_id uuid [not null]
+  intent_digest text [not null]
+  actor_ref uuid [not null]
+  aggregate_id uuid [not null]
+  status text [not null]
+  result jsonb [not null]
+  expires_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table mdm.audit_evidence {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  actor_ref uuid [not null]
+  action text [not null]
+  resource_ref text [not null]
+  command_id uuid
+  before_digest text
+  after_digest text
+  occurred_at timestamptz [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+Ref: mdm.model_drafts.(tenant_id, model_id) > mdm.data_models.(tenant_id, id)
+Ref: mdm.model_drafts.(tenant_id, base_version_id) > mdm.model_versions.(tenant_id, id)
+Ref: mdm.model_versions.(tenant_id, model_id) > mdm.data_models.(tenant_id, id)
+Ref: mdm.master_datasets.(tenant_id, model_id) > mdm.data_models.(tenant_id, id)
+Ref: mdm.record_drafts.(tenant_id, dataset_id) > mdm.master_datasets.(tenant_id, id)
+Ref: mdm.record_drafts.(tenant_id, model_version_id) > mdm.model_versions.(tenant_id, id)
+Ref: mdm.master_records.(tenant_id, dataset_id) > mdm.master_datasets.(tenant_id, id)
+Ref: mdm.record_versions.(tenant_id, record_id) > mdm.master_records.(tenant_id, id)
+Ref: mdm.record_versions.(tenant_id, model_version_id) > mdm.model_versions.(tenant_id, id)
+Ref: mdm.record_references.(tenant_id, source_version_id) > mdm.record_versions.(tenant_id, id)
+Ref: mdm.record_references.(tenant_id, target_record_version_id) > mdm.record_versions.(tenant_id, id)
+Ref: mdm.source_mappings.(tenant_id, record_version_id) > mdm.record_versions.(tenant_id, id)
+Ref: mdm.dataset_releases.(tenant_id, dataset_id) > mdm.master_datasets.(tenant_id, id)
+Ref: mdm.dataset_releases.(tenant_id, model_version_id) > mdm.model_versions.(tenant_id, id)
+Ref: mdm.release_members.(tenant_id, release_id) > mdm.dataset_releases.(tenant_id, id)
+Ref: mdm.release_members.(tenant_id, record_version_id) > mdm.record_versions.(tenant_id, id)
+Ref: mdm.bundle_items.(tenant_id, bundle_id) > mdm.publication_bundles.(tenant_id, id)
+Ref: mdm.bundle_items.(tenant_id, dataset_release_id) > mdm.dataset_releases.(tenant_id, id)
+Ref: mdm.publication_heads.(tenant_id, bundle_id) > mdm.publication_bundles.(tenant_id, id)
+Ref: mdm.validation_reports.(tenant_id, dataset_id) > mdm.master_datasets.(tenant_id, id)
+Ref: mdm.consumer_subscriptions.(tenant_id, dataset_id) > mdm.master_datasets.(tenant_id, id)
+Ref: mdm.consumer_sync_status.(tenant_id, subscription_id) > mdm.consumer_subscriptions.(tenant_id, id)
+Ref: mdm.mdm_jobs.(tenant_id, dataset_id) > mdm.master_datasets.(tenant_id, id)
