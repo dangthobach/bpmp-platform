@@ -6,6 +6,8 @@
 
 **Bắt buộc:** mọi business entity dùng [AuditEntity + SoftDeletable + VersionedEntity](entity-conventions.md). DBML đã bổ sung created_by/updated_by, is_deleted, deleted_at/deleted_by/delete_reason và row_version. Các dictionary/ERD bên dưới lược common fields; row_version là concurrency counter, không model/release version. Immutable evidence/technical records có storage mapping riêng được quy định trong tài liệu entity, không cho mutable soft delete làm hỏng replay/dedup.
 
+Access schema dưới đây là vocabulary logic, chưa đủ semantics để tự triển khai policy. Áp dụng quy tắc kết hợp, tenant guard, typed scope, deny precedence, row/field enforcement và revocation trong [đặc tả phân quyền và truy cập dữ liệu](authorization-and-data-access.md). Không thêm JSON grants/rules song song trên role; trước migration phải chốt action catalog, scope graph, policy schema/version và owner-specific query/index constraints.
+
 
 - Mỗi bảng có `tenant_id uuid`, `id uuid`, `created_at timestamptz`, `updated_at timestamptz`, `row_version bigint`; PK `(tenant_id, id)`. FK nội owner phải ghép tenant. External refs chỉ là logical links, không FK hoặc cross-database JOIN.
 - `?` là nullable; còn lại NOT NULL. UUID là surrogate design key, không thay engine string reference. Key nghiệp vụ unique theo tenant và scope; thời gian UTC, render locale ở UI; amount dùng decimal + currency, không chuỗi VND hoặc floating point.

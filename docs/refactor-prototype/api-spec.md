@@ -27,6 +27,10 @@ Không sửa generated artifacts thủ công. Generator giữ SHA-256 của embe
 
 **Auth:** bearer JWT cho API clients hoặc opaque BFF session cookie cho browser; cookie unsafe requests phải có CSRF proof. `X-BPMP-Tenant-ID` phải khớp authenticated scope; `X-Correlation-ID` xuyên boundary. Service-to-service dùng mTLS và actor/workload proof theo contract hiện hữu. Không nhận actor/role/audit metadata trong body rồi tin là authority.
 
+**Authorization:** áp dụng [đặc tả phân quyền và truy cập dữ liệu](authorization-and-data-access.md). Mọi operation/command map sang typed action/resource; Authz decision không thay owner PEP. Owner áp tenant guard + row constraints trước pagination/aggregate/export và field permissions trước serialization/mutation. Deny-by-default; explicit deny thắng allow; policy/filter thiếu, lỗi hoặc không tương thích không fallback thành unrestricted access. Query policy không nhận SQL/raw field names. Writes/exports reauthorize tại commit/serve boundary; read cache chỉ theo staleness budget được phê duyệt.
+
+Action/resource catalog có thể bật/cấu hình theo dynamic configuration nhưng chỉ trong capability manifest/version được owner service đăng ký. Config không tự tạo action enforcement mới hoặc thay owner/semantics. Configuration Service hiện có versioned profiles; schema Authz runtime hiện là operational tuning, chưa phải catalog contract. Cần integration/schema gate trước khi expose admin API.
+
 **Commands:** `X-Command-ID` + `Idempotency-Key`, cùng payload digest cho cùng intent. API receipt phân biệt accepted/committed với projection convergence. Query dùng POST không vì vậy mà trở thành business mutation. Validation/evaluation không tự deploy/commit workflow.
 
 **Optimistic lock:** target mutations hiện hữu bắt buộc strong `If-Match` hoặc expectedVersion theo operation. OpenAPI target chọn `If-Match` cho mutable resource operations và expectedVersion khi payload cần; cả hai có mặt phải đồng nhất. Collection create dùng idempotency, không yêu cầu ETag tài nguyên chưa tồn tại. Publication baseGeneration, draft revision và batch item versions có concurrency contract riêng, không giả các counter cùng meaning.

@@ -2,6 +2,8 @@
 
 Trạng thái: proposed extension; kế thừa ADR-011 và architecture baseline. Không chia service theo từng button, bảng SQL hay từng tab. Các context mới ban đầu có thể deploy chung theo module có ownership rõ ràng; tách process khi có nhu cầu release, tải hoặc trust độc lập.
 
+Định hướng sản phẩm là BPMP Platform đa lĩnh vực: tái sử dụng tối đa cơ chế kỹ thuật, tránh duplicate code và dùng versioned configuration/policy/schema để biểu diễn khác biệt nghiệp vụ trong capability đã hỗ trợ. Tính linh hoạt không đồng nghĩa generic CRUD, arbitrary script/SQL hoặc xóa bounded-context ownership. Mỗi capability configurable phải có owner, schema/semantics, validation, version, audit, publish/rollback và compatibility contract; logic cần bảo đảm invariant hoặc semantics chưa thể biểu diễn an toàn vẫn nằm trong code/domain adapter có owner.
+
 ## Component và service map
 
 ```mermaid
@@ -64,6 +66,8 @@ flowchart TB
 | Governance | Rust service có | Approval, revoke/KMS barrier; tái sử dụng cho thao tác nhạy cảm thay vì một approval service thứ hai |
 
 Foundation là nhóm UI gồm templates, allocation, documents, notifications, integrations và MDM admin; không phải bounded context hoặc database. Access MFE gọi directory và Authz nhưng không gộp hai authority.
+
+Authorization theo [đặc tả phân quyền và truy cập dữ liệu](authorization-and-data-access.md): Authz Control Plane là PDP/policy authority; resource-owning service là PEP, thực thi action, tenant, row và field constraints tại nơi đọc/ghi. Dùng RBAC + ABAC, deny-by-default, explicit-deny precedence và tenant guard bắt buộc. Action/resource catalog được cấu hình động trong phạm vi capability manifests do owner service phát hành; Configuration Service quản lý lifecycle snapshot khi contract phù hợp, Authz vẫn giữ semantic authority. BFF/UI không phải enforcement boundary cuối. Engine tiếp tục quyết định transition runtime; policy check không thay `decide/evolve` hoặc commit authority.
 
 ## Command, query và event contract
 

@@ -124,7 +124,7 @@ Không sửa core semantics hoặc Protobuf durable payload trong đợt thiết
 | ReadChanges/ReconcileManifest | scope-bound resume token, generation chain, token-expired response |
 | ConsumerSubscriptions/Status | workload capability, allowed datasets/fields/scope, schema support và lag |
 
-UI gọi MDM qua BFF; services gRPC/mTLS và actor/workload proof theo use case. APIs không chấp nhận tenant hoặc field visibility như dữ liệu client tự cấp. ETag cho immutable queries theo release + authorized view; không key cache chỉ bằng URL/modelKey. Query search cache cần cả tenant, scope, policy epoch, schema, release và query digest. HTTP/Protobuf names chưa chốt; reuse conventions repo khi implementation.
+UI gọi MDM qua BFF; services gRPC/mTLS và actor/workload proof theo use case. APIs không chấp nhận tenant hoặc field visibility như dữ liệu client tự cấp. Áp dụng [đặc tả phân quyền và truy cập dữ liệu](authorization-and-data-access.md) cho tenant/scope/field filtering và revocation. ETag cho immutable queries theo release + authorized view; không key cache chỉ bằng URL/modelKey. Query search cache cần cả tenant, scope, policy epoch, schema, release và query digest. HTTP/Protobuf names chưa chốt; reuse conventions repo khi implementation.
 
 ## Data model, ownership và index
 

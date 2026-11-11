@@ -11,12 +11,13 @@
 | P0 | Product + frontend + domain owners | Walkthrough inventory, phân loại required/demo/unsupported cho từng action; chuẩn hóa glossary Case/Task/Instance | Mọi control có use-case ID hoặc lý do loại; persona/action matrix, accepted state transitions và error states; ghi evidence runtime |
 | P0 | Platform/release | Đóng hosted/staging rehearsal đang tồn tại | Signed catalog, unavailable/incompatible remote, rollback, session/CSRF và trace evidence trên môi trường được chỉ định; không tự bỏ gate |
 | P0 | Architecture/domain | Review bounded contexts, external engine policy, authoritative data, physical mappings | ADR cho thay đổi boundary; xác nhận reuse Human/Authz/Projection, không tạo authority song song |
+| P0 | Security + domain owners | Review [authorization and data access contract](authorization-and-data-access.md): dynamic catalog + owner manifests, scope graph, field classifications, typed policy grammar, staleness/revoke budget | Sign-off precedence/tenant invariants; manifest/config ownership and compatibility; PEP enforcement map cho query/command/export; threat model và acceptance matrix trước khi mở rộng Access |
 | P1 | Design system + Shell | Tokens, primitives, QueryTable/forms/command states, component fixtures, dependency rules | Hai consumer representative; keyboard/focus/contrast, theme isolation, independent remote build; không regress task-mfe |
 | P1 | Task vertical slice | Tasklist prototype → Task MFE hiện hữu; officer panel dùng cùng command | Hai actor claim cùng task chỉ một thành công; stale version; complete/sendback chuẩn workflow; retry giữ key; receipt vs projection UX |
 | P1 | Case + Document + Portal | Service catalog, submit, start saga, upload/scan, detail/comment/lookup | Timeout sau Engine commit không tạo duplicate; document chưa scan không attach; INTERNAL comment không leak; customer khác không lookup được |
 | P2 | Authoring + compiler | BPMN/DMN drafts, version history/diff, form versions, deployment job | Publish immutable; concurrent edit conflict; reject unsupported extensions; XML roundtrip; pinned dependency versions; no fake deploy toast |
 | P2 | Operations + Governance | Instance detail, cancel, incident retry; migrate/move chỉ khi Engine có verified semantics | Dry-run, actor/approval, expectedVersion, per-item batch results; reconnect/lag và error không làm sai runtime |
-| P2 | Access + IdP adapter | Users/roles/policies/queues, bulk jobs, service account lifecycle | Revocation propagation, tenant isolation, last-admin protection, cert rotation overlap; audit evidence giữ tại owner |
+| P2 | Access + IdP adapter | Users/roles/policies/queues, dynamic catalog/config, bulk jobs, service account lifecycle theo [authorization contract](authorization-and-data-access.md) | Owner manifest registration; catalog validate/publish/rollback/ack; policy publish/revoke; PEP parity; revoke budget/consumer lag; tenant/row/field/export negative tests; last-admin protection; cert rotation overlap; audit evidence giữ tại owner |
 | P3 | Foundation owners | Assignment, templates, endpoints, notification/document settings | Concurrent assignment limits/fairness; probe results thật; secrets không vào browser; bounded retry/DLQ; idempotent callbacks |
 | P3 | Analytics/Audit | Heatmap, throughput, health, portal metrics, authorized exports | Metric definitions/dedup đúng; source watermark và freshness; export expiry/visibility; replay không đếm lặp |
 | P3 | Migration/release | Canary theo tenant/capability, route-by-route strangler, legacy retirement | Golden-path parity, rollback rehearsal, compatible DB, traffic/latency/error baselines, không còn legacy route consumers |
@@ -25,7 +26,7 @@
 
 | Boundary | Kịch bản phải chứng minh |
 |---|---|
-| Auth | Cross-tenant ID, forged actor/role, expired session, CSRF, policy revoked trong khi form đang mở; UI hide action không thay backend deny |
+| Auth | Cross-tenant ID, forged actor/role, expired session, CSRF, allow/deny/scope conflict, missing filter, field leakage, policy revoked trong khi form đang mở; UI hide action không thay backend deny |
 | Commands | Double click, response lost after commit, retry same intent, same key different payload rejected, 409 no auto overwrite, partial batch failure |
 | Events | Duplicate/out-of-order/gap, poison schema, Kafka unavailable, consumer restart sau effect trước ack, outbox replay |
 | Projections | Rebuild, lag, stale query, SSE reconnect/cursor expired; frontend không báo confirmed trước source version |

@@ -11,6 +11,12 @@ Lấy trải nghiệm trong `bpmp-prototype` làm đầu vào thiết kế sản
 
 Bộ tài liệu này cung cấp thiết kế logic cho toàn bộ nhóm chức năng thấy trong source prototype. Chưa phải physical schema, migration sản xuất, hợp đồng API đã phát hành, hay xác nhận rằng mọi luồng đều chạy trên trình duyệt. Những điểm cần khảo sát runtime hoặc quyết định nghiệp vụ được giữ thành gate cụ thể.
 
+## Định hướng nền tảng doanh nghiệp đa lĩnh vực
+
+BPMP Platform hướng tới tái sử dụng tối đa các cơ chế nền tảng dùng chung, tránh duplicate code và hỗ trợ cấu hình để thích nghi với quy trình, policy, dữ liệu tham chiếu, biểu mẫu, assignment và tích hợp của nhiều lĩnh vực doanh nghiệp. Phần khác biệt theo ngành/khách hàng nên được biểu diễn bằng versioned configuration, schema và policy có kiểu trong phạm vi capability mà owner service hỗ trợ; chỉ mở rộng code/domain adapter khi semantics thực sự khác hoặc cần invariant mới. “Tối đa configuration” không có nghĩa là cho phép script/SQL tùy ý hay cấu hình tạo capability mà runtime chưa triển khai.
+
+Các bounded context vẫn sở hữu logic và dữ liệu của mình. Tái sử dụng tập trung ở contract ổn định, runtime, policy/config lifecycle, SDK và UI primitives; không gom policy nghiệp vụ khác nhau vào một shared module không rõ owner. Mỗi dynamic configuration cần schema/version, validation, publish/rollback, audit, compatibility và owner rõ ràng.
+
 ## Tài liệu và cách đọc
 
 1. [Khảo sát chức năng và command](functional-analysis.md): hành vi hiện tại, khoảng trống và yêu cầu backend.
@@ -28,7 +34,9 @@ Bộ tài liệu này cung cấp thiết kế logic cho toàn bộ nhóm chức 
 10. [Entity conventions](entity-conventions.md): AuditEntity, soft delete và optimistic locking bắt buộc.
 11. [API Specification](api-spec.md): core BPMP trước, rồi UI/action traceability; OpenAPI thiết kế phân biệt current/proposed.
 
-12. [Backend implementation standards](backend-operations.md): UUID, healthz/readiness/metrics cho mọi service và scheduled cleanup outbox/log theo retention/safe checkpoint.
+12. [Phân quyền và truy cập dữ liệu](authorization-and-data-access.md): RBAC + ABAC, dynamic action/resource catalog, tenant boundary, row/field policy, owner enforcement, revoke/cache và acceptance gates.
+
+13. [Backend implementation standards](backend-operations.md): UUID, healthz/readiness/metrics cho mọi service và scheduled cleanup outbox/log theo retention/safe checkpoint.
 
 ## Kết luận khảo sát
 
