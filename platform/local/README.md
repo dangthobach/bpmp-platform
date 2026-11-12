@@ -4,7 +4,7 @@ This Compose project provides persistent local infrastructure for service
 development:
 
 - one PostgreSQL database and credential boundary for each of Human Runtime,
-  Configuration Service, Projection Service and Governance Service;
+  Configuration Service, Projection Service, Governance Service and Authz;
 - Redpanda as the Kafka-compatible broker;
 - Redis for API Gateway rate limiting;
 - an OTLP collector with a debug trace exporter;
@@ -75,6 +75,7 @@ Every value is configurable in the ignored `.env` file.
 | Configuration PostgreSQL | `localhost:15433` |
 | Projection PostgreSQL | `localhost:15434` |
 | Governance PostgreSQL | `localhost:15435` |
+| Authz PostgreSQL | `localhost:15436` |
 | Kafka | `localhost:19092` |
 | Redpanda Admin API | `localhost:19644` |
 | Redis | `localhost:16379` |
@@ -82,6 +83,21 @@ Every value is configurable in the ignored `.env` file.
 
 Containers on the Compose network use `redpanda:9092`, `redis:6379` and the
 service-specific PostgreSQL DNS names from `compose.infrastructure.yaml`.
+
+Authz keeps its migrations in `apps/rust/authz-control-plane/crates/authz-db`.
+When starting `authz-server`, load the required values from
+`apps/rust/authz-control-plane/.env.example` into its process environment,
+including `DATABASE_URL=postgres://authz:authz_secret@localhost:15436/authz_db`;
+the Rust binary reads environment variables directly. It applies its embedded
+migrations before serving requests. Its signed policy bundle and
+acknowledgement Kafka topics, tenant lifecycle/readiness topics and signed
+query-revocation topics are provisioned by the same local `up` command. Use
+the `.local` topic names in `apps/rust/authz-control-plane/.env.example` and
+`config/query-revoke-kafka.local.json`. Local Authz bundle/revoke signing keys
+must be generated and stored under the ignored `apps/rust/authz-control-plane/secrets/`
+directory before publishing policies or revocations; never commit those keys.
+Run Authz with `apps/rust/authz-control-plane` as its working directory so the
+relative config/key paths in the example resolve as written.
 
 ## DDL behavior
 

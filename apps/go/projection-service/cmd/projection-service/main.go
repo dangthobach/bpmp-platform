@@ -10,7 +10,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -172,21 +171,54 @@ func run(configPath string) error {
 	if err != nil {
 		return fmt.Errorf("create projection actor verifier: %w", err)
 	}
-	pdp, err := queryauth.NewHTTPPDP(value.QueryPDP, func() (string, error) {
-		file, readErr := os.Open(value.QueryPDP.WorkloadTokenPath)
+	policyTrust := make(map[string]ed25519.PublicKey, len(value.PolicyBundles.TrustKeys))
+	for id, path := range value.PolicyBundles.TrustKeys {
+		raw, readErr := os.ReadFile(path)
 		if readErr != nil {
-			return "", readErr
+			return readErr
 		}
-		defer file.Close()
-		raw, readErr := io.ReadAll(io.LimitReader(file, int64(value.Identity.MaxTokenBytes)+1))
-		if len(raw) > value.Identity.MaxTokenBytes {
-			return "", errors.New("PDP workload token exceeds limit")
+		if id == "" || len(raw) != ed25519.PublicKeySize {
+			return errors.New("authorization policy public key must contain 32 bytes and have an id")
 		}
-		return string(raw), readErr
-	})
+		policyTrust[id] = ed25519.PublicKey(raw)
+	}
+	bundleStore, err := queryauth.NewBundleStore(policyTrust, value.PolicyBundles.MaxBundleBytes, 10000)
 	if err != nil {
 		return err
 	}
+	bundleStore.SetPersistence(store)
+	if err = bundleStore.Restore(ctx); err != nil {
+		return fmt.Errorf("restore persisted authorization bundles: %w", err)
+	}
+	for _, bundlePath := range value.PolicyBundles.InitialBundles {
+		bundleBytes, readErr := os.ReadFile(bundlePath)
+		if readErr != nil {
+			return fmt.Errorf("read initial authorization bundle %s: %w", bundlePath, readErr)
+		}
+		if err = bundleStore.InstallContext(ctx, bundleBytes); err != nil {
+			return fmt.Errorf("verify initial authorization bundle %s: %w", bundlePath, err)
+		}
+	}
+	instanceID, err := os.Hostname()
+	if err != nil || instanceID == "" || len(instanceID) > 255 {
+		return errors.New("projection instance identity is unavailable")
+	}
+	bundleConsumer := value.PolicyBundles.Consumer
+	instanceGroupSuffix := sha256.Sum256([]byte(instanceID))
+	bundleConsumer.ConsumerGroup = fmt.Sprintf("%s-%x", bundleConsumer.ConsumerGroup, instanceGroupSuffix[:6])
+	if err = bundleConsumer.Validate(); err != nil {
+		return fmt.Errorf("authorization bundle consumer group is invalid for this instance: %w", err)
+	}
+	bundleKafka, err := platformruntimeconfig.NewKafkaClient(bundleConsumer)
+	if err != nil {
+		return err
+	}
+	defer bundleKafka.Close()
+	bundleAcknowledgementKafka, err := kafkaconfig.NewProducerClient(value.PolicyBundles.Acknowledgement)
+	if err != nil {
+		return err
+	}
+	defer bundleAcknowledgementKafka.Close()
 	revokeStore, err := revokefeed.NewPostgresStore(pool)
 	if err != nil {
 		return err
@@ -219,12 +251,30 @@ func run(configPath string) error {
 	if err != nil {
 		return err
 	}
-	queryAuthorizer, err := queryauth.WithDurableRevoke(queryauth.Config{
+	queryAuthorizer, err := queryauth.WithDurableBundle(queryauth.Config{
 		MaxCapabilities: value.Identity.MaxCapabilities,
-	}, actorVerifier, pdp, revokeStore)
+	}, actorVerifier, bundleStore, value.PolicyBundles.OwnerID, revokeStore)
 	if err != nil {
 		return err
 	}
+	branchScopeIdentity, err := tls.LoadX509KeyPair(value.TLS.ClientCertificate, value.TLS.ClientPrivateKey)
+	if err != nil {
+		return fmt.Errorf("load projection client identity for branch scope resolver: %w", err)
+	}
+	branchScopeResolver, err := queryauth.NewHTTPBranchScopeResolver(
+		value.BranchScope.BaseURL,
+		value.BranchScope.CAPath,
+		branchScopeIdentity,
+		milliseconds(value.BranchScope.TimeoutMS),
+		value.BranchScope.WorkloadID,
+		value.BranchScope.SigningKeyID,
+		value.BranchScope.SigningKeyPath,
+		milliseconds(value.BranchScope.ProofTTLMS),
+	)
+	if err != nil {
+		return fmt.Errorf("create current organization branch scope resolver: %w", err)
+	}
+	queryAuthorizer.WithBranchScopeResolver(branchScopeResolver)
 	service, err := application.NewService(
 		store, policies, application.WithQueryAuthorizer(queryAuthorizer),
 	)
@@ -330,8 +380,11 @@ func run(configPath string) error {
 		func(ctx context.Context) error { return eventKafka.Ping(ctx) },
 		func(ctx context.Context) error { return configurationKafka.Ping(ctx) },
 		func(ctx context.Context) error { return revokeKafka.Ping(ctx) },
+		func(ctx context.Context) error { return bundleKafka.Ping(ctx) },
+		func(ctx context.Context) error { return bundleAcknowledgementKafka.Ping(ctx) },
 		func(ctx context.Context) error { return dlqKafka.Ping(ctx) },
 		func(context.Context) error { return cache.Ready(value.RuntimeConfig.InitialTenantIDs) },
+		func(context.Context) error { return bundleStore.Ready(value.RuntimeConfig.InitialTenantIDs) },
 	)
 	healthTransport, err := servermiddleware.NewHTTP(servermiddleware.HTTPConfig{
 		Service:        value.Telemetry.ServiceName + ".health",
@@ -352,9 +405,12 @@ func run(configPath string) error {
 		IdleTimeout:       milliseconds(value.Health.ReadinessTimeoutMS),
 		MaxHeaderBytes:    value.Health.MaxHeaderBytes,
 	}
-	errs := make(chan error, 6)
+	errs := make(chan error, 7)
 	go func() { errs <- service.RunExportWorker(ctx) }()
 	go func() { errs <- revokeConsumer.Run(ctx) }()
+	go func() {
+		errs <- queryauth.RunBundleConsumer(ctx, bundleKafka, bundleAcknowledgementKafka, bundleStore, bundleConsumer, value.PolicyBundles.Acknowledgement.Topic, value.PolicyBundles.ConsumerID+"/"+instanceID, value.PolicyBundles.ConsumerType)
+	}()
 	go func() { errs <- consumer.Run(ctx) }()
 	go func() { errs <- reloader.Run(ctx) }()
 	go func() { errs <- grpcServer.Serve(listener) }()

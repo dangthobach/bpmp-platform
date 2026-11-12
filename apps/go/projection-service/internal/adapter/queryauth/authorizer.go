@@ -19,7 +19,28 @@ type Authorizer struct {
 	now             func() time.Time
 	pdp             PDP
 	epochs          EpochStore
+	bundles         *BundleStore
+	ownerID         string
+	branchScopes    BranchScopeResolver
 }
+
+func (a *Authorizer) WithBranchScopeResolver(resolver BranchScopeResolver) *Authorizer {
+	a.branchScopes = resolver
+	return a
+}
+
+func WithDurableBundle(config Config, verifier *jwtauth.Verifier, bundles *BundleStore, ownerID string, epochs EpochStore) (*Authorizer, error) {
+	if bundles == nil || ownerID == "" || epochs == nil {
+		return nil, errors.New("verified local policy bundles and durable revoke store required")
+	}
+	authorizer, err := New(config, verifier)
+	if err != nil {
+		return nil, err
+	}
+	authorizer.bundles, authorizer.ownerID, authorizer.epochs = bundles, ownerID, epochs
+	return authorizer, nil
+}
+
 type EpochStore interface {
 	Check(context.Context, string, string, uint64) error
 }
@@ -87,6 +108,12 @@ func (a *Authorizer) AuthorizeQuery(
 	if !valid {
 		return application.QueryAuthorization{}, application.ErrQueryForbidden
 	}
+	if a.bundles != nil {
+		if len(identity.Roles) > a.maxCapabilities || !validSet(identity.Roles) {
+			return application.QueryAuthorization{}, application.ErrQueryForbidden
+		}
+		return a.bundles.Evaluate(ctx, request, identity.Subject, identity.Roles, identity.Capabilities, identity.RevokeEpoch, a.ownerID, now, a.branchScopes)
+	}
 	if a.pdp != nil {
 		_, all := capabilities[request.Policy.QueryAllCapability]
 		_, own := capabilities[request.Policy.QueryOwnCapability]
@@ -124,6 +151,20 @@ func (a *Authorizer) AuthorizeQuery(
 		},
 	}
 	return authorization, nil
+}
+
+func validSet(values []string) bool {
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if value == "" {
+			return false
+		}
+		if _, ok := seen[value]; ok {
+			return false
+		}
+		seen[value] = struct{}{}
+	}
+	return true
 }
 
 func capabilitySet(values []string) (map[string]struct{}, bool) {

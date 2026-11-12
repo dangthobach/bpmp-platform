@@ -14,13 +14,17 @@ import (
 	"github.com/dangthobach/bpmp-platform/go/platform/jwtauth"
 )
 
-type actorIdentity struct{ ID string }
+type actorIdentity struct {
+	ID           string
+	Capabilities []string
+}
 
 type authenticatedActor struct {
-	tenantID    string
-	actorID     string
-	proofType   authv1.ActorProofType
-	signedProof []byte
+	tenantID     string
+	actorID      string
+	capabilities []string
+	proofType    authv1.ActorProofType
+	signedProof  []byte
 }
 
 type HandlerOption func(*Handler) error
@@ -67,7 +71,7 @@ func (v *verifier) verify(raw, tenantID string, now time.Time) (actorIdentity, e
 	if err != nil {
 		return actorIdentity{}, err
 	}
-	return actorIdentity{ID: identity.Subject}, nil
+	return actorIdentity{ID: identity.Subject, Capabilities: append([]string(nil), identity.Capabilities...)}, nil
 }
 
 func (h *Handler) authenticateActor(
@@ -97,7 +101,7 @@ func (h *Handler) authenticateActor(
 			return authenticatedActor{}, errUnauthorized
 		}
 		return authenticatedActor{
-			tenantID: tenantHeader, actorID: actor.ID,
+			tenantID: tenantHeader, actorID: actor.ID, capabilities: actor.Capabilities,
 			proofType:   authv1.ActorProofType_ACTOR_PROOF_TYPE_ORIGINAL_JWT,
 			signedProof: []byte(raw),
 		}, nil

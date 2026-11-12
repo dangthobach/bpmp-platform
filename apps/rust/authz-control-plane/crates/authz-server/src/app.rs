@@ -12,6 +12,8 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use hyper::{body::Incoming, service::service_fn, Request};
+use hyper_util::rt::TokioIo;
 
 use authz_core::models::tenant::FailMode;
 use authz_core::AuthzError;
@@ -30,8 +32,11 @@ use authz_engine::{
     },
     shadow::ShadowEngine,
 };
+use bpmp_authz_contracts::Ed25519Signer;
 use serde_json::Value as JsonValue;
 use sqlx::PgPool;
+use tokio_rustls::rustls::{self, Certificate, PrivateKey};
+use tower::ServiceExt;
 
 use crate::{
     config::ServerConfig, handlers::health::health_handler,
@@ -85,6 +90,26 @@ pub fn build_router(state: AppState, transport: TransportConfig) -> Result<Route
         .merge(protected_routes)
         .with_state(state);
     apply_transport(router, transport).map_err(anyhow::Error::msg)
+}
+
+fn load_policy_bundle_signing(
+    config: &ServerConfig,
+) -> Result<Option<crate::state::PolicyBundleSigning>> {
+    let (Some(key_id), Some(path)) = (
+        config.policy_signing_key_id.as_ref(),
+        config.policy_signing_key_path.as_ref(),
+    ) else {
+        return Ok(None);
+    };
+    let bytes = std::fs::read(path)
+        .with_context(|| format!("read authorization policy signing key {path}"))?;
+    let seed: [u8; 32] = bytes.as_slice().try_into().map_err(|_| {
+        anyhow::anyhow!("authorization policy signing seed must contain exactly 32 bytes")
+    })?;
+    Ok(Some(crate::state::PolicyBundleSigning {
+        key_id: key_id.clone(),
+        signer: Arc::new(Ed25519Signer::from_bytes(&seed)),
+    }))
 }
 
 /// Starts the server: connects to DB, runs migrations, wires dependencies, listens.
@@ -155,6 +180,13 @@ pub async fn run(config: ServerConfig) -> Result<()> {
         rebac_engine,
         jwt_jwks_url: config.jwt_jwks_url.clone(),
         jwt_audience: config.jwt_audience.clone(),
+        owner_manifest_key_ids: config.owner_manifest_key_ids.clone(),
+        policy_bundle_signing: load_policy_bundle_signing(&config)?,
+        policy_bundle_max_bytes: config
+            .kafka_max_message_bytes
+            .saturating_sub(1024)
+            .min(config.server_max_body_bytes.saturating_sub(1024))
+            .min(4 * 1024 * 1024),
     };
 
     let job_pool = pool.clone();
@@ -184,6 +216,14 @@ pub async fn run(config: ServerConfig) -> Result<()> {
     // ── Start server ──────────────────────────────────────────────────────────
     let addr = config.socket_addr()?;
     let listener = tokio::net::TcpListener::bind(addr).await?;
+    let mut https_server = if let Some(https_addr) = config.https_socket_addr()? {
+        let https_listener = tokio::net::TcpListener::bind(https_addr).await?;
+        let tls = load_https_server_config(&config)?;
+        let https_router = build_router(state.clone(), transport.clone())?;
+        Some(tokio::spawn(serve_https(https_listener, https_router, tls)))
+    } else {
+        None
+    };
 
     tracing::info!(addr = %addr, "AuthZ REST server listening");
 
@@ -197,12 +237,27 @@ pub async fn run(config: ServerConfig) -> Result<()> {
             pool.clone(),
             config.clone(),
         ));
-        let revoke_publisher = tokio::spawn(crate::query_revoke_publisher::run(pool, config));
+        let revoke_publisher = tokio::spawn(crate::query_revoke_publisher::run(
+            pool.clone(),
+            config.clone(),
+        ));
+        let bundle_publisher = tokio::spawn(crate::policy_bundle_publisher::run(
+            state.pool.clone(),
+            config.clone(),
+            state.policy_bundle_signing.clone(),
+            state.policy_bundle_max_bytes,
+        ));
+        let bundle_acknowledgement_consumer = tokio::spawn(
+            crate::policy_bundle_acknowledgement_consumer::run(pool.clone(), config.clone()),
+        );
         let server = axum::serve(listener, build_router(state, transport)?).into_future();
         tokio::pin!(server);
-        tokio::select! {
+        let result = tokio::select! {
             result=revoke_publisher=>match result {Ok(Ok(()))=>anyhow::bail!("query revoke publisher stopped"),Ok(Err(error))=>Err(error).context("query revoke publisher failed"),Err(error)=>Err(anyhow::Error::from(error)).context("query revoke publisher panicked")},
+            result=bundle_publisher=>match result {Ok(Ok(()))=>anyhow::bail!("authorization policy bundle publisher stopped"),Ok(Err(error))=>Err(error).context("authorization policy bundle publisher failed"),Err(error)=>Err(anyhow::Error::from(error)).context("authorization policy bundle publisher panicked")},
+            result=bundle_acknowledgement_consumer=>match result {Ok(Ok(()))=>anyhow::bail!("authorization policy bundle acknowledgement consumer stopped"),Ok(Err(error))=>Err(error).context("authorization policy bundle acknowledgement consumer failed"),Err(error)=>Err(anyhow::Error::from(error)).context("authorization policy bundle acknowledgement consumer panicked")},
             result = &mut server => result.context("serve AuthZ HTTP"),
+            result = async { match https_server.as_mut() { Some(server) => server.await.map_err(anyhow::Error::from)?.context("serve AuthZ HTTPS"), None => std::future::pending().await } } => result,
             result = lifecycle_publisher => match result {
                 Ok(Ok(())) => anyhow::bail!("tenant lifecycle publisher stopped unexpectedly"),
                 Ok(Err(error)) => Err(error).context("tenant lifecycle publisher failed"),
@@ -215,14 +270,106 @@ pub async fn run(config: ServerConfig) -> Result<()> {
                 Err(error) => Err(anyhow::Error::from(error))
                     .context("tenant readiness consumer panicked"),
             },
+        };
+        if let Some(server) = https_server {
+            server.abort();
         }
+        result
     }
     #[cfg(not(target_os = "linux"))]
     {
         let _ = (pool, config);
-        axum::serve(listener, build_router(state, transport)?)
-            .await
-            .context("serve AuthZ HTTP")
+        if let Some(server) = https_server {
+            let http_server = axum::serve(listener, build_router(state, transport)?);
+            tokio::select! {
+                result = http_server => result.context("serve AuthZ HTTP"),
+                result = server => result.map_err(anyhow::Error::from)?.context("serve AuthZ HTTPS"),
+            }
+        } else {
+            axum::serve(listener, build_router(state, transport)?)
+                .await
+                .context("serve AuthZ HTTP")
+        }
+    }
+}
+
+fn load_https_server_config(config: &ServerConfig) -> Result<Arc<rustls::ServerConfig>> {
+    use rustls::server::AllowAnyAuthenticatedClient;
+    use std::{fs::File, io::BufReader};
+    let certificate_path = config
+        .https_certificate_path
+        .as_deref()
+        .context("HTTPS certificate path is missing")?;
+    let key_path = config
+        .https_private_key_path
+        .as_deref()
+        .context("HTTPS private key path is missing")?;
+    let ca_path = config
+        .https_client_ca_path
+        .as_deref()
+        .context("HTTPS client CA path is missing")?;
+    let certificates = rustls_pemfile::certs(&mut BufReader::new(File::open(certificate_path)?))?
+        .into_iter()
+        .map(Certificate)
+        .collect::<Vec<_>>();
+    if certificates.is_empty() {
+        anyhow::bail!("HTTPS certificate file contains no certificates");
+    }
+    let mut key_reader = BufReader::new(File::open(key_path)?);
+    let private_key = rustls_pemfile::read_all(&mut key_reader)?
+        .into_iter()
+        .find_map(|item| match item {
+            rustls_pemfile::Item::PKCS8Key(key)
+            | rustls_pemfile::Item::RSAKey(key)
+            | rustls_pemfile::Item::ECKey(key) => Some(PrivateKey(key)),
+            _ => None,
+        })
+        .context("HTTPS private key file contains no supported key")?;
+    let mut roots = rustls::RootCertStore::empty();
+    let ca_certificates = rustls_pemfile::certs(&mut BufReader::new(File::open(ca_path)?))?;
+    if ca_certificates.is_empty() {
+        anyhow::bail!("HTTPS client CA file contains no certificates");
+    }
+    for certificate in ca_certificates {
+        roots
+            .add(&Certificate(certificate))
+            .context("add HTTPS client CA certificate")?;
+    }
+    let verifier = AllowAnyAuthenticatedClient::new(roots);
+    let mut server = rustls::ServerConfig::builder()
+        .with_safe_defaults()
+        .with_client_cert_verifier(Arc::new(verifier))
+        .with_single_cert(certificates, private_key)
+        .context("build mutual-TLS Authz server configuration")?;
+    server.alpn_protocols = vec![b"http/1.1".to_vec()];
+    Ok(Arc::new(server))
+}
+
+async fn serve_https(
+    listener: tokio::net::TcpListener,
+    router: Router,
+    config: Arc<rustls::ServerConfig>,
+) -> Result<()> {
+    let acceptor = tokio_rustls::TlsAcceptor::from(config);
+    loop {
+        let (stream, _) = listener.accept().await?;
+        let acceptor = acceptor.clone();
+        let router = router.clone();
+        tokio::spawn(async move {
+            let Ok(stream) = acceptor.accept(stream).await else {
+                return;
+            };
+            let service = service_fn(move |request: Request<Incoming>| {
+                let router = router.clone();
+                async move { router.oneshot(request.map(axum::body::Body::new)).await }
+            });
+            if let Err(error) = hyper::server::conn::http1::Builder::new()
+                .serve_connection(TokioIo::new(stream), service)
+                .await
+            {
+                tracing::debug!(%error, "Authz HTTPS connection ended");
+            }
+        });
     }
 }
 

@@ -69,7 +69,7 @@ wasmtime = { version = "=36.0.4", default-features = false, features = ["craneli
 wat = "1.236.0"
 zeroize = "1.9.0"
 rcgen = "0.14.5"
-reqwest = { version = "0.12.24", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12.24", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio-rustls", "postgres", "json"] }
 bpmp-transport-observability = { path = "crates/bpmp-transport-observability" }
 

@@ -12,7 +12,9 @@ use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::application::errors::AppError;
-use crate::application::ports::organization_repo::{OrganizationListItem, OrganizationRepository};
+use crate::application::ports::organization_repo::{
+    BranchDescendants, BranchScope, OrganizationListItem, OrganizationRepository,
+};
 use crate::domain::organization::{
     MaterializedPath, NodeId, NodeKind, OrgId, OrgNode, Organization,
 };
@@ -185,6 +187,131 @@ pub(crate) async fn list_organizations(
         .collect())
 }
 
+pub(crate) async fn resolve_branch_scope(
+    tx: &mut Transaction<'static, Postgres>,
+    tenant_id: Uuid,
+    branch_id: Uuid,
+) -> Result<BranchScope, AppError> {
+    let row = sqlx::query_as::<_, (Uuid, i64, Vec<Uuid>, bool, bool)>(
+        "WITH RECURSIVE target AS ( \
+             SELECT id, org_id FROM org_node \
+             WHERE id = $2 AND tenant_id = $1 AND kind = 'BRANCH' AND is_active \
+         ), ancestry AS ( \
+             SELECT n.id, n.parent_id, n.org_id, n.is_active, 0::INT AS depth \
+             FROM org_node n JOIN target t ON t.id = n.id AND t.org_id = n.org_id \
+             UNION ALL \
+             SELECT p.id, p.parent_id, p.org_id, p.is_active, a.depth + 1 \
+             FROM org_node p JOIN ancestry a ON p.id = a.parent_id AND p.org_id = a.org_id \
+             WHERE p.tenant_id = $1 AND a.depth < 128 \
+         ) \
+         SELECT t.org_id, aggregate.version, \
+                array_agg(a.id ORDER BY a.depth DESC), \
+                bool_and(a.is_active), bool_or(a.parent_id IS NULL) \
+         FROM target t \
+         JOIN org_aggregate aggregate ON aggregate.id = t.org_id AND aggregate.tenant_id = $1 \
+         JOIN ancestry a ON a.org_id = t.org_id \
+         GROUP BY t.org_id, aggregate.version",
+    )
+    .bind(tenant_id)
+    .bind(branch_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or_else(|| AppError::NotFound {
+        resource: format!("active branch:{branch_id}"),
+    })?;
+
+    let (organization_id, organization_version, ancestry, all_active, reaches_root) = row;
+    if !all_active {
+        return Err(AppError::NotFound {
+            resource: format!("active branch:{branch_id}"),
+        });
+    }
+    if !reaches_root || ancestry.last() != Some(&branch_id) {
+        return Err(AppError::Internal(
+            "organization branch ancestry is incomplete or malformed".into(),
+        ));
+    }
+    Ok(BranchScope {
+        organization_id,
+        organization_version,
+        ancestry,
+    })
+}
+
+pub(crate) async fn resolve_branch_descendants(
+    tx: &mut Transaction<'static, Postgres>,
+    tenant_id: Uuid,
+    branch_ids: &[Uuid],
+    max_branches: usize,
+) -> Result<Vec<BranchDescendants>, AppError> {
+    if branch_ids.is_empty() || branch_ids.len() > 100 || max_branches == 0 {
+        return Err(AppError::BadRequest(
+            "branch descendant batch is outside limits".into(),
+        ));
+    }
+    let rows = sqlx::query_as::<_, (Uuid, Uuid, i64, Vec<Uuid>, bool)>(
+        "WITH RECURSIVE roots AS ( \
+             SELECT n.id AS branch_id, n.org_id \
+             FROM org_node n \
+             WHERE n.id = ANY($2) AND n.tenant_id = $1 AND n.kind = 'BRANCH' AND n.is_active \
+         ), tree AS ( \
+             SELECT r.branch_id, n.id AS node_id, n.parent_id, n.org_id, n.kind, n.is_active, \
+                    ARRAY[n.id] AS visited, 0::INT AS depth \
+             FROM roots r JOIN org_node n ON n.id = r.branch_id AND n.org_id = r.org_id \
+             UNION ALL \
+             SELECT t.branch_id, c.id, c.parent_id, c.org_id, c.kind, c.is_active, \
+                    t.visited || c.id, t.depth + 1 \
+             FROM tree t JOIN org_node c ON c.parent_id = t.node_id AND c.org_id = t.org_id \
+             WHERE c.tenant_id = $1 AND c.is_active AND t.depth < 128 AND NOT c.id = ANY(t.visited) \
+         ) \
+         SELECT r.branch_id, r.org_id, a.version, \
+                array_agg(t.node_id ORDER BY t.node_id) FILTER (WHERE t.kind = 'BRANCH'), \
+                bool_or(t.depth = 128 AND EXISTS ( \
+                    SELECT 1 FROM org_node child \
+                    WHERE child.parent_id = t.node_id AND child.org_id = t.org_id \
+                      AND child.tenant_id = $1 AND child.is_active \
+                )) \
+         FROM roots r \
+         JOIN org_aggregate a ON a.id = r.org_id AND a.tenant_id = $1 \
+         JOIN tree t ON t.branch_id = r.branch_id \
+         GROUP BY r.branch_id, r.org_id, a.version \
+         ORDER BY r.branch_id",
+    )
+    .bind(tenant_id)
+    .bind(branch_ids)
+    .fetch_all(&mut **tx)
+    .await?;
+    if rows.len() != branch_ids.len() {
+        return Err(AppError::NotFound {
+            resource: "one or more active branches".into(),
+        });
+    }
+    if rows.iter().any(|row| row.4) {
+        return Err(AppError::Internal(
+            "organization branch depth exceeds resolver limit".into(),
+        ));
+    }
+    let total: usize = rows.iter().map(|row| row.3.len()).sum();
+    if total > max_branches {
+        return Err(AppError::BadRequest(
+            "branch descendant result exceeds configured limit".into(),
+        ));
+    }
+    Ok(rows
+        .into_iter()
+        .map(
+            |(branch_id, organization_id, organization_version, descendant_branch_ids, _)| {
+                BranchDescendants {
+                    branch_id,
+                    organization_id,
+                    organization_version,
+                    descendant_branch_ids,
+                }
+            },
+        )
+        .collect())
+}
+
 fn parse_kind(s: &str) -> Result<NodeKind, AppError> {
     Ok(match s {
         "GROUP" => NodeKind::Group,
@@ -213,6 +340,23 @@ impl OrganizationRepository for PgOrgRepoView {
         _offset: i64,
         _limit: i64,
     ) -> Result<Vec<OrganizationListItem>, AppError> {
+        Err(AppError::Internal("call via UnitOfWork".into()))
+    }
+
+    async fn resolve_branch_scope(
+        &mut self,
+        _tenant: Uuid,
+        _branch_id: Uuid,
+    ) -> Result<BranchScope, AppError> {
+        Err(AppError::Internal("call via UnitOfWork".into()))
+    }
+
+    async fn resolve_branch_descendants(
+        &mut self,
+        _tenant: Uuid,
+        _branch_ids: &[Uuid],
+        _max_branches: usize,
+    ) -> Result<Vec<BranchDescendants>, AppError> {
         Err(AppError::Internal("call via UnitOfWork".into()))
     }
 }

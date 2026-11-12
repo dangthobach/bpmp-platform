@@ -18,6 +18,7 @@ pub struct RuntimeConfig {
     pub tls: TlsConfig,
     pub wir: WirConfig,
     pub configuration_resolver: Option<ConfigurationResolverConfig>,
+    pub branch_scope_resolver: Option<BranchScopeResolverConfig>,
     pub authorization: AuthorizationConfig,
     #[serde(default)]
     pub payload_keys: Vec<PayloadKeyConfig>,
@@ -98,6 +99,9 @@ impl RuntimeConfig {
             })?;
         }
         self.validate_configuration_source()?;
+        if let Some(resolver) = &self.branch_scope_resolver {
+            resolver.validate()?;
+        }
         self.validate_remote_workers()?;
         self.kafka.validate()?;
         for value in [
@@ -286,6 +290,24 @@ impl ConfigurationResolverConfig {
         {
             return Err(RuntimeConfigError::Invalid(
                 "configuration resolver settings are invalid",
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BranchScopeResolverConfig {
+    pub endpoint: String,
+    pub timeout_ms: u64,
+}
+
+impl BranchScopeResolverConfig {
+    fn validate(&self) -> Result<(), RuntimeConfigError> {
+        if !self.endpoint.starts_with("https://") || self.timeout_ms == 0 {
+            return Err(RuntimeConfigError::Invalid(
+                "branch scope resolver requires an HTTPS endpoint and positive timeout",
             ));
         }
         Ok(())
@@ -590,12 +612,15 @@ pub struct KafkaSecurityConfig {
 pub struct KafkaTopicConfig {
     pub committed_events: String,
     pub configuration_publications: String,
+    pub authorization_policy_bundles: String,
+    pub authorization_policy_bundle_acknowledgements: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct KafkaConsumerGroupConfig {
     pub configuration_reloader: String,
+    pub authorization_policy_bundles: String,
 }
 
 impl KafkaConfig {
@@ -609,7 +634,10 @@ impl KafkaConfig {
             || !valid_client_id(&self.client_id)
             || !valid_kafka_name(&self.topics.committed_events)
             || !valid_kafka_name(&self.topics.configuration_publications)
+            || !valid_kafka_name(&self.topics.authorization_policy_bundles)
+            || !valid_kafka_name(&self.topics.authorization_policy_bundle_acknowledgements)
             || !valid_kafka_name(&self.consumer_groups.configuration_reloader)
+            || !valid_kafka_name(&self.consumer_groups.authorization_policy_bundles)
             || self.message_timeout_ms == 0
             || self.max_message_bytes == 0
             || self.max_inflight == 0

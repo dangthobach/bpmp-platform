@@ -12,6 +12,8 @@
     "topics": {
       "authorization_query_revocations":"bpmp.authz.query-revocations.v1.e2e",
       "authorization_query_revocations_dlq":"bpmp.authz.query-revocations-dlq.v1.e2e",
+      "authorization_policy_bundles":"bpmp.authz.policy-bundles.v1.e2e",
+      "authorization_policy_bundle_acknowledgements":"bpmp.authz.policy-bundle-acknowledgements.v1.e2e",
       "engine_committed_events": "bpmp.engine.committed-events.v1.e2e",
       "configuration_publications": "bpmp.configuration.publications.v1.e2e",
       "human_escalations": "bpmp.human.escalations.v1.e2e",
@@ -20,6 +22,8 @@
     },
     "consumer_groups": {
       "projection_query_revocations":"bpmp.projection.query-revocations.v1.e2e",
+      "projection_policy_bundles":"bpmp.projection.policy-bundles.v1.e2e",
+      "authorization_policy_bundle_acknowledgements":"bpmp.authz.policy-bundle-acknowledgements.v1.e2e",
       "engine_configuration_reloaders": [
         "bpmp.engine.configuration-reloader-node-1.v1.e2e",
         "bpmp.engine.configuration-reloader-node-2.v1.e2e",
@@ -64,5 +68,5 @@
   "configuration_listen_address": "0.0.0.0:7301",
   "configuration_grpc_url": "https://configuration-service:7302",
   "configuration_grpc_listen_address": "0.0.0.0:7302",
-  "tls_dns_names": ["localhost", "engine1", "engine2", "engine3", "human-runtime", "api-gateway", "configuration-service", "projection-service", "governance-service", "cockpit-gateway"]
+  "tls_dns_names": ["localhost", "engine1", "engine2", "engine3", "human-runtime", "api-gateway", "configuration-service", "projection-service", "governance-service", "cockpit-gateway", "authz-server", "authz-app"]
 }

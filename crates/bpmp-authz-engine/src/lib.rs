@@ -6,6 +6,7 @@
 
 use bpmp_authz_contracts::authorization::v1::{
     AuthorizationPolicyBundle, AuthorizationPolicyEffect, AuthorizationPolicyGrant,
+    AuthorizationResourceDefinition, AuthorizationResourceGrant,
 };
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -20,6 +21,26 @@ pub struct AuthorizationInput<'a> {
     pub workflow_version: &'a str,
     pub active_node_id: &'a str,
     pub action: &'a str,
+}
+
+/// Input for authorization owned by a data or domain service.
+/// `resource_branch_path` is ordered root-to-leaf and is supplied by the
+/// authoritative resource owner, never by the browser.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct ResourceAuthorizationInput<'a> {
+    pub tenant_id: &'a str,
+    pub actor_id: &'a str,
+    pub roles: &'a [String],
+    pub capabilities: &'a [String],
+    pub actor_proof_revoke_epoch: u64,
+    pub evaluated_at_epoch_ms: u64,
+    pub owner_id: &'a str,
+    pub resource_type: &'a str,
+    pub action: &'a str,
+    pub resource_id: &'a str,
+    pub resource_owner_actor_id: Option<&'a str>,
+    pub resource_branch_path: &'a [String],
+    pub resource_queue_id: Option<&'a str>,
 }
 
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
@@ -77,6 +98,169 @@ pub struct AuthorizationDecision {
     pub bundle_sequence: u64,
     pub required_revoke_epoch: u64,
     pub matched_grant_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct ResourceAuthorizationDecision {
+    pub decision: DecisionType,
+    pub deny_reason: Option<DenyReason>,
+    pub policy_version: String,
+    pub catalog_version: u64,
+    pub bundle_sequence: u64,
+    pub required_revoke_epoch: u64,
+    pub matched_grant_ids: Vec<String>,
+    pub readable_fields: Vec<String>,
+    pub writable_fields: Vec<String>,
+}
+
+/// Evaluates a resource/action against an already verified signed bundle.
+/// Empty branch and queue scope sets represent tenant scope. When both sets
+/// are present they intersect; branch scope includes descendants only when
+/// the grant explicitly enables that behavior. Explicit deny always wins.
+pub fn evaluate_resource(
+    bundle: &AuthorizationPolicyBundle,
+    input: &ResourceAuthorizationInput<'_>,
+    external_revocation: RevocationSnapshot,
+) -> ResourceAuthorizationDecision {
+    let required_revoke_epoch = required_revoke_epoch(bundle, input.actor_id, external_revocation);
+    let mut decision = ResourceAuthorizationDecision {
+        decision: DecisionType::Deny,
+        deny_reason: None,
+        policy_version: bundle.policy_version.clone(),
+        catalog_version: bundle.catalog_version,
+        bundle_sequence: bundle.bundle_sequence,
+        required_revoke_epoch,
+        matched_grant_ids: Vec::new(),
+        readable_fields: Vec::new(),
+        writable_fields: Vec::new(),
+    };
+    if bundle.tenant_id != input.tenant_id {
+        decision.deny_reason = Some(DenyReason::BundleTenantMismatch);
+        return decision;
+    }
+    if input.evaluated_at_epoch_ms < bundle.valid_from_epoch_ms {
+        decision.deny_reason = Some(DenyReason::BundleNotYetValid);
+        return decision;
+    }
+    if input.evaluated_at_epoch_ms >= bundle.expires_at_epoch_ms {
+        decision.deny_reason = Some(DenyReason::BundleExpired);
+        return decision;
+    }
+    if input.actor_proof_revoke_epoch < required_revoke_epoch {
+        decision.deny_reason = Some(DenyReason::ActorProofRevoked);
+        return decision;
+    }
+    let catalog_action =
+        bundle
+            .resource_catalog
+            .iter()
+            .any(|definition: &AuthorizationResourceDefinition| {
+                definition.owner_id == input.owner_id
+                    && selector_matches(&definition.resource_type, input.resource_type)
+                    && selector_matches(&definition.action, input.action)
+                    && input.capabilities.contains(&definition.capability)
+            });
+    if !catalog_action {
+        decision.deny_reason = Some(DenyReason::NoMatchingGrant);
+        return decision;
+    }
+
+    let mut allows: Vec<&AuthorizationResourceGrant> = Vec::new();
+    let mut denies: Vec<&AuthorizationResourceGrant> = Vec::new();
+    for grant in &bundle.resource_grants {
+        if !resource_grant_matches(grant, input) {
+            continue;
+        }
+        match AuthorizationPolicyEffect::try_from(grant.effect) {
+            Ok(AuthorizationPolicyEffect::Allow) => allows.push(grant),
+            Ok(AuthorizationPolicyEffect::Deny) => denies.push(grant),
+            Ok(AuthorizationPolicyEffect::Unspecified) | Err(_) => {
+                decision.deny_reason = Some(DenyReason::InvalidPolicyEffect);
+                decision.matched_grant_ids.push(grant.grant_id.clone());
+                return decision;
+            }
+        }
+    }
+    if !denies.is_empty() {
+        decision.deny_reason = Some(DenyReason::ExplicitDeny);
+        decision.matched_grant_ids = denies.iter().map(|grant| grant.grant_id.clone()).collect();
+        return decision;
+    }
+    if allows.is_empty() {
+        decision.deny_reason = Some(DenyReason::NoMatchingGrant);
+        return decision;
+    }
+
+    // Multiple matching allows union. Each set is sorted/deduplicated so the
+    // decision remains deterministic regardless of grant storage order.
+    decision.decision = DecisionType::Allow;
+    decision.matched_grant_ids = allows.iter().map(|grant| grant.grant_id.clone()).collect();
+    decision.matched_grant_ids.sort();
+    decision.readable_fields = allows
+        .iter()
+        .flat_map(|grant| grant.readable_fields.clone())
+        .collect();
+    decision.readable_fields.sort();
+    decision.readable_fields.dedup();
+    decision.writable_fields = allows
+        .iter()
+        .flat_map(|grant| grant.writable_fields.clone())
+        .collect();
+    decision.writable_fields.sort();
+    decision.writable_fields.dedup();
+    decision
+}
+
+fn resource_grant_matches(
+    grant: &AuthorizationResourceGrant,
+    input: &ResourceAuthorizationInput<'_>,
+) -> bool {
+    let narrower_scope = !grant.branch_scope_ids.is_empty()
+        || !grant.queue_scope_ids.is_empty()
+        || grant.own_scope
+        || !grant.resource_scope_ids.is_empty();
+    if grant.tenant_scope == narrower_scope {
+        return false;
+    }
+    let subject_matches = grant.actor_ids.iter().any(|actor| actor == input.actor_id)
+        || grant.roles.iter().any(|role| input.roles.contains(role));
+    let capabilities_match = grant
+        .required_capabilities
+        .iter()
+        .all(|required| input.capabilities.contains(required));
+    let resource_matches = grant.owner_id == input.owner_id
+        && selector_matches(&grant.resource_type, input.resource_type)
+        && selector_matches(&grant.action, input.action);
+    let branch_matches = if grant.branch_scope_ids.is_empty() {
+        true
+    } else if grant.branch_includes_descendants {
+        grant
+            .branch_scope_ids
+            .iter()
+            .any(|scope| input.resource_branch_path.contains(scope))
+    } else {
+        input
+            .resource_branch_path
+            .last()
+            .is_some_and(|resource_branch| grant.branch_scope_ids.contains(resource_branch))
+    };
+    let queue_matches = grant.queue_scope_ids.is_empty()
+        || input
+            .resource_queue_id
+            .is_some_and(|queue| grant.queue_scope_ids.iter().any(|scope| scope == queue));
+    let own_matches = !grant.own_scope || input.resource_owner_actor_id == Some(input.actor_id);
+    let resource_scope_matches = grant.resource_scope_ids.is_empty()
+        || grant
+            .resource_scope_ids
+            .iter()
+            .any(|scope| scope == input.resource_id);
+    subject_matches
+        && capabilities_match
+        && resource_matches
+        && branch_matches
+        && queue_matches
+        && own_matches
+        && resource_scope_matches
 }
 
 impl AuthorizationDecision {
@@ -261,6 +445,9 @@ mod tests {
             valid_from_epoch_ms: 100,
             expires_at_epoch_ms: 1_000,
             grants,
+            catalog_version: 0,
+            resource_grants: Vec::new(),
+            resource_catalog: Vec::new(),
             actor_revoke_epochs: vec![ActorRevokeEpoch {
                 actor_id: "actor-1".into(),
                 revoke_epoch: 4,

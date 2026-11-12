@@ -337,20 +337,21 @@ func (TimerKind) EnumDescriptor() ([]byte, []int) {
 }
 
 type WorkflowIntermediateRepresentation struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	SchemaVersion   uint32                 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
-	WorkflowType    string                 `protobuf:"bytes,2,opt,name=workflow_type,json=workflowType,proto3" json:"workflow_type,omitempty"`
-	WorkflowVersion string                 `protobuf:"bytes,3,opt,name=workflow_version,json=workflowVersion,proto3" json:"workflow_version,omitempty"`
-	StartNodeId     string                 `protobuf:"bytes,4,opt,name=start_node_id,json=startNodeId,proto3" json:"start_node_id,omitempty"`
-	Nodes           []*Node                `protobuf:"bytes,5,rep,name=nodes,proto3" json:"nodes,omitempty"`
-	ContentHash     []byte                 `protobuf:"bytes,6,opt,name=content_hash,json=contentHash,proto3" json:"content_hash,omitempty"`
-	Signature       []byte                 `protobuf:"bytes,7,opt,name=signature,proto3" json:"signature,omitempty"`
-	DecisionTables  []*DecisionTable       `protobuf:"bytes,8,rep,name=decision_tables,json=decisionTables,proto3" json:"decision_tables,omitempty"`
-	TenantId        string                 `protobuf:"bytes,9,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
-	CaseModels      []*CaseModel           `protobuf:"bytes,10,rep,name=case_models,json=caseModels,proto3" json:"case_models,omitempty"`
-	Properties      []*ExtensionProperty   `protobuf:"bytes,11,rep,name=properties,proto3" json:"properties,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	SchemaVersion        uint32                 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
+	WorkflowType         string                 `protobuf:"bytes,2,opt,name=workflow_type,json=workflowType,proto3" json:"workflow_type,omitempty"`
+	WorkflowVersion      string                 `protobuf:"bytes,3,opt,name=workflow_version,json=workflowVersion,proto3" json:"workflow_version,omitempty"`
+	StartNodeId          string                 `protobuf:"bytes,4,opt,name=start_node_id,json=startNodeId,proto3" json:"start_node_id,omitempty"`
+	Nodes                []*Node                `protobuf:"bytes,5,rep,name=nodes,proto3" json:"nodes,omitempty"`
+	ContentHash          []byte                 `protobuf:"bytes,6,opt,name=content_hash,json=contentHash,proto3" json:"content_hash,omitempty"`
+	Signature            []byte                 `protobuf:"bytes,7,opt,name=signature,proto3" json:"signature,omitempty"`
+	DecisionTables       []*DecisionTable       `protobuf:"bytes,8,rep,name=decision_tables,json=decisionTables,proto3" json:"decision_tables,omitempty"`
+	TenantId             string                 `protobuf:"bytes,9,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	CaseModels           []*CaseModel           `protobuf:"bytes,10,rep,name=case_models,json=caseModels,proto3" json:"case_models,omitempty"`
+	Properties           []*ExtensionProperty   `protobuf:"bytes,11,rep,name=properties,proto3" json:"properties,omitempty"`
+	ResourceScopeBinding *ResourceScopeBinding  `protobuf:"bytes,12,opt,name=resource_scope_binding,json=resourceScopeBinding,proto3" json:"resource_scope_binding,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *WorkflowIntermediateRepresentation) Reset() {
@@ -460,6 +461,59 @@ func (x *WorkflowIntermediateRepresentation) GetProperties() []*ExtensionPropert
 	return nil
 }
 
+func (x *WorkflowIntermediateRepresentation) GetResourceScopeBinding() *ResourceScopeBinding {
+	if x != nil {
+		return x.ResourceScopeBinding
+	}
+	return nil
+}
+
+// Maps a workflow input variable to authoritative resource scope metadata.
+// The value is captured when the workflow starts and is immutable for that instance.
+type ResourceScopeBinding struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	BranchId      string                 `protobuf:"bytes,1,opt,name=branch_id,json=branchId,proto3" json:"branch_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResourceScopeBinding) Reset() {
+	*x = ResourceScopeBinding{}
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResourceScopeBinding) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResourceScopeBinding) ProtoMessage() {}
+
+func (x *ResourceScopeBinding) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResourceScopeBinding.ProtoReflect.Descriptor instead.
+func (*ResourceScopeBinding) Descriptor() ([]byte, []int) {
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *ResourceScopeBinding) GetBranchId() string {
+	if x != nil {
+		return x.BranchId
+	}
+	return ""
+}
+
 type Node struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -490,7 +544,7 @@ type Node struct {
 
 func (x *Node) Reset() {
 	*x = Node{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[1]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -502,7 +556,7 @@ func (x *Node) String() string {
 func (*Node) ProtoMessage() {}
 
 func (x *Node) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[1]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -515,7 +569,7 @@ func (x *Node) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Node.ProtoReflect.Descriptor instead.
 func (*Node) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{1}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *Node) GetId() string {
@@ -759,7 +813,7 @@ type StartNode struct {
 
 func (x *StartNode) Reset() {
 	*x = StartNode{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[2]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -771,7 +825,7 @@ func (x *StartNode) String() string {
 func (*StartNode) ProtoMessage() {}
 
 func (x *StartNode) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[2]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -784,7 +838,7 @@ func (x *StartNode) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartNode.ProtoReflect.Descriptor instead.
 func (*StartNode) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{2}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *StartNode) GetNextNodeId() string {
@@ -804,7 +858,7 @@ type ServiceTaskNode struct {
 
 func (x *ServiceTaskNode) Reset() {
 	*x = ServiceTaskNode{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[3]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -816,7 +870,7 @@ func (x *ServiceTaskNode) String() string {
 func (*ServiceTaskNode) ProtoMessage() {}
 
 func (x *ServiceTaskNode) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[3]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -829,7 +883,7 @@ func (x *ServiceTaskNode) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServiceTaskNode.ProtoReflect.Descriptor instead.
 func (*ServiceTaskNode) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{3}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ServiceTaskNode) GetTaskType() string {
@@ -859,7 +913,7 @@ type UserTaskNode struct {
 
 func (x *UserTaskNode) Reset() {
 	*x = UserTaskNode{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[4]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -871,7 +925,7 @@ func (x *UserTaskNode) String() string {
 func (*UserTaskNode) ProtoMessage() {}
 
 func (x *UserTaskNode) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[4]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -884,7 +938,7 @@ func (x *UserTaskNode) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserTaskNode.ProtoReflect.Descriptor instead.
 func (*UserTaskNode) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{4}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *UserTaskNode) GetTaskType() string {
@@ -934,7 +988,7 @@ type ScriptTaskNode struct {
 
 func (x *ScriptTaskNode) Reset() {
 	*x = ScriptTaskNode{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[5]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -946,7 +1000,7 @@ func (x *ScriptTaskNode) String() string {
 func (*ScriptTaskNode) ProtoMessage() {}
 
 func (x *ScriptTaskNode) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[5]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -959,7 +1013,7 @@ func (x *ScriptTaskNode) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScriptTaskNode.ProtoReflect.Descriptor instead.
 func (*ScriptTaskNode) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{5}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ScriptTaskNode) GetTaskType() string {
@@ -1000,7 +1054,7 @@ type DecisionTaskNode struct {
 
 func (x *DecisionTaskNode) Reset() {
 	*x = DecisionTaskNode{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[6]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1012,7 +1066,7 @@ func (x *DecisionTaskNode) String() string {
 func (*DecisionTaskNode) ProtoMessage() {}
 
 func (x *DecisionTaskNode) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[6]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1025,7 +1079,7 @@ func (x *DecisionTaskNode) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DecisionTaskNode.ProtoReflect.Descriptor instead.
 func (*DecisionTaskNode) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{6}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *DecisionTaskNode) GetDecisionTableId() string {
@@ -1053,7 +1107,7 @@ type CallActivityNode struct {
 
 func (x *CallActivityNode) Reset() {
 	*x = CallActivityNode{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[7]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1065,7 +1119,7 @@ func (x *CallActivityNode) String() string {
 func (*CallActivityNode) ProtoMessage() {}
 
 func (x *CallActivityNode) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[7]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1078,7 +1132,7 @@ func (x *CallActivityNode) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CallActivityNode.ProtoReflect.Descriptor instead.
 func (*CallActivityNode) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{7}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *CallActivityNode) GetCalledElement() string {
@@ -1113,7 +1167,7 @@ type SubProcessNode struct {
 
 func (x *SubProcessNode) Reset() {
 	*x = SubProcessNode{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[8]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1125,7 +1179,7 @@ func (x *SubProcessNode) String() string {
 func (*SubProcessNode) ProtoMessage() {}
 
 func (x *SubProcessNode) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[8]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1138,7 +1192,7 @@ func (x *SubProcessNode) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubProcessNode.ProtoReflect.Descriptor instead.
 func (*SubProcessNode) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{8}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *SubProcessNode) GetStartNodeId() string {
@@ -1170,7 +1224,7 @@ type EndNode struct {
 
 func (x *EndNode) Reset() {
 	*x = EndNode{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[9]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1182,7 +1236,7 @@ func (x *EndNode) String() string {
 func (*EndNode) ProtoMessage() {}
 
 func (x *EndNode) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[9]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1195,7 +1249,7 @@ func (x *EndNode) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EndNode.ProtoReflect.Descriptor instead.
 func (*EndNode) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{9}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{10}
 }
 
 type ExclusiveGatewayNode struct {
@@ -1208,7 +1262,7 @@ type ExclusiveGatewayNode struct {
 
 func (x *ExclusiveGatewayNode) Reset() {
 	*x = ExclusiveGatewayNode{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[10]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1220,7 +1274,7 @@ func (x *ExclusiveGatewayNode) String() string {
 func (*ExclusiveGatewayNode) ProtoMessage() {}
 
 func (x *ExclusiveGatewayNode) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[10]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1233,7 +1287,7 @@ func (x *ExclusiveGatewayNode) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExclusiveGatewayNode.ProtoReflect.Descriptor instead.
 func (*ExclusiveGatewayNode) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{10}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ExclusiveGatewayNode) GetTransitions() []*ConditionalTransition {
@@ -1261,7 +1315,7 @@ type ParallelGatewayNode struct {
 
 func (x *ParallelGatewayNode) Reset() {
 	*x = ParallelGatewayNode{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[11]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1273,7 +1327,7 @@ func (x *ParallelGatewayNode) String() string {
 func (*ParallelGatewayNode) ProtoMessage() {}
 
 func (x *ParallelGatewayNode) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[11]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1286,7 +1340,7 @@ func (x *ParallelGatewayNode) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ParallelGatewayNode.ProtoReflect.Descriptor instead.
 func (*ParallelGatewayNode) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{11}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ParallelGatewayNode) GetDirection() GatewayDirection {
@@ -1323,7 +1377,7 @@ type InclusiveGatewayNode struct {
 
 func (x *InclusiveGatewayNode) Reset() {
 	*x = InclusiveGatewayNode{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[12]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1335,7 +1389,7 @@ func (x *InclusiveGatewayNode) String() string {
 func (*InclusiveGatewayNode) ProtoMessage() {}
 
 func (x *InclusiveGatewayNode) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[12]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1348,7 +1402,7 @@ func (x *InclusiveGatewayNode) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InclusiveGatewayNode.ProtoReflect.Descriptor instead.
 func (*InclusiveGatewayNode) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{12}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *InclusiveGatewayNode) GetDirection() GatewayDirection {
@@ -1399,7 +1453,7 @@ type ConditionalTransition struct {
 
 func (x *ConditionalTransition) Reset() {
 	*x = ConditionalTransition{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[13]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1411,7 +1465,7 @@ func (x *ConditionalTransition) String() string {
 func (*ConditionalTransition) ProtoMessage() {}
 
 func (x *ConditionalTransition) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[13]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1424,7 +1478,7 @@ func (x *ConditionalTransition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConditionalTransition.ProtoReflect.Descriptor instead.
 func (*ConditionalTransition) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{13}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ConditionalTransition) GetTargetNodeId() string {
@@ -1478,7 +1532,7 @@ type BooleanExpression struct {
 
 func (x *BooleanExpression) Reset() {
 	*x = BooleanExpression{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[14]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1490,7 +1544,7 @@ func (x *BooleanExpression) String() string {
 func (*BooleanExpression) ProtoMessage() {}
 
 func (x *BooleanExpression) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[14]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1503,7 +1557,7 @@ func (x *BooleanExpression) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BooleanExpression.ProtoReflect.Descriptor instead.
 func (*BooleanExpression) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{14}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *BooleanExpression) GetExpression() isBooleanExpression_Expression {
@@ -1601,7 +1655,7 @@ type BooleanJunction struct {
 
 func (x *BooleanJunction) Reset() {
 	*x = BooleanJunction{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[15]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1613,7 +1667,7 @@ func (x *BooleanJunction) String() string {
 func (*BooleanJunction) ProtoMessage() {}
 
 func (x *BooleanJunction) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[15]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1626,7 +1680,7 @@ func (x *BooleanJunction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BooleanJunction.ProtoReflect.Descriptor instead.
 func (*BooleanJunction) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{15}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *BooleanJunction) GetOperands() []*BooleanExpression {
@@ -1652,7 +1706,7 @@ type GuardExpression struct {
 
 func (x *GuardExpression) Reset() {
 	*x = GuardExpression{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[16]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1664,7 +1718,7 @@ func (x *GuardExpression) String() string {
 func (*GuardExpression) ProtoMessage() {}
 
 func (x *GuardExpression) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[16]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1677,7 +1731,7 @@ func (x *GuardExpression) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GuardExpression.ProtoReflect.Descriptor instead.
 func (*GuardExpression) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{16}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *GuardExpression) GetVariable() string {
@@ -1763,7 +1817,7 @@ type GatewayCoverage struct {
 
 func (x *GatewayCoverage) Reset() {
 	*x = GatewayCoverage{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[17]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1775,7 +1829,7 @@ func (x *GatewayCoverage) String() string {
 func (*GatewayCoverage) ProtoMessage() {}
 
 func (x *GatewayCoverage) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[17]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1788,7 +1842,7 @@ func (x *GatewayCoverage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GatewayCoverage.ProtoReflect.Descriptor instead.
 func (*GatewayCoverage) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{17}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *GatewayCoverage) GetVariable() string {
@@ -1838,7 +1892,7 @@ type IntegerInterval struct {
 
 func (x *IntegerInterval) Reset() {
 	*x = IntegerInterval{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[18]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1850,7 +1904,7 @@ func (x *IntegerInterval) String() string {
 func (*IntegerInterval) ProtoMessage() {}
 
 func (x *IntegerInterval) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[18]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1863,7 +1917,7 @@ func (x *IntegerInterval) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IntegerInterval.ProtoReflect.Descriptor instead.
 func (*IntegerInterval) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{18}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *IntegerInterval) GetLowerBound() int64 {
@@ -1907,7 +1961,7 @@ type DecisionTable struct {
 
 func (x *DecisionTable) Reset() {
 	*x = DecisionTable{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[19]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1919,7 +1973,7 @@ func (x *DecisionTable) String() string {
 func (*DecisionTable) ProtoMessage() {}
 
 func (x *DecisionTable) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[19]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1932,7 +1986,7 @@ func (x *DecisionTable) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DecisionTable.ProtoReflect.Descriptor instead.
 func (*DecisionTable) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{19}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *DecisionTable) GetId() string {
@@ -1980,7 +2034,7 @@ type DecisionInput struct {
 
 func (x *DecisionInput) Reset() {
 	*x = DecisionInput{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[20]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1992,7 +2046,7 @@ func (x *DecisionInput) String() string {
 func (*DecisionInput) ProtoMessage() {}
 
 func (x *DecisionInput) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[20]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2005,7 +2059,7 @@ func (x *DecisionInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DecisionInput.ProtoReflect.Descriptor instead.
 func (*DecisionInput) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{20}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *DecisionInput) GetName() string {
@@ -2032,7 +2086,7 @@ type DecisionOutput struct {
 
 func (x *DecisionOutput) Reset() {
 	*x = DecisionOutput{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[21]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2044,7 +2098,7 @@ func (x *DecisionOutput) String() string {
 func (*DecisionOutput) ProtoMessage() {}
 
 func (x *DecisionOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[21]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2057,7 +2111,7 @@ func (x *DecisionOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DecisionOutput.ProtoReflect.Descriptor instead.
 func (*DecisionOutput) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{21}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *DecisionOutput) GetName() string {
@@ -2085,7 +2139,7 @@ type DecisionRule struct {
 
 func (x *DecisionRule) Reset() {
 	*x = DecisionRule{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[22]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2097,7 +2151,7 @@ func (x *DecisionRule) String() string {
 func (*DecisionRule) ProtoMessage() {}
 
 func (x *DecisionRule) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[22]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2110,7 +2164,7 @@ func (x *DecisionRule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DecisionRule.ProtoReflect.Descriptor instead.
 func (*DecisionRule) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{22}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *DecisionRule) GetId() string {
@@ -2148,7 +2202,7 @@ type UnaryTest struct {
 
 func (x *UnaryTest) Reset() {
 	*x = UnaryTest{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[23]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2160,7 +2214,7 @@ func (x *UnaryTest) String() string {
 func (*UnaryTest) ProtoMessage() {}
 
 func (x *UnaryTest) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[23]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2173,7 +2227,7 @@ func (x *UnaryTest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnaryTest.ProtoReflect.Descriptor instead.
 func (*UnaryTest) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{23}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *UnaryTest) GetTest() isUnaryTest_Test {
@@ -2246,7 +2300,7 @@ type WorkflowLiteral struct {
 
 func (x *WorkflowLiteral) Reset() {
 	*x = WorkflowLiteral{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[24]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2258,7 +2312,7 @@ func (x *WorkflowLiteral) String() string {
 func (*WorkflowLiteral) ProtoMessage() {}
 
 func (x *WorkflowLiteral) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[24]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2271,7 +2325,7 @@ func (x *WorkflowLiteral) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkflowLiteral.ProtoReflect.Descriptor instead.
 func (*WorkflowLiteral) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{24}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *WorkflowLiteral) GetValue() isWorkflowLiteral_Value {
@@ -2340,7 +2394,7 @@ type DataContract struct {
 
 func (x *DataContract) Reset() {
 	*x = DataContract{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[25]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2352,7 +2406,7 @@ func (x *DataContract) String() string {
 func (*DataContract) ProtoMessage() {}
 
 func (x *DataContract) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[25]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2365,7 +2419,7 @@ func (x *DataContract) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DataContract.ProtoReflect.Descriptor instead.
 func (*DataContract) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{25}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *DataContract) GetInputType() string {
@@ -2396,7 +2450,7 @@ type MultiInstanceSpec struct {
 
 func (x *MultiInstanceSpec) Reset() {
 	*x = MultiInstanceSpec{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[26]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2408,7 +2462,7 @@ func (x *MultiInstanceSpec) String() string {
 func (*MultiInstanceSpec) ProtoMessage() {}
 
 func (x *MultiInstanceSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[26]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2421,7 +2475,7 @@ func (x *MultiInstanceSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MultiInstanceSpec.ProtoReflect.Descriptor instead.
 func (*MultiInstanceSpec) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{26}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *MultiInstanceSpec) GetMode() MultiInstanceMode {
@@ -2478,7 +2532,7 @@ type BoundaryEvent struct {
 
 func (x *BoundaryEvent) Reset() {
 	*x = BoundaryEvent{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[27]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2490,7 +2544,7 @@ func (x *BoundaryEvent) String() string {
 func (*BoundaryEvent) ProtoMessage() {}
 
 func (x *BoundaryEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[27]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2503,7 +2557,7 @@ func (x *BoundaryEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BoundaryEvent.ProtoReflect.Descriptor instead.
 func (*BoundaryEvent) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{27}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *BoundaryEvent) GetId() string {
@@ -2548,7 +2602,7 @@ type EventTrigger struct {
 
 func (x *EventTrigger) Reset() {
 	*x = EventTrigger{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[28]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2560,7 +2614,7 @@ func (x *EventTrigger) String() string {
 func (*EventTrigger) ProtoMessage() {}
 
 func (x *EventTrigger) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[28]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2573,7 +2627,7 @@ func (x *EventTrigger) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventTrigger.ProtoReflect.Descriptor instead.
 func (*EventTrigger) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{28}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *EventTrigger) GetTrigger() isEventTrigger_Trigger {
@@ -2642,7 +2696,7 @@ type TimerTrigger struct {
 
 func (x *TimerTrigger) Reset() {
 	*x = TimerTrigger{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[29]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2654,7 +2708,7 @@ func (x *TimerTrigger) String() string {
 func (*TimerTrigger) ProtoMessage() {}
 
 func (x *TimerTrigger) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[29]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2667,7 +2721,7 @@ func (x *TimerTrigger) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TimerTrigger.ProtoReflect.Descriptor instead.
 func (*TimerTrigger) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{29}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *TimerTrigger) GetExpression() string {
@@ -2693,7 +2747,7 @@ type ErrorTrigger struct {
 
 func (x *ErrorTrigger) Reset() {
 	*x = ErrorTrigger{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[30]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2705,7 +2759,7 @@ func (x *ErrorTrigger) String() string {
 func (*ErrorTrigger) ProtoMessage() {}
 
 func (x *ErrorTrigger) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[30]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2718,7 +2772,7 @@ func (x *ErrorTrigger) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ErrorTrigger.ProtoReflect.Descriptor instead.
 func (*ErrorTrigger) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{30}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *ErrorTrigger) GetErrorRef() string {
@@ -2737,7 +2791,7 @@ type MessageTrigger struct {
 
 func (x *MessageTrigger) Reset() {
 	*x = MessageTrigger{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[31]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2749,7 +2803,7 @@ func (x *MessageTrigger) String() string {
 func (*MessageTrigger) ProtoMessage() {}
 
 func (x *MessageTrigger) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[31]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2762,7 +2816,7 @@ func (x *MessageTrigger) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MessageTrigger.ProtoReflect.Descriptor instead.
 func (*MessageTrigger) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{31}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *MessageTrigger) GetMessageRef() string {
@@ -2784,7 +2838,7 @@ type ExtensionProperty struct {
 
 func (x *ExtensionProperty) Reset() {
 	*x = ExtensionProperty{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[32]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2796,7 +2850,7 @@ func (x *ExtensionProperty) String() string {
 func (*ExtensionProperty) ProtoMessage() {}
 
 func (x *ExtensionProperty) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[32]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2809,7 +2863,7 @@ func (x *ExtensionProperty) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExtensionProperty.ProtoReflect.Descriptor instead.
 func (*ExtensionProperty) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{32}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *ExtensionProperty) GetNamespaceUri() string {
@@ -2855,7 +2909,7 @@ type PropertyValue struct {
 
 func (x *PropertyValue) Reset() {
 	*x = PropertyValue{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[33]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2867,7 +2921,7 @@ func (x *PropertyValue) String() string {
 func (*PropertyValue) ProtoMessage() {}
 
 func (x *PropertyValue) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[33]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2880,7 +2934,7 @@ func (x *PropertyValue) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PropertyValue.ProtoReflect.Descriptor instead.
 func (*PropertyValue) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{33}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *PropertyValue) GetValue() isPropertyValue_Value {
@@ -2967,7 +3021,7 @@ type CaseModel struct {
 
 func (x *CaseModel) Reset() {
 	*x = CaseModel{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[34]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2979,7 +3033,7 @@ func (x *CaseModel) String() string {
 func (*CaseModel) ProtoMessage() {}
 
 func (x *CaseModel) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[34]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2992,7 +3046,7 @@ func (x *CaseModel) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CaseModel.ProtoReflect.Descriptor instead.
 func (*CaseModel) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{34}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *CaseModel) GetId() string {
@@ -3042,7 +3096,7 @@ type CaseStage struct {
 
 func (x *CaseStage) Reset() {
 	*x = CaseStage{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[35]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3054,7 +3108,7 @@ func (x *CaseStage) String() string {
 func (*CaseStage) ProtoMessage() {}
 
 func (x *CaseStage) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[35]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3067,7 +3121,7 @@ func (x *CaseStage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CaseStage.ProtoReflect.Descriptor instead.
 func (*CaseStage) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{35}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *CaseStage) GetId() string {
@@ -3109,7 +3163,7 @@ type CaseMilestone struct {
 
 func (x *CaseMilestone) Reset() {
 	*x = CaseMilestone{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[36]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3121,7 +3175,7 @@ func (x *CaseMilestone) String() string {
 func (*CaseMilestone) ProtoMessage() {}
 
 func (x *CaseMilestone) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[36]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3134,7 +3188,7 @@ func (x *CaseMilestone) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CaseMilestone.ProtoReflect.Descriptor instead.
 func (*CaseMilestone) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{36}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *CaseMilestone) GetId() string {
@@ -3169,7 +3223,7 @@ type CaseSentry struct {
 
 func (x *CaseSentry) Reset() {
 	*x = CaseSentry{}
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[37]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3181,7 +3235,7 @@ func (x *CaseSentry) String() string {
 func (*CaseSentry) ProtoMessage() {}
 
 func (x *CaseSentry) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[37]
+	mi := &file_bpmp_wir_v1_wir_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3194,7 +3248,7 @@ func (x *CaseSentry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CaseSentry.ProtoReflect.Descriptor instead.
 func (*CaseSentry) Descriptor() ([]byte, []int) {
-	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{37}
+	return file_bpmp_wir_v1_wir_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *CaseSentry) GetId() string {
@@ -3222,7 +3276,7 @@ var File_bpmp_wir_v1_wir_proto protoreflect.FileDescriptor
 
 const file_bpmp_wir_v1_wir_proto_rawDesc = "" +
 	"\n" +
-	"\x15bpmp/wir/v1/wir.proto\x12\vbpmp.wir.v1\"\x84\x04\n" +
+	"\x15bpmp/wir/v1/wir.proto\x12\vbpmp.wir.v1\"\xdd\x04\n" +
 	"\"WorkflowIntermediateRepresentation\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12#\n" +
 	"\rworkflow_type\x18\x02 \x01(\tR\fworkflowType\x12)\n" +
@@ -3238,7 +3292,10 @@ const file_bpmp_wir_v1_wir_proto_rawDesc = "" +
 	"caseModels\x12>\n" +
 	"\n" +
 	"properties\x18\v \x03(\v2\x1e.bpmp.wir.v1.ExtensionPropertyR\n" +
-	"properties\"\x89\t\n" +
+	"properties\x12W\n" +
+	"\x16resource_scope_binding\x18\f \x01(\v2!.bpmp.wir.v1.ResourceScopeBindingR\x14resourceScopeBinding\"3\n" +
+	"\x14ResourceScopeBinding\x12\x1b\n" +
+	"\tbranch_id\x18\x01 \x01(\tR\bbranchId\"\x89\t\n" +
 	"\x04Node\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12.\n" +
 	"\x05start\x18\x02 \x01(\v2\x16.bpmp.wir.v1.StartNodeH\x00R\x05start\x12A\n" +
@@ -3498,7 +3555,7 @@ func file_bpmp_wir_v1_wir_proto_rawDescGZIP() []byte {
 }
 
 var file_bpmp_wir_v1_wir_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_bpmp_wir_v1_wir_proto_msgTypes = make([]protoimpl.MessageInfo, 38)
+var file_bpmp_wir_v1_wir_proto_msgTypes = make([]protoimpl.MessageInfo, 39)
 var file_bpmp_wir_v1_wir_proto_goTypes = []any{
 	(GatewayDirection)(0),                      // 0: bpmp.wir.v1.GatewayDirection
 	(ComparisonOperator)(0),                    // 1: bpmp.wir.v1.ComparisonOperator
@@ -3507,107 +3564,109 @@ var file_bpmp_wir_v1_wir_proto_goTypes = []any{
 	(MultiInstanceMode)(0),                     // 4: bpmp.wir.v1.MultiInstanceMode
 	(TimerKind)(0),                             // 5: bpmp.wir.v1.TimerKind
 	(*WorkflowIntermediateRepresentation)(nil), // 6: bpmp.wir.v1.WorkflowIntermediateRepresentation
-	(*Node)(nil),                               // 7: bpmp.wir.v1.Node
-	(*StartNode)(nil),                          // 8: bpmp.wir.v1.StartNode
-	(*ServiceTaskNode)(nil),                    // 9: bpmp.wir.v1.ServiceTaskNode
-	(*UserTaskNode)(nil),                       // 10: bpmp.wir.v1.UserTaskNode
-	(*ScriptTaskNode)(nil),                     // 11: bpmp.wir.v1.ScriptTaskNode
-	(*DecisionTaskNode)(nil),                   // 12: bpmp.wir.v1.DecisionTaskNode
-	(*CallActivityNode)(nil),                   // 13: bpmp.wir.v1.CallActivityNode
-	(*SubProcessNode)(nil),                     // 14: bpmp.wir.v1.SubProcessNode
-	(*EndNode)(nil),                            // 15: bpmp.wir.v1.EndNode
-	(*ExclusiveGatewayNode)(nil),               // 16: bpmp.wir.v1.ExclusiveGatewayNode
-	(*ParallelGatewayNode)(nil),                // 17: bpmp.wir.v1.ParallelGatewayNode
-	(*InclusiveGatewayNode)(nil),               // 18: bpmp.wir.v1.InclusiveGatewayNode
-	(*ConditionalTransition)(nil),              // 19: bpmp.wir.v1.ConditionalTransition
-	(*BooleanExpression)(nil),                  // 20: bpmp.wir.v1.BooleanExpression
-	(*BooleanJunction)(nil),                    // 21: bpmp.wir.v1.BooleanJunction
-	(*GuardExpression)(nil),                    // 22: bpmp.wir.v1.GuardExpression
-	(*GatewayCoverage)(nil),                    // 23: bpmp.wir.v1.GatewayCoverage
-	(*IntegerInterval)(nil),                    // 24: bpmp.wir.v1.IntegerInterval
-	(*DecisionTable)(nil),                      // 25: bpmp.wir.v1.DecisionTable
-	(*DecisionInput)(nil),                      // 26: bpmp.wir.v1.DecisionInput
-	(*DecisionOutput)(nil),                     // 27: bpmp.wir.v1.DecisionOutput
-	(*DecisionRule)(nil),                       // 28: bpmp.wir.v1.DecisionRule
-	(*UnaryTest)(nil),                          // 29: bpmp.wir.v1.UnaryTest
-	(*WorkflowLiteral)(nil),                    // 30: bpmp.wir.v1.WorkflowLiteral
-	(*DataContract)(nil),                       // 31: bpmp.wir.v1.DataContract
-	(*MultiInstanceSpec)(nil),                  // 32: bpmp.wir.v1.MultiInstanceSpec
-	(*BoundaryEvent)(nil),                      // 33: bpmp.wir.v1.BoundaryEvent
-	(*EventTrigger)(nil),                       // 34: bpmp.wir.v1.EventTrigger
-	(*TimerTrigger)(nil),                       // 35: bpmp.wir.v1.TimerTrigger
-	(*ErrorTrigger)(nil),                       // 36: bpmp.wir.v1.ErrorTrigger
-	(*MessageTrigger)(nil),                     // 37: bpmp.wir.v1.MessageTrigger
-	(*ExtensionProperty)(nil),                  // 38: bpmp.wir.v1.ExtensionProperty
-	(*PropertyValue)(nil),                      // 39: bpmp.wir.v1.PropertyValue
-	(*CaseModel)(nil),                          // 40: bpmp.wir.v1.CaseModel
-	(*CaseStage)(nil),                          // 41: bpmp.wir.v1.CaseStage
-	(*CaseMilestone)(nil),                      // 42: bpmp.wir.v1.CaseMilestone
-	(*CaseSentry)(nil),                         // 43: bpmp.wir.v1.CaseSentry
+	(*ResourceScopeBinding)(nil),               // 7: bpmp.wir.v1.ResourceScopeBinding
+	(*Node)(nil),                               // 8: bpmp.wir.v1.Node
+	(*StartNode)(nil),                          // 9: bpmp.wir.v1.StartNode
+	(*ServiceTaskNode)(nil),                    // 10: bpmp.wir.v1.ServiceTaskNode
+	(*UserTaskNode)(nil),                       // 11: bpmp.wir.v1.UserTaskNode
+	(*ScriptTaskNode)(nil),                     // 12: bpmp.wir.v1.ScriptTaskNode
+	(*DecisionTaskNode)(nil),                   // 13: bpmp.wir.v1.DecisionTaskNode
+	(*CallActivityNode)(nil),                   // 14: bpmp.wir.v1.CallActivityNode
+	(*SubProcessNode)(nil),                     // 15: bpmp.wir.v1.SubProcessNode
+	(*EndNode)(nil),                            // 16: bpmp.wir.v1.EndNode
+	(*ExclusiveGatewayNode)(nil),               // 17: bpmp.wir.v1.ExclusiveGatewayNode
+	(*ParallelGatewayNode)(nil),                // 18: bpmp.wir.v1.ParallelGatewayNode
+	(*InclusiveGatewayNode)(nil),               // 19: bpmp.wir.v1.InclusiveGatewayNode
+	(*ConditionalTransition)(nil),              // 20: bpmp.wir.v1.ConditionalTransition
+	(*BooleanExpression)(nil),                  // 21: bpmp.wir.v1.BooleanExpression
+	(*BooleanJunction)(nil),                    // 22: bpmp.wir.v1.BooleanJunction
+	(*GuardExpression)(nil),                    // 23: bpmp.wir.v1.GuardExpression
+	(*GatewayCoverage)(nil),                    // 24: bpmp.wir.v1.GatewayCoverage
+	(*IntegerInterval)(nil),                    // 25: bpmp.wir.v1.IntegerInterval
+	(*DecisionTable)(nil),                      // 26: bpmp.wir.v1.DecisionTable
+	(*DecisionInput)(nil),                      // 27: bpmp.wir.v1.DecisionInput
+	(*DecisionOutput)(nil),                     // 28: bpmp.wir.v1.DecisionOutput
+	(*DecisionRule)(nil),                       // 29: bpmp.wir.v1.DecisionRule
+	(*UnaryTest)(nil),                          // 30: bpmp.wir.v1.UnaryTest
+	(*WorkflowLiteral)(nil),                    // 31: bpmp.wir.v1.WorkflowLiteral
+	(*DataContract)(nil),                       // 32: bpmp.wir.v1.DataContract
+	(*MultiInstanceSpec)(nil),                  // 33: bpmp.wir.v1.MultiInstanceSpec
+	(*BoundaryEvent)(nil),                      // 34: bpmp.wir.v1.BoundaryEvent
+	(*EventTrigger)(nil),                       // 35: bpmp.wir.v1.EventTrigger
+	(*TimerTrigger)(nil),                       // 36: bpmp.wir.v1.TimerTrigger
+	(*ErrorTrigger)(nil),                       // 37: bpmp.wir.v1.ErrorTrigger
+	(*MessageTrigger)(nil),                     // 38: bpmp.wir.v1.MessageTrigger
+	(*ExtensionProperty)(nil),                  // 39: bpmp.wir.v1.ExtensionProperty
+	(*PropertyValue)(nil),                      // 40: bpmp.wir.v1.PropertyValue
+	(*CaseModel)(nil),                          // 41: bpmp.wir.v1.CaseModel
+	(*CaseStage)(nil),                          // 42: bpmp.wir.v1.CaseStage
+	(*CaseMilestone)(nil),                      // 43: bpmp.wir.v1.CaseMilestone
+	(*CaseSentry)(nil),                         // 44: bpmp.wir.v1.CaseSentry
 }
 var file_bpmp_wir_v1_wir_proto_depIdxs = []int32{
-	7,  // 0: bpmp.wir.v1.WorkflowIntermediateRepresentation.nodes:type_name -> bpmp.wir.v1.Node
-	25, // 1: bpmp.wir.v1.WorkflowIntermediateRepresentation.decision_tables:type_name -> bpmp.wir.v1.DecisionTable
-	40, // 2: bpmp.wir.v1.WorkflowIntermediateRepresentation.case_models:type_name -> bpmp.wir.v1.CaseModel
-	38, // 3: bpmp.wir.v1.WorkflowIntermediateRepresentation.properties:type_name -> bpmp.wir.v1.ExtensionProperty
-	8,  // 4: bpmp.wir.v1.Node.start:type_name -> bpmp.wir.v1.StartNode
-	9,  // 5: bpmp.wir.v1.Node.service_task:type_name -> bpmp.wir.v1.ServiceTaskNode
-	15, // 6: bpmp.wir.v1.Node.end:type_name -> bpmp.wir.v1.EndNode
-	16, // 7: bpmp.wir.v1.Node.exclusive_gateway:type_name -> bpmp.wir.v1.ExclusiveGatewayNode
-	12, // 8: bpmp.wir.v1.Node.decision_task:type_name -> bpmp.wir.v1.DecisionTaskNode
-	17, // 9: bpmp.wir.v1.Node.parallel_gateway:type_name -> bpmp.wir.v1.ParallelGatewayNode
-	18, // 10: bpmp.wir.v1.Node.inclusive_gateway:type_name -> bpmp.wir.v1.InclusiveGatewayNode
-	13, // 11: bpmp.wir.v1.Node.call_activity:type_name -> bpmp.wir.v1.CallActivityNode
-	14, // 12: bpmp.wir.v1.Node.sub_process:type_name -> bpmp.wir.v1.SubProcessNode
-	10, // 13: bpmp.wir.v1.Node.user_task:type_name -> bpmp.wir.v1.UserTaskNode
-	11, // 14: bpmp.wir.v1.Node.script_task:type_name -> bpmp.wir.v1.ScriptTaskNode
-	31, // 15: bpmp.wir.v1.Node.data_contract:type_name -> bpmp.wir.v1.DataContract
-	38, // 16: bpmp.wir.v1.Node.properties:type_name -> bpmp.wir.v1.ExtensionProperty
-	32, // 17: bpmp.wir.v1.Node.multi_instance:type_name -> bpmp.wir.v1.MultiInstanceSpec
-	33, // 18: bpmp.wir.v1.Node.boundary_events:type_name -> bpmp.wir.v1.BoundaryEvent
-	19, // 19: bpmp.wir.v1.ExclusiveGatewayNode.transitions:type_name -> bpmp.wir.v1.ConditionalTransition
-	23, // 20: bpmp.wir.v1.ExclusiveGatewayNode.coverage:type_name -> bpmp.wir.v1.GatewayCoverage
-	0,  // 21: bpmp.wir.v1.ParallelGatewayNode.direction:type_name -> bpmp.wir.v1.GatewayDirection
-	0,  // 22: bpmp.wir.v1.InclusiveGatewayNode.direction:type_name -> bpmp.wir.v1.GatewayDirection
-	19, // 23: bpmp.wir.v1.InclusiveGatewayNode.transitions:type_name -> bpmp.wir.v1.ConditionalTransition
-	23, // 24: bpmp.wir.v1.InclusiveGatewayNode.coverage:type_name -> bpmp.wir.v1.GatewayCoverage
-	22, // 25: bpmp.wir.v1.ConditionalTransition.guard:type_name -> bpmp.wir.v1.GuardExpression
-	20, // 26: bpmp.wir.v1.ConditionalTransition.expression:type_name -> bpmp.wir.v1.BooleanExpression
-	22, // 27: bpmp.wir.v1.BooleanExpression.comparison:type_name -> bpmp.wir.v1.GuardExpression
-	21, // 28: bpmp.wir.v1.BooleanExpression.conjunction:type_name -> bpmp.wir.v1.BooleanJunction
-	21, // 29: bpmp.wir.v1.BooleanExpression.disjunction:type_name -> bpmp.wir.v1.BooleanJunction
-	20, // 30: bpmp.wir.v1.BooleanExpression.negation:type_name -> bpmp.wir.v1.BooleanExpression
-	20, // 31: bpmp.wir.v1.BooleanJunction.operands:type_name -> bpmp.wir.v1.BooleanExpression
-	1,  // 32: bpmp.wir.v1.GuardExpression.operator:type_name -> bpmp.wir.v1.ComparisonOperator
-	2,  // 33: bpmp.wir.v1.GatewayCoverage.value_type:type_name -> bpmp.wir.v1.ValueType
-	24, // 34: bpmp.wir.v1.GatewayCoverage.integer_intervals:type_name -> bpmp.wir.v1.IntegerInterval
-	3,  // 35: bpmp.wir.v1.DecisionTable.hit_policy:type_name -> bpmp.wir.v1.HitPolicy
-	26, // 36: bpmp.wir.v1.DecisionTable.inputs:type_name -> bpmp.wir.v1.DecisionInput
-	27, // 37: bpmp.wir.v1.DecisionTable.outputs:type_name -> bpmp.wir.v1.DecisionOutput
-	28, // 38: bpmp.wir.v1.DecisionTable.rules:type_name -> bpmp.wir.v1.DecisionRule
-	2,  // 39: bpmp.wir.v1.DecisionInput.value_type:type_name -> bpmp.wir.v1.ValueType
-	2,  // 40: bpmp.wir.v1.DecisionOutput.value_type:type_name -> bpmp.wir.v1.ValueType
-	29, // 41: bpmp.wir.v1.DecisionRule.input_tests:type_name -> bpmp.wir.v1.UnaryTest
-	30, // 42: bpmp.wir.v1.DecisionRule.output_values:type_name -> bpmp.wir.v1.WorkflowLiteral
-	30, // 43: bpmp.wir.v1.UnaryTest.equal:type_name -> bpmp.wir.v1.WorkflowLiteral
-	24, // 44: bpmp.wir.v1.UnaryTest.integer_interval:type_name -> bpmp.wir.v1.IntegerInterval
-	4,  // 45: bpmp.wir.v1.MultiInstanceSpec.mode:type_name -> bpmp.wir.v1.MultiInstanceMode
-	20, // 46: bpmp.wir.v1.MultiInstanceSpec.completion_condition:type_name -> bpmp.wir.v1.BooleanExpression
-	34, // 47: bpmp.wir.v1.BoundaryEvent.trigger:type_name -> bpmp.wir.v1.EventTrigger
-	35, // 48: bpmp.wir.v1.EventTrigger.timer:type_name -> bpmp.wir.v1.TimerTrigger
-	36, // 49: bpmp.wir.v1.EventTrigger.error:type_name -> bpmp.wir.v1.ErrorTrigger
-	37, // 50: bpmp.wir.v1.EventTrigger.message:type_name -> bpmp.wir.v1.MessageTrigger
-	5,  // 51: bpmp.wir.v1.TimerTrigger.kind:type_name -> bpmp.wir.v1.TimerKind
-	39, // 52: bpmp.wir.v1.ExtensionProperty.value:type_name -> bpmp.wir.v1.PropertyValue
-	41, // 53: bpmp.wir.v1.CaseModel.stages:type_name -> bpmp.wir.v1.CaseStage
-	42, // 54: bpmp.wir.v1.CaseModel.milestones:type_name -> bpmp.wir.v1.CaseMilestone
-	43, // 55: bpmp.wir.v1.CaseModel.sentries:type_name -> bpmp.wir.v1.CaseSentry
-	20, // 56: bpmp.wir.v1.CaseSentry.typed_condition:type_name -> bpmp.wir.v1.BooleanExpression
-	57, // [57:57] is the sub-list for method output_type
-	57, // [57:57] is the sub-list for method input_type
-	57, // [57:57] is the sub-list for extension type_name
-	57, // [57:57] is the sub-list for extension extendee
-	0,  // [0:57] is the sub-list for field type_name
+	8,  // 0: bpmp.wir.v1.WorkflowIntermediateRepresentation.nodes:type_name -> bpmp.wir.v1.Node
+	26, // 1: bpmp.wir.v1.WorkflowIntermediateRepresentation.decision_tables:type_name -> bpmp.wir.v1.DecisionTable
+	41, // 2: bpmp.wir.v1.WorkflowIntermediateRepresentation.case_models:type_name -> bpmp.wir.v1.CaseModel
+	39, // 3: bpmp.wir.v1.WorkflowIntermediateRepresentation.properties:type_name -> bpmp.wir.v1.ExtensionProperty
+	7,  // 4: bpmp.wir.v1.WorkflowIntermediateRepresentation.resource_scope_binding:type_name -> bpmp.wir.v1.ResourceScopeBinding
+	9,  // 5: bpmp.wir.v1.Node.start:type_name -> bpmp.wir.v1.StartNode
+	10, // 6: bpmp.wir.v1.Node.service_task:type_name -> bpmp.wir.v1.ServiceTaskNode
+	16, // 7: bpmp.wir.v1.Node.end:type_name -> bpmp.wir.v1.EndNode
+	17, // 8: bpmp.wir.v1.Node.exclusive_gateway:type_name -> bpmp.wir.v1.ExclusiveGatewayNode
+	13, // 9: bpmp.wir.v1.Node.decision_task:type_name -> bpmp.wir.v1.DecisionTaskNode
+	18, // 10: bpmp.wir.v1.Node.parallel_gateway:type_name -> bpmp.wir.v1.ParallelGatewayNode
+	19, // 11: bpmp.wir.v1.Node.inclusive_gateway:type_name -> bpmp.wir.v1.InclusiveGatewayNode
+	14, // 12: bpmp.wir.v1.Node.call_activity:type_name -> bpmp.wir.v1.CallActivityNode
+	15, // 13: bpmp.wir.v1.Node.sub_process:type_name -> bpmp.wir.v1.SubProcessNode
+	11, // 14: bpmp.wir.v1.Node.user_task:type_name -> bpmp.wir.v1.UserTaskNode
+	12, // 15: bpmp.wir.v1.Node.script_task:type_name -> bpmp.wir.v1.ScriptTaskNode
+	32, // 16: bpmp.wir.v1.Node.data_contract:type_name -> bpmp.wir.v1.DataContract
+	39, // 17: bpmp.wir.v1.Node.properties:type_name -> bpmp.wir.v1.ExtensionProperty
+	33, // 18: bpmp.wir.v1.Node.multi_instance:type_name -> bpmp.wir.v1.MultiInstanceSpec
+	34, // 19: bpmp.wir.v1.Node.boundary_events:type_name -> bpmp.wir.v1.BoundaryEvent
+	20, // 20: bpmp.wir.v1.ExclusiveGatewayNode.transitions:type_name -> bpmp.wir.v1.ConditionalTransition
+	24, // 21: bpmp.wir.v1.ExclusiveGatewayNode.coverage:type_name -> bpmp.wir.v1.GatewayCoverage
+	0,  // 22: bpmp.wir.v1.ParallelGatewayNode.direction:type_name -> bpmp.wir.v1.GatewayDirection
+	0,  // 23: bpmp.wir.v1.InclusiveGatewayNode.direction:type_name -> bpmp.wir.v1.GatewayDirection
+	20, // 24: bpmp.wir.v1.InclusiveGatewayNode.transitions:type_name -> bpmp.wir.v1.ConditionalTransition
+	24, // 25: bpmp.wir.v1.InclusiveGatewayNode.coverage:type_name -> bpmp.wir.v1.GatewayCoverage
+	23, // 26: bpmp.wir.v1.ConditionalTransition.guard:type_name -> bpmp.wir.v1.GuardExpression
+	21, // 27: bpmp.wir.v1.ConditionalTransition.expression:type_name -> bpmp.wir.v1.BooleanExpression
+	23, // 28: bpmp.wir.v1.BooleanExpression.comparison:type_name -> bpmp.wir.v1.GuardExpression
+	22, // 29: bpmp.wir.v1.BooleanExpression.conjunction:type_name -> bpmp.wir.v1.BooleanJunction
+	22, // 30: bpmp.wir.v1.BooleanExpression.disjunction:type_name -> bpmp.wir.v1.BooleanJunction
+	21, // 31: bpmp.wir.v1.BooleanExpression.negation:type_name -> bpmp.wir.v1.BooleanExpression
+	21, // 32: bpmp.wir.v1.BooleanJunction.operands:type_name -> bpmp.wir.v1.BooleanExpression
+	1,  // 33: bpmp.wir.v1.GuardExpression.operator:type_name -> bpmp.wir.v1.ComparisonOperator
+	2,  // 34: bpmp.wir.v1.GatewayCoverage.value_type:type_name -> bpmp.wir.v1.ValueType
+	25, // 35: bpmp.wir.v1.GatewayCoverage.integer_intervals:type_name -> bpmp.wir.v1.IntegerInterval
+	3,  // 36: bpmp.wir.v1.DecisionTable.hit_policy:type_name -> bpmp.wir.v1.HitPolicy
+	27, // 37: bpmp.wir.v1.DecisionTable.inputs:type_name -> bpmp.wir.v1.DecisionInput
+	28, // 38: bpmp.wir.v1.DecisionTable.outputs:type_name -> bpmp.wir.v1.DecisionOutput
+	29, // 39: bpmp.wir.v1.DecisionTable.rules:type_name -> bpmp.wir.v1.DecisionRule
+	2,  // 40: bpmp.wir.v1.DecisionInput.value_type:type_name -> bpmp.wir.v1.ValueType
+	2,  // 41: bpmp.wir.v1.DecisionOutput.value_type:type_name -> bpmp.wir.v1.ValueType
+	30, // 42: bpmp.wir.v1.DecisionRule.input_tests:type_name -> bpmp.wir.v1.UnaryTest
+	31, // 43: bpmp.wir.v1.DecisionRule.output_values:type_name -> bpmp.wir.v1.WorkflowLiteral
+	31, // 44: bpmp.wir.v1.UnaryTest.equal:type_name -> bpmp.wir.v1.WorkflowLiteral
+	25, // 45: bpmp.wir.v1.UnaryTest.integer_interval:type_name -> bpmp.wir.v1.IntegerInterval
+	4,  // 46: bpmp.wir.v1.MultiInstanceSpec.mode:type_name -> bpmp.wir.v1.MultiInstanceMode
+	21, // 47: bpmp.wir.v1.MultiInstanceSpec.completion_condition:type_name -> bpmp.wir.v1.BooleanExpression
+	35, // 48: bpmp.wir.v1.BoundaryEvent.trigger:type_name -> bpmp.wir.v1.EventTrigger
+	36, // 49: bpmp.wir.v1.EventTrigger.timer:type_name -> bpmp.wir.v1.TimerTrigger
+	37, // 50: bpmp.wir.v1.EventTrigger.error:type_name -> bpmp.wir.v1.ErrorTrigger
+	38, // 51: bpmp.wir.v1.EventTrigger.message:type_name -> bpmp.wir.v1.MessageTrigger
+	5,  // 52: bpmp.wir.v1.TimerTrigger.kind:type_name -> bpmp.wir.v1.TimerKind
+	40, // 53: bpmp.wir.v1.ExtensionProperty.value:type_name -> bpmp.wir.v1.PropertyValue
+	42, // 54: bpmp.wir.v1.CaseModel.stages:type_name -> bpmp.wir.v1.CaseStage
+	43, // 55: bpmp.wir.v1.CaseModel.milestones:type_name -> bpmp.wir.v1.CaseMilestone
+	44, // 56: bpmp.wir.v1.CaseModel.sentries:type_name -> bpmp.wir.v1.CaseSentry
+	21, // 57: bpmp.wir.v1.CaseSentry.typed_condition:type_name -> bpmp.wir.v1.BooleanExpression
+	58, // [58:58] is the sub-list for method output_type
+	58, // [58:58] is the sub-list for method input_type
+	58, // [58:58] is the sub-list for extension type_name
+	58, // [58:58] is the sub-list for extension extendee
+	0,  // [0:58] is the sub-list for field type_name
 }
 
 func init() { file_bpmp_wir_v1_wir_proto_init() }
@@ -3615,7 +3674,7 @@ func file_bpmp_wir_v1_wir_proto_init() {
 	if File_bpmp_wir_v1_wir_proto != nil {
 		return
 	}
-	file_bpmp_wir_v1_wir_proto_msgTypes[1].OneofWrappers = []any{
+	file_bpmp_wir_v1_wir_proto_msgTypes[2].OneofWrappers = []any{
 		(*Node_Start)(nil),
 		(*Node_ServiceTask)(nil),
 		(*Node_End)(nil),
@@ -3628,34 +3687,34 @@ func file_bpmp_wir_v1_wir_proto_init() {
 		(*Node_UserTask)(nil),
 		(*Node_ScriptTask)(nil),
 	}
-	file_bpmp_wir_v1_wir_proto_msgTypes[14].OneofWrappers = []any{
+	file_bpmp_wir_v1_wir_proto_msgTypes[15].OneofWrappers = []any{
 		(*BooleanExpression_Comparison)(nil),
 		(*BooleanExpression_Conjunction)(nil),
 		(*BooleanExpression_Disjunction)(nil),
 		(*BooleanExpression_Negation)(nil),
 		(*BooleanExpression_Constant)(nil),
 	}
-	file_bpmp_wir_v1_wir_proto_msgTypes[16].OneofWrappers = []any{
+	file_bpmp_wir_v1_wir_proto_msgTypes[17].OneofWrappers = []any{
 		(*GuardExpression_BooleanValue)(nil),
 		(*GuardExpression_IntegerValue)(nil),
 		(*GuardExpression_StringValue)(nil),
 	}
-	file_bpmp_wir_v1_wir_proto_msgTypes[23].OneofWrappers = []any{
+	file_bpmp_wir_v1_wir_proto_msgTypes[24].OneofWrappers = []any{
 		(*UnaryTest_Equal)(nil),
 		(*UnaryTest_IntegerInterval)(nil),
 		(*UnaryTest_Any)(nil),
 	}
-	file_bpmp_wir_v1_wir_proto_msgTypes[24].OneofWrappers = []any{
+	file_bpmp_wir_v1_wir_proto_msgTypes[25].OneofWrappers = []any{
 		(*WorkflowLiteral_BooleanValue)(nil),
 		(*WorkflowLiteral_IntegerValue)(nil),
 		(*WorkflowLiteral_StringValue)(nil),
 	}
-	file_bpmp_wir_v1_wir_proto_msgTypes[28].OneofWrappers = []any{
+	file_bpmp_wir_v1_wir_proto_msgTypes[29].OneofWrappers = []any{
 		(*EventTrigger_Timer)(nil),
 		(*EventTrigger_Error)(nil),
 		(*EventTrigger_Message)(nil),
 	}
-	file_bpmp_wir_v1_wir_proto_msgTypes[33].OneofWrappers = []any{
+	file_bpmp_wir_v1_wir_proto_msgTypes[34].OneofWrappers = []any{
 		(*PropertyValue_StringValue)(nil),
 		(*PropertyValue_IntegerValue)(nil),
 		(*PropertyValue_BooleanValue)(nil),
@@ -3667,7 +3726,7 @@ func file_bpmp_wir_v1_wir_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bpmp_wir_v1_wir_proto_rawDesc), len(file_bpmp_wir_v1_wir_proto_rawDesc)),
 			NumEnums:      6,
-			NumMessages:   38,
+			NumMessages:   39,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -9,6 +9,7 @@ import {
   Workflow,
   SlidersHorizontal,
   Database,
+  ShieldCheck,
   Wifi,
   WifiOff,
 } from "lucide-react";
@@ -26,6 +27,7 @@ const navigation = [
   { to: "/processes", label: "Process explorer", icon: Database },
   { to: "/organizations", label: "Organizations", icon: Building2 },
   { to: "/configuration", label: "Configuration", icon: SlidersHorizontal },
+  { to: "/access", label: "Access", icon: ShieldCheck },
 ];
 
 export function AppShell({ children }: PropsWithChildren) {

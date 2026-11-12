@@ -11,6 +11,7 @@ use base64::Engine as _;
 use bpmn_compiler::{BpmnCompiler, CompilerLimits, SourceDocument};
 use bpmp_authz_contracts::authorization::v1::{
     AuthorizationPolicyBundle, AuthorizationPolicyEffect, AuthorizationPolicyGrant,
+    AuthorizationResourceDefinition, AuthorizationResourceGrant,
 };
 use bpmp_authz_contracts::{
     AUTHORIZATION_BUNDLE_SCHEMA_VERSION, AuthorizationArtifactLimits, AuthorizationBundleCodec,
@@ -129,6 +130,8 @@ struct KafkaTopicProperties {
 struct KafkaTopics {
     authorization_query_revocations: String,
     authorization_query_revocations_dlq: String,
+    authorization_policy_bundles: String,
+    authorization_policy_bundle_acknowledgements: String,
     engine_committed_events: String,
     configuration_publications: String,
     human_escalations: String,
@@ -140,6 +143,8 @@ struct KafkaTopics {
 #[serde(deny_unknown_fields)]
 struct KafkaConsumerGroups {
     projection_query_revocations: String,
+    projection_policy_bundles: String,
+    authorization_policy_bundle_acknowledgements: String,
     engine_configuration_reloaders: Vec<String>,
     human_committed_events: String,
     projection_committed_events: String,
@@ -213,6 +218,19 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
     let human_workload = write_auth_key(manifest, output, "human-workload")?;
     let internal_actor = write_auth_key(manifest, output, "internal-actor")?;
     let internal_workload = write_auth_key(manifest, output, "internal-workload")?;
+    let projection_scope_workload = write_auth_key(manifest, output, "projection-branch-scope")?;
+    write_json(
+        &output.join("branch-scope-workload-keys.json"),
+        &json!({
+            "workloads": [
+                {"workload_id":"bpmp-engine","keys":[{"key_id":internal_workload.id,"public_key_path":format!("{mount}/{}", internal_workload.public_path)}]},
+                {"workload_id":"projection-service","keys":[{"key_id":projection_scope_workload.id,"public_key_path":format!("{mount}/{}", projection_scope_workload.public_path)}]}
+            ],
+            "max_proof_bytes": 16384,
+            "max_proof_ttl_ms": 300000,
+            "clock_skew_ms": 30000
+        }),
+    )?;
     for scope in ["operational", "audit"] {
         write(
             &secrets.join(format!("payload-{scope}.key")),
@@ -261,6 +279,9 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
                 "configuration.read",
                 "configuration.manage",
                 "workflow.query.all",
+                "authz.catalog.read",
+                "authz.catalog.write",
+                "authz.catalog.publish",
             ],
             revoke_epoch: 0,
             iat: now.saturating_sub(5),
@@ -336,26 +357,6 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
         &EncodingKey::from_ed_der(jwt_private.as_bytes()),
     )?;
     write(&secrets.join("authz-app.jwt"), service_token.as_bytes())?;
-    let projection_token = encode(
-        &header,
-        &JwtClaims {
-            iss: &manifest.actor_issuer,
-            sub: "projection-service",
-            aud: &manifest.actor_audience,
-            tenant_id: &manifest.tenant_id,
-            roles: vec!["workload"],
-            capabilities: vec!["authz.filter"],
-            revoke_epoch: 0,
-            iat: now.saturating_sub(5),
-            nbf: now.saturating_sub(5),
-            exp: now.saturating_add(7200),
-        },
-        &EncodingKey::from_ed_der(jwt_private.as_bytes()),
-    )?;
-    write(
-        &secrets.join("projection-pdp.jwt"),
-        projection_token.as_bytes(),
-    )?;
     for label in ["governance-requester", "governance-approver"] {
         let key = SigningKey::from_bytes(&derive_key(manifest, label));
         write(
@@ -409,7 +410,12 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
     )?;
     write_json(
         &output.join("projection-service.json"),
-        &projection_config(manifest, mount, &tls_certificate_sha256_hex),
+        &projection_config(
+            manifest,
+            mount,
+            &tls_certificate_sha256_hex,
+            &projection_scope_workload,
+        ),
     )?;
     write_json(
         &output.join("cockpit-gateway.json"),
@@ -426,18 +432,18 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
     write(
         &output.join("authz-server.env"),
         format!(
-            "{}QUERY_REVOKE_KAFKA_CONFIG={mount}/authz-revoke-kafka.json\n",
+        "{}QUERY_REVOKE_KAFKA_CONFIG={mount}/authz-revoke-kafka.json\nAUTHZ_POLICY_SIGNING_KEY_ID=policy-key-v1\nAUTHZ_POLICY_SIGNING_KEY_PATH={mount}/secrets/policy-private.key\nAUTHZ_OWNER_MANIFEST_KEY_IDS={{\"bpmp-engine\":[\"bpmp-engine-manifest-k1\"],\"projection-service\":[\"projection-service-manifest-k1\"]}}\nHTTPS_PORT=8443\nHTTPS_CERTIFICATE_PATH={mount}/secrets/tls.pem\nHTTPS_PRIVATE_KEY_PATH={mount}/secrets/tls-key.pem\nHTTPS_CLIENT_CA_PATH={mount}/secrets/ca.pem\n",
             authz_server_env(manifest)
         )
         .as_bytes(),
     )?;
     write(
         &output.join("authz-app.env"),
-        authz_app_env(manifest).as_bytes(),
+        authz_app_env(manifest, mount).as_bytes(),
     )?;
     write(
         &output.join("authz-seed.sql"),
-        authz_seed_sql(manifest).as_bytes(),
+        authz_seed_sql(manifest)?.as_bytes(),
     )?;
     write_json(
         &output.join("governance-service.json"),
@@ -575,6 +581,77 @@ fn signed_policy(
         priority: 100,
     })
     .collect();
+    let readable_fields = vec![
+        "active_node_id",
+        "completed_at_epoch_ms",
+        "config_version",
+        "duration_ms",
+        "event_actor_id",
+        "event_config_version",
+        "event_node_id",
+        "event_occurred_at",
+        "event_policy_version",
+        "event_sequence",
+        "event_type",
+        "event_count",
+        "initiator_actor_id",
+        "instance_id",
+        "is_deleted",
+        "last_event_sequence",
+        "policy_version",
+        "started_at_epoch_ms",
+        "status",
+        "tenant_id",
+        "updated_at_epoch_ms",
+        "version",
+        "workflow_type",
+        "workflow_version",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect::<Vec<_>>();
+    let resource_grants = [
+        ("allow-query-all", "workflow.query.all", false),
+        ("allow-query-own", "workflow.query.own", true),
+    ]
+    .into_iter()
+    .map(
+        |(grant_id, capability, own_scope)| AuthorizationResourceGrant {
+            grant_id: grant_id.into(),
+            actor_ids: vec![manifest.actor_id.clone()],
+            roles: Vec::new(),
+            required_capabilities: vec![capability.into()],
+            resource_type: "workflow_instance".into(),
+            action: "query".into(),
+            effect: AuthorizationPolicyEffect::Allow.into(),
+            priority: 0,
+            branch_scope_ids: Vec::new(),
+            branch_includes_descendants: false,
+            queue_scope_ids: Vec::new(),
+            readable_fields: readable_fields.clone(),
+            writable_fields: Vec::new(),
+            own_scope,
+            resource_scope_ids: Vec::new(),
+            owner_id: "projection-service".into(),
+            tenant_scope: !own_scope,
+        },
+    )
+    .collect();
+    let catalog_capabilities = ["workflow.query.all", "workflow.query.own"];
+    let resource_catalog = catalog_capabilities
+        .into_iter()
+        .map(|capability| AuthorizationResourceDefinition {
+            owner_id: "projection-service".into(),
+            manifest_version: "e2e-v1".into(),
+            manifest_digest: Sha256::digest(b"bpmp-e2e-projection-owner-manifest-v1").to_vec(),
+            resource_type: "workflow_instance".into(),
+            action: "query".into(),
+            capability: capability.into(),
+            supported_scope_types: vec!["own".into(), "resource".into()],
+            readable_fields: readable_fields.clone(),
+            writable_fields: Vec::new(),
+        })
+        .collect();
     let bundle = AuthorizationPolicyBundle {
         schema_version: AUTHORIZATION_BUNDLE_SCHEMA_VERSION,
         tenant_id: manifest.tenant_id.clone(),
@@ -584,6 +661,9 @@ fn signed_policy(
         valid_from_epoch_ms: now_seconds.saturating_sub(60).saturating_mul(1_000),
         expires_at_epoch_ms: now_seconds.saturating_add(86_400).saturating_mul(1_000),
         grants,
+        catalog_version: 1,
+        resource_grants,
+        resource_catalog,
         actor_revoke_epochs: Vec::new(),
         signing_key_id: String::new(),
         content_hash: Vec::new(),
@@ -727,6 +807,10 @@ fn engine_config(
                 "max_registration_proof_ttl_ms": 60_000
             }
         },
+        "branch_scope_resolver": {
+            "endpoint":"https://authz-app:9443",
+            "timeout_ms":1500
+        },
         "payload_keys": [
             {"key_scope": format!("{}/operational", manifest.tenant_id), "key_version": "e2e-v1", "key_epoch": 1, "path": path("secrets/payload-operational.key")},
             {"key_scope": format!("{}/audit", manifest.tenant_id), "key_version": "e2e-v1", "key_epoch": 1, "path": path("secrets/payload-audit.key")}
@@ -761,9 +845,14 @@ fn engine_config(
             "security": {"protocol": manifest.kafka.security_protocol, "ca_location": null, "certificate_location": null, "key_location": null},
             "topics": {
                 "committed_events": manifest.kafka.topics.engine_committed_events,
-                "configuration_publications": manifest.kafka.topics.configuration_publications
+                "configuration_publications": manifest.kafka.topics.configuration_publications,
+                "authorization_policy_bundles": manifest.kafka.topics.authorization_policy_bundles,
+                "authorization_policy_bundle_acknowledgements": manifest.kafka.topics.authorization_policy_bundle_acknowledgements
             },
-            "consumer_groups": {"configuration_reloader": manifest.kafka.consumer_groups.engine_configuration_reloaders[index]},
+            "consumer_groups": {
+                "configuration_reloader": manifest.kafka.consumer_groups.engine_configuration_reloaders[index],
+                "authorization_policy_bundles": format!("bpmp.engine.policy-bundles-node-{}.v1.e2e", index + 1)
+            },
             "message_timeout_ms": 5000,
             "max_message_bytes": 1_048_576,
             "max_inflight": 1,
@@ -842,7 +931,9 @@ fn gateway_config(manifest: &Manifest, mount: &str, workload: &AuthKey) -> Value
         "projection_address": manifest.projection_address,
         "configuration_url": manifest.configuration_url,
         "public_tls": {"certificate": path("secrets/tls.pem"), "private_key": path("secrets/tls-key.pem")},
-        "upstream_tls": {"certificate": path("secrets/tls.pem"), "private_key": path("secrets/tls-key.pem"), "ca": path("secrets/ca.pem"), "engine_server_name": "engine2", "human_server_name": "human-runtime", "projection_server_name": "projection-service", "configuration_server_name": "configuration-service"},
+        "upstream_tls": {"certificate": path("secrets/tls.pem"), "private_key": path("secrets/tls-key.pem"), "ca": path("secrets/ca.pem"), "engine_server_name": "engine2", "human_server_name": "human-runtime", "projection_server_name": "projection-service", "configuration_server_name": "configuration-service", "authorization_server_name":"authz-server"},
+        "authorization_url":"https://authz-server:8443",
+        "authorization_audience":manifest.actor_audience,
         "identity": {"jwks_path": path("jwks.json"), "issuers": [manifest.actor_issuer], "audiences": [manifest.actor_audience], "algorithms": ["EdDSA"], "max_token_bytes": 16384, "max_jwks_keys": 16, "clock_skew_seconds": 30},
         "workload": {"id": "api-gateway", "signing_key_id": workload.id, "private_key_path": path(&workload.private_path), "proof_ttl_ms": 60000},
         "rate_limit": {"redis_address": manifest.redis_address, "redis_username": "", "redis_password_file": "", "redis_database": 0, "redis_key_prefix": "bpmp:e2e", "operation_timeout_ms": 1000},
@@ -879,7 +970,12 @@ fn gateway_config(manifest: &Manifest, mount: &str, workload: &AuthKey) -> Value
     })
 }
 
-fn projection_config(manifest: &Manifest, mount: &str, tls_fingerprint: &str) -> Value {
+fn projection_config(
+    manifest: &Manifest,
+    mount: &str,
+    tls_fingerprint: &str,
+    branch_scope_workload: &AuthKey,
+) -> Value {
     let path = |name: &str| format!("{mount}/{name}");
     json!({
         "listen_address": manifest.projection_listen_address,
@@ -968,8 +1064,26 @@ fn projection_config(manifest: &Manifest, mount: &str, tls_fingerprint: &str) ->
                 "id": "projection-cursor-v1",
                 "secret_path": path("secrets/projection-cursor-v1.key")
             }]
-        }
-        ,"query_pdp": {"url":"http://authz-server:8080/authz/v1/query", "workload_token_path":path("secrets/projection-pdp.jwt"),"timeout_ms":5000,"max_response_bytes":1048576,"allow_insecure":true},
+        },
+        "authorization_policy_bundles": {
+            "consumer":{"brokers":manifest.kafka.brokers,"client_id":"bpmp-projection-policy-bundles","security_protocol":manifest.kafka.security_protocol,"dial_timeout_ms":2000,"request_timeout_ms":3000,"topic":manifest.kafka.topics.authorization_policy_bundles,"consumer_group":manifest.kafka.consumer_groups.projection_policy_bundles,"batch_size":64,"max_message_bytes":1048576,"poll_timeout_ms":250,"session_timeout_ms":6000},
+            "acknowledgement_producer":{"brokers":manifest.kafka.brokers,"client_id":"bpmp-projection-policy-acks","security_protocol":manifest.kafka.security_protocol,"dial_timeout_ms":2000,"request_timeout_ms":3000,"topic":manifest.kafka.topics.authorization_policy_bundle_acknowledgements,"message_timeout_ms":3000,"max_inflight":1,"max_message_bytes":1048576,"required_acks":"ALL","enable_idempotence":true},
+            "consumer_id":"projection-service-e2e-1",
+            "consumer_type":"projection-service",
+            "trust_keys":{"policy-key-v1":path("secrets/policy-public.key")},
+            "owner_id":"projection-service",
+            "max_bundle_bytes":1048576,
+            "initial_bundles":[path("policy.bundle")]
+        },
+        "authorization_branch_scope_resolver": {
+            "base_url":"https://authz-app:9443",
+            "ca_path":path("secrets/ca.pem"),
+            "timeout_ms":2000,
+            "workload_id":"projection-service",
+            "signing_key_id":branch_scope_workload.id,
+            "signing_key_path":path(&branch_scope_workload.private_path),
+            "proof_ttl_ms":60000
+        },
         "query_revoke": {
             "consumer":{"brokers":manifest.kafka.brokers,"client_id":"bpmp-projection-revoke-e2e","security_protocol":manifest.kafka.security_protocol,"dial_timeout_ms":2000,"request_timeout_ms":3000,"topic":manifest.kafka.topics.authorization_query_revocations,"consumer_group":manifest.kafka.consumer_groups.projection_query_revocations,"batch_size":64,"max_message_bytes":1048576,"poll_timeout_ms":250,"session_timeout_ms":6000},
             "dlq":{"brokers":manifest.kafka.brokers,"client_id":"bpmp-projection-revoke-dlq-e2e","security_protocol":manifest.kafka.security_protocol,"dial_timeout_ms":2000,"request_timeout_ms":3000,"topic":manifest.kafka.topics.authorization_query_revocations_dlq,"message_timeout_ms":2000,"max_inflight":1,"max_message_bytes":1048576,"required_acks":"ALL","enable_idempotence":true},
@@ -1131,32 +1245,84 @@ http {
 
 fn authz_server_env(manifest: &Manifest) -> String {
     format!(
-        "SERVICE_NAME=authz-server-e2e\nHOST=0.0.0.0\nPORT=8080\nGRPC_PORT=50051\nSERVER_REQUEST_TIMEOUT_MS=5000\nSERVER_MAX_BODY_BYTES=1048576\nRATE_LIMIT_RPS=1000\nRATE_LIMIT_BURST=2000\nDATABASE_URL={}\nDB_MAX_CONNECTIONS=16\nDB_MIN_CONNECTIONS=1\nJWT_JWKS_URL=http://key-lifecycle:8080/jwks.json\nJWT_AUDIENCE={}\nFAIL_MODE=DENY\nKAFKA_BROKERS={}\nKAFKA_CLIENT_ID=bpmp-authz-control-plane-e2e\nKAFKA_SECURITY_PROTOCOL={}\nTENANT_LIFECYCLE_TOPIC={}\nTENANT_READINESS_TOPIC={}\nTENANT_READINESS_CONSUMER_GROUP=bpmp.authz.tenant-readiness.v1.e2e\nTENANT_LIFECYCLE_WORKER_ID=authz-e2e-1\nTENANT_LIFECYCLE_BATCH_SIZE=64\nTENANT_LIFECYCLE_LEASE_MS=5000\nTENANT_LIFECYCLE_POLL_MS=250\nKAFKA_MAX_MESSAGE_BYTES=1048576\n",
+        "SERVICE_NAME=authz-server-e2e\nHOST=0.0.0.0\nPORT=8080\nGRPC_PORT=50051\nSERVER_REQUEST_TIMEOUT_MS=5000\nSERVER_MAX_BODY_BYTES=1048576\nRATE_LIMIT_RPS=1000\nRATE_LIMIT_BURST=2000\nDATABASE_URL={}\nDB_MAX_CONNECTIONS=16\nDB_MIN_CONNECTIONS=1\nJWT_JWKS_URL=http://key-lifecycle:8080/jwks.json\nJWT_AUDIENCE={}\nFAIL_MODE=DENY\nKAFKA_BROKERS={}\nKAFKA_CLIENT_ID=bpmp-authz-control-plane-e2e\nKAFKA_SECURITY_PROTOCOL={}\nTENANT_LIFECYCLE_TOPIC={}\nAUTHZ_POLICY_BUNDLE_TOPIC={}\nAUTHZ_POLICY_BUNDLE_ACK_TOPIC={}\nAUTHZ_POLICY_BUNDLE_ACK_CONSUMER_GROUP={}\nTENANT_READINESS_TOPIC={}\nTENANT_READINESS_CONSUMER_GROUP=bpmp.authz.tenant-readiness.v1.e2e\nTENANT_LIFECYCLE_WORKER_ID=authz-e2e-1\nTENANT_LIFECYCLE_BATCH_SIZE=64\nTENANT_LIFECYCLE_LEASE_MS=5000\nTENANT_LIFECYCLE_POLL_MS=250\nKAFKA_MAX_MESSAGE_BYTES=1048576\n",
         manifest.authz_postgres_dsn,
         manifest.actor_audience,
         manifest.kafka.brokers.join(","),
         manifest.kafka.security_protocol,
         manifest.kafka.topics.tenant_lifecycle,
+        manifest.kafka.topics.authorization_policy_bundles,
+        manifest
+            .kafka
+            .topics
+            .authorization_policy_bundle_acknowledgements,
+        manifest
+            .kafka
+            .consumer_groups
+            .authorization_policy_bundle_acknowledgements,
         manifest.kafka.topics.tenant_configuration_readiness,
     )
 }
 
-fn authz_app_env(manifest: &Manifest) -> String {
+fn authz_app_env(manifest: &Manifest, mount: &str) -> String {
     format!(
-        "SERVICE_NAME=authz-app-e2e\nHOST=0.0.0.0\nPORT=9090\nSERVER_REQUEST_TIMEOUT_MS=5000\nSERVER_MAX_BODY_BYTES=1048576\nRATE_LIMIT_RPS=1000\nRATE_LIMIT_BURST=2000\nDATABASE_URL={}\nDB_MAX_CONNECTIONS=16\nDB_MIN_CONNECTIONS=1\nAUTHZ_PDP_URL=http://authz-server:8080\nAUTHZ_SERVICE_TOKEN_FILE=/runtime/secrets/authz-app.jwt\nAUTHZ_TIMEOUT_MS=2000\nAUTHZ_CACHE_CAPACITY=10000\nAUTHZ_CACHE_TTL_SECS=5\nJWT_JWKS_URL=http://key-lifecycle:8080/jwks.json\nJWT_AUDIENCE={}\nKAFKA_BROKERS={}\nOUTBOX_POLL_INTERVAL_MS=250\nOUTBOX_BATCH_SIZE=64\n",
+        "SERVICE_NAME=authz-app-e2e\nHOST=0.0.0.0\nPORT=9090\nHTTPS_PORT=9443\nHTTPS_CERTIFICATE_PATH={mount}/secrets/tls.pem\nHTTPS_PRIVATE_KEY_PATH={mount}/secrets/tls-key.pem\nHTTPS_CLIENT_CA_PATH={mount}/secrets/ca.pem\nBRANCH_SCOPE_WORKLOAD_KEYS_FILE={mount}/branch-scope-workload-keys.json\nSERVER_REQUEST_TIMEOUT_MS=5000\nSERVER_MAX_BODY_BYTES=1048576\nRATE_LIMIT_RPS=1000\nRATE_LIMIT_BURST=2000\nDATABASE_URL={}\nDB_MAX_CONNECTIONS=16\nDB_MIN_CONNECTIONS=1\nAUTHZ_PDP_URL=http://authz-server:8080\nAUTHZ_SERVICE_TOKEN_FILE=/runtime/secrets/authz-app.jwt\nAUTHZ_TIMEOUT_MS=2000\nAUTHZ_CACHE_CAPACITY=10000\nAUTHZ_CACHE_TTL_SECS=5\nJWT_JWKS_URL=http://key-lifecycle:8080/jwks.json\nJWT_AUDIENCE={}\nKAFKA_BROKERS={}\nOUTBOX_POLL_INTERVAL_MS=250\nOUTBOX_BATCH_SIZE=64\n",
         manifest.authz_app_postgres_dsn,
         manifest.actor_audience,
         manifest.kafka.brokers.join(","),
     )
 }
 
-fn authz_seed_sql(manifest: &Manifest) -> String {
-    format!(
+fn authz_seed_sql(manifest: &Manifest) -> Result<String> {
+    let owner_manifests = [
+        serde_json::from_str::<Value>(include_str!(
+            "../../../apps/rust/bpmp-engine/authorization-owner-manifest.json"
+        ))?,
+        serde_json::from_str::<Value>(include_str!(
+            "../../../apps/go/projection-service/authorization-owner-manifest.json"
+        ))?,
+    ];
+    let mut owner_manifest_sql = String::new();
+    for owner_manifest in owner_manifests {
+        let owner_id = owner_manifest["owner_id"]
+            .as_str()
+            .context("owner manifest is missing owner_id")?;
+        let manifest_version = owner_manifest["manifest_version"]
+            .as_str()
+            .context("owner manifest is missing manifest_version")?;
+        let entries = &owner_manifest["entries"];
+        anyhow::ensure!(
+            entries.is_array() && !entries.as_array().unwrap().is_empty(),
+            "owner manifest entries must be a non-empty array"
+        );
+        let entries_bytes = serde_json::to_vec(entries)?;
+        let digest = Sha256::digest(&entries_bytes)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        let entries_sql = String::from_utf8(entries_bytes)?.replace('\'', "''");
+        use std::fmt::Write as _;
+        write!(
+            owner_manifest_sql,
+            "INSERT INTO authorization_owner_manifest(owner_id,manifest_version,manifest_digest,entries,state,registered_by) VALUES ('{}','{}',decode('{}','hex'),'{}'::jsonb,'ACTIVE','{}') ON CONFLICT (owner_id,manifest_version) DO NOTHING;\nINSERT INTO authorization_owner_manifest_audit(manifest_id,owner_id,actor_ref,request_id,action) SELECT id,owner_id,'{}','fixture-seed','REGISTER' FROM authorization_owner_manifest WHERE owner_id='{}' AND manifest_version='{}' ON CONFLICT DO NOTHING;\n",
+            sql_literal(owner_id),
+            sql_literal(manifest_version),
+            digest,
+            entries_sql,
+            sql_literal(owner_id),
+            sql_literal(owner_id),
+            sql_literal(owner_id),
+            sql_literal(manifest_version),
+        )?;
+    }
+    Ok(format!(
         r#"CREATE SCHEMA IF NOT EXISTS authz_app;
 
 INSERT INTO tenant (id, code, name, is_active)
 VALUES ('{tenant}', 'e2e', 'BPMP E2E', true)
 ON CONFLICT (id) DO NOTHING;
+
+{owner_manifest_sql}
 
 INSERT INTO user_account (id, tenant_id, username, external_id)
 VALUES ('{actor}', '{tenant}', 'e2e-user', '{actor}')
@@ -1204,7 +1370,8 @@ INSERT INTO relation_tuple(tenant_id,subject,relation,object) VALUES
 "#,
         tenant = manifest.tenant_id,
         actor = manifest.actor_id,
-    )
+        owner_manifest_sql = owner_manifest_sql,
+    ))
 }
 
 fn governance_config(manifest: &Manifest, mount: &str, tls_fingerprint: &str) -> Value {
@@ -1651,6 +1818,11 @@ fn validate_manifest(manifest: &Manifest) -> Result<()> {
         &manifest.kafka.topics.tenant_configuration_readiness,
         &manifest.kafka.topics.authorization_query_revocations,
         &manifest.kafka.topics.authorization_query_revocations_dlq,
+        &manifest.kafka.topics.authorization_policy_bundles,
+        &manifest
+            .kafka
+            .topics
+            .authorization_policy_bundle_acknowledgements,
     ] {
         let parts = topic.split('.').collect::<Vec<_>>();
         if parts.len() != 5
@@ -1709,8 +1881,18 @@ fn validate_manifest(manifest: &Manifest) -> Result<()> {
             == manifest.kafka.topics.authorization_query_revocations_dlq
         || manifest
             .kafka
+            .topics
+            .authorization_policy_bundles
+            .is_empty()
+        || manifest
+            .kafka
             .consumer_groups
             .projection_query_revocations
+            .is_empty()
+        || manifest
+            .kafka
+            .consumer_groups
+            .projection_policy_bundles
             .is_empty()
     {
         anyhow::bail!("invalid bounded Kafka topic properties or revoke topology");
@@ -1782,6 +1964,8 @@ fn kafka_topics_script(manifest: &Manifest) -> String {
         &manifest.kafka.topics.tenant_configuration_readiness,
         &manifest.kafka.topics.authorization_query_revocations,
         &manifest.kafka.topics.authorization_query_revocations_dlq,
+        &manifest.kafka.topics.authorization_policy_bundles,
+        &manifest.kafka.topics.authorization_policy_bundle_acknowledgements,
     ]
     .into_iter()
     .map(|topic| {

@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use bpmp_contracts::engine::v1 as wire;
 use bpmp_domain_core::{
     ActorId, BoundaryTimerKind, BoundaryTrigger, CaseId, CaseModelId, CasePlanItemKind,
@@ -97,12 +99,26 @@ fn to_wire(envelope: &EventEnvelope) -> wire::EventEnvelope {
             workflow_type,
             workflow_version,
             start_node_id,
+            initial_variables,
+            resource_branch_id,
+            resource_branch_ancestry,
+            organization_version,
             ..
         } => wire::event_envelope::Event::WorkflowStarted(wire::WorkflowStarted {
             tenant_id: tenant_id.to_string(),
             workflow_type: workflow_type.to_string(),
             workflow_version: workflow_version.to_string(),
             start_node_id: start_node_id.to_string(),
+            resource_branch_id: resource_branch_id.clone().unwrap_or_default(),
+            resource_branch_ancestry: resource_branch_ancestry.clone(),
+            organization_version: *organization_version,
+            initial_variables: initial_variables
+                .iter()
+                .map(|(name, value)| wire::WorkflowVariable {
+                    name: name.clone(),
+                    value: Some(workflow_value_to_wire(value)),
+                })
+                .collect(),
         }),
         DomainEvent::ServiceTaskActivated {
             node_id, task_type, ..
@@ -372,21 +388,43 @@ fn from_wire(envelope: wire::EventEnvelope) -> Result<EventEnvelope, EventCodecE
     let occurred_at_epoch_ms = metadata.occurred_at_epoch_ms;
     let metadata_tenant_id = identifier(TenantId::new, metadata.tenant_id.clone(), "tenant_id")?;
     let event = match envelope.event.ok_or(EventCodecError::MissingEvent)? {
-        wire::event_envelope::Event::WorkflowStarted(started) => DomainEvent::WorkflowStarted {
-            tenant_id: identifier(
-                TenantId::new,
-                started.tenant_id,
-                "workflow_started.tenant_id",
-            )?,
-            workflow_type: identifier(WorkflowType::new, started.workflow_type, "workflow_type")?,
-            workflow_version: identifier(
-                WorkflowVersion::new,
-                started.workflow_version,
-                "workflow_version",
-            )?,
-            start_node_id: identifier(NodeId::new, started.start_node_id, "start_node_id")?,
-            occurred_at_epoch_ms,
-        },
+        wire::event_envelope::Event::WorkflowStarted(started) => {
+            let branch_id = if started.resource_branch_id.is_empty() {
+                None
+            } else {
+                Some(started.resource_branch_id)
+            };
+            if !valid_resource_branch_scope(
+                branch_id.as_deref(),
+                &started.resource_branch_ancestry,
+                started.organization_version,
+            ) {
+                return Err(EventCodecError::InvalidResourceBranchScope);
+            }
+            DomainEvent::WorkflowStarted {
+                tenant_id: identifier(
+                    TenantId::new,
+                    started.tenant_id,
+                    "workflow_started.tenant_id",
+                )?,
+                workflow_type: identifier(
+                    WorkflowType::new,
+                    started.workflow_type,
+                    "workflow_type",
+                )?,
+                workflow_version: identifier(
+                    WorkflowVersion::new,
+                    started.workflow_version,
+                    "workflow_version",
+                )?,
+                start_node_id: identifier(NodeId::new, started.start_node_id, "start_node_id")?,
+                initial_variables: workflow_variables_from_wire(started.initial_variables)?,
+                resource_branch_id: branch_id,
+                resource_branch_ancestry: started.resource_branch_ancestry,
+                organization_version: started.organization_version,
+                occurred_at_epoch_ms,
+            }
+        }
         wire::event_envelope::Event::ServiceTaskActivated(activated) => {
             DomainEvent::ServiceTaskActivated {
                 node_id: identifier(NodeId::new, activated.node_id, "node_id")?,
@@ -753,6 +791,19 @@ fn workflow_variable_from_wire(
     Ok((name, value))
 }
 
+fn workflow_variables_from_wire(
+    variables: Vec<wire::WorkflowVariable>,
+) -> Result<BTreeMap<String, WorkflowValue>, EventCodecError> {
+    let mut result = BTreeMap::new();
+    for variable in variables {
+        let (name, value) = workflow_variable_from_wire(variable)?;
+        if result.insert(name, value).is_some() {
+            return Err(EventCodecError::DuplicateWorkflowVariable);
+        }
+    }
+    Ok(result)
+}
+
 fn workflow_value_list_to_wire(items: &[WorkflowValue]) -> wire::WorkflowValueList {
     wire::WorkflowValueList {
         items: items.iter().map(workflow_value_item_to_wire).collect(),
@@ -932,6 +983,19 @@ fn identifier<T>(
     constructor(value).map_err(|source| EventCodecError::Identifier { field, source })
 }
 
+fn valid_resource_branch_scope(
+    branch_id: Option<&str>,
+    ancestry: &[String],
+    organization_version: u64,
+) -> bool {
+    if ancestry.is_empty() {
+        return organization_version == 0;
+    }
+    organization_version > 0
+        && branch_id.is_some_and(|branch| ancestry.last().is_some_and(|leaf| leaf == branch))
+        && ancestry.iter().all(|branch| !branch.trim().is_empty())
+}
+
 #[derive(Debug, Error)]
 pub enum EventCodecError {
     #[error("event bytes cannot be decoded: {0}")]
@@ -946,10 +1010,14 @@ pub enum EventCodecError {
     EmptyField(&'static str),
     #[error("workflow variable is missing a typed value")]
     MissingWorkflowVariableValue,
+    #[error("workflow event contains a duplicate variable name")]
+    DuplicateWorkflowVariable,
     #[error("event contains unknown multi-instance mode {0}")]
     InvalidMultiInstanceMode(i32),
     #[error("event field {0} must be greater than zero")]
     InvalidPositiveField(&'static str),
+    #[error("workflow event contains an invalid canonical branch scope")]
+    InvalidResourceBranchScope,
     #[error("governance request digest must contain exactly 32 bytes")]
     InvalidDigestLength,
     #[error("event contains unknown boundary trigger kind {0}")]
@@ -1122,6 +1190,8 @@ mod tests {
                 workflow_type: WorkflowType::new("order").unwrap(),
                 workflow_version: WorkflowVersion::new("1").unwrap(),
                 start_node_id: NodeId::new("start").unwrap(),
+                initial_variables: BTreeMap::new(),
+                resource_branch_id: None,
                 occurred_at_epoch_ms: 123,
             },
         };

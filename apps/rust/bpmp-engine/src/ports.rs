@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bpmp_domain_core::{
-    ActorId, CommandId, ConfigError, IdempotencyKey, InstanceId, PolicyVersion,
+    ActorId, CommandId, ConfigError, DomainEvent, IdempotencyKey, InstanceId, PolicyVersion,
     ResolvedConfigSnapshot, TenantId, WorkflowType, WorkflowVersion,
 };
 use thiserror::Error;
@@ -25,6 +25,19 @@ pub struct AuthorizationRequest<'a> {
     pub workflow_version: &'a WorkflowVersion,
     pub active_node_id: &'a str,
     pub action: &'a str,
+    pub resource: Option<ResourceAuthorizationContext<'a>>,
+}
+
+/// Resource attributes resolved by the Engine or its owning workflow config.
+/// The branch path is root-to-leaf; a browser supplied path is never accepted.
+pub struct ResourceAuthorizationContext<'a> {
+    pub owner_id: &'a str,
+    pub resource_type: &'a str,
+    pub action: &'a str,
+    pub resource_id: &'a str,
+    pub resource_owned_by_actor: bool,
+    pub branch_path: &'a [String],
+    pub queue_id: Option<&'a str>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -39,6 +52,14 @@ pub struct AuthorizedPrincipal {
 }
 
 pub trait AuthorizationProviderPort: Send + Sync {
+    /// Verifies actor/workload proof scope before the Engine loads resource data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an authorization error when either proof is invalid or outside
+    /// its validity window.
+    fn verify_proofs(&self, request: &AuthorizationRequest<'_>) -> Result<(), AuthorizationError>;
+
     /// Verifies both identities and authorizes the concrete transition.
     ///
     /// # Errors
@@ -118,6 +139,17 @@ impl CommitRequest {
     /// does not describe exactly this committed command and transition.
     pub fn validate_authorization_audit(&self) -> Result<(), StoreError> {
         let audit = &self.authorization_audit;
+        let invalid_resource_branch_scope = if audit.resource_branch_ancestry.is_empty() {
+            audit.organization_version != 0
+        } else {
+            audit.organization_version == 0
+                || audit.resource_branch_id.as_deref()
+                    != audit.resource_branch_ancestry.last().map(String::as_str)
+                || audit
+                    .resource_branch_ancestry
+                    .iter()
+                    .any(|branch| branch.trim().is_empty())
+        };
         if audit.tenant_id != self.tenant_id
             || audit.actor_id != self.actor_id
             || audit.command_id != self.command_id
@@ -127,6 +159,7 @@ impl CommitRequest {
             || audit.workload_id.is_empty()
             || audit.action.is_empty()
             || audit.matched_grant_ids.is_empty()
+            || invalid_resource_branch_scope
             || self.events.iter().any(|event| {
                 event.metadata.tenant_id != audit.tenant_id
                     || event.metadata.actor_id != audit.actor_id
@@ -134,6 +167,17 @@ impl CommitRequest {
                     || event.metadata.correlation_id != audit.correlation_id
                     || event.metadata.policy_version != audit.policy_version
                     || event.metadata.config_version != audit.config_version
+                    || matches!(
+                        &event.event,
+                        DomainEvent::WorkflowStarted {
+                            resource_branch_id,
+                            resource_branch_ancestry,
+                            organization_version,
+                            ..
+                        } if resource_branch_id != &audit.resource_branch_id
+                            || resource_branch_ancestry != &audit.resource_branch_ancestry
+                            || organization_version != &audit.organization_version
+                    )
             })
         {
             return Err(StoreError::InvalidAuthorizationAudit);
@@ -213,6 +257,10 @@ impl<T: ConfigurationProviderPort + ?Sized> ConfigurationProviderPort for Arc<T>
 }
 
 impl<T: AuthorizationProviderPort + ?Sized> AuthorizationProviderPort for Arc<T> {
+    fn verify_proofs(&self, request: &AuthorizationRequest<'_>) -> Result<(), AuthorizationError> {
+        (**self).verify_proofs(request)
+    }
+
     fn authorize(
         &self,
         request: &AuthorizationRequest<'_>,

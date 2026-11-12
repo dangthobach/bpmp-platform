@@ -12,7 +12,7 @@ use thiserror::Error;
 
 use crate::SnapshotEnvelope;
 
-pub const SNAPSHOT_SCHEMA_VERSION: u32 = 1;
+pub const SNAPSHOT_SCHEMA_VERSION: u32 = 3;
 
 pub struct SnapshotCodec;
 
@@ -39,8 +39,9 @@ fn upcast(
 ) -> Result<wire::WorkflowSnapshot, SnapshotCodecError> {
     match snapshot.schema_version {
         SNAPSHOT_SCHEMA_VERSION => Ok(snapshot),
-        // v0 persisted the same state fields before the schema marker was mandatory.
-        0 => {
+        // Older snapshots predate some or all immutable branch metadata.
+        // Existing branch IDs remain readable; missing ancestry stays empty.
+        0 | 1 | 2 => {
             snapshot.schema_version = SNAPSHOT_SCHEMA_VERSION;
             Ok(snapshot)
         }
@@ -70,6 +71,13 @@ fn to_wire(snapshot: &SnapshotEnvelope) -> wire::WorkflowSnapshot {
         workflow_version: snapshot.workflow_version.to_string(),
         lifecycle: lifecycle.into(),
         active_node_id,
+        resource_branch_id: snapshot
+            .state
+            .resource_branch_id
+            .clone()
+            .unwrap_or_default(),
+        resource_branch_ancestry: snapshot.state.resource_branch_ancestry.clone(),
+        organization_version: snapshot.state.organization_version,
         config_version: snapshot.config_version.to_string(),
         policy_version: snapshot.policy_version.to_string(),
         encryption_key_scope: snapshot.encryption_key_scope.to_string(),
@@ -207,6 +215,19 @@ fn scope_invocation_counter_to_wire(
     }
 }
 
+fn valid_resource_branch_scope(
+    branch_id: Option<&str>,
+    ancestry: &[String],
+    organization_version: u64,
+) -> bool {
+    if ancestry.is_empty() {
+        return organization_version == 0;
+    }
+    organization_version > 0
+        && branch_id.is_some_and(|branch| ancestry.last().is_some_and(|leaf| leaf == branch))
+        && ancestry.iter().all(|branch| !branch.trim().is_empty())
+}
+
 fn from_wire(snapshot: wire::WorkflowSnapshot) -> Result<SnapshotEnvelope, SnapshotCodecError> {
     if snapshot.schema_version != SNAPSHOT_SCHEMA_VERSION {
         return Err(SnapshotCodecError::UnsupportedSchema(
@@ -260,6 +281,18 @@ fn from_wire(snapshot: wire::WorkflowSnapshot) -> Result<SnapshotEnvelope, Snaps
         .into_iter()
         .map(active_case_from_wire)
         .collect::<Result<_, _>>()?;
+    let resource_branch_id = if snapshot.resource_branch_id.is_empty() {
+        None
+    } else {
+        Some(snapshot.resource_branch_id)
+    };
+    if !valid_resource_branch_scope(
+        resource_branch_id.as_deref(),
+        &snapshot.resource_branch_ancestry,
+        snapshot.organization_version,
+    ) {
+        return Err(SnapshotCodecError::InvalidResourceBranchScope);
+    }
     Ok(SnapshotEnvelope {
         tenant_id: identifier(TenantId::new, snapshot.tenant_id, "tenant_id")?,
         instance_id: identifier(InstanceId::new, snapshot.instance_id, "instance_id")?,
@@ -272,6 +305,9 @@ fn from_wire(snapshot: wire::WorkflowSnapshot) -> Result<SnapshotEnvelope, Snaps
         state: InstanceState {
             lifecycle,
             sequence: snapshot.sequence,
+            resource_branch_id,
+            resource_branch_ancestry: snapshot.resource_branch_ancestry,
+            organization_version: snapshot.organization_version,
             variables: snapshot
                 .variables
                 .into_iter()
@@ -711,6 +747,8 @@ pub enum SnapshotCodecError {
     MissingWorkflowVariableValue,
     #[error("snapshot token/join state is invalid")]
     InvalidTokenState,
+    #[error("snapshot contains an invalid canonical branch scope")]
+    InvalidResourceBranchScope,
     #[error("snapshot contains unknown multi-instance mode {0}")]
     InvalidMultiInstanceMode(i32),
     #[error("snapshot multi-instance state is invalid")]
@@ -744,6 +782,7 @@ mod tests {
                     active_node: NodeId::new("charge").unwrap(),
                 },
                 sequence: 100,
+                resource_branch_id: Some("branch-17".into()),
                 variables: [(
                     "recipients".into(),
                     WorkflowValue::List(vec![WorkflowValue::String("a".into())]),

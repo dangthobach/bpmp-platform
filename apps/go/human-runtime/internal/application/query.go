@@ -30,12 +30,17 @@ type AuditRecord struct {
 	ToVersion     int64
 	DetailsJSON   []byte
 }
+type AssignmentGroup struct {
+	GroupID     string
+	PolicyCount uint64
+}
 
 type QueryPort interface {
 	GetWorkItem(context.Context, string, string) (domain.WorkItem, error)
 	ListWorkItems(context.Context, string, string, []string, int, *PageCursor) ([]domain.WorkItem, *PageCursor, error)
 	GetCase(context.Context, string, string) (CaseView, error)
 	ListAuditRecords(context.Context, string, string, string, int, *AuditCursor) ([]AuditRecord, *AuditCursor, error)
+	ListAssignmentGroups(context.Context, string) ([]AssignmentGroup, error)
 }
 
 type ActorIdentity struct {

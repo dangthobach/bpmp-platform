@@ -49,6 +49,7 @@ const DEDUP_CF: &str = "dedup";
 const OUTBOX_CF: &str = "outbox";
 const IDEMPOTENCY_CF: &str = "idempotency";
 const AUTHORIZATION_AUDIT_CF: &str = "authorization_audit";
+const AUTHORIZATION_POLICY_BUNDLES_CF: &str = "authorization_policy_bundles";
 const OUTBOX_META_CF: &str = "outbox_meta";
 const BOUNDARY_SUBSCRIPTIONS_CF: &str = "boundary_subscriptions";
 const BOUNDARY_TIMER_INDEX_CF: &str = "boundary_timer_index";
@@ -149,6 +150,7 @@ pub struct RocksDbWorkflowStore<C> {
     // P0 single-node commits serialize here so version/dedup checks and WriteBatch are atomic.
     commit_lock: Arc<Mutex<()>>,
     raft_log_lock: Arc<Mutex<()>>,
+    authorization_bundle_lock: Arc<Mutex<()>>,
 }
 
 #[derive(Clone)]
@@ -166,6 +168,104 @@ pub enum WorkflowCommitPreparation {
 }
 
 impl<C: PayloadCryptoPort> RocksDbWorkflowStore<C> {
+    /// Persists the latest signature-verified authorization bundle for a tenant.
+    /// The synchronous local write completes before the Kafka consumer ACKs the publication.
+    pub fn persist_verified_authorization_bundle(
+        &self,
+        bundle: &bpmp_authz_contracts::authorization::v1::AuthorizationPolicyBundle,
+        raw: &[u8],
+    ) -> Result<Vec<u8>, StoreError> {
+        use bpmp_authz_contracts::authorization::v1::AuthorizationPolicyBundle;
+
+        if bundle.tenant_id.is_empty() || bundle.bundle_sequence == 0 || raw.is_empty() {
+            return Err(StoreError::CorruptData(
+                "verified authorization bundle identity is invalid".into(),
+            ));
+        }
+        if AuthorizationPolicyBundle::decode(raw)
+            .map_err(|error| StoreError::CorruptData(error.to_string()))?
+            != *bundle
+            || bundle.encode_to_vec() != raw
+        {
+            return Err(StoreError::CorruptData(
+                "authorization bundle bytes do not match verified bundle".into(),
+            ));
+        }
+        let _guard = self
+            .authorization_bundle_lock
+            .lock()
+            .map_err(|error| StoreError::Unavailable(error.to_string()))?;
+        let family = cf(&self.db, AUTHORIZATION_POLICY_BUNDLES_CF)?;
+        if let Some(current_raw) = self
+            .db
+            .get_cf(family, bundle.tenant_id.as_bytes())
+            .map_err(unavailable)?
+        {
+            let current = AuthorizationPolicyBundle::decode(current_raw.as_ref())
+                .map_err(|error| StoreError::CorruptData(error.to_string()))?;
+            if current.tenant_id != bundle.tenant_id {
+                return Err(StoreError::CorruptData(
+                    "authorization bundle tenant key does not match value".into(),
+                ));
+            }
+            if current.bundle_sequence > bundle.bundle_sequence {
+                return Ok(current_raw.to_vec());
+            }
+            if current.bundle_sequence == bundle.bundle_sequence {
+                return if current.content_hash == bundle.content_hash {
+                    Ok(current_raw.to_vec())
+                } else {
+                    Err(StoreError::CorruptData(
+                        "authorization bundle sequence was reused with different content".into(),
+                    ))
+                };
+            }
+            if current.catalog_version > bundle.catalog_version
+                || current.revoke_epoch > bundle.revoke_epoch
+            {
+                return Err(StoreError::CorruptData(
+                    "authorization bundle catalog or revoke epoch regressed".into(),
+                ));
+            }
+        }
+        let mut options = WriteOptions::default();
+        options.set_sync(true);
+        self.db
+            .put_cf_opt(family, bundle.tenant_id.as_bytes(), raw, &options)
+            .map_err(unavailable)?;
+        Ok(raw.to_vec())
+    }
+
+    /// Visits persisted policy bundles before the Engine begins serving commands.
+    pub fn visit_authorization_policy_bundles(
+        &self,
+        mut visit: impl FnMut(&[u8]) -> Result<(), StoreError>,
+    ) -> Result<(), StoreError> {
+        let family = cf(&self.db, AUTHORIZATION_POLICY_BUNDLES_CF)?;
+        let mut count = 0usize;
+        for item in self.db.iterator_cf(family, IteratorMode::Start) {
+            let (tenant_id, raw) = item.map_err(unavailable)?;
+            count += 1;
+            if count > 100_000 {
+                return Err(StoreError::Unavailable(
+                    "authorization policy bundle count exceeds the restore limit".into(),
+                ));
+            }
+            let bundle =
+                bpmp_authz_contracts::authorization::v1::AuthorizationPolicyBundle::decode(
+                    raw.as_ref(),
+                )
+                .map_err(|error| StoreError::CorruptData(error.to_string()))?;
+            if tenant_id.as_ref() != bundle.tenant_id.as_bytes() {
+                return Err(StoreError::CorruptData(
+                    "authorization bundle tenant key does not match value".into(),
+                ));
+            }
+            visit(raw.as_ref())?;
+        }
+        Ok(())
+    }
+
     /// Reads native storage health counters without scanning workflow events.
     ///
     /// # Errors
@@ -248,6 +348,7 @@ impl<C: PayloadCryptoPort> RocksDbWorkflowStore<C> {
             OUTBOX_CF,
             IDEMPOTENCY_CF,
             AUTHORIZATION_AUDIT_CF,
+            AUTHORIZATION_POLICY_BUNDLES_CF,
             OUTBOX_META_CF,
             BOUNDARY_SUBSCRIPTIONS_CF,
             BOUNDARY_TIMER_INDEX_CF,
@@ -280,6 +381,7 @@ impl<C: PayloadCryptoPort> RocksDbWorkflowStore<C> {
             max_replay_events: config.max_replay_events,
             commit_lock: Arc::new(Mutex::new(())),
             raft_log_lock: Arc::new(Mutex::new(())),
+            authorization_bundle_lock: Arc::new(Mutex::new(())),
         })
     }
 
@@ -2745,6 +2847,9 @@ fn prepare_encrypted_authorization_audit<C: PayloadCryptoPort>(
         config_version: audit.config_version.to_string(),
         bundle_sequence: audit.bundle_sequence,
         matched_grant_ids: audit.matched_grant_ids.clone(),
+        resource_branch_id: audit.resource_branch_id.clone().unwrap_or_default(),
+        resource_branch_ancestry: audit.resource_branch_ancestry.clone(),
+        organization_version: audit.organization_version,
     }
     .encode_to_vec();
     let encrypted = crypto
@@ -4132,6 +4237,7 @@ mod tests {
                         active_node: NodeId::new("start").unwrap(),
                     },
                     sequence: 1,
+                    resource_branch_id: None,
                     variables: BTreeMap::default(),
                     active_tokens: BTreeMap::default(),
                     pending_gateway_joins: BTreeMap::default(),
@@ -4164,6 +4270,9 @@ mod tests {
                 command_id: CommandId::new("command-1").unwrap(),
                 correlation_id: CorrelationId::new("correlation-1").unwrap(),
                 matched_grant_ids: vec!["allow-start".into()],
+                resource_branch_id: None,
+                resource_branch_ancestry: Vec::new(),
+                organization_version: 0,
                 encryption_key_scope: KeyScope::new("tenant-a/compliance-audit").unwrap(),
             },
             result: CommittedResult {

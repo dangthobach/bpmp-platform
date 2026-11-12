@@ -71,6 +71,9 @@ func mapEvent(envelope *enginev1.EventEnvelope) (application.InstanceEvent, erro
 	case *enginev1.EventEnvelope_WorkflowStarted:
 		event.Kind = application.EventStarted
 		event.NodeID = value.WorkflowStarted.GetStartNodeId()
+		event.ResourceBranchID = value.WorkflowStarted.GetResourceBranchId()
+		event.ResourceBranchAncestry = append([]string(nil), value.WorkflowStarted.GetResourceBranchAncestry()...)
+		event.OrganizationVersion = value.WorkflowStarted.GetOrganizationVersion()
 	case *enginev1.EventEnvelope_ServiceTaskActivated:
 		event.Kind = application.EventNodeActivated
 		event.NodeID = value.ServiceTaskActivated.GetNodeId()

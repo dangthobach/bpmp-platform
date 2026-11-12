@@ -156,6 +156,7 @@ mod tests {
             start_node_id: "start".into(),
             nodes,
             tenant_id: "tenant-a".into(),
+            resource_scope_binding: None,
             ..WorkflowIntermediateRepresentation::default()
         }
     }

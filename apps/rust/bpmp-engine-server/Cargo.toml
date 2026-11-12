@@ -29,6 +29,7 @@ futures.workspace = true
 jsonwebtoken.workspace = true
 openraft.workspace = true
 prost.workspace = true
+reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

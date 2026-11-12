@@ -37,6 +37,9 @@ func (testQuery) GetCase(context.Context, string, string) (application.CaseView,
 func (testQuery) ListAuditRecords(context.Context, string, string, string, int, *application.AuditCursor) ([]application.AuditRecord, *application.AuditCursor, error) {
 	return nil, nil, nil
 }
+func (testQuery) ListAssignmentGroups(context.Context, string) ([]application.AssignmentGroup, error) {
+	return nil, nil
+}
 
 type testVerifier struct {
 	tenant string

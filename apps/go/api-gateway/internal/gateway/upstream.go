@@ -62,6 +62,14 @@ func invokeUpstream[T any](
 	dependency string,
 	operation func(context.Context) (T, error),
 ) (T, error) {
+	if dependency == projectionDependency {
+		var err error
+		rctx, err = h.projectionScopeContext(rctx, scope)
+		if err != nil {
+			var zero T
+			return zero, err
+		}
+	}
 	return doUpstream(
 		rctx,
 		h.upstreams,

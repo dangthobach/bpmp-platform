@@ -1,7 +1,8 @@
 //! Organization HTTP API.
 
+use authz_http_middleware::metadata_from_extensions;
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Path, Query, Request, State},
     Json,
 };
 use serde::{Deserialize, Serialize};
@@ -11,9 +12,10 @@ use crate::application::commands::{
     handle_add_node, handle_create_organization, handle_move_node, AddNodeCommand,
     CreateOrganizationCommand, MoveNodeCommand,
 };
+use crate::application::errors::AppError;
 use crate::application::queries::{
-    handle_get_organization, handle_list_organizations, GetOrganizationQuery,
-    ListOrganizationsQuery,
+    handle_get_organization, handle_list_organizations, handle_resolve_branch_scope,
+    GetOrganizationQuery, ListOrganizationsQuery, ResolveBranchScopeQuery,
 };
 use crate::bootstrap::AppContainer;
 use crate::domain::organization::NodeKind;
@@ -192,6 +194,319 @@ pub struct OrganizationResponse {
     pub root_node_id: Uuid,
     pub version: i64,
     pub nodes: Vec<OrgNodeResponse>,
+}
+
+#[derive(Serialize)]
+pub struct BranchScopeResponse {
+    pub tenant_id: Uuid,
+    pub branch_id: Uuid,
+    pub organization_id: Uuid,
+    pub organization_version: i64,
+    pub ancestry: Vec<Uuid>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BranchDescendantsRequest {
+    pub branch_ids: Vec<Uuid>,
+}
+
+#[derive(Serialize)]
+pub struct BranchDescendantsResponse {
+    pub branch_id: Uuid,
+    pub organization_id: Uuid,
+    pub organization_version: i64,
+    pub descendant_branch_ids: Vec<Uuid>,
+}
+
+/// Returns the canonical, tenant-scoped root-to-branch path from the
+/// organization owner. The endpoint never accepts caller-supplied ancestry.
+pub async fn resolve_branch_scope(
+    State(app): State<AppContainer>,
+    SubjectExt(sub): SubjectExt,
+    Path(branch_id): Path<Uuid>,
+) -> ApiResult<EnvelopeReply<BranchScopeResponse>> {
+    let scope = handle_resolve_branch_scope(
+        ResolveBranchScopeQuery { branch_id },
+        &sub,
+        &app.resolve_branch_scope_deps(),
+    )
+    .await
+    .map_err(|error| ApiError::from_app(error, &sub.request_id))?;
+    Ok(ok(
+        BranchScopeResponse {
+            tenant_id: sub.tenant_id,
+            branch_id,
+            organization_id: scope.organization_id,
+            organization_version: scope.organization_version,
+            ancestry: scope.ancestry,
+        },
+        sub.request_id,
+    ))
+}
+
+/// Service-to-service variant used by BPMP Engine. The command-bound signed
+/// workload proof is the only source of tenant/workload identity.
+pub async fn resolve_branch_scope_internal(
+    State(app): State<AppContainer>,
+    Path(branch_id): Path<Uuid>,
+    request: Request,
+) -> ApiResult<EnvelopeReply<BranchScopeResponse>> {
+    let metadata = metadata_from_extensions(request.extensions());
+    let proof_hex = request
+        .headers()
+        .get("x-bpmp-workload-proof")
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| {
+            ApiError::from_app(
+                AppError::Unauthorized {
+                    reason: "missing workload proof".into(),
+                },
+                &metadata.request_id,
+            )
+        })?;
+    let command_id = request
+        .headers()
+        .get("x-bpmp-command-id")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            ApiError::from_app(
+                AppError::Unauthorized {
+                    reason: "missing command id".into(),
+                },
+                &metadata.request_id,
+            )
+        })?;
+    let proof = decode_proof_hex(proof_hex).ok_or_else(|| {
+        ApiError::from_app(
+            AppError::Unauthorized {
+                reason: "invalid workload proof encoding".into(),
+            },
+            &metadata.request_id,
+        )
+    })?;
+    let verifier = app.branch_scope_workload_verifier.as_ref().ok_or_else(|| {
+        ApiError::from_app(
+            AppError::AuthzUnavailable("branch scope workload verifier is not configured".into()),
+            &metadata.request_id,
+        )
+    })?;
+    let now_epoch_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| {
+            ApiError::from_app(
+                AppError::Internal("system clock is before Unix epoch".into()),
+                &metadata.request_id,
+            )
+        })?
+        .as_millis()
+        .try_into()
+        .map_err(|_| {
+            ApiError::from_app(
+                AppError::Internal("system clock exceeds supported range".into()),
+                &metadata.request_id,
+            )
+        })?;
+    let verified = verifier
+        .verify(&proof, command_id, now_epoch_ms)
+        .map_err(|_| {
+            ApiError::from_app(
+                AppError::Unauthorized {
+                    reason: "workload proof is invalid or expired".into(),
+                },
+                &metadata.request_id,
+            )
+        })?;
+    let mut uow = app
+        .uow_factory
+        .begin()
+        .await
+        .map_err(|error| ApiError::from_app(error, &metadata.request_id))?;
+    let tenant_id = uuid::Uuid::parse_str(&verified.tenant_id).map_err(|_| {
+        ApiError::from_app(
+            AppError::Unauthorized {
+                reason: "workload proof tenant is invalid".into(),
+            },
+            &metadata.request_id,
+        )
+    })?;
+    let scope = uow
+        .organizations()
+        .resolve_branch_scope(tenant_id, branch_id)
+        .await
+        .map_err(|error| ApiError::from_app(error, &metadata.request_id))?;
+    uow.commit()
+        .await
+        .map_err(|error| ApiError::from_app(error, &metadata.request_id))?;
+    Ok(ok(
+        BranchScopeResponse {
+            tenant_id,
+            branch_id,
+            organization_id: scope.organization_id,
+            organization_version: scope.organization_version,
+            ancestry: scope.ancestry,
+        },
+        metadata.request_id,
+    ))
+}
+
+/// Returns current branch leaves for a bounded set of branch roots. The
+/// signed workload proof is command-bound and is the sole tenant authority.
+pub async fn resolve_branch_descendants_internal(
+    State(app): State<AppContainer>,
+    request: Request,
+) -> ApiResult<EnvelopeReply<Vec<BranchDescendantsResponse>>> {
+    let metadata = metadata_from_extensions(request.extensions());
+    let proof_hex = request
+        .headers()
+        .get("x-bpmp-workload-proof")
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| {
+            ApiError::from_app(
+                AppError::Unauthorized {
+                    reason: "missing workload proof".into(),
+                },
+                &metadata.request_id,
+            )
+        })?;
+    let command_id = request
+        .headers()
+        .get("x-bpmp-command-id")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            ApiError::from_app(
+                AppError::Unauthorized {
+                    reason: "missing command id".into(),
+                },
+                &metadata.request_id,
+            )
+        })?;
+    let proof = decode_proof_hex(proof_hex).ok_or_else(|| {
+        ApiError::from_app(
+            AppError::Unauthorized {
+                reason: "invalid workload proof encoding".into(),
+            },
+            &metadata.request_id,
+        )
+    })?;
+    let verifier = app.branch_scope_workload_verifier.as_ref().ok_or_else(|| {
+        ApiError::from_app(
+            AppError::AuthzUnavailable("branch scope workload verifier is not configured".into()),
+            &metadata.request_id,
+        )
+    })?;
+    let now_epoch_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| {
+            ApiError::from_app(
+                AppError::Internal("system clock is before Unix epoch".into()),
+                &metadata.request_id,
+            )
+        })?
+        .as_millis()
+        .try_into()
+        .map_err(|_| {
+            ApiError::from_app(
+                AppError::Internal("system clock exceeds supported range".into()),
+                &metadata.request_id,
+            )
+        })?;
+    let verified = verifier
+        .verify(&proof, command_id, now_epoch_ms)
+        .map_err(|_| {
+            ApiError::from_app(
+                AppError::Unauthorized {
+                    reason: "workload proof is invalid or expired".into(),
+                },
+                &metadata.request_id,
+            )
+        })?;
+    let tenant_id = Uuid::parse_str(&verified.tenant_id).map_err(|_| {
+        ApiError::from_app(
+            AppError::Unauthorized {
+                reason: "workload proof tenant is invalid".into(),
+            },
+            &metadata.request_id,
+        )
+    })?;
+    let body = axum::body::to_bytes(request.into_body(), 64 * 1024)
+        .await
+        .map_err(|_| {
+            ApiError::from_app(
+                AppError::BadRequest("invalid branch descendant request body".into()),
+                &metadata.request_id,
+            )
+        })?;
+    let input: BranchDescendantsRequest = serde_json::from_slice(&body).map_err(|_| {
+        ApiError::from_app(
+            AppError::BadRequest("invalid branch descendant request body".into()),
+            &metadata.request_id,
+        )
+    })?;
+    if input.branch_ids.is_empty() || input.branch_ids.len() > 100 {
+        return Err(ApiError::from_app(
+            AppError::BadRequest("branch_ids must contain 1..=100 entries".into()),
+            &metadata.request_id,
+        ));
+    }
+    let mut unique = std::collections::HashSet::new();
+    if input.branch_ids.iter().any(|id| !unique.insert(*id)) {
+        return Err(ApiError::from_app(
+            AppError::BadRequest("branch_ids must be unique".into()),
+            &metadata.request_id,
+        ));
+    }
+    let mut uow = app
+        .uow_factory
+        .begin()
+        .await
+        .map_err(|error| ApiError::from_app(error, &metadata.request_id))?;
+    let scopes = uow
+        .organizations()
+        .resolve_branch_descendants(tenant_id, &input.branch_ids, 10_000)
+        .await
+        .map_err(|error| ApiError::from_app(error, &metadata.request_id))?;
+    uow.commit()
+        .await
+        .map_err(|error| ApiError::from_app(error, &metadata.request_id))?;
+    Ok(ok(
+        scopes
+            .into_iter()
+            .map(|scope| BranchDescendantsResponse {
+                branch_id: scope.branch_id,
+                organization_id: scope.organization_id,
+                organization_version: scope.organization_version,
+                descendant_branch_ids: scope.descendant_branch_ids,
+            })
+            .collect(),
+        metadata.request_id,
+    ))
+}
+
+fn decode_proof_hex(value: &str) -> Option<Vec<u8>> {
+    if value.is_empty() || value.len() % 2 != 0 || value.len() > 64 * 1024 {
+        return None;
+    }
+    value
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| {
+            let high = hex_nibble(pair[0])?;
+            let low = hex_nibble(pair[1])?;
+            Some((high << 4) | low)
+        })
+        .collect()
+}
+
+fn hex_nibble(value: u8) -> Option<u8> {
+    match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'a'..=b'f' => Some(value - b'a' + 10),
+        b'A'..=b'F' => Some(value - b'A' + 10),
+        _ => None,
+    }
 }
 
 pub async fn get_organization(

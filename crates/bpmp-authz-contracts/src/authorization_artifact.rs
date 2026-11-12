@@ -153,6 +153,8 @@ impl AuthorizationBundleCodec {
         let mut canonical = bundle.clone();
         canonicalize_bundle(&mut canonical);
         if canonical.grants != bundle.grants
+            || canonical.resource_grants != bundle.resource_grants
+            || canonical.resource_catalog != bundle.resource_catalog
             || canonical.actor_revoke_epochs != bundle.actor_revoke_epochs
         {
             return Err(AuthorizationArtifactError::NonCanonicalArtifact);
@@ -229,6 +231,49 @@ fn canonicalize_bundle(bundle: &mut AuthorizationPolicyBundle) {
     bundle
         .grants
         .sort_unstable_by(|left, right| left.grant_id.cmp(&right.grant_id));
+    for grant in &mut bundle.resource_grants {
+        grant.actor_ids.sort_unstable();
+        grant.actor_ids.dedup();
+        grant.roles.sort_unstable();
+        grant.roles.dedup();
+        grant.required_capabilities.sort_unstable();
+        grant.required_capabilities.dedup();
+        grant.branch_scope_ids.sort_unstable();
+        grant.branch_scope_ids.dedup();
+        grant.queue_scope_ids.sort_unstable();
+        grant.queue_scope_ids.dedup();
+        grant.resource_scope_ids.sort_unstable();
+        grant.resource_scope_ids.dedup();
+        grant.readable_fields.sort_unstable();
+        grant.readable_fields.dedup();
+        grant.writable_fields.sort_unstable();
+        grant.writable_fields.dedup();
+    }
+    bundle
+        .resource_grants
+        .sort_unstable_by(|left, right| left.grant_id.cmp(&right.grant_id));
+    for definition in &mut bundle.resource_catalog {
+        definition.supported_scope_types.sort_unstable();
+        definition.supported_scope_types.dedup();
+        definition.readable_fields.sort_unstable();
+        definition.readable_fields.dedup();
+        definition.writable_fields.sort_unstable();
+        definition.writable_fields.dedup();
+    }
+    bundle.resource_catalog.sort_unstable_by(|left, right| {
+        (
+            &left.owner_id,
+            &left.resource_type,
+            &left.action,
+            &left.capability,
+        )
+            .cmp(&(
+                &right.owner_id,
+                &right.resource_type,
+                &right.action,
+                &right.capability,
+            ))
+    });
     bundle
         .actor_revoke_epochs
         .sort_unstable_by(|left, right| left.actor_id.cmp(&right.actor_id));
@@ -248,12 +293,18 @@ fn validate_bundle(
     if bundle.valid_from_epoch_ms >= bundle.expires_at_epoch_ms {
         return Err(AuthorizationArtifactError::InvalidValidityWindow);
     }
-    if bundle.grants.len() > limits.max_grants {
+    let grant_count =
+        bundle.grants.len() + bundle.resource_grants.len() + bundle.resource_catalog.len();
+    if grant_count > limits.max_grants {
         return Err(AuthorizationArtifactError::TooManyGrants {
-            actual: bundle.grants.len(),
+            actual: grant_count,
             maximum: limits.max_grants,
         });
     }
+    if !bundle.resource_grants.is_empty() && bundle.catalog_version == 0 {
+        return Err(AuthorizationArtifactError::InvalidField("catalog_version"));
+    }
+    let mut grant_ids = std::collections::BTreeSet::new();
     for pair in bundle.grants.windows(2) {
         if pair[0].grant_id == pair[1].grant_id {
             return Err(AuthorizationArtifactError::DuplicateGrantId(
@@ -263,6 +314,11 @@ fn validate_bundle(
     }
     for grant in &bundle.grants {
         validate_nonempty("grant_id", &grant.grant_id)?;
+        if !grant_ids.insert(grant.grant_id.as_str()) {
+            return Err(AuthorizationArtifactError::DuplicateGrantId(
+                grant.grant_id.clone(),
+            ));
+        }
         validate_nonempty_values("actor_ids", &grant.actor_ids)?;
         validate_nonempty_values("roles", &grant.roles)?;
         validate_nonempty_values("required_capabilities", &grant.required_capabilities)?;
@@ -275,6 +331,84 @@ fn validate_bundle(
         if effect == AuthorizationPolicyEffect::Unspecified {
             return Err(AuthorizationArtifactError::InvalidPolicyEffect(
                 grant.effect,
+            ));
+        }
+    }
+    for pair in bundle.resource_grants.windows(2) {
+        if pair[0].grant_id == pair[1].grant_id {
+            return Err(AuthorizationArtifactError::DuplicateGrantId(
+                pair[0].grant_id.clone(),
+            ));
+        }
+    }
+    for grant in &bundle.resource_grants {
+        validate_nonempty("grant_id", &grant.grant_id)?;
+        if !grant_ids.insert(grant.grant_id.as_str()) {
+            return Err(AuthorizationArtifactError::DuplicateGrantId(
+                grant.grant_id.clone(),
+            ));
+        }
+        validate_nonempty_values("actor_ids", &grant.actor_ids)?;
+        validate_nonempty_values("roles", &grant.roles)?;
+        validate_nonempty_values("required_capabilities", &grant.required_capabilities)?;
+        validate_nonempty("resource_type", &grant.resource_type)?;
+        validate_nonempty("action", &grant.action)?;
+        validate_nonempty("owner_id", &grant.owner_id)?;
+        validate_nonempty_values("branch_scope_ids", &grant.branch_scope_ids)?;
+        validate_nonempty_values("queue_scope_ids", &grant.queue_scope_ids)?;
+        validate_nonempty_values("resource_scope_ids", &grant.resource_scope_ids)?;
+        validate_nonempty_values("readable_fields", &grant.readable_fields)?;
+        validate_nonempty_values("writable_fields", &grant.writable_fields)?;
+        let effect = AuthorizationPolicyEffect::try_from(grant.effect)
+            .map_err(|_| AuthorizationArtifactError::InvalidPolicyEffect(grant.effect))?;
+        if effect == AuthorizationPolicyEffect::Unspecified {
+            return Err(AuthorizationArtifactError::InvalidPolicyEffect(
+                grant.effect,
+            ));
+        }
+    }
+    for pair in bundle.resource_catalog.windows(2) {
+        let left = (
+            &pair[0].owner_id,
+            &pair[0].resource_type,
+            &pair[0].action,
+            &pair[0].capability,
+        );
+        let right = (
+            &pair[1].owner_id,
+            &pair[1].resource_type,
+            &pair[1].action,
+            &pair[1].capability,
+        );
+        if left == right {
+            return Err(AuthorizationArtifactError::InvalidField(
+                "duplicate resource catalog entry",
+            ));
+        }
+    }
+    for definition in &bundle.resource_catalog {
+        validate_nonempty("owner_id", &definition.owner_id)?;
+        validate_nonempty("manifest_version", &definition.manifest_version)?;
+        if definition.manifest_digest.len() != 32 {
+            return Err(AuthorizationArtifactError::InvalidField("manifest_digest"));
+        }
+        validate_nonempty("resource_type", &definition.resource_type)?;
+        validate_nonempty("action", &definition.action)?;
+        validate_nonempty("capability", &definition.capability)?;
+        validate_nonempty_values("supported_scope_types", &definition.supported_scope_types)?;
+        validate_nonempty_values("readable_fields", &definition.readable_fields)?;
+        validate_nonempty_values("writable_fields", &definition.writable_fields)?;
+    }
+    for grant in &bundle.resource_grants {
+        let supported = bundle.resource_catalog.iter().any(|definition| {
+            definition.owner_id == grant.owner_id
+                && definition.resource_type == grant.resource_type
+                && definition.action == grant.action
+                && grant.required_capabilities.contains(&definition.capability)
+        });
+        if !supported {
+            return Err(AuthorizationArtifactError::InvalidField(
+                "resource grant catalog binding",
             ));
         }
     }
@@ -469,6 +603,9 @@ mod tests {
                     priority: 100,
                 },
             ],
+            catalog_version: 0,
+            resource_grants: Vec::new(),
+            resource_catalog: Vec::new(),
             actor_revoke_epochs: vec![
                 ActorRevokeEpoch {
                     actor_id: "actor-z".into(),

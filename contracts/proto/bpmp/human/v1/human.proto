@@ -11,6 +11,21 @@ service HumanRuntimeService {
   rpc DelegateWorkItem(DelegateWorkItemRequest) returns (DelegateWorkItemResponse);
   rpc GetCase(GetCaseRequest) returns (GetCaseResponse);
   rpc ListAuditRecords(ListAuditRecordsRequest) returns (ListAuditRecordsResponse);
+  rpc ListAssignmentGroups(ListAssignmentGroupsRequest) returns (ListAssignmentGroupsResponse);
+}
+
+message ListAssignmentGroupsRequest {
+  string tenant_id = 1;
+  bpmp.authorization.v1.ActorProof actor_proof = 2;
+}
+
+message AssignmentGroup {
+  string group_id = 1;
+  uint64 policy_count = 2;
+}
+
+message ListAssignmentGroupsResponse {
+  repeated AssignmentGroup groups = 1;
 }
 
 message GetWorkItemRequest {

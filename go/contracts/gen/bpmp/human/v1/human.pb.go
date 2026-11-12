@@ -22,6 +22,154 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type ListAssignmentGroupsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TenantId      string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	ActorProof    *v1.ActorProof         `protobuf:"bytes,2,opt,name=actor_proof,json=actorProof,proto3" json:"actor_proof,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListAssignmentGroupsRequest) Reset() {
+	*x = ListAssignmentGroupsRequest{}
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListAssignmentGroupsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListAssignmentGroupsRequest) ProtoMessage() {}
+
+func (x *ListAssignmentGroupsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListAssignmentGroupsRequest.ProtoReflect.Descriptor instead.
+func (*ListAssignmentGroupsRequest) Descriptor() ([]byte, []int) {
+	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *ListAssignmentGroupsRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *ListAssignmentGroupsRequest) GetActorProof() *v1.ActorProof {
+	if x != nil {
+		return x.ActorProof
+	}
+	return nil
+}
+
+type AssignmentGroup struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	GroupId       string                 `protobuf:"bytes,1,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`
+	PolicyCount   uint64                 `protobuf:"varint,2,opt,name=policy_count,json=policyCount,proto3" json:"policy_count,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AssignmentGroup) Reset() {
+	*x = AssignmentGroup{}
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AssignmentGroup) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AssignmentGroup) ProtoMessage() {}
+
+func (x *AssignmentGroup) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AssignmentGroup.ProtoReflect.Descriptor instead.
+func (*AssignmentGroup) Descriptor() ([]byte, []int) {
+	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *AssignmentGroup) GetGroupId() string {
+	if x != nil {
+		return x.GroupId
+	}
+	return ""
+}
+
+func (x *AssignmentGroup) GetPolicyCount() uint64 {
+	if x != nil {
+		return x.PolicyCount
+	}
+	return 0
+}
+
+type ListAssignmentGroupsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Groups        []*AssignmentGroup     `protobuf:"bytes,1,rep,name=groups,proto3" json:"groups,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListAssignmentGroupsResponse) Reset() {
+	*x = ListAssignmentGroupsResponse{}
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListAssignmentGroupsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListAssignmentGroupsResponse) ProtoMessage() {}
+
+func (x *ListAssignmentGroupsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListAssignmentGroupsResponse.ProtoReflect.Descriptor instead.
+func (*ListAssignmentGroupsResponse) Descriptor() ([]byte, []int) {
+	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ListAssignmentGroupsResponse) GetGroups() []*AssignmentGroup {
+	if x != nil {
+		return x.Groups
+	}
+	return nil
+}
+
 type GetWorkItemRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	TenantId      string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
@@ -33,7 +181,7 @@ type GetWorkItemRequest struct {
 
 func (x *GetWorkItemRequest) Reset() {
 	*x = GetWorkItemRequest{}
-	mi := &file_bpmp_human_v1_human_proto_msgTypes[0]
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -45,7 +193,7 @@ func (x *GetWorkItemRequest) String() string {
 func (*GetWorkItemRequest) ProtoMessage() {}
 
 func (x *GetWorkItemRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_human_v1_human_proto_msgTypes[0]
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -58,7 +206,7 @@ func (x *GetWorkItemRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetWorkItemRequest.ProtoReflect.Descriptor instead.
 func (*GetWorkItemRequest) Descriptor() ([]byte, []int) {
-	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{0}
+	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *GetWorkItemRequest) GetTenantId() string {
@@ -91,7 +239,7 @@ type GetWorkItemResponse struct {
 
 func (x *GetWorkItemResponse) Reset() {
 	*x = GetWorkItemResponse{}
-	mi := &file_bpmp_human_v1_human_proto_msgTypes[1]
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -103,7 +251,7 @@ func (x *GetWorkItemResponse) String() string {
 func (*GetWorkItemResponse) ProtoMessage() {}
 
 func (x *GetWorkItemResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_human_v1_human_proto_msgTypes[1]
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -116,7 +264,7 @@ func (x *GetWorkItemResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetWorkItemResponse.ProtoReflect.Descriptor instead.
 func (*GetWorkItemResponse) Descriptor() ([]byte, []int) {
-	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{1}
+	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *GetWorkItemResponse) GetWorkItem() *WorkItem {
@@ -138,7 +286,7 @@ type ListWorkItemsRequest struct {
 
 func (x *ListWorkItemsRequest) Reset() {
 	*x = ListWorkItemsRequest{}
-	mi := &file_bpmp_human_v1_human_proto_msgTypes[2]
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -150,7 +298,7 @@ func (x *ListWorkItemsRequest) String() string {
 func (*ListWorkItemsRequest) ProtoMessage() {}
 
 func (x *ListWorkItemsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_human_v1_human_proto_msgTypes[2]
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -163,7 +311,7 @@ func (x *ListWorkItemsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListWorkItemsRequest.ProtoReflect.Descriptor instead.
 func (*ListWorkItemsRequest) Descriptor() ([]byte, []int) {
-	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{2}
+	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ListWorkItemsRequest) GetTenantId() string {
@@ -204,7 +352,7 @@ type ListWorkItemsResponse struct {
 
 func (x *ListWorkItemsResponse) Reset() {
 	*x = ListWorkItemsResponse{}
-	mi := &file_bpmp_human_v1_human_proto_msgTypes[3]
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -216,7 +364,7 @@ func (x *ListWorkItemsResponse) String() string {
 func (*ListWorkItemsResponse) ProtoMessage() {}
 
 func (x *ListWorkItemsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_human_v1_human_proto_msgTypes[3]
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -229,7 +377,7 @@ func (x *ListWorkItemsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListWorkItemsResponse.ProtoReflect.Descriptor instead.
 func (*ListWorkItemsResponse) Descriptor() ([]byte, []int) {
-	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{3}
+	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ListWorkItemsResponse) GetWorkItems() []*WorkItem {
@@ -262,7 +410,7 @@ type CompleteWorkItemRequest struct {
 
 func (x *CompleteWorkItemRequest) Reset() {
 	*x = CompleteWorkItemRequest{}
-	mi := &file_bpmp_human_v1_human_proto_msgTypes[4]
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -274,7 +422,7 @@ func (x *CompleteWorkItemRequest) String() string {
 func (*CompleteWorkItemRequest) ProtoMessage() {}
 
 func (x *CompleteWorkItemRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_human_v1_human_proto_msgTypes[4]
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -287,7 +435,7 @@ func (x *CompleteWorkItemRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompleteWorkItemRequest.ProtoReflect.Descriptor instead.
 func (*CompleteWorkItemRequest) Descriptor() ([]byte, []int) {
-	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{4}
+	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *CompleteWorkItemRequest) GetTenantId() string {
@@ -363,7 +511,7 @@ type DelegateWorkItemRequest struct {
 
 func (x *DelegateWorkItemRequest) Reset() {
 	*x = DelegateWorkItemRequest{}
-	mi := &file_bpmp_human_v1_human_proto_msgTypes[5]
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -375,7 +523,7 @@ func (x *DelegateWorkItemRequest) String() string {
 func (*DelegateWorkItemRequest) ProtoMessage() {}
 
 func (x *DelegateWorkItemRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_human_v1_human_proto_msgTypes[5]
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -388,7 +536,7 @@ func (x *DelegateWorkItemRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DelegateWorkItemRequest.ProtoReflect.Descriptor instead.
 func (*DelegateWorkItemRequest) Descriptor() ([]byte, []int) {
-	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{5}
+	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *DelegateWorkItemRequest) GetTenantId() string {
@@ -464,7 +612,7 @@ type CompleteWorkItemResponse struct {
 
 func (x *CompleteWorkItemResponse) Reset() {
 	*x = CompleteWorkItemResponse{}
-	mi := &file_bpmp_human_v1_human_proto_msgTypes[6]
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -476,7 +624,7 @@ func (x *CompleteWorkItemResponse) String() string {
 func (*CompleteWorkItemResponse) ProtoMessage() {}
 
 func (x *CompleteWorkItemResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_human_v1_human_proto_msgTypes[6]
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -489,7 +637,7 @@ func (x *CompleteWorkItemResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompleteWorkItemResponse.ProtoReflect.Descriptor instead.
 func (*CompleteWorkItemResponse) Descriptor() ([]byte, []int) {
-	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{6}
+	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *CompleteWorkItemResponse) GetCommandId() string {
@@ -516,7 +664,7 @@ type DelegateWorkItemResponse struct {
 
 func (x *DelegateWorkItemResponse) Reset() {
 	*x = DelegateWorkItemResponse{}
-	mi := &file_bpmp_human_v1_human_proto_msgTypes[7]
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -528,7 +676,7 @@ func (x *DelegateWorkItemResponse) String() string {
 func (*DelegateWorkItemResponse) ProtoMessage() {}
 
 func (x *DelegateWorkItemResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_human_v1_human_proto_msgTypes[7]
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -541,7 +689,7 @@ func (x *DelegateWorkItemResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DelegateWorkItemResponse.ProtoReflect.Descriptor instead.
 func (*DelegateWorkItemResponse) Descriptor() ([]byte, []int) {
-	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{7}
+	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *DelegateWorkItemResponse) GetCommandId() string {
@@ -581,7 +729,7 @@ type WorkItem struct {
 
 func (x *WorkItem) Reset() {
 	*x = WorkItem{}
-	mi := &file_bpmp_human_v1_human_proto_msgTypes[8]
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -593,7 +741,7 @@ func (x *WorkItem) String() string {
 func (*WorkItem) ProtoMessage() {}
 
 func (x *WorkItem) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_human_v1_human_proto_msgTypes[8]
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -606,7 +754,7 @@ func (x *WorkItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkItem.ProtoReflect.Descriptor instead.
 func (*WorkItem) Descriptor() ([]byte, []int) {
-	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{8}
+	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *WorkItem) GetTenantId() string {
@@ -725,7 +873,7 @@ type GetCaseRequest struct {
 
 func (x *GetCaseRequest) Reset() {
 	*x = GetCaseRequest{}
-	mi := &file_bpmp_human_v1_human_proto_msgTypes[9]
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -737,7 +885,7 @@ func (x *GetCaseRequest) String() string {
 func (*GetCaseRequest) ProtoMessage() {}
 
 func (x *GetCaseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_human_v1_human_proto_msgTypes[9]
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -750,7 +898,7 @@ func (x *GetCaseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetCaseRequest.ProtoReflect.Descriptor instead.
 func (*GetCaseRequest) Descriptor() ([]byte, []int) {
-	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{9}
+	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *GetCaseRequest) GetTenantId() string {
@@ -783,7 +931,7 @@ type GetCaseResponse struct {
 
 func (x *GetCaseResponse) Reset() {
 	*x = GetCaseResponse{}
-	mi := &file_bpmp_human_v1_human_proto_msgTypes[10]
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -795,7 +943,7 @@ func (x *GetCaseResponse) String() string {
 func (*GetCaseResponse) ProtoMessage() {}
 
 func (x *GetCaseResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_human_v1_human_proto_msgTypes[10]
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -808,7 +956,7 @@ func (x *GetCaseResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetCaseResponse.ProtoReflect.Descriptor instead.
 func (*GetCaseResponse) Descriptor() ([]byte, []int) {
-	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{10}
+	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *GetCaseResponse) GetCase() *CaseView {
@@ -830,7 +978,7 @@ type CasePlanItem struct {
 
 func (x *CasePlanItem) Reset() {
 	*x = CasePlanItem{}
-	mi := &file_bpmp_human_v1_human_proto_msgTypes[11]
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -842,7 +990,7 @@ func (x *CasePlanItem) String() string {
 func (*CasePlanItem) ProtoMessage() {}
 
 func (x *CasePlanItem) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_human_v1_human_proto_msgTypes[11]
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -855,7 +1003,7 @@ func (x *CasePlanItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CasePlanItem.ProtoReflect.Descriptor instead.
 func (*CasePlanItem) Descriptor() ([]byte, []int) {
-	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{11}
+	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *CasePlanItem) GetPlanItemId() string {
@@ -900,7 +1048,7 @@ type CaseView struct {
 
 func (x *CaseView) Reset() {
 	*x = CaseView{}
-	mi := &file_bpmp_human_v1_human_proto_msgTypes[12]
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -912,7 +1060,7 @@ func (x *CaseView) String() string {
 func (*CaseView) ProtoMessage() {}
 
 func (x *CaseView) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_human_v1_human_proto_msgTypes[12]
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -925,7 +1073,7 @@ func (x *CaseView) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CaseView.ProtoReflect.Descriptor instead.
 func (*CaseView) Descriptor() ([]byte, []int) {
-	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{12}
+	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *CaseView) GetTenantId() string {
@@ -984,7 +1132,7 @@ type ListAuditRecordsRequest struct {
 
 func (x *ListAuditRecordsRequest) Reset() {
 	*x = ListAuditRecordsRequest{}
-	mi := &file_bpmp_human_v1_human_proto_msgTypes[13]
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -996,7 +1144,7 @@ func (x *ListAuditRecordsRequest) String() string {
 func (*ListAuditRecordsRequest) ProtoMessage() {}
 
 func (x *ListAuditRecordsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_human_v1_human_proto_msgTypes[13]
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1009,7 +1157,7 @@ func (x *ListAuditRecordsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAuditRecordsRequest.ProtoReflect.Descriptor instead.
 func (*ListAuditRecordsRequest) Descriptor() ([]byte, []int) {
-	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{13}
+	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ListAuditRecordsRequest) GetTenantId() string {
@@ -1064,7 +1212,7 @@ type ListAuditRecordsResponse struct {
 
 func (x *ListAuditRecordsResponse) Reset() {
 	*x = ListAuditRecordsResponse{}
-	mi := &file_bpmp_human_v1_human_proto_msgTypes[14]
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1076,7 +1224,7 @@ func (x *ListAuditRecordsResponse) String() string {
 func (*ListAuditRecordsResponse) ProtoMessage() {}
 
 func (x *ListAuditRecordsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_human_v1_human_proto_msgTypes[14]
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1089,7 +1237,7 @@ func (x *ListAuditRecordsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAuditRecordsResponse.ProtoReflect.Descriptor instead.
 func (*ListAuditRecordsResponse) Descriptor() ([]byte, []int) {
-	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{14}
+	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ListAuditRecordsResponse) GetRecords() []*AuditRecord {
@@ -1125,7 +1273,7 @@ type AuditRecord struct {
 
 func (x *AuditRecord) Reset() {
 	*x = AuditRecord{}
-	mi := &file_bpmp_human_v1_human_proto_msgTypes[15]
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1137,7 +1285,7 @@ func (x *AuditRecord) String() string {
 func (*AuditRecord) ProtoMessage() {}
 
 func (x *AuditRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_human_v1_human_proto_msgTypes[15]
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1150,7 +1298,7 @@ func (x *AuditRecord) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AuditRecord.ProtoReflect.Descriptor instead.
 func (*AuditRecord) Descriptor() ([]byte, []int) {
-	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{15}
+	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *AuditRecord) GetAuditId() string {
@@ -1234,7 +1382,16 @@ var File_bpmp_human_v1_human_proto protoreflect.FileDescriptor
 
 const file_bpmp_human_v1_human_proto_rawDesc = "" +
 	"\n" +
-	"\x19bpmp/human/v1/human.proto\x12\rbpmp.human.v1\x1a)bpmp/authorization/v1/authorization.proto\"\x97\x01\n" +
+	"\x19bpmp/human/v1/human.proto\x12\rbpmp.human.v1\x1a)bpmp/authorization/v1/authorization.proto\"~\n" +
+	"\x1bListAssignmentGroupsRequest\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12B\n" +
+	"\vactor_proof\x18\x02 \x01(\v2!.bpmp.authorization.v1.ActorProofR\n" +
+	"actorProof\"O\n" +
+	"\x0fAssignmentGroup\x12\x19\n" +
+	"\bgroup_id\x18\x01 \x01(\tR\agroupId\x12!\n" +
+	"\fpolicy_count\x18\x02 \x01(\x04R\vpolicyCount\"V\n" +
+	"\x1cListAssignmentGroupsResponse\x126\n" +
+	"\x06groups\x18\x01 \x03(\v2\x1e.bpmp.human.v1.AssignmentGroupR\x06groups\"\x97\x01\n" +
 	"\x12GetWorkItemRequest\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12 \n" +
 	"\fwork_item_id\x18\x02 \x01(\tR\n" +
@@ -1357,14 +1514,15 @@ const file_bpmp_human_v1_human_proto_rawDesc = "" +
 	"\n" +
 	"to_version\x18\n" +
 	" \x01(\x03R\ttoVersion\x12!\n" +
-	"\fdetails_json\x18\v \x01(\fR\vdetailsJson2\xc0\x04\n" +
+	"\fdetails_json\x18\v \x01(\fR\vdetailsJson2\xb1\x05\n" +
 	"\x13HumanRuntimeService\x12T\n" +
 	"\vGetWorkItem\x12!.bpmp.human.v1.GetWorkItemRequest\x1a\".bpmp.human.v1.GetWorkItemResponse\x12Z\n" +
 	"\rListWorkItems\x12#.bpmp.human.v1.ListWorkItemsRequest\x1a$.bpmp.human.v1.ListWorkItemsResponse\x12c\n" +
 	"\x10CompleteWorkItem\x12&.bpmp.human.v1.CompleteWorkItemRequest\x1a'.bpmp.human.v1.CompleteWorkItemResponse\x12c\n" +
 	"\x10DelegateWorkItem\x12&.bpmp.human.v1.DelegateWorkItemRequest\x1a'.bpmp.human.v1.DelegateWorkItemResponse\x12H\n" +
 	"\aGetCase\x12\x1d.bpmp.human.v1.GetCaseRequest\x1a\x1e.bpmp.human.v1.GetCaseResponse\x12c\n" +
-	"\x10ListAuditRecords\x12&.bpmp.human.v1.ListAuditRecordsRequest\x1a'.bpmp.human.v1.ListAuditRecordsResponseB\xc2\x01\n" +
+	"\x10ListAuditRecords\x12&.bpmp.human.v1.ListAuditRecordsRequest\x1a'.bpmp.human.v1.ListAuditRecordsResponse\x12o\n" +
+	"\x14ListAssignmentGroups\x12*.bpmp.human.v1.ListAssignmentGroupsRequest\x1a+.bpmp.human.v1.ListAssignmentGroupsResponseB\xc2\x01\n" +
 	"\x11com.bpmp.human.v1B\n" +
 	"HumanProtoP\x01ZKgithub.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/human/v1;humanv1\xa2\x02\x03BHX\xaa\x02\rBpmp.Human.V1\xca\x02\rBpmp\\Human\\V1\xe2\x02\x19Bpmp\\Human\\V1\\GPBMetadata\xea\x02\x0fBpmp::Human::V1b\x06proto3"
 
@@ -1380,55 +1538,62 @@ func file_bpmp_human_v1_human_proto_rawDescGZIP() []byte {
 	return file_bpmp_human_v1_human_proto_rawDescData
 }
 
-var file_bpmp_human_v1_human_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_bpmp_human_v1_human_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_bpmp_human_v1_human_proto_goTypes = []any{
-	(*GetWorkItemRequest)(nil),       // 0: bpmp.human.v1.GetWorkItemRequest
-	(*GetWorkItemResponse)(nil),      // 1: bpmp.human.v1.GetWorkItemResponse
-	(*ListWorkItemsRequest)(nil),     // 2: bpmp.human.v1.ListWorkItemsRequest
-	(*ListWorkItemsResponse)(nil),    // 3: bpmp.human.v1.ListWorkItemsResponse
-	(*CompleteWorkItemRequest)(nil),  // 4: bpmp.human.v1.CompleteWorkItemRequest
-	(*DelegateWorkItemRequest)(nil),  // 5: bpmp.human.v1.DelegateWorkItemRequest
-	(*CompleteWorkItemResponse)(nil), // 6: bpmp.human.v1.CompleteWorkItemResponse
-	(*DelegateWorkItemResponse)(nil), // 7: bpmp.human.v1.DelegateWorkItemResponse
-	(*WorkItem)(nil),                 // 8: bpmp.human.v1.WorkItem
-	(*GetCaseRequest)(nil),           // 9: bpmp.human.v1.GetCaseRequest
-	(*GetCaseResponse)(nil),          // 10: bpmp.human.v1.GetCaseResponse
-	(*CasePlanItem)(nil),             // 11: bpmp.human.v1.CasePlanItem
-	(*CaseView)(nil),                 // 12: bpmp.human.v1.CaseView
-	(*ListAuditRecordsRequest)(nil),  // 13: bpmp.human.v1.ListAuditRecordsRequest
-	(*ListAuditRecordsResponse)(nil), // 14: bpmp.human.v1.ListAuditRecordsResponse
-	(*AuditRecord)(nil),              // 15: bpmp.human.v1.AuditRecord
-	(*v1.ActorProof)(nil),            // 16: bpmp.authorization.v1.ActorProof
+	(*ListAssignmentGroupsRequest)(nil),  // 0: bpmp.human.v1.ListAssignmentGroupsRequest
+	(*AssignmentGroup)(nil),              // 1: bpmp.human.v1.AssignmentGroup
+	(*ListAssignmentGroupsResponse)(nil), // 2: bpmp.human.v1.ListAssignmentGroupsResponse
+	(*GetWorkItemRequest)(nil),           // 3: bpmp.human.v1.GetWorkItemRequest
+	(*GetWorkItemResponse)(nil),          // 4: bpmp.human.v1.GetWorkItemResponse
+	(*ListWorkItemsRequest)(nil),         // 5: bpmp.human.v1.ListWorkItemsRequest
+	(*ListWorkItemsResponse)(nil),        // 6: bpmp.human.v1.ListWorkItemsResponse
+	(*CompleteWorkItemRequest)(nil),      // 7: bpmp.human.v1.CompleteWorkItemRequest
+	(*DelegateWorkItemRequest)(nil),      // 8: bpmp.human.v1.DelegateWorkItemRequest
+	(*CompleteWorkItemResponse)(nil),     // 9: bpmp.human.v1.CompleteWorkItemResponse
+	(*DelegateWorkItemResponse)(nil),     // 10: bpmp.human.v1.DelegateWorkItemResponse
+	(*WorkItem)(nil),                     // 11: bpmp.human.v1.WorkItem
+	(*GetCaseRequest)(nil),               // 12: bpmp.human.v1.GetCaseRequest
+	(*GetCaseResponse)(nil),              // 13: bpmp.human.v1.GetCaseResponse
+	(*CasePlanItem)(nil),                 // 14: bpmp.human.v1.CasePlanItem
+	(*CaseView)(nil),                     // 15: bpmp.human.v1.CaseView
+	(*ListAuditRecordsRequest)(nil),      // 16: bpmp.human.v1.ListAuditRecordsRequest
+	(*ListAuditRecordsResponse)(nil),     // 17: bpmp.human.v1.ListAuditRecordsResponse
+	(*AuditRecord)(nil),                  // 18: bpmp.human.v1.AuditRecord
+	(*v1.ActorProof)(nil),                // 19: bpmp.authorization.v1.ActorProof
 }
 var file_bpmp_human_v1_human_proto_depIdxs = []int32{
-	16, // 0: bpmp.human.v1.GetWorkItemRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
-	8,  // 1: bpmp.human.v1.GetWorkItemResponse.work_item:type_name -> bpmp.human.v1.WorkItem
-	16, // 2: bpmp.human.v1.ListWorkItemsRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
-	8,  // 3: bpmp.human.v1.ListWorkItemsResponse.work_items:type_name -> bpmp.human.v1.WorkItem
-	16, // 4: bpmp.human.v1.CompleteWorkItemRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
-	16, // 5: bpmp.human.v1.DelegateWorkItemRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
-	16, // 6: bpmp.human.v1.GetCaseRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
-	12, // 7: bpmp.human.v1.GetCaseResponse.case:type_name -> bpmp.human.v1.CaseView
-	11, // 8: bpmp.human.v1.CaseView.plan_items:type_name -> bpmp.human.v1.CasePlanItem
-	16, // 9: bpmp.human.v1.ListAuditRecordsRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
-	15, // 10: bpmp.human.v1.ListAuditRecordsResponse.records:type_name -> bpmp.human.v1.AuditRecord
-	0,  // 11: bpmp.human.v1.HumanRuntimeService.GetWorkItem:input_type -> bpmp.human.v1.GetWorkItemRequest
-	2,  // 12: bpmp.human.v1.HumanRuntimeService.ListWorkItems:input_type -> bpmp.human.v1.ListWorkItemsRequest
-	4,  // 13: bpmp.human.v1.HumanRuntimeService.CompleteWorkItem:input_type -> bpmp.human.v1.CompleteWorkItemRequest
-	5,  // 14: bpmp.human.v1.HumanRuntimeService.DelegateWorkItem:input_type -> bpmp.human.v1.DelegateWorkItemRequest
-	9,  // 15: bpmp.human.v1.HumanRuntimeService.GetCase:input_type -> bpmp.human.v1.GetCaseRequest
-	13, // 16: bpmp.human.v1.HumanRuntimeService.ListAuditRecords:input_type -> bpmp.human.v1.ListAuditRecordsRequest
-	1,  // 17: bpmp.human.v1.HumanRuntimeService.GetWorkItem:output_type -> bpmp.human.v1.GetWorkItemResponse
-	3,  // 18: bpmp.human.v1.HumanRuntimeService.ListWorkItems:output_type -> bpmp.human.v1.ListWorkItemsResponse
-	6,  // 19: bpmp.human.v1.HumanRuntimeService.CompleteWorkItem:output_type -> bpmp.human.v1.CompleteWorkItemResponse
-	7,  // 20: bpmp.human.v1.HumanRuntimeService.DelegateWorkItem:output_type -> bpmp.human.v1.DelegateWorkItemResponse
-	10, // 21: bpmp.human.v1.HumanRuntimeService.GetCase:output_type -> bpmp.human.v1.GetCaseResponse
-	14, // 22: bpmp.human.v1.HumanRuntimeService.ListAuditRecords:output_type -> bpmp.human.v1.ListAuditRecordsResponse
-	17, // [17:23] is the sub-list for method output_type
-	11, // [11:17] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	19, // 0: bpmp.human.v1.ListAssignmentGroupsRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	1,  // 1: bpmp.human.v1.ListAssignmentGroupsResponse.groups:type_name -> bpmp.human.v1.AssignmentGroup
+	19, // 2: bpmp.human.v1.GetWorkItemRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	11, // 3: bpmp.human.v1.GetWorkItemResponse.work_item:type_name -> bpmp.human.v1.WorkItem
+	19, // 4: bpmp.human.v1.ListWorkItemsRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	11, // 5: bpmp.human.v1.ListWorkItemsResponse.work_items:type_name -> bpmp.human.v1.WorkItem
+	19, // 6: bpmp.human.v1.CompleteWorkItemRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	19, // 7: bpmp.human.v1.DelegateWorkItemRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	19, // 8: bpmp.human.v1.GetCaseRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	15, // 9: bpmp.human.v1.GetCaseResponse.case:type_name -> bpmp.human.v1.CaseView
+	14, // 10: bpmp.human.v1.CaseView.plan_items:type_name -> bpmp.human.v1.CasePlanItem
+	19, // 11: bpmp.human.v1.ListAuditRecordsRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	18, // 12: bpmp.human.v1.ListAuditRecordsResponse.records:type_name -> bpmp.human.v1.AuditRecord
+	3,  // 13: bpmp.human.v1.HumanRuntimeService.GetWorkItem:input_type -> bpmp.human.v1.GetWorkItemRequest
+	5,  // 14: bpmp.human.v1.HumanRuntimeService.ListWorkItems:input_type -> bpmp.human.v1.ListWorkItemsRequest
+	7,  // 15: bpmp.human.v1.HumanRuntimeService.CompleteWorkItem:input_type -> bpmp.human.v1.CompleteWorkItemRequest
+	8,  // 16: bpmp.human.v1.HumanRuntimeService.DelegateWorkItem:input_type -> bpmp.human.v1.DelegateWorkItemRequest
+	12, // 17: bpmp.human.v1.HumanRuntimeService.GetCase:input_type -> bpmp.human.v1.GetCaseRequest
+	16, // 18: bpmp.human.v1.HumanRuntimeService.ListAuditRecords:input_type -> bpmp.human.v1.ListAuditRecordsRequest
+	0,  // 19: bpmp.human.v1.HumanRuntimeService.ListAssignmentGroups:input_type -> bpmp.human.v1.ListAssignmentGroupsRequest
+	4,  // 20: bpmp.human.v1.HumanRuntimeService.GetWorkItem:output_type -> bpmp.human.v1.GetWorkItemResponse
+	6,  // 21: bpmp.human.v1.HumanRuntimeService.ListWorkItems:output_type -> bpmp.human.v1.ListWorkItemsResponse
+	9,  // 22: bpmp.human.v1.HumanRuntimeService.CompleteWorkItem:output_type -> bpmp.human.v1.CompleteWorkItemResponse
+	10, // 23: bpmp.human.v1.HumanRuntimeService.DelegateWorkItem:output_type -> bpmp.human.v1.DelegateWorkItemResponse
+	13, // 24: bpmp.human.v1.HumanRuntimeService.GetCase:output_type -> bpmp.human.v1.GetCaseResponse
+	17, // 25: bpmp.human.v1.HumanRuntimeService.ListAuditRecords:output_type -> bpmp.human.v1.ListAuditRecordsResponse
+	2,  // 26: bpmp.human.v1.HumanRuntimeService.ListAssignmentGroups:output_type -> bpmp.human.v1.ListAssignmentGroupsResponse
+	20, // [20:27] is the sub-list for method output_type
+	13, // [13:20] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_bpmp_human_v1_human_proto_init() }
@@ -1442,7 +1607,7 @@ func file_bpmp_human_v1_human_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bpmp_human_v1_human_proto_rawDesc), len(file_bpmp_human_v1_human_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   16,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

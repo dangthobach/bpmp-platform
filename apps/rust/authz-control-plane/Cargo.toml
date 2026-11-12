@@ -24,6 +24,7 @@ authz-db     = { path = "crates/authz-db" }
 authz-engine = { path = "crates/authz-engine" }
 authz-sdk    = { path = "crates/authz-sdk" }
 authz-http-middleware = { path = "crates/authz-http-middleware" }
+bpmp-authz-contracts = { path = "../../../crates/bpmp-authz-contracts" }
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }

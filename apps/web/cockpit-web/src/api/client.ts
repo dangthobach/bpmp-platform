@@ -33,6 +33,18 @@ import type {
   QueryCapabilities,
   AggregateQueryInput, AggregatePage, EventQueryInput, EventPage, SavedQuery, SavedQueryPage, QueryExport, QueryPlan,
 } from "./types";
+import {
+  authorizationCatalogEntrySchema,
+  authorizationCatalogVersionSchema,
+  assignmentGroupSchema,
+  catalogAuditEntrySchema,
+  catalogAcknowledgementSchema,
+  catalogDraftResponseSchema,
+  catalogLifecycleResponseSchema,
+  type CatalogAuditEntry,
+  type AuthorizationCatalogEntry,
+  type AuthorizationCatalogVersion,
+} from "../features/access/types";
 
 export interface RequestIdentity {
   tenantId: string;
@@ -250,6 +262,90 @@ export class BpmpApiClient {
   async cancelQueryExport(id:string):Promise<QueryExport>{const raw=await this.request<unknown>(`/v1/query-exports/${encodeURIComponent(id)}`,{method:"DELETE"});const parsed=z.object({export:queryExportSchema}).safeParse(raw);if(!parsed.success)throw new ApiError("Invalid query export response",502,"");return parsed.data.export as QueryExport;}
   async explainQueryPlan(query:ProcessQueryInput,analyze=false):Promise<QueryPlan>{const parsed=queryPlanSchema.safeParse(await this.request<unknown>("/v1/ops/query-plan",{method:"POST",body:{query,analyze}}));if(!parsed.success)throw new ApiError("Invalid query plan response",502,"");return parsed.data;}
 
+  async listAuthorizationCatalogEntries(): Promise<AuthorizationCatalogEntry[]> {
+    const raw = await this.request<unknown>("/v1/access/catalog/entries");
+    const parsed = z.array(authorizationCatalogEntrySchema).safeParse(raw);
+    if (!parsed.success) throw new ApiError("Invalid authorization catalog entries", 502, "");
+    return parsed.data;
+  }
+
+  async listAuthorizationRoles(): Promise<Array<{ code: string; name: string }>> {
+    const parsed = z.array(z.object({ code: z.string().min(1), name: z.string().min(1) })).safeParse(
+      await this.request<unknown>("/v1/access/catalog/roles"),
+    );
+    if (!parsed.success) throw new ApiError("Invalid authorization role catalog", 502, "");
+    return parsed.data;
+  }
+
+  async listAuthorizationCatalogVersions(): Promise<AuthorizationCatalogVersion[]> {
+    const raw = await this.request<unknown>("/v1/access/catalog/versions");
+    const parsed = z.array(authorizationCatalogVersionSchema).safeParse(raw);
+    if (!parsed.success) throw new ApiError("Invalid authorization catalog versions", 502, "");
+    return parsed.data;
+  }
+
+  async listAuthorizationCatalogAudit(limit = 100): Promise<CatalogAuditEntry[]> {
+    const query = new URLSearchParams({ limit: String(Math.min(Math.max(limit, 1), 200)) });
+    const raw = await this.request<unknown>(`/v1/access/catalog/audit?${query.toString()}`);
+    const parsed = z.array(catalogAuditEntrySchema).safeParse(raw);
+    if (!parsed.success) throw new ApiError("Invalid authorization catalog audit response", 502, "");
+    return parsed.data;
+  }
+
+  async listAuthorizationCatalogAcknowledgements(catalogVersionId: string) {
+    const query = new URLSearchParams({ catalog_version_id: catalogVersionId, limit: "500" });
+    const raw = await this.request<unknown>(`/v1/access/catalog/acknowledgements?${query.toString()}`);
+    const parsed = z.array(catalogAcknowledgementSchema).safeParse(raw);
+    if (!parsed.success) throw new ApiError("Invalid authorization bundle acknowledgement response", 502, "");
+    return parsed.data;
+  }
+
+  async listAccessQueues() {
+    const raw = await this.request<unknown>("/v1/access/queues");
+    const parsed = z.object({ groups: z.array(assignmentGroupSchema) }).safeParse(raw);
+    if (!parsed.success) throw new ApiError("Invalid assignment group response", 502, "");
+    return parsed.data.groups;
+  }
+
+  async createAuthorizationCatalogDraft(snapshot: Record<string, unknown>, reason: string) {
+    const raw = await this.request<unknown>("/v1/access/catalog/versions", {
+      method: "POST", body: { snapshot, reason },
+    });
+    const parsed = catalogDraftResponseSchema.safeParse(raw);
+    if (!parsed.success) throw new ApiError("Invalid authorization draft response", 502, "");
+    return parsed.data;
+  }
+
+  async updateAuthorizationCatalogDraft(id: string, expectedDraftRevision: number, snapshot: Record<string, unknown>, reason: string) {
+    const raw = await this.request<unknown>(
+      `/v1/access/catalog/versions/${encodeURIComponent(id)}`,
+      { method: "PUT", body: { expected_draft_revision: expectedDraftRevision, snapshot, reason } },
+    );
+    const parsed = catalogDraftResponseSchema.safeParse(raw);
+    if (!parsed.success) throw new ApiError("Invalid authorization draft response", 502, "");
+    return parsed.data;
+  }
+
+  async validateAuthorizationCatalog(id: string) {
+    const raw = await this.request<unknown>(
+      `/v1/access/catalog/versions/${encodeURIComponent(id)}/validate`,
+      { method: "POST", body: {} },
+    );
+    const parsed = catalogLifecycleResponseSchema.safeParse(raw);
+    if (!parsed.success) throw new ApiError("Invalid authorization validation response", 502, "");
+    return parsed.data;
+  }
+
+  async publishAuthorizationCatalog(id: string, expectedVersionNum: number, reason: string) {
+    const raw = await this.request<unknown>(
+      `/v1/access/catalog/versions/${encodeURIComponent(id)}/publish`,
+      { method: "POST", body: { expected_version_num: expectedVersionNum, reason } },
+    );
+    const parsed = catalogLifecycleResponseSchema.safeParse(raw);
+    if (!parsed.success) throw new ApiError("Invalid authorization publication response", 502, "");
+    return parsed.data;
+  }
+
   listOrganizations(offset = 0, limit = this.config.defaultPageSize) {
     const query = new URLSearchParams({
       offset: String(offset),
@@ -443,7 +539,7 @@ export class BpmpApiClient {
   private async request<T>(
     path: string,
     options: {
-      method?: "GET" | "POST" | "DELETE";
+      method?: "GET" | "POST" | "PUT" | "DELETE";
       body?: unknown;
       idempotencyKey?: string;
     } = {},

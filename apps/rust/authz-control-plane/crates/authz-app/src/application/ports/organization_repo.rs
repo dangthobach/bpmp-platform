@@ -17,6 +17,25 @@ pub struct OrganizationListItem {
     pub version: i64,
 }
 
+/// Canonical branch ancestry returned by the organization owner.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BranchScope {
+    pub organization_id: Uuid,
+    pub organization_version: i64,
+    /// Ordered root-to-branch. Contains organization nodes, including the
+    /// branch itself, so consumers can evaluate descendant inheritance.
+    pub ancestry: Vec<Uuid>,
+}
+
+/// Current active branch leaves covered by each requested branch root.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BranchDescendants {
+    pub branch_id: Uuid,
+    pub organization_id: Uuid,
+    pub organization_version: i64,
+    pub descendant_branch_ids: Vec<Uuid>,
+}
+
 #[async_trait]
 pub trait OrganizationRepository: Send + Sync {
     /// Load aggregate fully (root + all descendants).
@@ -38,4 +57,19 @@ pub trait OrganizationRepository: Send + Sync {
         offset: i64,
         limit: i64,
     ) -> Result<Vec<OrganizationListItem>, AppError>;
+
+    /// Resolves an active branch and its canonical ancestry within a tenant.
+    async fn resolve_branch_scope(
+        &mut self,
+        tenant_id: Uuid,
+        branch_id: Uuid,
+    ) -> Result<BranchScope, AppError>;
+
+    /// Resolves current active branch descendants for a bounded batch.
+    async fn resolve_branch_descendants(
+        &mut self,
+        tenant_id: Uuid,
+        branch_ids: &[Uuid],
+        max_branches: usize,
+    ) -> Result<Vec<BranchDescendants>, AppError>;
 }

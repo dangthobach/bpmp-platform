@@ -862,6 +862,9 @@ mod tests {
                 command_id: command_id.clone(),
                 correlation_id: CorrelationId::new("correlation-1").unwrap(),
                 matched_grant_ids: vec!["allow-start".into()],
+                resource_branch_id: None,
+                resource_branch_ancestry: Vec::new(),
+                organization_version: 0,
                 encryption_key_scope: KeyScope::new("tenant-a/compliance-audit").unwrap(),
             },
             result: CommittedResult {

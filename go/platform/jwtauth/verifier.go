@@ -27,6 +27,7 @@ type Config struct {
 type Identity struct {
 	Subject      string
 	TenantID     string
+	Roles        []string
 	Capabilities []string
 	RevokeEpoch  uint64
 	IssuedAt     time.Time
@@ -34,6 +35,7 @@ type Identity struct {
 
 type claims struct {
 	TenantID     string   `json:"tenant_id"`
+	Roles        []string `json:"roles"`
 	Capabilities []string `json:"capabilities"`
 	RevokeEpoch  uint64   `json:"revoke_epoch"`
 	jwt.RegisteredClaims
@@ -117,6 +119,7 @@ func (v *Verifier) Verify(raw, tenantID string, now time.Time) (Identity, error)
 	}
 	return Identity{
 		Subject: value.Subject, TenantID: value.TenantID,
+		Roles:        append([]string(nil), value.Roles...),
 		Capabilities: append([]string(nil), value.Capabilities...),
 		RevokeEpoch:  value.RevokeEpoch,
 		IssuedAt: func() time.Time {

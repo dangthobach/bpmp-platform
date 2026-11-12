@@ -1337,3 +1337,66 @@ th:nth-child(4) {
     grid-template-columns: 1fr;
   }
 }
+
+.access-page { display: grid; gap: 16px; }
+.access-version-chip, .access-draft-footer > span, .access-published-note { display: inline-flex; align-items: center; gap: 8px; color: #456153; font-size: 12px; }
+.access-version-chip { padding: 9px 12px; border: 1px solid #cfe3d6; border-radius: 7px; background: #f0f8f3; white-space: nowrap; }
+.access-notice { padding: 10px 12px; border: 1px solid #b8dfca; border-radius: 6px; background: #eff9f3; color: #176b45; font-size: 13px; }
+.access-section { min-width: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); overflow: hidden; }
+.access-section__heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 18px; border-bottom: 1px solid var(--soft-line); }
+.access-section__heading > div { display: flex; align-items: flex-start; gap: 12px; }
+.access-heading-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+.access-section__heading h2 { font-size: 15px; }
+.access-section__heading p { margin-top: 4px; color: var(--muted); font-size: 12px; }
+.access-step { display: grid; width: 27px; height: 27px; flex: 0 0 27px; place-items: center; border-radius: 50%; background: var(--green-100); color: var(--green-700); font-size: 12px; font-weight: 700; }
+.access-count { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.access-table-wrap { width: 100%; overflow: auto; }
+.access-table { min-width: 820px; table-layout: auto; }
+.access-table th:first-child, .access-table td:first-child { width: auto; }
+.access-table th:nth-child(2), .access-table th:nth-child(3), .access-table th:nth-child(4) { width: auto; }
+.access-table th:last-child, .access-table td:last-child { width: 64px; text-align: center; }
+.access-table td strong, .access-table td small { display: block; }
+.access-table td small { margin-top: 4px; color: var(--muted); font-size: 11px; }
+.access-table td code { padding: 3px 5px; border-radius: 4px; background: #f1f4f2; font-size: 11px; }
+.access-table input[type="checkbox"], .access-policy-options input, .access-field-grants input { accent-color: var(--green-600); }
+.access-policy-list { display: grid; gap: 12px; padding: 16px; }
+.access-policy-card { padding: 14px; border: 1px solid var(--line); border-radius: 7px; background: #fcfdfc; }
+.access-scope-preview { margin-top: 12px; padding: 12px 14px; border-left: 3px solid var(--green-600); background: #f2f7f3; color: #46534a; font-size: 12px; }
+.access-scope-preview p { margin: 6px 0; }
+.access-scope-preview ul { display: flex; flex-wrap: wrap; gap: 4px 18px; max-height: 110px; overflow: auto; margin: 6px 0; padding-left: 18px; }
+.access-scope-preview small { display: block; margin-top: 8px; line-height: 1.5; }
+.access-policy-card__heading, .access-version-detail__top, .access-version-detail__top > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.access-policy-card__heading { margin-bottom: 12px; color: #303732; font-size: 13px; }
+.link-button { border: 0; background: transparent; color: var(--danger); font-size: 12px; cursor: pointer; }
+.access-form-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.access-form-grid label, .access-publish-row label { display: grid; gap: 6px; color: #536057; font-size: 11px; font-weight: 650; }
+.access-form-grid input, .access-form-grid select, .access-publish-row input { width: 100%; min-height: 35px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 5px; background: #fff; color: var(--ink); font-size: 12px; }
+.access-form-grid select[multiple] { min-height: 92px; }
+.access-form-grid small { color: var(--muted); font-size: 10px; font-weight: 400; }
+.access-form-grid .access-tenant-scope { grid-column: 1 / -1; gap: 5px; padding: 9px 10px; border: 1px solid var(--soft-line); border-radius: 5px; background: #f8fbf9; }
+.access-tenant-scope span { display: inline-flex; align-items: center; gap: 7px; color: #38483d; font-size: 11px; font-weight: 700; }
+.access-tenant-scope input[type="checkbox"] { width: auto; min-height: 0; margin: 0; }
+.access-policy-options { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 12px; }
+.access-policy-options label, .access-field-grants fieldset label { display: inline-flex; align-items: center; gap: 6px; color: #536057; font-size: 11px; }
+.access-field-grants { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
+.access-field-grants fieldset { display: flex; flex-wrap: wrap; gap: 10px 14px; min-width: 0; margin: 0; padding: 9px 11px; border: 1px solid var(--soft-line); border-radius: 5px; }
+.access-field-grants legend { padding: 0 4px; color: #536057; font-size: 11px; font-weight: 650; }
+.access-draft-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--soft-line); background: #fafcfb; }
+.access-lifecycle { display: grid; grid-template-columns: minmax(220px, .8fr) minmax(0, 1.5fr); min-height: 190px; }
+.access-version-list { border-right: 1px solid var(--soft-line); }
+.access-version-row { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 14px; border: 0; border-bottom: 1px solid var(--soft-line); background: #fff; text-align: left; cursor: pointer; }
+.access-version-row.is-selected { background: #eff8f2; }
+.access-version-row strong, .access-version-row small { display: block; }
+.access-version-row small { margin-top: 4px; color: var(--muted); font-size: 10px; }
+.access-version-detail { display: grid; align-content: start; gap: 14px; padding: 18px; }
+.access-version-detail__top > div { justify-content: flex-start; }
+.access-version-detail__top > span, .access-version-detail p { color: var(--muted); font-size: 12px; }
+.access-publish-row { display: flex; align-items: end; gap: 12px; }
+.access-publish-row label { flex: 1; }
+.access-published-note { padding: 10px; border: 1px solid #ead8a2; border-radius: 5px; background: #fff9e8; color: #785a10; }
+@media (max-width: 900px) { .access-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) {
+  .access-section__heading, .access-draft-footer, .access-publish-row { align-items: stretch; flex-direction: column; }
+  .access-form-grid, .access-field-grants, .access-lifecycle { grid-template-columns: 1fr; }
+  .access-version-list { border-right: 0; border-bottom: 1px solid var(--soft-line); }
+}

@@ -29,7 +29,8 @@ mod wir_loader;
 
 pub use application::{
     AuthorizationAudit, AuthorizedCommand, CommittedResult, EVENT_SCHEMA_VERSION, Engine,
-    EngineError, EventEnvelope, EventMetadata, HandleOutcome, SnapshotEnvelope,
+    EngineError, EventEnvelope, EventMetadata, HandleOutcome, ResolvedBranchScope,
+    SnapshotEnvelope, configured_branch_id,
 };
 pub use authorization::EmbeddedAuthorizationProvider;
 pub use boundary_runtime::{
@@ -75,7 +76,8 @@ pub use outbox::{
 pub use ports::{
     ActorProofKind, AuthorizationError, AuthorizationProviderPort, AuthorizationRequest,
     AuthorizedPrincipal, CommitOutcome, CommitRequest, ConfigurationLookup,
-    ConfigurationProviderPort, LoadedInstance, StoreError, WorkflowStorePort,
+    ConfigurationProviderPort, LoadedInstance, ResourceAuthorizationContext, StoreError,
+    WorkflowStorePort,
 };
 pub use remote_task::{
     RemoteTask, RemoteTaskClaim, RemoteTaskClaimRequest, RemoteTaskCompletionPort,
@@ -103,7 +105,8 @@ pub use runtime_registry::{
 };
 pub use snapshot_codec::{SNAPSHOT_SCHEMA_VERSION, SnapshotCodec, SnapshotCodecError};
 pub use transport::{
-    AuthoritativeCommandHandler, CommandDefinitionProviderPort, EngineCommandHandlerPort,
-    GrpcEngineCommandService, GrpcTransportConfig, SafePointCommandHandler, TransportError,
+    AuthoritativeCommandHandler, BranchScopeResolverPort, CommandDefinitionProviderPort,
+    EngineCommandHandlerPort, GrpcEngineCommandService, GrpcTransportConfig,
+    SafePointCommandHandler, TransportError,
 };
 pub use wir_loader::{WirLoadError, WirLoader};

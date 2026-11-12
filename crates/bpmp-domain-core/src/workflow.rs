@@ -1310,6 +1310,10 @@ pub enum DomainEvent {
         workflow_type: WorkflowType,
         workflow_version: WorkflowVersion,
         start_node_id: NodeId,
+        initial_variables: BTreeMap<String, WorkflowValue>,
+        resource_branch_id: Option<String>,
+        resource_branch_ancestry: Vec<String>,
+        organization_version: u64,
         occurred_at_epoch_ms: u64,
     },
     ServiceTaskActivated {
@@ -1463,6 +1467,12 @@ pub enum Lifecycle {
 pub struct InstanceState {
     pub lifecycle: Lifecycle,
     pub sequence: u64,
+    /// Immutable branch captured when the workflow instance starts.
+    pub resource_branch_id: Option<String>,
+    /// Root-to-leaf ancestry verified by the organization owner at start.
+    pub resource_branch_ancestry: Vec<String>,
+    /// Organization aggregate revision used to resolve this workflow scope.
+    pub organization_version: u64,
     pub variables: BTreeMap<String, WorkflowValue>,
     pub active_tokens: BTreeMap<NodeId, u32>,
     pub pending_gateway_joins: BTreeMap<NodeId, PendingGatewayJoin>,
@@ -1484,6 +1494,9 @@ impl Default for InstanceState {
         Self {
             lifecycle: Lifecycle::Initial,
             sequence: 0,
+            resource_branch_id: None,
+            resource_branch_ancestry: Vec::new(),
+            organization_version: 0,
             variables: BTreeMap::new(),
             active_tokens: BTreeMap::new(),
             pending_gateway_joins: BTreeMap::new(),
@@ -1564,6 +1577,10 @@ pub fn decide(
                 workflow_type: definition.workflow_type.clone(),
                 workflow_version: definition.workflow_version.clone(),
                 start_node_id: definition.start_node.clone(),
+                initial_variables: context.variables.clone(),
+                resource_branch_id: None,
+                resource_branch_ancestry: Vec::new(),
+                organization_version: 0,
                 occurred_at_epoch_ms: *occurred_at_epoch_ms,
             }];
             let mut variables = state_variables_with_context(state, context.variables);
@@ -3315,9 +3332,24 @@ pub fn evolve(mut state: InstanceState, event: &DomainEvent) -> InstanceState {
             }
             state.lifecycle.clone()
         }
-        DomainEvent::WorkflowStarted { start_node_id, .. } => Lifecycle::Active {
-            active_node: start_node_id.clone(),
-        },
+        DomainEvent::WorkflowStarted {
+            start_node_id,
+            initial_variables,
+            resource_branch_id,
+            resource_branch_ancestry,
+            organization_version,
+            ..
+        } => {
+            state.variables.extend(initial_variables.clone());
+            state.resource_branch_id.clone_from(resource_branch_id);
+            state
+                .resource_branch_ancestry
+                .clone_from(resource_branch_ancestry);
+            state.organization_version = *organization_version;
+            Lifecycle::Active {
+                active_node: start_node_id.clone(),
+            }
+        }
         DomainEvent::ServiceTaskActivated { node_id, .. }
         | DomainEvent::UserTaskActivated { node_id, .. }
         | DomainEvent::ScriptTaskActivated { node_id, .. } => {

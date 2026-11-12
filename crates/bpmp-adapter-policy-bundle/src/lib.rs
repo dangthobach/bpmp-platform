@@ -6,7 +6,10 @@ use bpmp_authz_contracts::{
     AuthorizationArtifactError, AuthorizationArtifactLimits, AuthorizationBundleCodec,
     AuthorizationKeyring, AuthorizationRevokeCodec,
 };
-use bpmp_authz_engine::{AuthorizationDecision, AuthorizationInput, RevocationSnapshot, evaluate};
+use bpmp_authz_engine::{
+    AuthorizationDecision, AuthorizationInput, ResourceAuthorizationDecision,
+    ResourceAuthorizationInput, RevocationSnapshot, evaluate, evaluate_resource,
+};
 use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -32,6 +35,29 @@ pub struct VerifiedAuthorizationStore {
 }
 
 impl VerifiedAuthorizationStore {
+    /// Returns the active tenant/actor revocation floor without evaluating a
+    /// resource policy. Command handlers can reject stale proofs before loading
+    /// protected resource data.
+    pub fn required_revoke_epoch(
+        &self,
+        tenant_id: &str,
+        actor_id: &str,
+    ) -> Result<u64, AuthorizationStoreError> {
+        let tenants = self
+            .tenants
+            .read()
+            .map_err(|_| AuthorizationStoreError::LockPoisoned)?;
+        let state = tenants
+            .get(tenant_id)
+            .ok_or_else(|| AuthorizationStoreError::MissingBundle(tenant_id.to_owned()))?;
+        let actor_epoch = state
+            .actor_revoke_floors
+            .get(actor_id)
+            .copied()
+            .unwrap_or(0);
+        Ok(state.tenant_revoke_floor.max(actor_epoch))
+    }
+
     pub const fn new(keyring: AuthorizationKeyring, limits: AuthorizationArtifactLimits) -> Self {
         Self {
             keyring,
@@ -50,7 +76,64 @@ impl VerifiedAuthorizationStore {
         &self,
         bytes: &[u8],
     ) -> Result<InstallOutcome, AuthorizationStoreError> {
-        let bundle = AuthorizationBundleCodec::open(bytes, &self.keyring, self.limits)?;
+        let bundle = self.verify_signed_bundle(bytes)?;
+        self.install_verified_bundle(bundle)
+    }
+
+    /// Verifies, durably persists, re-verifies the authoritative stored bundle,
+    /// and only then makes it active for authorization decisions.
+    pub fn install_signed_bundle_durably<F>(
+        &self,
+        bytes: &[u8],
+        persist: F,
+    ) -> Result<(InstallOutcome, AuthorizationPolicyBundle), AuthorizationStoreError>
+    where
+        F: FnOnce(&AuthorizationPolicyBundle, &[u8]) -> Result<Vec<u8>, String>,
+    {
+        let incoming = self.verify_signed_bundle(bytes)?;
+        let persisted = persist(&incoming, bytes).map_err(AuthorizationStoreError::Persistence)?;
+        let current = self.verify_signed_bundle(&persisted)?;
+        if current.tenant_id != incoming.tenant_id {
+            return Err(AuthorizationStoreError::PersistedBundleMismatch);
+        }
+        if current.bundle_sequence < incoming.bundle_sequence {
+            return Err(AuthorizationStoreError::BundleSequenceRollback {
+                current: current.bundle_sequence,
+                incoming: incoming.bundle_sequence,
+            });
+        }
+        if current.bundle_sequence == incoming.bundle_sequence
+            && current.content_hash != incoming.content_hash
+        {
+            return Err(AuthorizationStoreError::BundleSequenceConflict {
+                sequence: incoming.bundle_sequence,
+            });
+        }
+        let outcome = self.install_verified_bundle(current)?;
+        Ok((outcome, incoming))
+    }
+
+    /// Verifies a signed bundle without changing active evaluator state.
+    pub fn verify_signed_bundle(
+        &self,
+        bytes: &[u8],
+    ) -> Result<AuthorizationPolicyBundle, AuthorizationStoreError> {
+        AuthorizationBundleCodec::open(bytes, &self.keyring, self.limits).map_err(Into::into)
+    }
+
+    pub fn has_bundle(&self, tenant_id: &str) -> Result<bool, AuthorizationStoreError> {
+        let tenants = self
+            .tenants
+            .read()
+            .map_err(|_| AuthorizationStoreError::LockPoisoned)?;
+        Ok(tenants.contains_key(tenant_id))
+    }
+
+    /// Installs a bundle after the caller has durably persisted its verified bytes.
+    fn install_verified_bundle(
+        &self,
+        bundle: AuthorizationPolicyBundle,
+    ) -> Result<InstallOutcome, AuthorizationStoreError> {
         let mut tenants = self
             .tenants
             .write()
@@ -176,6 +259,73 @@ impl VerifiedAuthorizationStore {
             },
         ))
     }
+
+    /// Evaluates an owner resource/action against the current verified bundle.
+    /// Resource branch ancestry and queue identity must be supplied by the
+    /// authoritative owner service. The store applies its local revoke floors.
+    pub fn evaluate_resource(
+        &self,
+        input: &ResourceAuthorizationInput<'_>,
+    ) -> Result<ResourceAuthorizationDecision, AuthorizationStoreError> {
+        let tenants = self
+            .tenants
+            .read()
+            .map_err(|_| AuthorizationStoreError::LockPoisoned)?;
+        let state = tenants
+            .get(input.tenant_id)
+            .ok_or_else(|| AuthorizationStoreError::MissingBundle(input.tenant_id.to_owned()))?;
+        let actor_epoch = state
+            .actor_revoke_floors
+            .get(input.actor_id)
+            .copied()
+            .unwrap_or(0);
+        Ok(evaluate_resource(
+            &state.bundle,
+            input,
+            RevocationSnapshot {
+                tenant_epoch: state.tenant_revoke_floor,
+                actor_epoch,
+            },
+        ))
+    }
+
+    /// Evaluates resource policy when the signed catalog declares the action.
+    /// Returns `None` only when the action is not cataloged for the owner, so
+    /// callers can preserve a separately versioned transition policy during
+    /// phased migration. A cataloged action always uses resource grants.
+    pub fn evaluate_resource_if_catalogued(
+        &self,
+        input: &ResourceAuthorizationInput<'_>,
+    ) -> Result<Option<ResourceAuthorizationDecision>, AuthorizationStoreError> {
+        let tenants = self
+            .tenants
+            .read()
+            .map_err(|_| AuthorizationStoreError::LockPoisoned)?;
+        let state = tenants
+            .get(input.tenant_id)
+            .ok_or_else(|| AuthorizationStoreError::MissingBundle(input.tenant_id.to_owned()))?;
+        if !state.bundle.resource_catalog.iter().any(|definition| {
+            definition.owner_id == input.owner_id
+                && (definition.resource_type == input.resource_type
+                    || definition.resource_type == "*")
+                && (definition.action == input.action || definition.action == "*")
+        }) {
+            return Ok(None);
+        }
+        let actor_epoch = state
+            .actor_revoke_floors
+            .get(input.actor_id)
+            .copied()
+            .unwrap_or(0);
+        Ok(Some(evaluate_resource(
+            &state.bundle,
+            input,
+            RevocationSnapshot {
+                tenant_epoch: state.tenant_revoke_floor,
+                actor_epoch,
+            },
+        )))
+    }
 }
 
 #[derive(Debug, Error, Clone, Eq, PartialEq)]
@@ -184,6 +334,10 @@ pub enum AuthorizationStoreError {
     Artifact(#[from] AuthorizationArtifactError),
     #[error("authorization state lock is poisoned")]
     LockPoisoned,
+    #[error("authorization bundle persistence failed: {0}")]
+    Persistence(String),
+    #[error("persisted authorization bundle does not match the requested tenant")]
+    PersistedBundleMismatch,
     #[error("verified authorization bundle is missing for tenant {0}")]
     MissingBundle(String),
     #[error("authorization bundle sequence rollback: current {current}, incoming {incoming}")]
@@ -244,6 +398,9 @@ mod tests {
                 effect: AuthorizationPolicyEffect::Allow.into(),
                 priority: 10,
             }],
+            catalog_version: 0,
+            resource_grants: Vec::new(),
+            resource_catalog: Vec::new(),
             actor_revoke_epochs: Vec::new(),
             signing_key_id: String::new(),
             content_hash: Vec::new(),

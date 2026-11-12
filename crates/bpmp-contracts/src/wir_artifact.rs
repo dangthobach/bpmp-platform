@@ -232,6 +232,7 @@ mod tests {
             tenant_id: "tenant-a".into(),
             case_models: Vec::new(),
             properties: Vec::new(),
+            resource_scope_binding: None,
         }
     }
 

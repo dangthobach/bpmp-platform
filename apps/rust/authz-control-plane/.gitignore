@@ -2,5 +2,6 @@
 .env
 *.log
 authz_pgdata/
+secrets/
 .idea/
 .vscode/settings.json

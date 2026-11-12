@@ -287,6 +287,8 @@ func (b *sqlBuilder) comparison(
 			value = "%" + value
 		}
 		return field + " LIKE " + b.bind(value) + " ESCAPE '\\'", nil
+	case application.CompareArrayContains:
+		return field + " @> ARRAY[" + b.bind(values[0].String) + "]::text[]", nil
 	default:
 		operators := map[application.Comparison]string{
 			application.CompareEqual:              "=",
@@ -380,22 +382,25 @@ func (b *sqlBuilder) bind(value any) string {
 
 func processSQL(field application.ProcessField) (string, error) {
 	values := map[application.ProcessField]string{
-		application.ProcessInstanceID:        "p.instance_id",
-		application.ProcessWorkflowType:      "p.workflow_type",
-		application.ProcessWorkflowVersion:   "p.workflow_version",
-		application.ProcessStatus:            "p.status",
-		application.ProcessActiveNodeID:      "p.active_node_id",
-		application.ProcessLastEventSequence: "p.last_event_sequence",
-		application.ProcessStartedAt:         "p.started_at",
-		application.ProcessUpdatedAt:         "p.updated_at",
-		application.ProcessCompletedAt:       "p.completed_at",
-		application.ProcessDurationMS:        durationExpression,
-		application.ProcessConfigVersion:     "p.config_version",
-		application.ProcessPolicyVersion:     "p.policy_version",
-		application.ProcessVersion:           "p.version",
-		application.ProcessInitiatorActorID:  "p.initiator_actor_id",
-		application.ProcessEventCount:        eventCountExpression,
-		application.ProcessIsDeleted:         "p.is_deleted",
+		application.ProcessInstanceID:             "p.instance_id",
+		application.ProcessWorkflowType:           "p.workflow_type",
+		application.ProcessWorkflowVersion:        "p.workflow_version",
+		application.ProcessStatus:                 "p.status",
+		application.ProcessActiveNodeID:           "p.active_node_id",
+		application.ProcessLastEventSequence:      "p.last_event_sequence",
+		application.ProcessStartedAt:              "p.started_at",
+		application.ProcessUpdatedAt:              "p.updated_at",
+		application.ProcessCompletedAt:            "p.completed_at",
+		application.ProcessDurationMS:             durationExpression,
+		application.ProcessConfigVersion:          "p.config_version",
+		application.ProcessPolicyVersion:          "p.policy_version",
+		application.ProcessVersion:                "p.version",
+		application.ProcessInitiatorActorID:       "p.initiator_actor_id",
+		application.ProcessEventCount:             eventCountExpression,
+		application.ProcessIsDeleted:              "p.is_deleted",
+		application.ProcessResourceBranchID:       "p.resource_branch_id",
+		application.ProcessResourceBranchAncestry: "p.resource_branch_ancestry",
+		application.ProcessOrganizationVersion:    "p.organization_version",
 	}
 	value, ok := values[field]
 	if !ok {

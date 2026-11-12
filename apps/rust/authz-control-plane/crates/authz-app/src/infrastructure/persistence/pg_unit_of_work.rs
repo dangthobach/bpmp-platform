@@ -10,7 +10,9 @@ use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::application::errors::AppError;
-use crate::application::ports::organization_repo::{OrganizationListItem, OrganizationRepository};
+use crate::application::ports::organization_repo::{
+    BranchDescendants, BranchScope, OrganizationListItem, OrganizationRepository,
+};
 use crate::application::ports::outbox::{OutboxRecord, OutboxRepository};
 use crate::application::ports::unit_of_work::{UnitOfWork, UnitOfWorkFactory};
 use crate::domain::organization::{OrgId, Organization};
@@ -79,6 +81,27 @@ impl OrganizationRepository for PgUnitOfWork {
         limit: i64,
     ) -> Result<Vec<OrganizationListItem>, AppError> {
         pg_organization_repo::list_organizations(self.tx()?, tenant, offset, limit).await
+    }
+    async fn resolve_branch_scope(
+        &mut self,
+        tenant: Uuid,
+        branch_id: Uuid,
+    ) -> Result<BranchScope, AppError> {
+        pg_organization_repo::resolve_branch_scope(self.tx()?, tenant, branch_id).await
+    }
+    async fn resolve_branch_descendants(
+        &mut self,
+        tenant: Uuid,
+        branch_ids: &[Uuid],
+        max_branches: usize,
+    ) -> Result<Vec<BranchDescendants>, AppError> {
+        pg_organization_repo::resolve_branch_descendants(
+            self.tx()?,
+            tenant,
+            branch_ids,
+            max_branches,
+        )
+        .await
     }
 }
 

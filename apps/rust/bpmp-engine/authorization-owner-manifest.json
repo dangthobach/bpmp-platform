@@ -1,0 +1,54 @@
+{
+  "owner_id": "bpmp-engine",
+  "manifest_version": "1.1.0",
+  "entries": [
+    {
+      "resource_type": "workflow_instance",
+      "action": "workflow.start",
+      "capability": "workflow.start",
+      "supported_scope_types": ["branch", "own", "resource"],
+      "readable_fields": [],
+      "writable_fields": []
+    },
+    {
+      "resource_type": "workflow_instance",
+      "action": "task.service.complete",
+      "capability": "task.service.complete",
+      "supported_scope_types": ["branch", "resource"],
+      "readable_fields": [],
+      "writable_fields": []
+    },
+    {
+      "resource_type": "workflow_instance",
+      "action": "task.user.complete",
+      "capability": "task.user.complete",
+      "supported_scope_types": ["branch", "resource"],
+      "readable_fields": [],
+      "writable_fields": []
+    },
+    {
+      "resource_type": "workflow_instance",
+      "action": "task.script.complete",
+      "capability": "task.script.complete",
+      "supported_scope_types": ["branch", "resource"],
+      "readable_fields": [],
+      "writable_fields": []
+    },
+    {
+      "resource_type": "workflow_instance",
+      "action": "task.multi_instance.complete",
+      "capability": "task.multi_instance.complete",
+      "supported_scope_types": ["branch", "resource"],
+      "readable_fields": [],
+      "writable_fields": []
+    },
+    {
+      "resource_type": "workflow_instance",
+      "action": "workflow.boundary.trigger",
+      "capability": "workflow.boundary.trigger",
+      "supported_scope_types": ["branch", "resource"],
+      "readable_fields": [],
+      "writable_fields": []
+    }
+  ]
+}

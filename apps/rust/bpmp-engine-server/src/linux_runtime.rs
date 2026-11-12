@@ -12,36 +12,39 @@ use bpmp_adapter_kms::{RevocationBarrierPort, VaultTransitKeyManagement};
 use bpmp_adapter_policy_bundle::VerifiedAuthorizationStore;
 use bpmp_adapter_rocksdb::{RocksDbConfig, RocksDbWorkflowStore};
 use bpmp_adapter_wasmtime::{WasmExecutionLimits, WasmWorkerConfig, WasmtimeWorker};
+use bpmp_authz_contracts::authorization::v1::{
+    AuthorizationPolicyBundleAcknowledgement, AuthorizationPolicyBundlePublication,
+};
 use bpmp_authz_contracts::authorization::v1::{SignedActorContext, SignedWorkloadContext};
 use bpmp_authz_contracts::{
-    AUTHORIZATION_PROOF_SCHEMA_VERSION, ActorProofCodec, AuthorizationArtifactLimits,
-    AuthorizationKeyring, AuthorizationProofLimits, Ed25519Signer as AuthorizationSigner,
-    WorkloadProofCodec,
+    ActorProofCodec, AuthorizationArtifactLimits, AuthorizationKeyring, AuthorizationProofLimits,
+    Ed25519Signer as AuthorizationSigner, WorkloadProofCodec, AUTHORIZATION_PROOF_SCHEMA_VERSION,
 };
-use bpmp_contracts::Ed25519Verifier;
 use bpmp_contracts::configuration::v1 as configurationv1;
+use bpmp_contracts::Ed25519Verifier;
 use bpmp_domain_core::{
-    BoundaryRuntimePolicy, Command, CommandId, ConfigId, ConfigVersion, ConfigurationScope,
-    CorrelationId, EnginePolicy, EngineWorkerPolicy, IdempotencyKey, InstanceId, KeyScope,
-    LocalWasmPolicy, PolicyVersion, RemoteWorkerPolicy, ResolvedConfigSnapshot, RetryPolicy,
-    ScopeKind, TenantId, WorkflowType, WorkflowVersion,
+    rehydrate, BoundaryRuntimePolicy, Command, CommandId, ConfigId, ConfigVersion,
+    ConfigurationScope, CorrelationId, EnginePolicy, EngineWorkerPolicy, IdempotencyKey,
+    InstanceId, KeyScope, LocalWasmPolicy, PolicyVersion, RemoteWorkerPolicy,
+    ResolvedConfigSnapshot, RetryPolicy, ScopeKind, TenantId, WorkflowType, WorkflowVersion,
 };
 use bpmp_engine::{
-    ActorProofKind, AuthoritativeCommandHandler, AuthorizedCommand, BoundaryDispatchCredentials,
+    configuration_publication_matches_scope, ActorProofKind, AuthoritativeCommandHandler,
+    AuthorizationProviderPort, AuthorizedCommand, BoundaryDispatchCredentials,
     BoundaryDispatchCredentialsPort, BoundaryDispatchRequest, BoundaryPolicyHandle,
-    BoundaryRuntime, BoundaryRuntimeError, ConfigurationLookup, ConfigurationProviderPort,
-    EmbeddedAuthorizationProvider, Engine, EngineBoundaryCommandDispatcher,
-    GrpcEngineCommandService, GrpcEngineGovernanceService, GrpcRemoteWorkerDispatchService,
-    GrpcTransportConfig, LocalTaskActivation, LocalTaskCompletionDispatcherPort,
-    LocalTaskExecutionOutcome, LocalTaskExecutorPort, LocalTaskKind, LocalTaskRetryPolicy,
-    LocalTaskRetryPolicyHandle, LocalTaskRuntime, LocalTaskRuntimeError, OutboxBoundaryEventSource,
-    OutboxError, OutboxPublisher, OutboxPublisherConfig, OutboxRecord, OutboxStorePort,
-    PublishAcknowledgement, RemoteTaskClaim, RemoteTaskCompletionPort, RemoteTaskError,
-    RemoteWorkerCoordinator, RemoteWorkerPolicyActivationPort, RemoteWorkerPolicyHandle,
+    BoundaryRuntime, BoundaryRuntimeError, BranchScopeResolverPort, ConfigurationLookup,
+    ConfigurationProviderPort, EmbeddedAuthorizationProvider, Engine,
+    EngineBoundaryCommandDispatcher, GrpcEngineCommandService, GrpcEngineGovernanceService,
+    GrpcRemoteWorkerDispatchService, GrpcTransportConfig, LocalTaskActivation,
+    LocalTaskCompletionDispatcherPort, LocalTaskExecutionOutcome, LocalTaskExecutorPort,
+    LocalTaskKind, LocalTaskRetryPolicy, LocalTaskRetryPolicyHandle, LocalTaskRuntime,
+    LocalTaskRuntimeError, OutboxBoundaryEventSource, OutboxError, OutboxPublisher,
+    OutboxPublisherConfig, OutboxRecord, OutboxStorePort, PublishAcknowledgement, RemoteTaskClaim,
+    RemoteTaskCompletionPort, RemoteTaskError, RemoteWorkerCoordinator,
+    RemoteWorkerPolicyActivationPort, RemoteWorkerPolicyHandle, ResolvedBranchScope,
     RetryDelayPort, RetryingLocalTaskExecutor, RuntimeConfigurationUpdate,
     RuntimeGovernancePolicyUpdate, RuntimeRegistry, RuntimeSafePointGate, SafePointCommandHandler,
-    SystemClock, WirLoader, WorkflowDefinitionProviderPort,
-    configuration_publication_matches_scope,
+    StoreError, SystemClock, WirLoader, WorkflowDefinitionProviderPort, WorkflowStorePort,
 };
 use bpmp_governance_domain::GovernancePolicy;
 use bpmp_payload_crypto::{AesGcmPayloadCrypto, CryptoError, DataKeyResolverPort, ResolvedDataKey};
@@ -50,11 +53,11 @@ use bpmp_transport_observability::{AdmissionLimiter, RequestMetadataLayer, Workl
 use jsonwebtoken::Algorithm;
 use openraft::Raft;
 use prost::Message as ProstMessage;
-use rdkafka::ClientConfig;
-use rdkafka::Message as KafkaMessage;
 use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
+use rdkafka::ClientConfig;
+use rdkafka::Message as KafkaMessage;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tokio::signal;
@@ -63,6 +66,82 @@ use tonic::transport::{
 };
 use tracing::{error, info, warn};
 use zeroize::Zeroizing;
+
+#[derive(Deserialize)]
+struct BranchScopeEnvelope {
+    data: Option<BranchScopeDto>,
+    error_code: String,
+    message: String,
+}
+
+#[derive(Deserialize)]
+struct BranchScopeDto {
+    tenant_id: String,
+    branch_id: String,
+    organization_version: i64,
+    ancestry: Vec<String>,
+}
+
+#[derive(Clone)]
+struct HttpBranchScopeResolver {
+    client: reqwest::blocking::Client,
+    endpoint: reqwest::Url,
+}
+
+impl BranchScopeResolverPort for HttpBranchScopeResolver {
+    fn resolve(
+        &self,
+        tenant_id: &TenantId,
+        branch_id: &str,
+        command_id: &CommandId,
+        workload_proof: &[u8],
+    ) -> Result<ResolvedBranchScope, String> {
+        let mut url = self.endpoint.clone();
+        url.path_segments_mut()
+            .map_err(|_| "branch scope endpoint cannot accept path segments".to_owned())?
+            .extend(["internal", "v1", "branch-scopes", branch_id]);
+        let mut proof_hex = String::with_capacity(workload_proof.len().saturating_mul(2));
+        for byte in workload_proof {
+            write!(&mut proof_hex, "{byte:02x}").map_err(|error| error.to_string())?;
+        }
+        let envelope = self
+            .client
+            .get(url)
+            .header("x-bpmp-workload-proof", proof_hex)
+            .header("x-bpmp-command-id", command_id.as_str())
+            .send()
+            .and_then(reqwest::blocking::Response::error_for_status)
+            .map_err(|error| format!("organization branch resolver request failed: {error}"))?
+            .json::<BranchScopeEnvelope>()
+            .map_err(|error| {
+                format!("organization branch resolver response is invalid: {error}")
+            })?;
+        let scope = envelope.data.ok_or_else(|| {
+            format!(
+                "organization branch resolver returned {}: {}",
+                envelope.error_code, envelope.message
+            )
+        })?;
+        let organization_version = u64::try_from(scope.organization_version)
+            .map_err(|_| "organization branch resolver returned an invalid revision".to_owned())?;
+        if scope.tenant_id != tenant_id.as_str()
+            || scope.branch_id != branch_id
+            || scope.ancestry.is_empty()
+            || scope.ancestry.last().map(String::as_str) != Some(branch_id)
+            || scope.ancestry.iter().any(|id| id.trim().is_empty())
+            || organization_version == 0
+        {
+            return Err(
+                "organization branch resolver returned a mismatched or invalid scope".into(),
+            );
+        }
+        Ok(ResolvedBranchScope {
+            branch_id: scope.branch_id,
+            ancestry: scope.ancestry,
+            organization_version,
+        })
+    }
+}
 
 fn open_workflow_store(
     config: &RuntimeConfig,
@@ -153,9 +232,9 @@ pub async fn run(path: PathBuf) -> Result<()> {
     let local_task_retry_policy =
         LocalTaskRetryPolicyHandle::new(local_task_retry_policy(&worker_policy.snapshot()?))?;
     let safe_point_gate = RuntimeSafePointGate::default();
-    let authorization = Arc::new(load_authorization(&config)?);
     let (store, revocation_barrier) = open_workflow_store(&config)?;
     let store = Arc::new(store);
+    let authorization = Arc::new(load_authorization(&config, &store)?);
     let server_certificate = fs::read(&config.tls.server_certificate)?;
     let server_private_key = fs::read(&config.tls.server_private_key)?;
     let client_ca = fs::read(&config.tls.client_ca)?;
@@ -214,9 +293,43 @@ pub async fn run(path: PathBuf) -> Result<()> {
         Duration::from_millis(config.raft.proposal_timeout_ms),
     )?);
 
+    let branch_scope_resolver = if let Some(resolver_config) = &config.branch_scope_resolver {
+        let ca_pem = fs::read(&config.tls.client_ca).context("read branch-scope resolver CA")?;
+        let ca =
+            reqwest::Certificate::from_pem(&ca_pem).context("parse branch-scope resolver CA")?;
+        let mut identity_pem = fs::read(&config.tls.server_certificate)
+            .context("read Engine client certificate for branch-scope resolver")?;
+        identity_pem.push(b'\n');
+        identity_pem.extend_from_slice(
+            &fs::read(&config.tls.server_private_key)
+                .context("read Engine client key for branch-scope resolver")?,
+        );
+        let identity = reqwest::Identity::from_pem(&identity_pem)
+            .context("parse Engine client identity for branch-scope resolver")?;
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_millis(resolver_config.timeout_ms))
+            .add_root_certificate(ca)
+            .identity(identity)
+            .build()
+            .context("build branch-scope resolver HTTP client")?;
+        let endpoint = reqwest::Url::parse(&resolver_config.endpoint)
+            .context("parse branch-scope resolver endpoint")?;
+        Some(Arc::new(HttpBranchScopeResolver { client, endpoint }))
+    } else {
+        None
+    };
     let command_engine = Engine::new(registry.clone(), raft_store.clone(), authorization.clone());
+    let authoritative_handler = if let Some(resolver) = &branch_scope_resolver {
+        AuthoritativeCommandHandler::new_with_branch_scope_resolver(
+            command_engine,
+            registry.clone(),
+            resolver.as_ref().clone(),
+        )
+    } else {
+        AuthoritativeCommandHandler::new(command_engine, registry.clone())
+    };
     let local_handler = Arc::new(SafePointCommandHandler::new(
-        AuthoritativeCommandHandler::new(command_engine, registry.clone()),
+        authoritative_handler,
         safe_point_gate.clone(),
     ));
     let grpc = GrpcEngineCommandService::new(ForwardingCommandHandler::new(
@@ -296,11 +409,15 @@ pub async fn run(path: PathBuf) -> Result<()> {
 
     let dispatch_credentials = DispatchCredentialProvider::load(&config, registry.clone())?;
     let scheduler_engine = Engine::new(registry.clone(), raft_store.clone(), authorization.clone());
+    let boundary_resolver: Option<Arc<dyn BranchScopeResolverPort>> = branch_scope_resolver
+        .as_ref()
+        .map(|resolver| resolver.clone() as Arc<dyn BranchScopeResolverPort>);
     let dispatcher = EngineBoundaryCommandDispatcher::new(
         scheduler_engine,
         registry.clone(),
         dispatch_credentials,
-    );
+    )
+    .with_branch_scope_resolver(boundary_resolver);
     let boundary = Arc::new(BoundaryRuntime::new_with_handle(
         OutboxBoundaryEventSource::new(store.clone()),
         store.clone(),
@@ -324,6 +441,7 @@ pub async fn run(path: PathBuf) -> Result<()> {
             engine: local_task_engine,
             definitions: registry.clone(),
             credentials: local_task_credentials,
+            branch_scope_resolver: branch_scope_resolver.clone(),
         },
         usize::try_from(worker_policy.snapshot()?.local_task_batch_size)
             .context("local task batch size exceeds usize")?,
@@ -357,6 +475,7 @@ pub async fn run(path: PathBuf) -> Result<()> {
                 engine: remote_task_engine,
                 definitions: registry.clone(),
                 credentials: remote_task_credentials,
+                branch_scope_resolver: branch_scope_resolver.clone(),
             },
             remote_verifier,
             remote_token_issuer,
@@ -378,7 +497,7 @@ pub async fn run(path: PathBuf) -> Result<()> {
     ));
 
     let local_node_id = config.raft.node_id;
-    let outbox_store = store;
+    let outbox_store = store.clone();
     let outbox_raft = raft.clone();
     let outbox_worker_policy = worker_policy.clone();
     let outbox_worker = tokio::spawn(async move {
@@ -573,6 +692,30 @@ pub async fn run(path: PathBuf) -> Result<()> {
     } else {
         None
     };
+    let policy_consumer = authorization_policy_consumer(&config.kafka, config.raft.node_id)?;
+    policy_consumer.subscribe(&[&config.kafka.topics.authorization_policy_bundles])?;
+    let policy_acknowledgement_producer =
+        authorization_policy_acknowledgement_producer(&config.kafka)?;
+    let policy_authorization = authorization.clone();
+    let acknowledgement_topic = config
+        .kafka
+        .topics
+        .authorization_policy_bundle_acknowledgements
+        .clone();
+    let policy_consumer_id = format!("{}-node-{}", config.kafka.client_id, config.raft.node_id);
+    let policy_message_timeout_ms = config.kafka.message_timeout_ms;
+    let policy_bundle_worker = tokio::spawn(async move {
+        run_authorization_policy_consumer(
+            policy_consumer,
+            policy_acknowledgement_producer,
+            policy_authorization,
+            store.clone(),
+            acknowledgement_topic,
+            policy_consumer_id,
+            policy_message_timeout_ms,
+        )
+        .await
+    });
 
     info!(listen_addr = %config.listen_addr, "starting bpmp-engine");
     let tls = ServerTlsConfig::new()
@@ -611,6 +754,11 @@ pub async fn run(path: PathBuf) -> Result<()> {
     let result = if let Some(worker) = configuration_worker.as_mut() {
         tokio::select! {
             server_result = &mut server => server_result.context("serve engine gRPC"),
+            policy_result = policy_bundle_worker => match policy_result {
+                Ok(Ok(())) => Err(anyhow::anyhow!("authorization policy consumer stopped unexpectedly")),
+                Ok(Err(error)) => Err(error.context("authorization policy consumer failed")),
+                Err(error) => Err(anyhow::Error::from(error).context("authorization policy consumer join failed")),
+            },
             worker_result = worker => match worker_result {
                 Ok(Ok(())) => Err(anyhow::anyhow!(
                     "configuration reloader stopped unexpectedly"
@@ -621,7 +769,14 @@ pub async fn run(path: PathBuf) -> Result<()> {
             },
         }
     } else {
-        server.await.context("serve engine gRPC")
+        tokio::select! {
+            server_result = &mut server => server_result.context("serve engine gRPC"),
+            policy_result = policy_bundle_worker => match policy_result {
+                Ok(Ok(())) => Err(anyhow::anyhow!("authorization policy consumer stopped unexpectedly")),
+                Ok(Err(error)) => Err(error.context("authorization policy consumer failed")),
+                Err(error) => Err(anyhow::Error::from(error).context("authorization policy consumer join failed")),
+            },
+        }
     };
     outbox_worker.abort();
     boundary_worker.abort();
@@ -632,6 +787,131 @@ pub async fn run(path: PathBuf) -> Result<()> {
     }
     peer_server.abort();
     result
+}
+
+fn authorization_policy_consumer(config: &KafkaConfig, node_id: u64) -> Result<StreamConsumer> {
+    let mut client = ClientConfig::new();
+    let consumer_group = format!(
+        "{}-node-{node_id}",
+        config.consumer_groups.authorization_policy_bundles
+    );
+    if consumer_group.len() > 255 {
+        anyhow::bail!("per-node authorization consumer group exceeds Kafka's limit");
+    }
+    client
+        .set("bootstrap.servers", config.brokers.join(","))
+        .set("group.id", &consumer_group)
+        .set("client.id", &config.client_id)
+        .set("enable.auto.commit", "false")
+        .set("enable.auto.offset.store", "false")
+        .set("auto.offset.reset", "earliest")
+        .set(
+            "session.timeout.ms",
+            config.consumer_session_timeout_ms.to_string(),
+        )
+        .set(
+            "fetch.message.max.bytes",
+            config.max_message_bytes.to_string(),
+        );
+    apply_kafka_security(&mut client, config);
+    Ok(client.create()?)
+}
+
+fn authorization_policy_acknowledgement_producer(config: &KafkaConfig) -> Result<FutureProducer> {
+    let mut client = ClientConfig::new();
+    client
+        .set("bootstrap.servers", config.brokers.join(","))
+        .set("client.id", &config.client_id)
+        .set("message.timeout.ms", config.message_timeout_ms.to_string())
+        .set("enable.idempotence", "true")
+        .set("acks", "all")
+        .set(
+            "max.in.flight.requests.per.connection",
+            config.max_inflight.to_string(),
+        );
+    apply_kafka_security(&mut client, config);
+    Ok(client.create()?)
+}
+
+async fn run_authorization_policy_consumer(
+    consumer: StreamConsumer,
+    producer: FutureProducer,
+    authorization: Arc<EmbeddedAuthorizationProvider>,
+    store: Arc<RocksDbWorkflowStore<AesGcmPayloadCrypto<Arc<dyn DataKeyResolverPort>>>>,
+    acknowledgement_topic: String,
+    consumer_id: String,
+    message_timeout_ms: u64,
+) -> Result<()> {
+    loop {
+        let message = consumer.recv().await?;
+        let payload = message
+            .payload()
+            .context("authorization publication has no payload")?;
+        let publication = AuthorizationPolicyBundlePublication::decode(payload)
+            .context("decode authorization policy publication")?;
+        if publication.event_id.trim().is_empty()
+            || publication.tenant_id.trim().is_empty()
+            || publication.bundle_sequence == 0
+            || publication.catalog_version == 0
+            || publication.published_at_epoch_ms == 0
+            || publication.bundle_bytes.is_empty()
+        {
+            anyhow::bail!("authorization policy publication metadata is invalid");
+        }
+        let bundle = authorization
+            .policies()
+            .verify_signed_bundle(&publication.bundle_bytes)
+            .context("verify signed authorization policy bundle")?;
+        if bundle.tenant_id != publication.tenant_id
+            || bundle.bundle_sequence != publication.bundle_sequence
+            || bundle.catalog_version != publication.catalog_version
+        {
+            anyhow::bail!("authorization publication metadata does not match signed bundle");
+        }
+        let (_, bundle) = authorization
+            .policies()
+            .install_signed_bundle_durably(&publication.bundle_bytes, |verified, raw| {
+                store
+                    .persist_verified_authorization_bundle(verified, raw)
+                    .map_err(|error| error.to_string())
+            })
+            .context("durably persist and install authorization policy bundle")?;
+        let acknowledgement = AuthorizationPolicyBundleAcknowledgement {
+            schema_version: 1,
+            acknowledgement_id: format!(
+                "{consumer_id}/{}/{}",
+                publication.tenant_id, publication.bundle_sequence
+            ),
+            consumer_id: consumer_id.clone(),
+            consumer_type: "bpmp-engine".to_owned(),
+            tenant_id: publication.tenant_id.clone(),
+            bundle_sequence: publication.bundle_sequence,
+            catalog_version: publication.catalog_version,
+            bundle_content_hash: bundle.content_hash,
+            acknowledged_at_epoch_ms: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_millis()
+                .try_into()
+                .context("ack timestamp overflow")?,
+        };
+        let payload = acknowledgement.encode_to_vec();
+        producer
+            .send(
+                FutureRecord::to(&acknowledgement_topic)
+                    .key(&publication.tenant_id)
+                    .payload(&payload),
+                Timeout::After(Duration::from_millis(message_timeout_ms)),
+            )
+            .await
+            .map_err(|(error, _)| error)
+            .context("publish authorization bundle acknowledgement")?;
+        consumer.commit_message(&message, CommitMode::Sync)?;
+        info!(
+            tenant_id = publication.tenant_id,
+            bundle_sequence = publication.bundle_sequence,
+            "installed signed authorization policy bundle"
+        );
+    }
 }
 
 fn is_current_leader(raft: &Raft<TypeConfig>, local_node_id: u64) -> bool {
@@ -912,6 +1192,39 @@ struct LocalTaskCompletionDispatcher<C, S, A> {
     engine: Engine<C, S, A>,
     definitions: Arc<RuntimeRegistry>,
     credentials: DispatchCredentialProvider,
+    branch_scope_resolver: Option<Arc<HttpBranchScopeResolver>>,
+}
+
+fn resolve_existing_branch_scope<C, S, A>(
+    engine: &Engine<C, S, A>,
+    resolver: Option<&dyn BranchScopeResolverPort>,
+    tenant_id: &TenantId,
+    instance_id: &InstanceId,
+    command_id: &CommandId,
+    workload_proof: &[u8],
+) -> Result<Option<ResolvedBranchScope>, String>
+where
+    C: ConfigurationProviderPort,
+    S: WorkflowStorePort,
+    A: AuthorizationProviderPort,
+{
+    let loaded = engine
+        .store()
+        .load(tenant_id, instance_id)
+        .map_err(|error| error.to_string())?;
+    let events = loaded
+        .events
+        .iter()
+        .map(|event| event.event.clone())
+        .collect::<Vec<_>>();
+    let state = rehydrate(loaded.snapshot.map(|snapshot| snapshot.state), &events);
+    match state.resource_branch_id {
+        Some(branch_id) => resolver
+            .ok_or_else(|| "branch scope resolver is unavailable".to_owned())?
+            .resolve(tenant_id, &branch_id, command_id, workload_proof)
+            .map(Some),
+        None => Ok(None),
+    }
 }
 
 impl<C, S, A> LocalTaskCompletionDispatcherPort for LocalTaskCompletionDispatcher<C, S, A>
@@ -964,6 +1277,17 @@ where
             .credentials
             .resolve(&request)
             .map_err(|error| LocalTaskRuntimeError::Dispatch(error.to_string()))?;
+        let resolved_branch_scope = resolve_existing_branch_scope(
+            &self.engine,
+            self.branch_scope_resolver
+                .as_ref()
+                .map(|resolver| resolver.as_ref() as &dyn BranchScopeResolverPort),
+            &activation.tenant_id,
+            &request.instance_id,
+            &command_id,
+            &credentials.workload_proof,
+        )
+        .map_err(LocalTaskRuntimeError::Dispatch)?;
         self.engine
             .handle(
                 &definition,
@@ -980,6 +1304,7 @@ where
                     encryption_key_scope: credentials.encryption_key_scope,
                     variables: BTreeMap::new(),
                     command: request.command,
+                    resolved_branch_scope,
                 },
             )
             .map_err(|error| LocalTaskRuntimeError::Dispatch(error.to_string()))?;
@@ -991,6 +1316,7 @@ struct RemoteTaskCompletionDispatcher<C, S, A> {
     engine: Engine<C, S, A>,
     definitions: Arc<RuntimeRegistry>,
     credentials: DispatchCredentialProvider,
+    branch_scope_resolver: Option<Arc<HttpBranchScopeResolver>>,
 }
 
 impl<C, S, A> RemoteTaskCompletionPort for RemoteTaskCompletionDispatcher<C, S, A>
@@ -1038,6 +1364,21 @@ where
             .credentials
             .resolve_for_workload(&request, &claim.worker_id)
             .map_err(|error| RemoteTaskError::Completion(error.to_string()))?;
+        let scope_workload_proof = self
+            .credentials
+            .resolve_scope_proof(&request)
+            .map_err(|error| RemoteTaskError::Completion(error.to_string()))?;
+        let resolved_branch_scope = resolve_existing_branch_scope(
+            &self.engine,
+            self.branch_scope_resolver
+                .as_ref()
+                .map(|resolver| resolver.as_ref() as &dyn BranchScopeResolverPort),
+            &task.tenant_id,
+            &request.instance_id,
+            &command_id,
+            &scope_workload_proof,
+        )
+        .map_err(RemoteTaskError::Completion)?;
         self.engine
             .handle(
                 &definition,
@@ -1054,6 +1395,7 @@ where
                     encryption_key_scope: credentials.encryption_key_scope,
                     variables: BTreeMap::new(),
                     command: request.command,
+                    resolved_branch_scope,
                 },
             )
             .map_err(|error| RemoteTaskError::Completion(error.to_string()))?;
@@ -1613,7 +1955,10 @@ fn governance_policy_from_proto(
     ))
 }
 
-fn load_authorization(config: &RuntimeConfig) -> Result<EmbeddedAuthorizationProvider> {
+fn load_authorization(
+    config: &RuntimeConfig,
+    store: &RocksDbWorkflowStore<AesGcmPayloadCrypto<Arc<dyn DataKeyResolverPort>>>,
+) -> Result<EmbeddedAuthorizationProvider> {
     let actor_keys = load_keyring(&config.authorization.actor_keys)?;
     let workload_keys = load_keyring(&config.authorization.workload_keys)?;
     let policy_keys = load_keyring(&config.authorization.policy_keys)?;
@@ -1627,9 +1972,27 @@ fn load_authorization(config: &RuntimeConfig) -> Result<EmbeddedAuthorizationPro
         config.authorization.max_policy_grants,
     )?;
     let policies = VerifiedAuthorizationStore::new(policy_keys, policy_limits);
-    for path in &config.authorization.policy_bundles {
+    store.visit_authorization_policy_bundles(|raw| {
         policies
-            .install_signed_bundle(&fs::read(path)?)
+            .install_signed_bundle(raw)
+            .map_err(|error| StoreError::CorruptData(error.to_string()))?;
+        Ok(())
+    })?;
+    for path in &config.authorization.policy_bundles {
+        let bytes =
+            fs::read(path).with_context(|| format!("read policy bundle {}", path.display()))?;
+        let bundle = policies
+            .verify_signed_bundle(&bytes)
+            .with_context(|| format!("verify policy bundle {}", path.display()))?;
+        if policies.has_bundle(&bundle.tenant_id)? {
+            continue;
+        }
+        policies
+            .install_signed_bundle_durably(&bytes, |verified, raw| {
+                store
+                    .persist_verified_authorization_bundle(verified, raw)
+                    .map_err(|error| error.to_string())
+            })
             .with_context(|| format!("install policy bundle {}", path.display()))?;
     }
     let algorithms = config
@@ -1866,6 +2229,33 @@ impl DispatchCredentialProvider {
             .engine
             .event_payload_key_scope,
         })
+    }
+
+    fn resolve_scope_proof(
+        &self,
+        request: &BoundaryDispatchRequest,
+    ) -> Result<Vec<u8>, BoundaryRuntimeError> {
+        let expires = request
+            .occurred_at_epoch_ms
+            .checked_add(self.proof_ttl_ms)
+            .ok_or(BoundaryRuntimeError::ClockOverflow)?;
+        WorkloadProofCodec::seal(
+            SignedWorkloadContext {
+                schema_version: AUTHORIZATION_PROOF_SCHEMA_VERSION,
+                tenant_id: request.tenant_id.as_str().to_owned(),
+                workload_id: self.workload_id.clone(),
+                command_id: request.command_id.as_str().to_owned(),
+                issued_at_epoch_ms: request.occurred_at_epoch_ms,
+                expires_at_epoch_ms: expires,
+                signing_key_id: String::new(),
+                content_hash: Vec::new(),
+                signature: Vec::new(),
+            },
+            &self.workload_key_id,
+            &self.workload_signer,
+            self.limits,
+        )
+        .map_err(|error| BoundaryRuntimeError::Dispatch(error.to_string()))
     }
 }
 

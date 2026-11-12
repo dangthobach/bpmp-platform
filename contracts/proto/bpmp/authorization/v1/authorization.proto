@@ -105,6 +105,9 @@ message AuthorizationAuditRecord {
   string config_version = 19;
   uint64 bundle_sequence = 20;
   repeated string matched_grant_ids = 21;
+  string resource_branch_id = 22;
+  repeated string resource_branch_ancestry = 23;
+  uint64 organization_version = 24;
 }
 
 enum AuthorizationPolicyEffect {
@@ -144,6 +147,73 @@ message AuthorizationPolicyBundle {
   string signing_key_id = 10;
   bytes content_hash = 11;
   bytes signature = 12;
+  // Generic resource authorization is separate from workflow transition
+  // grants; consumers must select the evaluator matching the resource owner.
+  uint64 catalog_version = 13;
+  repeated AuthorizationResourceGrant resource_grants = 14;
+  repeated AuthorizationResourceDefinition resource_catalog = 15;
+}
+
+message AuthorizationResourceDefinition {
+  string owner_id = 1;
+  string manifest_version = 2;
+  bytes manifest_digest = 3;
+  string resource_type = 4;
+  string action = 5;
+  string capability = 6;
+  repeated string supported_scope_types = 7;
+  repeated string readable_fields = 8;
+  repeated string writable_fields = 9;
+}
+
+// Kafka envelope around the already signed canonical policy bundle. Consumers
+// treat bundle_bytes as untrusted and verify it before installing it locally.
+message AuthorizationPolicyBundlePublication {
+  string event_id = 1;
+  string tenant_id = 2;
+  uint64 bundle_sequence = 3;
+  uint64 catalog_version = 4;
+  uint64 published_at_epoch_ms = 5;
+  bytes bundle_bytes = 6;
+}
+
+// Emitted by an evaluator only after it verifies and installs a publication.
+// The Kafka producer identity is constrained by broker ACLs for the ack topic.
+message AuthorizationPolicyBundleAcknowledgement {
+  uint32 schema_version = 1;
+  string acknowledgement_id = 2;
+  string consumer_id = 3;
+  string consumer_type = 4;
+  string tenant_id = 5;
+  uint64 bundle_sequence = 6;
+  uint64 catalog_version = 7;
+  bytes bundle_content_hash = 8;
+  uint64 acknowledged_at_epoch_ms = 9;
+}
+
+message AuthorizationResourceGrant {
+  string grant_id = 1;
+  repeated string actor_ids = 2;
+  repeated string roles = 3;
+  repeated string required_capabilities = 4;
+  string resource_type = 5;
+  string action = 6;
+  AuthorizationPolicyEffect effect = 7;
+  uint32 priority = 8;
+  // A branch ID applies to that branch and, when enabled, its descendants.
+  repeated string branch_scope_ids = 9;
+  bool branch_includes_descendants = 10;
+  // A non-empty queue set is intersected with branch scope (AND semantics).
+  repeated string queue_scope_ids = 11;
+  // Empty means the resource owner may use its catalog's default field set.
+  repeated string readable_fields = 12;
+  repeated string writable_fields = 13;
+  bool own_scope = 14;
+  repeated string resource_scope_ids = 15;
+  string owner_id = 16;
+  // Tenant-wide access must be an explicit scope choice. It cannot be combined
+  // with narrower branch, queue, owner, or resource scopes.
+  bool tenant_scope = 17;
 }
 
 message AuthorizationRevokeEpochUpdate {

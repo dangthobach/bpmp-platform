@@ -1,5 +1,5 @@
 {
-  "baselineSha256": "ae0c74e56904fa2eb5b08a862a64f0aceffd54e12288a12429a9215feca96f3f",
+  "baselineSha256": "577f2cf5c22682465cdc8a71a614dd03cf8cf0c2f009294df35840689bd79373",
   "operations": [
     {
       "method": "GET",
@@ -1169,6 +1169,339 @@
         },
         "429": {
           "$ref": "#/components/responses/RateLimited"
+        },
+        "502": {
+          "$ref": "#/components/responses/UpstreamUnavailable"
+        }
+      },
+      "capability": "Existing typed policy; inspect owner contract"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/access/catalog/versions",
+      "operationId": "listAuthorizationCatalogVersions",
+      "owner": "Authz",
+      "priority": "P0",
+      "status": "current-registration",
+      "request": null,
+      "response": {
+        "200": {
+          "description": "Authorization catalog versions"
+        },
+        "403": {
+          "$ref": "#/components/responses/Forbidden"
+        },
+        "502": {
+          "$ref": "#/components/responses/UpstreamUnavailable"
+        }
+      },
+      "capability": "Existing typed policy; inspect owner contract"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/access/catalog/versions",
+      "operationId": "createAuthorizationCatalogDraft",
+      "owner": "Authz",
+      "priority": "P0",
+      "status": "current-registration",
+      "request": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "snapshot",
+                "reason"
+              ],
+              "properties": {
+                "snapshot": {
+                  "$ref": "#/components/schemas/AuthorizationCatalogSnapshot"
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1000
+                }
+              }
+            }
+          }
+        }
+      },
+      "response": {
+        "201": {
+          "description": "Draft created"
+        },
+        "400": {
+          "$ref": "#/components/responses/BadRequest"
+        },
+        "403": {
+          "$ref": "#/components/responses/Forbidden"
+        },
+        "502": {
+          "$ref": "#/components/responses/UpstreamUnavailable"
+        }
+      },
+      "capability": "Existing typed policy; inspect owner contract"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/access/catalog/entries",
+      "operationId": "listAuthorizationCatalogEntries",
+      "owner": "Authz",
+      "priority": "P0",
+      "status": "current-registration",
+      "request": null,
+      "response": {
+        "200": {
+          "description": "Owner registered catalog entries"
+        },
+        "403": {
+          "$ref": "#/components/responses/Forbidden"
+        },
+        "502": {
+          "$ref": "#/components/responses/UpstreamUnavailable"
+        }
+      },
+      "capability": "Existing typed policy; inspect owner contract"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/access/catalog/roles",
+      "operationId": "listAuthorizationRoles",
+      "owner": "Authz",
+      "priority": "P0",
+      "status": "current-registration",
+      "request": null,
+      "response": {
+        "200": {
+          "description": "Role codes available in the authenticated tenant"
+        },
+        "403": {
+          "$ref": "#/components/responses/Forbidden"
+        },
+        "502": {
+          "$ref": "#/components/responses/UpstreamUnavailable"
+        }
+      },
+      "capability": "Existing typed policy; inspect owner contract"
+    },
+    {
+      "method": "PUT",
+      "path": "/v1/access/catalog/versions/{versionID}",
+      "operationId": "updateAuthorizationCatalogDraft",
+      "owner": "Authz",
+      "priority": "P0",
+      "status": "current-registration",
+      "request": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "expected_draft_revision",
+                "snapshot",
+                "reason"
+              ],
+              "properties": {
+                "expected_draft_revision": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "snapshot": {
+                  "$ref": "#/components/schemas/AuthorizationCatalogSnapshot"
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1000
+                }
+              }
+            }
+          }
+        }
+      },
+      "response": {
+        "200": {
+          "description": "Draft updated and revision incremented"
+        },
+        "400": {
+          "$ref": "#/components/responses/BadRequest"
+        },
+        "403": {
+          "$ref": "#/components/responses/Forbidden"
+        },
+        "409": {
+          "description": "Draft revision conflict"
+        },
+        "502": {
+          "$ref": "#/components/responses/UpstreamUnavailable"
+        }
+      },
+      "capability": "Existing typed policy; inspect owner contract"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/access/catalog/versions/{versionID}/validate",
+      "operationId": "validateAuthorizationCatalog",
+      "owner": "Authz",
+      "priority": "P0",
+      "status": "current-registration",
+      "request": null,
+      "response": {
+        "200": {
+          "description": "Validation result"
+        },
+        "400": {
+          "$ref": "#/components/responses/BadRequest"
+        },
+        "403": {
+          "$ref": "#/components/responses/Forbidden"
+        },
+        "502": {
+          "$ref": "#/components/responses/UpstreamUnavailable"
+        }
+      },
+      "capability": "Existing typed policy; inspect owner contract"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/access/catalog/versions/{versionID}/publish",
+      "operationId": "publishAuthorizationCatalog",
+      "owner": "Authz",
+      "priority": "P0",
+      "status": "current-registration",
+      "request": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "expected_version_num",
+                "reason"
+              ],
+              "properties": {
+                "expected_version_num": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1000
+                }
+              }
+            }
+          }
+        }
+      },
+      "response": {
+        "200": {
+          "description": "Signed bundle accepted for publication"
+        },
+        "400": {
+          "$ref": "#/components/responses/BadRequest"
+        },
+        "403": {
+          "$ref": "#/components/responses/Forbidden"
+        },
+        "409": {
+          "description": "Catalog version conflict"
+        },
+        "502": {
+          "$ref": "#/components/responses/UpstreamUnavailable"
+        }
+      },
+      "capability": "Existing typed policy; inspect owner contract"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/access/catalog/versions/{versionID}/bundle",
+      "operationId": "downloadAuthorizationBundle",
+      "owner": "Authz",
+      "priority": "P0",
+      "status": "current-registration",
+      "request": null,
+      "response": {
+        "200": {
+          "description": "Canonical signed bundle"
+        },
+        "403": {
+          "$ref": "#/components/responses/Forbidden"
+        },
+        "404": {
+          "description": "Published bundle not found"
+        },
+        "502": {
+          "$ref": "#/components/responses/UpstreamUnavailable"
+        }
+      },
+      "capability": "Existing typed policy; inspect owner contract"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/access/catalog/audit",
+      "operationId": "listAuthorizationCatalogAudit",
+      "owner": "Authz",
+      "priority": "P0",
+      "status": "current-registration",
+      "request": null,
+      "response": {
+        "200": {
+          "description": "Most recent catalog and policy lifecycle audit entries"
+        },
+        "400": {
+          "$ref": "#/components/responses/BadRequest"
+        },
+        "403": {
+          "$ref": "#/components/responses/Forbidden"
+        },
+        "502": {
+          "$ref": "#/components/responses/UpstreamUnavailable"
+        }
+      },
+      "capability": "Existing typed policy; inspect owner contract"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/access/queues",
+      "operationId": "listAccessQueues",
+      "owner": "Human",
+      "priority": "P0",
+      "status": "current-registration",
+      "request": null,
+      "response": {
+        "200": {
+          "description": "Assignment groups from active Human Runtime policies"
+        },
+        "403": {
+          "$ref": "#/components/responses/Forbidden"
+        },
+        "502": {
+          "$ref": "#/components/responses/UpstreamUnavailable"
+        }
+      },
+      "capability": "Existing typed policy; inspect owner contract"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/access/catalog/acknowledgements",
+      "operationId": "listAuthorizationCatalogAcknowledgements",
+      "owner": "Authz",
+      "priority": "P0",
+      "status": "current-registration",
+      "request": null,
+      "response": {
+        "200": {
+          "description": "Consumers that verified and installed a published signed policy bundle"
+        },
+        "400": {
+          "$ref": "#/components/responses/BadRequest"
+        },
+        "403": {
+          "$ref": "#/components/responses/Forbidden"
         },
         "502": {
           "$ref": "#/components/responses/UpstreamUnavailable"
@@ -45220,7 +45553,7 @@
       "rpc": "ResolveConfiguration",
       "request": "ResolveConfigurationRequest",
       "response": "ResolveConfigurationResponse",
-      "source": "contracts/proto/bpmp/configuration/v1/configuration.proto",
+      "source": "contracts\\proto\\bpmp\\configuration\\v1\\configuration.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     },
     {
@@ -45228,7 +45561,7 @@
       "rpc": "HandleCommand",
       "request": "CommandEnvelope",
       "response": "CommandReceipt",
-      "source": "contracts/proto/bpmp/engine/v1/engine.proto",
+      "source": "contracts\\proto\\bpmp\\engine\\v1\\engine.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     },
     {
@@ -45236,7 +45569,7 @@
       "rpc": "OpenDispatchStream",
       "request": "stream WorkerToEngine",
       "response": "stream EngineToWorker",
-      "source": "contracts/proto/bpmp/engine/v1/worker.proto",
+      "source": "contracts\\proto\\bpmp\\engine\\v1\\worker.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     },
     {
@@ -45244,7 +45577,7 @@
       "rpc": "PrepareAbortAndReconcile",
       "request": "PrepareAbortAndReconcileRequest",
       "response": "PrepareAbortAndReconcileResponse",
-      "source": "contracts/proto/bpmp/governance/v1/governance.proto",
+      "source": "contracts\\proto\\bpmp\\governance\\v1\\governance.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     },
     {
@@ -45252,7 +45585,7 @@
       "rpc": "CommitAbortAndReconcile",
       "request": "CommitAbortAndReconcileRequest",
       "response": "CommitAbortAndReconcileResponse",
-      "source": "contracts/proto/bpmp/governance/v1/governance.proto",
+      "source": "contracts\\proto\\bpmp\\governance\\v1\\governance.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     },
     {
@@ -45260,7 +45593,7 @@
       "rpc": "RevokeDataKeyCache",
       "request": "RevokeDataKeyCacheRequest",
       "response": "RevokeDataKeyCacheResponse",
-      "source": "contracts/proto/bpmp/governance/v1/governance.proto",
+      "source": "contracts\\proto\\bpmp\\governance\\v1\\governance.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     },
     {
@@ -45268,7 +45601,7 @@
       "rpc": "CreateApproval",
       "request": "CreateApprovalRequest",
       "response": "CreateApprovalResponse",
-      "source": "contracts/proto/bpmp/governance/v1/governance.proto",
+      "source": "contracts\\proto\\bpmp\\governance\\v1\\governance.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     },
     {
@@ -45276,7 +45609,7 @@
       "rpc": "RecordApproval",
       "request": "RecordApprovalRequest",
       "response": "RecordApprovalResponse",
-      "source": "contracts/proto/bpmp/governance/v1/governance.proto",
+      "source": "contracts\\proto\\bpmp\\governance\\v1\\governance.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     },
     {
@@ -45284,7 +45617,7 @@
       "rpc": "SubmitApproval",
       "request": "SubmitApprovalRequest",
       "response": "SubmitApprovalResponse",
-      "source": "contracts/proto/bpmp/governance/v1/governance.proto",
+      "source": "contracts\\proto\\bpmp\\governance\\v1\\governance.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     },
     {
@@ -45292,7 +45625,7 @@
       "rpc": "GetApproval",
       "request": "GetApprovalRequest",
       "response": "GetApprovalResponse",
-      "source": "contracts/proto/bpmp/governance/v1/governance.proto",
+      "source": "contracts\\proto\\bpmp\\governance\\v1\\governance.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     },
     {
@@ -45300,7 +45633,7 @@
       "rpc": "GetWorkItem",
       "request": "GetWorkItemRequest",
       "response": "GetWorkItemResponse",
-      "source": "contracts/proto/bpmp/human/v1/human.proto",
+      "source": "contracts\\proto\\bpmp\\human\\v1\\human.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     },
     {
@@ -45308,7 +45641,7 @@
       "rpc": "ListWorkItems",
       "request": "ListWorkItemsRequest",
       "response": "ListWorkItemsResponse",
-      "source": "contracts/proto/bpmp/human/v1/human.proto",
+      "source": "contracts\\proto\\bpmp\\human\\v1\\human.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     },
     {
@@ -45316,7 +45649,7 @@
       "rpc": "CompleteWorkItem",
       "request": "CompleteWorkItemRequest",
       "response": "CompleteWorkItemResponse",
-      "source": "contracts/proto/bpmp/human/v1/human.proto",
+      "source": "contracts\\proto\\bpmp\\human\\v1\\human.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     },
     {
@@ -45324,7 +45657,7 @@
       "rpc": "DelegateWorkItem",
       "request": "DelegateWorkItemRequest",
       "response": "DelegateWorkItemResponse",
-      "source": "contracts/proto/bpmp/human/v1/human.proto",
+      "source": "contracts\\proto\\bpmp\\human\\v1\\human.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     },
     {
@@ -45332,7 +45665,7 @@
       "rpc": "GetCase",
       "request": "GetCaseRequest",
       "response": "GetCaseResponse",
-      "source": "contracts/proto/bpmp/human/v1/human.proto",
+      "source": "contracts\\proto\\bpmp\\human\\v1\\human.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     },
     {
@@ -45340,7 +45673,15 @@
       "rpc": "ListAuditRecords",
       "request": "ListAuditRecordsRequest",
       "response": "ListAuditRecordsResponse",
-      "source": "contracts/proto/bpmp/human/v1/human.proto",
+      "source": "contracts\\proto\\bpmp\\human\\v1\\human.proto",
+      "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
+    },
+    {
+      "service": "bpmp.human.v1.HumanRuntimeService",
+      "rpc": "ListAssignmentGroups",
+      "request": "ListAssignmentGroupsRequest",
+      "response": "ListAssignmentGroupsResponse",
+      "source": "contracts\\proto\\bpmp\\human\\v1\\human.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     },
     {
@@ -45348,7 +45689,7 @@
       "rpc": "GetWorkflowInstance",
       "request": "GetWorkflowInstanceRequest",
       "response": "GetWorkflowInstanceResponse",
-      "source": "contracts/proto/bpmp/projection/v1/projection.proto",
+      "source": "contracts\\proto\\bpmp\\projection\\v1\\projection.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     },
     {
@@ -45356,7 +45697,7 @@
       "rpc": "ListWorkflowInstances",
       "request": "ListWorkflowInstancesRequest",
       "response": "ListWorkflowInstancesResponse",
-      "source": "contracts/proto/bpmp/projection/v1/projection.proto",
+      "source": "contracts\\proto\\bpmp\\projection\\v1\\projection.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     },
     {
@@ -45364,7 +45705,7 @@
       "rpc": "QueryCompletedProcesses",
       "request": "QueryCompletedProcessesRequest",
       "response": "QueryCompletedProcessesResponse",
-      "source": "contracts/proto/bpmp/projection/v1/projection.proto",
+      "source": "contracts\\proto\\bpmp\\projection\\v1\\projection.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     },
     {
@@ -45372,7 +45713,7 @@
       "rpc": "QueryProcesses",
       "request": "QueryProcessesRequest",
       "response": "QueryProcessesResponse",
-      "source": "contracts/proto/bpmp/projection/v1/projection.proto",
+      "source": "contracts\\proto\\bpmp\\projection\\v1\\projection.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     },
     {
@@ -45380,7 +45721,7 @@
       "rpc": "GetQueryCapabilities",
       "request": "GetQueryCapabilitiesRequest",
       "response": "GetQueryCapabilitiesResponse",
-      "source": "contracts/proto/bpmp/projection/v1/projection.proto",
+      "source": "contracts\\proto\\bpmp\\projection\\v1\\projection.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     },
     {
@@ -45388,7 +45729,7 @@
       "rpc": "AggregateProcesses",
       "request": "AggregateProcessesRequest",
       "response": "AggregateProcessesResponse",
-      "source": "contracts/proto/bpmp/projection/v1/projection.proto",
+      "source": "contracts\\proto\\bpmp\\projection\\v1\\projection.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     },
     {
@@ -45396,7 +45737,7 @@
       "rpc": "QueryEvents",
       "request": "QueryEventsRequest",
       "response": "QueryEventsResponse",
-      "source": "contracts/proto/bpmp/projection/v1/projection.proto",
+      "source": "contracts\\proto\\bpmp\\projection\\v1\\projection.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     },
     {
@@ -45404,7 +45745,7 @@
       "rpc": "SaveQuery",
       "request": "SaveQueryRequest",
       "response": "SaveQueryResponse",
-      "source": "contracts/proto/bpmp/projection/v1/projection.proto",
+      "source": "contracts\\proto\\bpmp\\projection\\v1\\projection.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     },
     {
@@ -45412,7 +45753,7 @@
       "rpc": "ListSavedQueries",
       "request": "ListSavedQueriesRequest",
       "response": "ListSavedQueriesResponse",
-      "source": "contracts/proto/bpmp/projection/v1/projection.proto",
+      "source": "contracts\\proto\\bpmp\\projection\\v1\\projection.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     },
     {
@@ -45420,7 +45761,7 @@
       "rpc": "DeleteSavedQuery",
       "request": "DeleteSavedQueryRequest",
       "response": "DeleteSavedQueryResponse",
-      "source": "contracts/proto/bpmp/projection/v1/projection.proto",
+      "source": "contracts\\proto\\bpmp\\projection\\v1\\projection.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     },
     {
@@ -45428,7 +45769,7 @@
       "rpc": "CreateQueryExport",
       "request": "CreateQueryExportRequest",
       "response": "CreateQueryExportResponse",
-      "source": "contracts/proto/bpmp/projection/v1/projection.proto",
+      "source": "contracts\\proto\\bpmp\\projection\\v1\\projection.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     },
     {
@@ -45436,7 +45777,7 @@
       "rpc": "GetQueryExport",
       "request": "GetQueryExportRequest",
       "response": "GetQueryExportResponse",
-      "source": "contracts/proto/bpmp/projection/v1/projection.proto",
+      "source": "contracts\\proto\\bpmp\\projection\\v1\\projection.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     },
     {
@@ -45444,7 +45785,7 @@
       "rpc": "CancelQueryExport",
       "request": "CancelQueryExportRequest",
       "response": "CancelQueryExportResponse",
-      "source": "contracts/proto/bpmp/projection/v1/projection.proto",
+      "source": "contracts\\proto\\bpmp\\projection\\v1\\projection.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     },
     {
@@ -45452,7 +45793,7 @@
       "rpc": "ExplainQueryPlan",
       "request": "ExplainQueryPlanRequest",
       "response": "ExplainQueryPlanResponse",
-      "source": "contracts/proto/bpmp/projection/v1/projection.proto",
+      "source": "contracts\\proto\\bpmp\\projection\\v1\\projection.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     },
     {
@@ -45460,7 +45801,7 @@
       "rpc": "AppendEntries",
       "request": "AppendEntriesRequest",
       "response": "AppendEntriesResponse",
-      "source": "contracts/proto/bpmp/raft/v1/raft.proto",
+      "source": "contracts\\proto\\bpmp\\raft\\v1\\raft.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     },
     {
@@ -45468,7 +45809,7 @@
       "rpc": "Vote",
       "request": "VoteRequest",
       "response": "VoteResponse",
-      "source": "contracts/proto/bpmp/raft/v1/raft.proto",
+      "source": "contracts\\proto\\bpmp\\raft\\v1\\raft.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     },
     {
@@ -45476,7 +45817,7 @@
       "rpc": "InstallSnapshot",
       "request": "InstallSnapshotRequest",
       "response": "InstallSnapshotResponse",
-      "source": "contracts/proto/bpmp/raft/v1/raft.proto",
+      "source": "contracts\\proto\\bpmp\\raft\\v1\\raft.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     },
     {
@@ -45484,7 +45825,7 @@
       "rpc": "ForwardCommand",
       "request": "ForwardCommandRequest",
       "response": "ForwardCommandResponse",
-      "source": "contracts/proto/bpmp/raft/v1/raft.proto",
+      "source": "contracts\\proto\\bpmp\\raft\\v1\\raft.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     },
     {
@@ -45492,7 +45833,7 @@
       "rpc": "AddLearner",
       "request": "AddLearnerRequest",
       "response": "AddLearnerResponse",
-      "source": "contracts/proto/bpmp/raft/v1/raft.proto",
+      "source": "contracts\\proto\\bpmp\\raft\\v1\\raft.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     },
     {
@@ -45500,7 +45841,7 @@
       "rpc": "ChangeMembership",
       "request": "ChangeMembershipRequest",
       "response": "ChangeMembershipResponse",
-      "source": "contracts/proto/bpmp/raft/v1/raft.proto",
+      "source": "contracts\\proto\\bpmp\\raft\\v1\\raft.proto",
       "exposure": "internal-mTLS; worker/Raft/admin restrictions apply"
     }
   ]

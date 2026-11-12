@@ -805,30 +805,33 @@ func (x *AuthorizationDecision) GetActorProofDigest() []byte {
 }
 
 type AuthorizationAuditRecord struct {
-	state             protoimpl.MessageState    `protogen:"open.v1"`
-	DecisionId        string                    `protobuf:"bytes,1,opt,name=decision_id,json=decisionId,proto3" json:"decision_id,omitempty"`
-	TenantId          string                    `protobuf:"bytes,2,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
-	ActorId           string                    `protobuf:"bytes,3,opt,name=actor_id,json=actorId,proto3" json:"actor_id,omitempty"`
-	WorkloadId        string                    `protobuf:"bytes,4,opt,name=workload_id,json=workloadId,proto3" json:"workload_id,omitempty"`
-	Action            string                    `protobuf:"bytes,5,opt,name=action,proto3" json:"action,omitempty"`
-	ResourceRef       string                    `protobuf:"bytes,6,opt,name=resource_ref,json=resourceRef,proto3" json:"resource_ref,omitempty"`
-	Decision          AuthorizationDecisionType `protobuf:"varint,7,opt,name=decision,proto3,enum=bpmp.authorization.v1.AuthorizationDecisionType" json:"decision,omitempty"`
-	DenyReasonCode    string                    `protobuf:"bytes,8,opt,name=deny_reason_code,json=denyReasonCode,proto3" json:"deny_reason_code,omitempty"`
-	PolicyVersion     string                    `protobuf:"bytes,9,opt,name=policy_version,json=policyVersion,proto3" json:"policy_version,omitempty"`
-	RevokeEpoch       uint64                    `protobuf:"varint,10,opt,name=revoke_epoch,json=revokeEpoch,proto3" json:"revoke_epoch,omitempty"`
-	OccurredAtEpochMs uint64                    `protobuf:"varint,11,opt,name=occurred_at_epoch_ms,json=occurredAtEpochMs,proto3" json:"occurred_at_epoch_ms,omitempty"`
-	CommandId         string                    `protobuf:"bytes,12,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
-	CorrelationId     string                    `protobuf:"bytes,13,opt,name=correlation_id,json=correlationId,proto3" json:"correlation_id,omitempty"`
-	WorkflowType      string                    `protobuf:"bytes,14,opt,name=workflow_type,json=workflowType,proto3" json:"workflow_type,omitempty"`
-	WorkflowVersion   string                    `protobuf:"bytes,15,opt,name=workflow_version,json=workflowVersion,proto3" json:"workflow_version,omitempty"`
-	InstanceId        string                    `protobuf:"bytes,16,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
-	ActiveNodeId      string                    `protobuf:"bytes,17,opt,name=active_node_id,json=activeNodeId,proto3" json:"active_node_id,omitempty"`
-	Roles             []string                  `protobuf:"bytes,18,rep,name=roles,proto3" json:"roles,omitempty"`
-	ConfigVersion     string                    `protobuf:"bytes,19,opt,name=config_version,json=configVersion,proto3" json:"config_version,omitempty"`
-	BundleSequence    uint64                    `protobuf:"varint,20,opt,name=bundle_sequence,json=bundleSequence,proto3" json:"bundle_sequence,omitempty"`
-	MatchedGrantIds   []string                  `protobuf:"bytes,21,rep,name=matched_grant_ids,json=matchedGrantIds,proto3" json:"matched_grant_ids,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	state                  protoimpl.MessageState    `protogen:"open.v1"`
+	DecisionId             string                    `protobuf:"bytes,1,opt,name=decision_id,json=decisionId,proto3" json:"decision_id,omitempty"`
+	TenantId               string                    `protobuf:"bytes,2,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	ActorId                string                    `protobuf:"bytes,3,opt,name=actor_id,json=actorId,proto3" json:"actor_id,omitempty"`
+	WorkloadId             string                    `protobuf:"bytes,4,opt,name=workload_id,json=workloadId,proto3" json:"workload_id,omitempty"`
+	Action                 string                    `protobuf:"bytes,5,opt,name=action,proto3" json:"action,omitempty"`
+	ResourceRef            string                    `protobuf:"bytes,6,opt,name=resource_ref,json=resourceRef,proto3" json:"resource_ref,omitempty"`
+	Decision               AuthorizationDecisionType `protobuf:"varint,7,opt,name=decision,proto3,enum=bpmp.authorization.v1.AuthorizationDecisionType" json:"decision,omitempty"`
+	DenyReasonCode         string                    `protobuf:"bytes,8,opt,name=deny_reason_code,json=denyReasonCode,proto3" json:"deny_reason_code,omitempty"`
+	PolicyVersion          string                    `protobuf:"bytes,9,opt,name=policy_version,json=policyVersion,proto3" json:"policy_version,omitempty"`
+	RevokeEpoch            uint64                    `protobuf:"varint,10,opt,name=revoke_epoch,json=revokeEpoch,proto3" json:"revoke_epoch,omitempty"`
+	OccurredAtEpochMs      uint64                    `protobuf:"varint,11,opt,name=occurred_at_epoch_ms,json=occurredAtEpochMs,proto3" json:"occurred_at_epoch_ms,omitempty"`
+	CommandId              string                    `protobuf:"bytes,12,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
+	CorrelationId          string                    `protobuf:"bytes,13,opt,name=correlation_id,json=correlationId,proto3" json:"correlation_id,omitempty"`
+	WorkflowType           string                    `protobuf:"bytes,14,opt,name=workflow_type,json=workflowType,proto3" json:"workflow_type,omitempty"`
+	WorkflowVersion        string                    `protobuf:"bytes,15,opt,name=workflow_version,json=workflowVersion,proto3" json:"workflow_version,omitempty"`
+	InstanceId             string                    `protobuf:"bytes,16,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
+	ActiveNodeId           string                    `protobuf:"bytes,17,opt,name=active_node_id,json=activeNodeId,proto3" json:"active_node_id,omitempty"`
+	Roles                  []string                  `protobuf:"bytes,18,rep,name=roles,proto3" json:"roles,omitempty"`
+	ConfigVersion          string                    `protobuf:"bytes,19,opt,name=config_version,json=configVersion,proto3" json:"config_version,omitempty"`
+	BundleSequence         uint64                    `protobuf:"varint,20,opt,name=bundle_sequence,json=bundleSequence,proto3" json:"bundle_sequence,omitempty"`
+	MatchedGrantIds        []string                  `protobuf:"bytes,21,rep,name=matched_grant_ids,json=matchedGrantIds,proto3" json:"matched_grant_ids,omitempty"`
+	ResourceBranchId       string                    `protobuf:"bytes,22,opt,name=resource_branch_id,json=resourceBranchId,proto3" json:"resource_branch_id,omitempty"`
+	ResourceBranchAncestry []string                  `protobuf:"bytes,23,rep,name=resource_branch_ancestry,json=resourceBranchAncestry,proto3" json:"resource_branch_ancestry,omitempty"`
+	OrganizationVersion    uint64                    `protobuf:"varint,24,opt,name=organization_version,json=organizationVersion,proto3" json:"organization_version,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *AuthorizationAuditRecord) Reset() {
@@ -1006,6 +1009,27 @@ func (x *AuthorizationAuditRecord) GetMatchedGrantIds() []string {
 		return x.MatchedGrantIds
 	}
 	return nil
+}
+
+func (x *AuthorizationAuditRecord) GetResourceBranchId() string {
+	if x != nil {
+		return x.ResourceBranchId
+	}
+	return ""
+}
+
+func (x *AuthorizationAuditRecord) GetResourceBranchAncestry() []string {
+	if x != nil {
+		return x.ResourceBranchAncestry
+	}
+	return nil
+}
+
+func (x *AuthorizationAuditRecord) GetOrganizationVersion() uint64 {
+	if x != nil {
+		return x.OrganizationVersion
+	}
+	return 0
 }
 
 type AuthorizationPolicyGrant struct {
@@ -1190,8 +1214,13 @@ type AuthorizationPolicyBundle struct {
 	SigningKeyId      string                      `protobuf:"bytes,10,opt,name=signing_key_id,json=signingKeyId,proto3" json:"signing_key_id,omitempty"`
 	ContentHash       []byte                      `protobuf:"bytes,11,opt,name=content_hash,json=contentHash,proto3" json:"content_hash,omitempty"`
 	Signature         []byte                      `protobuf:"bytes,12,opt,name=signature,proto3" json:"signature,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Generic resource authorization is separate from workflow transition
+	// grants; consumers must select the evaluator matching the resource owner.
+	CatalogVersion  uint64                             `protobuf:"varint,13,opt,name=catalog_version,json=catalogVersion,proto3" json:"catalog_version,omitempty"`
+	ResourceGrants  []*AuthorizationResourceGrant      `protobuf:"bytes,14,rep,name=resource_grants,json=resourceGrants,proto3" json:"resource_grants,omitempty"`
+	ResourceCatalog []*AuthorizationResourceDefinition `protobuf:"bytes,15,rep,name=resource_catalog,json=resourceCatalog,proto3" json:"resource_catalog,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *AuthorizationPolicyBundle) Reset() {
@@ -1308,6 +1337,508 @@ func (x *AuthorizationPolicyBundle) GetSignature() []byte {
 	return nil
 }
 
+func (x *AuthorizationPolicyBundle) GetCatalogVersion() uint64 {
+	if x != nil {
+		return x.CatalogVersion
+	}
+	return 0
+}
+
+func (x *AuthorizationPolicyBundle) GetResourceGrants() []*AuthorizationResourceGrant {
+	if x != nil {
+		return x.ResourceGrants
+	}
+	return nil
+}
+
+func (x *AuthorizationPolicyBundle) GetResourceCatalog() []*AuthorizationResourceDefinition {
+	if x != nil {
+		return x.ResourceCatalog
+	}
+	return nil
+}
+
+type AuthorizationResourceDefinition struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	OwnerId             string                 `protobuf:"bytes,1,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
+	ManifestVersion     string                 `protobuf:"bytes,2,opt,name=manifest_version,json=manifestVersion,proto3" json:"manifest_version,omitempty"`
+	ManifestDigest      []byte                 `protobuf:"bytes,3,opt,name=manifest_digest,json=manifestDigest,proto3" json:"manifest_digest,omitempty"`
+	ResourceType        string                 `protobuf:"bytes,4,opt,name=resource_type,json=resourceType,proto3" json:"resource_type,omitempty"`
+	Action              string                 `protobuf:"bytes,5,opt,name=action,proto3" json:"action,omitempty"`
+	Capability          string                 `protobuf:"bytes,6,opt,name=capability,proto3" json:"capability,omitempty"`
+	SupportedScopeTypes []string               `protobuf:"bytes,7,rep,name=supported_scope_types,json=supportedScopeTypes,proto3" json:"supported_scope_types,omitempty"`
+	ReadableFields      []string               `protobuf:"bytes,8,rep,name=readable_fields,json=readableFields,proto3" json:"readable_fields,omitempty"`
+	WritableFields      []string               `protobuf:"bytes,9,rep,name=writable_fields,json=writableFields,proto3" json:"writable_fields,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *AuthorizationResourceDefinition) Reset() {
+	*x = AuthorizationResourceDefinition{}
+	mi := &file_bpmp_authorization_v1_authorization_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuthorizationResourceDefinition) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuthorizationResourceDefinition) ProtoMessage() {}
+
+func (x *AuthorizationResourceDefinition) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_authorization_v1_authorization_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuthorizationResourceDefinition.ProtoReflect.Descriptor instead.
+func (*AuthorizationResourceDefinition) Descriptor() ([]byte, []int) {
+	return file_bpmp_authorization_v1_authorization_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *AuthorizationResourceDefinition) GetOwnerId() string {
+	if x != nil {
+		return x.OwnerId
+	}
+	return ""
+}
+
+func (x *AuthorizationResourceDefinition) GetManifestVersion() string {
+	if x != nil {
+		return x.ManifestVersion
+	}
+	return ""
+}
+
+func (x *AuthorizationResourceDefinition) GetManifestDigest() []byte {
+	if x != nil {
+		return x.ManifestDigest
+	}
+	return nil
+}
+
+func (x *AuthorizationResourceDefinition) GetResourceType() string {
+	if x != nil {
+		return x.ResourceType
+	}
+	return ""
+}
+
+func (x *AuthorizationResourceDefinition) GetAction() string {
+	if x != nil {
+		return x.Action
+	}
+	return ""
+}
+
+func (x *AuthorizationResourceDefinition) GetCapability() string {
+	if x != nil {
+		return x.Capability
+	}
+	return ""
+}
+
+func (x *AuthorizationResourceDefinition) GetSupportedScopeTypes() []string {
+	if x != nil {
+		return x.SupportedScopeTypes
+	}
+	return nil
+}
+
+func (x *AuthorizationResourceDefinition) GetReadableFields() []string {
+	if x != nil {
+		return x.ReadableFields
+	}
+	return nil
+}
+
+func (x *AuthorizationResourceDefinition) GetWritableFields() []string {
+	if x != nil {
+		return x.WritableFields
+	}
+	return nil
+}
+
+// Kafka envelope around the already signed canonical policy bundle. Consumers
+// treat bundle_bytes as untrusted and verify it before installing it locally.
+type AuthorizationPolicyBundlePublication struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	EventId            string                 `protobuf:"bytes,1,opt,name=event_id,json=eventId,proto3" json:"event_id,omitempty"`
+	TenantId           string                 `protobuf:"bytes,2,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	BundleSequence     uint64                 `protobuf:"varint,3,opt,name=bundle_sequence,json=bundleSequence,proto3" json:"bundle_sequence,omitempty"`
+	CatalogVersion     uint64                 `protobuf:"varint,4,opt,name=catalog_version,json=catalogVersion,proto3" json:"catalog_version,omitempty"`
+	PublishedAtEpochMs uint64                 `protobuf:"varint,5,opt,name=published_at_epoch_ms,json=publishedAtEpochMs,proto3" json:"published_at_epoch_ms,omitempty"`
+	BundleBytes        []byte                 `protobuf:"bytes,6,opt,name=bundle_bytes,json=bundleBytes,proto3" json:"bundle_bytes,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *AuthorizationPolicyBundlePublication) Reset() {
+	*x = AuthorizationPolicyBundlePublication{}
+	mi := &file_bpmp_authorization_v1_authorization_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuthorizationPolicyBundlePublication) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuthorizationPolicyBundlePublication) ProtoMessage() {}
+
+func (x *AuthorizationPolicyBundlePublication) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_authorization_v1_authorization_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuthorizationPolicyBundlePublication.ProtoReflect.Descriptor instead.
+func (*AuthorizationPolicyBundlePublication) Descriptor() ([]byte, []int) {
+	return file_bpmp_authorization_v1_authorization_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *AuthorizationPolicyBundlePublication) GetEventId() string {
+	if x != nil {
+		return x.EventId
+	}
+	return ""
+}
+
+func (x *AuthorizationPolicyBundlePublication) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *AuthorizationPolicyBundlePublication) GetBundleSequence() uint64 {
+	if x != nil {
+		return x.BundleSequence
+	}
+	return 0
+}
+
+func (x *AuthorizationPolicyBundlePublication) GetCatalogVersion() uint64 {
+	if x != nil {
+		return x.CatalogVersion
+	}
+	return 0
+}
+
+func (x *AuthorizationPolicyBundlePublication) GetPublishedAtEpochMs() uint64 {
+	if x != nil {
+		return x.PublishedAtEpochMs
+	}
+	return 0
+}
+
+func (x *AuthorizationPolicyBundlePublication) GetBundleBytes() []byte {
+	if x != nil {
+		return x.BundleBytes
+	}
+	return nil
+}
+
+// Emitted by an evaluator only after it verifies and installs a publication.
+// The Kafka producer identity is constrained by broker ACLs for the ack topic.
+type AuthorizationPolicyBundleAcknowledgement struct {
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	SchemaVersion         uint32                 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
+	AcknowledgementId     string                 `protobuf:"bytes,2,opt,name=acknowledgement_id,json=acknowledgementId,proto3" json:"acknowledgement_id,omitempty"`
+	ConsumerId            string                 `protobuf:"bytes,3,opt,name=consumer_id,json=consumerId,proto3" json:"consumer_id,omitempty"`
+	ConsumerType          string                 `protobuf:"bytes,4,opt,name=consumer_type,json=consumerType,proto3" json:"consumer_type,omitempty"`
+	TenantId              string                 `protobuf:"bytes,5,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	BundleSequence        uint64                 `protobuf:"varint,6,opt,name=bundle_sequence,json=bundleSequence,proto3" json:"bundle_sequence,omitempty"`
+	CatalogVersion        uint64                 `protobuf:"varint,7,opt,name=catalog_version,json=catalogVersion,proto3" json:"catalog_version,omitempty"`
+	BundleContentHash     []byte                 `protobuf:"bytes,8,opt,name=bundle_content_hash,json=bundleContentHash,proto3" json:"bundle_content_hash,omitempty"`
+	AcknowledgedAtEpochMs uint64                 `protobuf:"varint,9,opt,name=acknowledged_at_epoch_ms,json=acknowledgedAtEpochMs,proto3" json:"acknowledged_at_epoch_ms,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
+}
+
+func (x *AuthorizationPolicyBundleAcknowledgement) Reset() {
+	*x = AuthorizationPolicyBundleAcknowledgement{}
+	mi := &file_bpmp_authorization_v1_authorization_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuthorizationPolicyBundleAcknowledgement) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuthorizationPolicyBundleAcknowledgement) ProtoMessage() {}
+
+func (x *AuthorizationPolicyBundleAcknowledgement) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_authorization_v1_authorization_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuthorizationPolicyBundleAcknowledgement.ProtoReflect.Descriptor instead.
+func (*AuthorizationPolicyBundleAcknowledgement) Descriptor() ([]byte, []int) {
+	return file_bpmp_authorization_v1_authorization_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *AuthorizationPolicyBundleAcknowledgement) GetSchemaVersion() uint32 {
+	if x != nil {
+		return x.SchemaVersion
+	}
+	return 0
+}
+
+func (x *AuthorizationPolicyBundleAcknowledgement) GetAcknowledgementId() string {
+	if x != nil {
+		return x.AcknowledgementId
+	}
+	return ""
+}
+
+func (x *AuthorizationPolicyBundleAcknowledgement) GetConsumerId() string {
+	if x != nil {
+		return x.ConsumerId
+	}
+	return ""
+}
+
+func (x *AuthorizationPolicyBundleAcknowledgement) GetConsumerType() string {
+	if x != nil {
+		return x.ConsumerType
+	}
+	return ""
+}
+
+func (x *AuthorizationPolicyBundleAcknowledgement) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *AuthorizationPolicyBundleAcknowledgement) GetBundleSequence() uint64 {
+	if x != nil {
+		return x.BundleSequence
+	}
+	return 0
+}
+
+func (x *AuthorizationPolicyBundleAcknowledgement) GetCatalogVersion() uint64 {
+	if x != nil {
+		return x.CatalogVersion
+	}
+	return 0
+}
+
+func (x *AuthorizationPolicyBundleAcknowledgement) GetBundleContentHash() []byte {
+	if x != nil {
+		return x.BundleContentHash
+	}
+	return nil
+}
+
+func (x *AuthorizationPolicyBundleAcknowledgement) GetAcknowledgedAtEpochMs() uint64 {
+	if x != nil {
+		return x.AcknowledgedAtEpochMs
+	}
+	return 0
+}
+
+type AuthorizationResourceGrant struct {
+	state                protoimpl.MessageState    `protogen:"open.v1"`
+	GrantId              string                    `protobuf:"bytes,1,opt,name=grant_id,json=grantId,proto3" json:"grant_id,omitempty"`
+	ActorIds             []string                  `protobuf:"bytes,2,rep,name=actor_ids,json=actorIds,proto3" json:"actor_ids,omitempty"`
+	Roles                []string                  `protobuf:"bytes,3,rep,name=roles,proto3" json:"roles,omitempty"`
+	RequiredCapabilities []string                  `protobuf:"bytes,4,rep,name=required_capabilities,json=requiredCapabilities,proto3" json:"required_capabilities,omitempty"`
+	ResourceType         string                    `protobuf:"bytes,5,opt,name=resource_type,json=resourceType,proto3" json:"resource_type,omitempty"`
+	Action               string                    `protobuf:"bytes,6,opt,name=action,proto3" json:"action,omitempty"`
+	Effect               AuthorizationPolicyEffect `protobuf:"varint,7,opt,name=effect,proto3,enum=bpmp.authorization.v1.AuthorizationPolicyEffect" json:"effect,omitempty"`
+	Priority             uint32                    `protobuf:"varint,8,opt,name=priority,proto3" json:"priority,omitempty"`
+	// A branch ID applies to that branch and, when enabled, its descendants.
+	BranchScopeIds            []string `protobuf:"bytes,9,rep,name=branch_scope_ids,json=branchScopeIds,proto3" json:"branch_scope_ids,omitempty"`
+	BranchIncludesDescendants bool     `protobuf:"varint,10,opt,name=branch_includes_descendants,json=branchIncludesDescendants,proto3" json:"branch_includes_descendants,omitempty"`
+	// A non-empty queue set is intersected with branch scope (AND semantics).
+	QueueScopeIds []string `protobuf:"bytes,11,rep,name=queue_scope_ids,json=queueScopeIds,proto3" json:"queue_scope_ids,omitempty"`
+	// Empty means the resource owner may use its catalog's default field set.
+	ReadableFields   []string `protobuf:"bytes,12,rep,name=readable_fields,json=readableFields,proto3" json:"readable_fields,omitempty"`
+	WritableFields   []string `protobuf:"bytes,13,rep,name=writable_fields,json=writableFields,proto3" json:"writable_fields,omitempty"`
+	OwnScope         bool     `protobuf:"varint,14,opt,name=own_scope,json=ownScope,proto3" json:"own_scope,omitempty"`
+	ResourceScopeIds []string `protobuf:"bytes,15,rep,name=resource_scope_ids,json=resourceScopeIds,proto3" json:"resource_scope_ids,omitempty"`
+	OwnerId          string   `protobuf:"bytes,16,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
+	// Tenant-wide access must be an explicit scope choice. It cannot be combined
+	// with narrower branch, queue, owner, or resource scopes.
+	TenantScope   bool `protobuf:"varint,17,opt,name=tenant_scope,json=tenantScope,proto3" json:"tenant_scope,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AuthorizationResourceGrant) Reset() {
+	*x = AuthorizationResourceGrant{}
+	mi := &file_bpmp_authorization_v1_authorization_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuthorizationResourceGrant) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuthorizationResourceGrant) ProtoMessage() {}
+
+func (x *AuthorizationResourceGrant) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_authorization_v1_authorization_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuthorizationResourceGrant.ProtoReflect.Descriptor instead.
+func (*AuthorizationResourceGrant) Descriptor() ([]byte, []int) {
+	return file_bpmp_authorization_v1_authorization_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *AuthorizationResourceGrant) GetGrantId() string {
+	if x != nil {
+		return x.GrantId
+	}
+	return ""
+}
+
+func (x *AuthorizationResourceGrant) GetActorIds() []string {
+	if x != nil {
+		return x.ActorIds
+	}
+	return nil
+}
+
+func (x *AuthorizationResourceGrant) GetRoles() []string {
+	if x != nil {
+		return x.Roles
+	}
+	return nil
+}
+
+func (x *AuthorizationResourceGrant) GetRequiredCapabilities() []string {
+	if x != nil {
+		return x.RequiredCapabilities
+	}
+	return nil
+}
+
+func (x *AuthorizationResourceGrant) GetResourceType() string {
+	if x != nil {
+		return x.ResourceType
+	}
+	return ""
+}
+
+func (x *AuthorizationResourceGrant) GetAction() string {
+	if x != nil {
+		return x.Action
+	}
+	return ""
+}
+
+func (x *AuthorizationResourceGrant) GetEffect() AuthorizationPolicyEffect {
+	if x != nil {
+		return x.Effect
+	}
+	return AuthorizationPolicyEffect_AUTHORIZATION_POLICY_EFFECT_UNSPECIFIED
+}
+
+func (x *AuthorizationResourceGrant) GetPriority() uint32 {
+	if x != nil {
+		return x.Priority
+	}
+	return 0
+}
+
+func (x *AuthorizationResourceGrant) GetBranchScopeIds() []string {
+	if x != nil {
+		return x.BranchScopeIds
+	}
+	return nil
+}
+
+func (x *AuthorizationResourceGrant) GetBranchIncludesDescendants() bool {
+	if x != nil {
+		return x.BranchIncludesDescendants
+	}
+	return false
+}
+
+func (x *AuthorizationResourceGrant) GetQueueScopeIds() []string {
+	if x != nil {
+		return x.QueueScopeIds
+	}
+	return nil
+}
+
+func (x *AuthorizationResourceGrant) GetReadableFields() []string {
+	if x != nil {
+		return x.ReadableFields
+	}
+	return nil
+}
+
+func (x *AuthorizationResourceGrant) GetWritableFields() []string {
+	if x != nil {
+		return x.WritableFields
+	}
+	return nil
+}
+
+func (x *AuthorizationResourceGrant) GetOwnScope() bool {
+	if x != nil {
+		return x.OwnScope
+	}
+	return false
+}
+
+func (x *AuthorizationResourceGrant) GetResourceScopeIds() []string {
+	if x != nil {
+		return x.ResourceScopeIds
+	}
+	return nil
+}
+
+func (x *AuthorizationResourceGrant) GetOwnerId() string {
+	if x != nil {
+		return x.OwnerId
+	}
+	return ""
+}
+
+func (x *AuthorizationResourceGrant) GetTenantScope() bool {
+	if x != nil {
+		return x.TenantScope
+	}
+	return false
+}
+
 type AuthorizationRevokeEpochUpdate struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	SchemaVersion   uint32                 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
@@ -1325,7 +1856,7 @@ type AuthorizationRevokeEpochUpdate struct {
 
 func (x *AuthorizationRevokeEpochUpdate) Reset() {
 	*x = AuthorizationRevokeEpochUpdate{}
-	mi := &file_bpmp_authorization_v1_authorization_proto_msgTypes[11]
+	mi := &file_bpmp_authorization_v1_authorization_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1337,7 +1868,7 @@ func (x *AuthorizationRevokeEpochUpdate) String() string {
 func (*AuthorizationRevokeEpochUpdate) ProtoMessage() {}
 
 func (x *AuthorizationRevokeEpochUpdate) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_authorization_v1_authorization_proto_msgTypes[11]
+	mi := &file_bpmp_authorization_v1_authorization_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1350,7 +1881,7 @@ func (x *AuthorizationRevokeEpochUpdate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AuthorizationRevokeEpochUpdate.ProtoReflect.Descriptor instead.
 func (*AuthorizationRevokeEpochUpdate) Descriptor() ([]byte, []int) {
-	return file_bpmp_authorization_v1_authorization_proto_rawDescGZIP(), []int{11}
+	return file_bpmp_authorization_v1_authorization_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *AuthorizationRevokeEpochUpdate) GetSchemaVersion() uint32 {
@@ -1436,7 +1967,7 @@ type AuthorizationQueryRevokeEvent struct {
 
 func (x *AuthorizationQueryRevokeEvent) Reset() {
 	*x = AuthorizationQueryRevokeEvent{}
-	mi := &file_bpmp_authorization_v1_authorization_proto_msgTypes[12]
+	mi := &file_bpmp_authorization_v1_authorization_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1448,7 +1979,7 @@ func (x *AuthorizationQueryRevokeEvent) String() string {
 func (*AuthorizationQueryRevokeEvent) ProtoMessage() {}
 
 func (x *AuthorizationQueryRevokeEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_authorization_v1_authorization_proto_msgTypes[12]
+	mi := &file_bpmp_authorization_v1_authorization_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1461,7 +1992,7 @@ func (x *AuthorizationQueryRevokeEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AuthorizationQueryRevokeEvent.ProtoReflect.Descriptor instead.
 func (*AuthorizationQueryRevokeEvent) Descriptor() ([]byte, []int) {
-	return file_bpmp_authorization_v1_authorization_proto_rawDescGZIP(), []int{12}
+	return file_bpmp_authorization_v1_authorization_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *AuthorizationQueryRevokeEvent) GetSchemaVersion() uint32 {
@@ -1565,7 +2096,7 @@ type AuthorizationQueryRevokeDeadLetter struct {
 
 func (x *AuthorizationQueryRevokeDeadLetter) Reset() {
 	*x = AuthorizationQueryRevokeDeadLetter{}
-	mi := &file_bpmp_authorization_v1_authorization_proto_msgTypes[13]
+	mi := &file_bpmp_authorization_v1_authorization_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1577,7 +2108,7 @@ func (x *AuthorizationQueryRevokeDeadLetter) String() string {
 func (*AuthorizationQueryRevokeDeadLetter) ProtoMessage() {}
 
 func (x *AuthorizationQueryRevokeDeadLetter) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_authorization_v1_authorization_proto_msgTypes[13]
+	mi := &file_bpmp_authorization_v1_authorization_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1590,7 +2121,7 @@ func (x *AuthorizationQueryRevokeDeadLetter) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use AuthorizationQueryRevokeDeadLetter.ProtoReflect.Descriptor instead.
 func (*AuthorizationQueryRevokeDeadLetter) Descriptor() ([]byte, []int) {
-	return file_bpmp_authorization_v1_authorization_proto_rawDescGZIP(), []int{13}
+	return file_bpmp_authorization_v1_authorization_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *AuthorizationQueryRevokeDeadLetter) GetSchemaVersion() uint32 {
@@ -1725,7 +2256,7 @@ const file_bpmp_authorization_v1_authorization_proto_rawDesc = "" +
 	"\frevoke_epoch\x18\b \x01(\x04R\vrevokeEpoch\x12-\n" +
 	"\x13decided_at_epoch_ms\x18\t \x01(\x04R\x10decidedAtEpochMs\x12,\n" +
 	"\x12actor_proof_digest\x18\n" +
-	" \x01(\fR\x10actorProofDigest\"\xb1\x06\n" +
+	" \x01(\fR\x10actorProofDigest\"\xcc\a\n" +
 	"\x18AuthorizationAuditRecord\x12\x1f\n" +
 	"\vdecision_id\x18\x01 \x01(\tR\n" +
 	"decisionId\x12\x1b\n" +
@@ -1752,7 +2283,10 @@ const file_bpmp_authorization_v1_authorization_proto_rawDesc = "" +
 	"\x05roles\x18\x12 \x03(\tR\x05roles\x12%\n" +
 	"\x0econfig_version\x18\x13 \x01(\tR\rconfigVersion\x12'\n" +
 	"\x0fbundle_sequence\x18\x14 \x01(\x04R\x0ebundleSequence\x12*\n" +
-	"\x11matched_grant_ids\x18\x15 \x03(\tR\x0fmatchedGrantIds\"\x91\x03\n" +
+	"\x11matched_grant_ids\x18\x15 \x03(\tR\x0fmatchedGrantIds\x12,\n" +
+	"\x12resource_branch_id\x18\x16 \x01(\tR\x10resourceBranchId\x128\n" +
+	"\x18resource_branch_ancestry\x18\x17 \x03(\tR\x16resourceBranchAncestry\x121\n" +
+	"\x14organization_version\x18\x18 \x01(\x04R\x13organizationVersion\"\x91\x03\n" +
 	"\x18AuthorizationPolicyGrant\x12\x19\n" +
 	"\bgrant_id\x18\x01 \x01(\tR\agrantId\x12\x1b\n" +
 	"\tactor_ids\x18\x02 \x03(\tR\bactorIds\x12\x14\n" +
@@ -1767,7 +2301,7 @@ const file_bpmp_authorization_v1_authorization_proto_rawDesc = "" +
 	" \x01(\rR\bpriority\"P\n" +
 	"\x10ActorRevokeEpoch\x12\x19\n" +
 	"\bactor_id\x18\x01 \x01(\tR\aactorId\x12!\n" +
-	"\frevoke_epoch\x18\x02 \x01(\x04R\vrevokeEpoch\"\xb9\x04\n" +
+	"\frevoke_epoch\x18\x02 \x01(\x04R\vrevokeEpoch\"\xa1\x06\n" +
 	"\x19AuthorizationPolicyBundle\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x1b\n" +
 	"\ttenant_id\x18\x02 \x01(\tR\btenantId\x12'\n" +
@@ -1781,7 +2315,59 @@ const file_bpmp_authorization_v1_authorization_proto_rawDesc = "" +
 	"\x0esigning_key_id\x18\n" +
 	" \x01(\tR\fsigningKeyId\x12!\n" +
 	"\fcontent_hash\x18\v \x01(\fR\vcontentHash\x12\x1c\n" +
-	"\tsignature\x18\f \x01(\fR\tsignature\"\xdf\x02\n" +
+	"\tsignature\x18\f \x01(\fR\tsignature\x12'\n" +
+	"\x0fcatalog_version\x18\r \x01(\x04R\x0ecatalogVersion\x12Z\n" +
+	"\x0fresource_grants\x18\x0e \x03(\v21.bpmp.authorization.v1.AuthorizationResourceGrantR\x0eresourceGrants\x12a\n" +
+	"\x10resource_catalog\x18\x0f \x03(\v26.bpmp.authorization.v1.AuthorizationResourceDefinitionR\x0fresourceCatalog\"\xf3\x02\n" +
+	"\x1fAuthorizationResourceDefinition\x12\x19\n" +
+	"\bowner_id\x18\x01 \x01(\tR\aownerId\x12)\n" +
+	"\x10manifest_version\x18\x02 \x01(\tR\x0fmanifestVersion\x12'\n" +
+	"\x0fmanifest_digest\x18\x03 \x01(\fR\x0emanifestDigest\x12#\n" +
+	"\rresource_type\x18\x04 \x01(\tR\fresourceType\x12\x16\n" +
+	"\x06action\x18\x05 \x01(\tR\x06action\x12\x1e\n" +
+	"\n" +
+	"capability\x18\x06 \x01(\tR\n" +
+	"capability\x122\n" +
+	"\x15supported_scope_types\x18\a \x03(\tR\x13supportedScopeTypes\x12'\n" +
+	"\x0freadable_fields\x18\b \x03(\tR\x0ereadableFields\x12'\n" +
+	"\x0fwritable_fields\x18\t \x03(\tR\x0ewritableFields\"\x86\x02\n" +
+	"$AuthorizationPolicyBundlePublication\x12\x19\n" +
+	"\bevent_id\x18\x01 \x01(\tR\aeventId\x12\x1b\n" +
+	"\ttenant_id\x18\x02 \x01(\tR\btenantId\x12'\n" +
+	"\x0fbundle_sequence\x18\x03 \x01(\x04R\x0ebundleSequence\x12'\n" +
+	"\x0fcatalog_version\x18\x04 \x01(\x04R\x0ecatalogVersion\x121\n" +
+	"\x15published_at_epoch_ms\x18\x05 \x01(\x04R\x12publishedAtEpochMs\x12!\n" +
+	"\fbundle_bytes\x18\x06 \x01(\fR\vbundleBytes\"\x9e\x03\n" +
+	"(AuthorizationPolicyBundleAcknowledgement\x12%\n" +
+	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12-\n" +
+	"\x12acknowledgement_id\x18\x02 \x01(\tR\x11acknowledgementId\x12\x1f\n" +
+	"\vconsumer_id\x18\x03 \x01(\tR\n" +
+	"consumerId\x12#\n" +
+	"\rconsumer_type\x18\x04 \x01(\tR\fconsumerType\x12\x1b\n" +
+	"\ttenant_id\x18\x05 \x01(\tR\btenantId\x12'\n" +
+	"\x0fbundle_sequence\x18\x06 \x01(\x04R\x0ebundleSequence\x12'\n" +
+	"\x0fcatalog_version\x18\a \x01(\x04R\x0ecatalogVersion\x12.\n" +
+	"\x13bundle_content_hash\x18\b \x01(\fR\x11bundleContentHash\x127\n" +
+	"\x18acknowledged_at_epoch_ms\x18\t \x01(\x04R\x15acknowledgedAtEpochMs\"\xaf\x05\n" +
+	"\x1aAuthorizationResourceGrant\x12\x19\n" +
+	"\bgrant_id\x18\x01 \x01(\tR\agrantId\x12\x1b\n" +
+	"\tactor_ids\x18\x02 \x03(\tR\bactorIds\x12\x14\n" +
+	"\x05roles\x18\x03 \x03(\tR\x05roles\x123\n" +
+	"\x15required_capabilities\x18\x04 \x03(\tR\x14requiredCapabilities\x12#\n" +
+	"\rresource_type\x18\x05 \x01(\tR\fresourceType\x12\x16\n" +
+	"\x06action\x18\x06 \x01(\tR\x06action\x12H\n" +
+	"\x06effect\x18\a \x01(\x0e20.bpmp.authorization.v1.AuthorizationPolicyEffectR\x06effect\x12\x1a\n" +
+	"\bpriority\x18\b \x01(\rR\bpriority\x12(\n" +
+	"\x10branch_scope_ids\x18\t \x03(\tR\x0ebranchScopeIds\x12>\n" +
+	"\x1bbranch_includes_descendants\x18\n" +
+	" \x01(\bR\x19branchIncludesDescendants\x12&\n" +
+	"\x0fqueue_scope_ids\x18\v \x03(\tR\rqueueScopeIds\x12'\n" +
+	"\x0freadable_fields\x18\f \x03(\tR\x0ereadableFields\x12'\n" +
+	"\x0fwritable_fields\x18\r \x03(\tR\x0ewritableFields\x12\x1b\n" +
+	"\town_scope\x18\x0e \x01(\bR\bownScope\x12,\n" +
+	"\x12resource_scope_ids\x18\x0f \x03(\tR\x10resourceScopeIds\x12\x19\n" +
+	"\bowner_id\x18\x10 \x01(\tR\aownerId\x12!\n" +
+	"\ftenant_scope\x18\x11 \x01(\bR\vtenantScope\"\xdf\x02\n" +
 	"\x1eAuthorizationRevokeEpochUpdate\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x1b\n" +
 	"\ttenant_id\x18\x02 \x01(\tR\btenantId\x12\x19\n" +
@@ -1845,25 +2431,29 @@ func file_bpmp_authorization_v1_authorization_proto_rawDescGZIP() []byte {
 }
 
 var file_bpmp_authorization_v1_authorization_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_bpmp_authorization_v1_authorization_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_bpmp_authorization_v1_authorization_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_bpmp_authorization_v1_authorization_proto_goTypes = []any{
-	(ActorProofType)(0),                        // 0: bpmp.authorization.v1.ActorProofType
-	(AuthorizationDecisionType)(0),             // 1: bpmp.authorization.v1.AuthorizationDecisionType
-	(AuthorizationPolicyEffect)(0),             // 2: bpmp.authorization.v1.AuthorizationPolicyEffect
-	(*ActorProof)(nil),                         // 3: bpmp.authorization.v1.ActorProof
-	(*WorkloadProof)(nil),                      // 4: bpmp.authorization.v1.WorkloadProof
-	(*SignedActorContext)(nil),                 // 5: bpmp.authorization.v1.SignedActorContext
-	(*SignedWorkloadContext)(nil),              // 6: bpmp.authorization.v1.SignedWorkloadContext
-	(*TransitionResource)(nil),                 // 7: bpmp.authorization.v1.TransitionResource
-	(*AuthorizationContext)(nil),               // 8: bpmp.authorization.v1.AuthorizationContext
-	(*AuthorizationDecision)(nil),              // 9: bpmp.authorization.v1.AuthorizationDecision
-	(*AuthorizationAuditRecord)(nil),           // 10: bpmp.authorization.v1.AuthorizationAuditRecord
-	(*AuthorizationPolicyGrant)(nil),           // 11: bpmp.authorization.v1.AuthorizationPolicyGrant
-	(*ActorRevokeEpoch)(nil),                   // 12: bpmp.authorization.v1.ActorRevokeEpoch
-	(*AuthorizationPolicyBundle)(nil),          // 13: bpmp.authorization.v1.AuthorizationPolicyBundle
-	(*AuthorizationRevokeEpochUpdate)(nil),     // 14: bpmp.authorization.v1.AuthorizationRevokeEpochUpdate
-	(*AuthorizationQueryRevokeEvent)(nil),      // 15: bpmp.authorization.v1.AuthorizationQueryRevokeEvent
-	(*AuthorizationQueryRevokeDeadLetter)(nil), // 16: bpmp.authorization.v1.AuthorizationQueryRevokeDeadLetter
+	(ActorProofType)(0),                              // 0: bpmp.authorization.v1.ActorProofType
+	(AuthorizationDecisionType)(0),                   // 1: bpmp.authorization.v1.AuthorizationDecisionType
+	(AuthorizationPolicyEffect)(0),                   // 2: bpmp.authorization.v1.AuthorizationPolicyEffect
+	(*ActorProof)(nil),                               // 3: bpmp.authorization.v1.ActorProof
+	(*WorkloadProof)(nil),                            // 4: bpmp.authorization.v1.WorkloadProof
+	(*SignedActorContext)(nil),                       // 5: bpmp.authorization.v1.SignedActorContext
+	(*SignedWorkloadContext)(nil),                    // 6: bpmp.authorization.v1.SignedWorkloadContext
+	(*TransitionResource)(nil),                       // 7: bpmp.authorization.v1.TransitionResource
+	(*AuthorizationContext)(nil),                     // 8: bpmp.authorization.v1.AuthorizationContext
+	(*AuthorizationDecision)(nil),                    // 9: bpmp.authorization.v1.AuthorizationDecision
+	(*AuthorizationAuditRecord)(nil),                 // 10: bpmp.authorization.v1.AuthorizationAuditRecord
+	(*AuthorizationPolicyGrant)(nil),                 // 11: bpmp.authorization.v1.AuthorizationPolicyGrant
+	(*ActorRevokeEpoch)(nil),                         // 12: bpmp.authorization.v1.ActorRevokeEpoch
+	(*AuthorizationPolicyBundle)(nil),                // 13: bpmp.authorization.v1.AuthorizationPolicyBundle
+	(*AuthorizationResourceDefinition)(nil),          // 14: bpmp.authorization.v1.AuthorizationResourceDefinition
+	(*AuthorizationPolicyBundlePublication)(nil),     // 15: bpmp.authorization.v1.AuthorizationPolicyBundlePublication
+	(*AuthorizationPolicyBundleAcknowledgement)(nil), // 16: bpmp.authorization.v1.AuthorizationPolicyBundleAcknowledgement
+	(*AuthorizationResourceGrant)(nil),               // 17: bpmp.authorization.v1.AuthorizationResourceGrant
+	(*AuthorizationRevokeEpochUpdate)(nil),           // 18: bpmp.authorization.v1.AuthorizationRevokeEpochUpdate
+	(*AuthorizationQueryRevokeEvent)(nil),            // 19: bpmp.authorization.v1.AuthorizationQueryRevokeEvent
+	(*AuthorizationQueryRevokeDeadLetter)(nil),       // 20: bpmp.authorization.v1.AuthorizationQueryRevokeDeadLetter
 }
 var file_bpmp_authorization_v1_authorization_proto_depIdxs = []int32{
 	0,  // 0: bpmp.authorization.v1.ActorProof.type:type_name -> bpmp.authorization.v1.ActorProofType
@@ -1875,11 +2465,14 @@ var file_bpmp_authorization_v1_authorization_proto_depIdxs = []int32{
 	2,  // 6: bpmp.authorization.v1.AuthorizationPolicyGrant.effect:type_name -> bpmp.authorization.v1.AuthorizationPolicyEffect
 	11, // 7: bpmp.authorization.v1.AuthorizationPolicyBundle.grants:type_name -> bpmp.authorization.v1.AuthorizationPolicyGrant
 	12, // 8: bpmp.authorization.v1.AuthorizationPolicyBundle.actor_revoke_epochs:type_name -> bpmp.authorization.v1.ActorRevokeEpoch
-	9,  // [9:9] is the sub-list for method output_type
-	9,  // [9:9] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	17, // 9: bpmp.authorization.v1.AuthorizationPolicyBundle.resource_grants:type_name -> bpmp.authorization.v1.AuthorizationResourceGrant
+	14, // 10: bpmp.authorization.v1.AuthorizationPolicyBundle.resource_catalog:type_name -> bpmp.authorization.v1.AuthorizationResourceDefinition
+	2,  // 11: bpmp.authorization.v1.AuthorizationResourceGrant.effect:type_name -> bpmp.authorization.v1.AuthorizationPolicyEffect
+	12, // [12:12] is the sub-list for method output_type
+	12, // [12:12] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_bpmp_authorization_v1_authorization_proto_init() }
@@ -1893,7 +2486,7 @@ func file_bpmp_authorization_v1_authorization_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bpmp_authorization_v1_authorization_proto_rawDesc), len(file_bpmp_authorization_v1_authorization_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   14,
+			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

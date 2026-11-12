@@ -6,7 +6,7 @@
 
 **Bắt buộc:** mọi business entity dùng [AuditEntity + SoftDeletable + VersionedEntity](entity-conventions.md). DBML đã bổ sung created_by/updated_by, is_deleted, deleted_at/deleted_by/delete_reason và row_version. Các dictionary/ERD bên dưới lược common fields; row_version là concurrency counter, không model/release version. Immutable evidence/technical records có storage mapping riêng được quy định trong tài liệu entity, không cho mutable soft delete làm hỏng replay/dedup.
 
-Access schema dưới đây là vocabulary logic, chưa đủ semantics để tự triển khai policy. Áp dụng quy tắc kết hợp, tenant guard, typed scope, deny precedence, row/field enforcement và revocation trong [đặc tả phân quyền và truy cập dữ liệu](authorization-and-data-access.md). Không thêm JSON grants/rules song song trên role; trước migration phải chốt action catalog, scope graph, policy schema/version và owner-specific query/index constraints.
+Access schema dưới đây là vocabulary logic, chưa đủ semantics để tự triển khai policy. Áp dụng quy tắc kết hợp, tenant guard, typed scope, deny precedence, row/field enforcement và revocation trong [đặc tả phân quyền và truy cập dữ liệu](authorization-and-data-access.md). Organization/branch dùng tenant-local parent-child tree; branch scope kế thừa xuống descendants, không lên parent/sibling. Queue là trục độc lập, kết hợp AND với branch khi action yêu cầu cả hai. Không thêm JSON grants/rules song song trên role. Vertical slice có additive migration `db/projection-service/migrations/008_authorization_branch_ancestry.sql`: projection lưu immutable `resource_branch_id`, ancestry/revision phục vụ audit và nguồn gốc sự kiện. Query branch authorization resolve descendants hiện hành từ Organization owner và lọc theo `resource_branch_id` trong tập branch hiện hành, không dùng stored ancestry làm quyền hiện tại sau reparent. Legacy row thiếu `resource_branch_id` hoặc revision không match branch grant.
 
 
 - Mỗi bảng có `tenant_id uuid`, `id uuid`, `created_at timestamptz`, `updated_at timestamptz`, `row_version bigint`; PK `(tenant_id, id)`. FK nội owner phải ghép tenant. External refs chỉ là logical links, không FK hoặc cross-database JOIN.
@@ -21,7 +21,7 @@ Access schema dưới đây là vocabulary logic, chưa đủ semantics để t�
 | Target context | Evidence hiện tại | Quy tắc chuyển đổi |
 |---|---|---|
 | Human | `db/human-runtime/migrations/001_human_runtime.sql`: work_items, assignment_policies, human_cases, human_case_plan_items, human_audit_log, human_event_inbox, escalation_outbox | Extend bằng additive migrations; không tạo work_items thứ hai. Human case-plan là runtime context, không đồng nhất customer Case. |
-| Projection | `db/projection-service/migrations/`: workflow_event_read_models, projection_saved_queries, projection_query_exports | Extend/rebuild authorized read models; map saved_queries/export_jobs sang bảng hiện hữu. |
+| Projection | `db/projection-service/migrations/`: workflow_event_read_models, projection_saved_queries, projection_query_exports, `007_authorization_resource_branch.sql`, `008_authorization_branch_ancestry.sql` | Extend/rebuild authorized read models; map saved_queries/export_jobs sang bảng hiện hữu. |
 | Configuration | `db/configuration-service/migrations/`: profiles, versions, active scopes, audit/outbox/idempotency | Giữ service và lifecycle hiện có; endpoint secrets, Case hay user không chuyển vào config profile. |
 | Governance | `db/governance-service/migrations/`: approval requests, signed approvals, audit | Tái sử dụng approval/evidence; không nhân bản trong Case. |
 | Access | `apps/rust/authz-control-plane/db/` và owning Rust migrations | Schema ở đây là logical vocabulary; phải map typed policy, subject, tenant lifecycle vào owner hiện có, không tạo parallel Authz DB. External IdP vẫn sở hữu credential/MFA. |
@@ -908,7 +908,7 @@ flowchart LR
 
 ## Physical design gates
 
-Chưa có migration SQL để tránh biến đề xuất thành schema chạy thật. Trước migration cần chốt nullability theo use case, version scope composite constraints, key type tương thích schema hiện có, RLS/tenant guards, phân vùng/retention, cardinality, query plans, encryption và backup/recovery. DBML mô tả PK/FK và nullability; các uniqueness/check/index ở bảng trên là yêu cầu bổ sung chưa được encode hết vào DBML.
+Chưa có migration SQL cho toàn bộ logical model để tránh biến đề xuất thành schema chạy thật. Các migration additive cho Authz branch row filter là ngoại lệ của vertical slice được liệt kê ở Mapping schema hiện có. Với mỗi migration tiếp theo cần chốt nullability theo use case, version scope composite constraints, key type tương thích schema hiện có, RLS/tenant guards, phân vùng/retention, cardinality, query plans, encryption và backup/recovery. DBML mô tả PK/FK và nullability; các uniqueness/check/index ở bảng trên là yêu cầu bổ sung chưa được encode hết vào DBML.
 
 Chỉ triển khai migration additive theo owner: expand schema → dual-compatible readers/writers nếu cần → backfill idempotent → verify counts/digests + tenant scope → switch read/write → contract sau cửa sổ rollback. Không dùng mock array làm nguồn backfill production.
 

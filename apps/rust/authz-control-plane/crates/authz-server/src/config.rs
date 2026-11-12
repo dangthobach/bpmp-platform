@@ -1,6 +1,7 @@
 //! Server configuration loaded from environment variables.
 
 use anyhow::{Context, Result};
+use std::collections::HashMap;
 use std::net::SocketAddr;
 
 /// Full server configuration.
@@ -10,6 +11,10 @@ pub struct ServerConfig {
     pub service_name: String,
     pub host: String,
     pub port: u16,
+    pub https_port: Option<u16>,
+    pub https_certificate_path: Option<String>,
+    pub https_private_key_path: Option<String>,
+    pub https_client_ca_path: Option<String>,
     pub grpc_port: u16,
     pub server_request_timeout_ms: u64,
     pub server_max_body_bytes: usize,
@@ -21,6 +26,9 @@ pub struct ServerConfig {
     /// JWT JWKS URL (e.g. Keycloak: http://keycloak:8080/realms/{realm}/protocol/openid-connect/certs)
     pub jwt_jwks_url: String,
     pub jwt_audience: String,
+    pub owner_manifest_key_ids: HashMap<String, Vec<String>>,
+    pub policy_signing_key_id: Option<String>,
+    pub policy_signing_key_path: Option<String>,
     /// Default fail mode: "DENY" or "OPEN"
     pub fail_mode: String,
     /// ReBAC max traversal depth
@@ -36,6 +44,9 @@ pub struct ServerConfig {
     pub kafka_certificate_file: Option<String>,
     pub kafka_private_key_file: Option<String>,
     pub tenant_lifecycle_topic: String,
+    pub authorization_policy_bundle_topic: String,
+    pub authorization_policy_bundle_acknowledgement_topic: String,
+    pub authorization_policy_bundle_acknowledgement_consumer_group: String,
     pub tenant_readiness_topic: String,
     pub tenant_readiness_consumer_group: String,
     pub tenant_lifecycle_worker_id: String,
@@ -80,6 +91,13 @@ impl ServerConfig {
                 .unwrap_or_else(|_| "8080".to_owned())
                 .parse::<u16>()
                 .context("Invalid PORT — must be a valid port number")?,
+            https_port: optional("HTTPS_PORT")
+                .map(|value| value.parse::<u16>())
+                .transpose()
+                .context("HTTPS_PORT is invalid")?,
+            https_certificate_path: optional("HTTPS_CERTIFICATE_PATH"),
+            https_private_key_path: optional("HTTPS_PRIVATE_KEY_PATH"),
+            https_client_ca_path: optional("HTTPS_CLIENT_CA_PATH"),
             grpc_port: std::env::var("GRPC_PORT")
                 .unwrap_or_else(|_| "50051".to_owned())
                 .parse::<u16>()
@@ -107,6 +125,14 @@ impl ServerConfig {
                 .unwrap_or(2),
             jwt_jwks_url: std::env::var("JWT_JWKS_URL").context("JWT_JWKS_URL is required")?,
             jwt_audience: std::env::var("JWT_AUDIENCE").context("JWT_AUDIENCE is required")?,
+            owner_manifest_key_ids: serde_json::from_str(&required(
+                "AUTHZ_OWNER_MANIFEST_KEY_IDS",
+            )?)
+            .context(
+                "AUTHZ_OWNER_MANIFEST_KEY_IDS must be a JSON map of owner IDs to trusted key IDs",
+            )?,
+            policy_signing_key_id: optional("AUTHZ_POLICY_SIGNING_KEY_ID"),
+            policy_signing_key_path: optional("AUTHZ_POLICY_SIGNING_KEY_PATH"),
             fail_mode: std::env::var("FAIL_MODE").unwrap_or_else(|_| "DENY".to_owned()),
             rebac_max_depth: std::env::var("REBAC_MAX_DEPTH")
                 .unwrap_or_else(|_| "10".to_owned())
@@ -135,6 +161,13 @@ impl ServerConfig {
             kafka_certificate_file,
             kafka_private_key_file,
             tenant_lifecycle_topic: required("TENANT_LIFECYCLE_TOPIC")?,
+            authorization_policy_bundle_topic: required("AUTHZ_POLICY_BUNDLE_TOPIC")?,
+            authorization_policy_bundle_acknowledgement_topic: required(
+                "AUTHZ_POLICY_BUNDLE_ACK_TOPIC",
+            )?,
+            authorization_policy_bundle_acknowledgement_consumer_group: required(
+                "AUTHZ_POLICY_BUNDLE_ACK_CONSUMER_GROUP",
+            )?,
             tenant_readiness_topic: required("TENANT_READINESS_TOPIC")?,
             tenant_readiness_consumer_group: required("TENANT_READINESS_CONSUMER_GROUP")?,
             tenant_lifecycle_worker_id: required("TENANT_LIFECYCLE_WORKER_ID")?,
@@ -157,10 +190,51 @@ impl ServerConfig {
             || config.kafka_max_message_bytes == 0
             || config.server_request_timeout_ms == 0
             || config.server_max_body_bytes == 0
+            || config.server_max_body_bytes <= 1024
+            || config.kafka_max_message_bytes <= 1024
             || config.rate_limit_requests_per_second == 0
             || config.rate_limit_burst == 0
         {
             anyhow::bail!("tenant lifecycle Kafka bounds must be positive");
+        }
+        if config.policy_signing_key_id.is_some() != config.policy_signing_key_path.is_some() {
+            anyhow::bail!(
+                "AUTHZ_POLICY_SIGNING_KEY_ID and AUTHZ_POLICY_SIGNING_KEY_PATH must be configured together"
+            );
+        }
+        let mut owner_key_ids = std::collections::HashSet::new();
+        if config.owner_manifest_key_ids.is_empty()
+            || config
+                .owner_manifest_key_ids
+                .iter()
+                .any(|(owner, key_ids)| {
+                    owner.trim().is_empty()
+                        || key_ids.is_empty()
+                        || key_ids.iter().any(|key_id| {
+                            key_id.trim().is_empty() || !owner_key_ids.insert(key_id.clone())
+                        })
+                })
+        {
+            anyhow::bail!(
+                "AUTHZ_OWNER_MANIFEST_KEY_IDS must map each owner to unique, non-empty trusted key IDs"
+            );
+        }
+        let tls_values = [
+            config.https_port.is_some(),
+            config.https_certificate_path.is_some(),
+            config.https_private_key_path.is_some(),
+            config.https_client_ca_path.is_some(),
+        ];
+        if tls_values.iter().any(|value| *value) && tls_values.iter().any(|value| !*value) {
+            anyhow::bail!(
+                "HTTPS_PORT and HTTPS certificate/private-key/client-CA paths must be configured together"
+            );
+        }
+        if config
+            .https_port
+            .is_some_and(|port| port == 0 || port == config.port)
+        {
+            anyhow::bail!("HTTPS_PORT must be a non-zero port distinct from PORT");
         }
         Ok(config)
     }
@@ -170,6 +244,16 @@ impl ServerConfig {
             .parse()
             .context("Invalid host/port combination")
     }
+
+    pub fn https_socket_addr(&self) -> Result<Option<SocketAddr>> {
+        self.https_port
+            .map(|port| {
+                format!("{}:{port}", self.host)
+                    .parse()
+                    .context("Invalid HTTPS host/port combination")
+            })
+            .transpose()
+    }
 }
 
 fn required(name: &str) -> Result<String> {
@@ -178,4 +262,10 @@ fn required(name: &str) -> Result<String> {
         anyhow::bail!("{name} must not be empty");
     }
     Ok(value)
+}
+
+fn optional(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
 }

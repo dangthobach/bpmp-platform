@@ -15,23 +15,25 @@ import (
 )
 
 type Config struct {
-	ListenAddress     string         `json:"listen_address"`
-	EngineAddress     string         `json:"engine_address"`
-	HumanAddress      string         `json:"human_address"`
-	ProjectionAddress string         `json:"projection_address"`
-	ConfigurationURL  string         `json:"configuration_url"`
-	PublicTLS         PublicTLS      `json:"public_tls"`
-	UpstreamTLS       UpstreamTLS    `json:"upstream_tls"`
-	Identity          Identity       `json:"identity"`
-	Workload          Workload       `json:"workload"`
-	RateLimit         RateLimit      `json:"rate_limit"`
-	HTTP              HTTP           `json:"http"`
-	GRPC              GRPC           `json:"grpc"`
-	Health            Health         `json:"health"`
-	Telemetry         Telemetry      `json:"telemetry"`
-	APIDocs           APIDocs        `json:"api_docs"`
-	RuntimeConfig     RuntimeConfig  `json:"runtime_configuration"`
-	BrowserSession    BrowserSession `json:"browser_session"`
+	ListenAddress         string         `json:"listen_address"`
+	EngineAddress         string         `json:"engine_address"`
+	HumanAddress          string         `json:"human_address"`
+	ProjectionAddress     string         `json:"projection_address"`
+	ConfigurationURL      string         `json:"configuration_url"`
+	AuthorizationURL      string         `json:"authorization_url"`
+	AuthorizationAudience string         `json:"authorization_audience"`
+	PublicTLS             PublicTLS      `json:"public_tls"`
+	UpstreamTLS           UpstreamTLS    `json:"upstream_tls"`
+	Identity              Identity       `json:"identity"`
+	Workload              Workload       `json:"workload"`
+	RateLimit             RateLimit      `json:"rate_limit"`
+	HTTP                  HTTP           `json:"http"`
+	GRPC                  GRPC           `json:"grpc"`
+	Health                Health         `json:"health"`
+	Telemetry             Telemetry      `json:"telemetry"`
+	APIDocs               APIDocs        `json:"api_docs"`
+	RuntimeConfig         RuntimeConfig  `json:"runtime_configuration"`
+	BrowserSession        BrowserSession `json:"browser_session"`
 }
 
 type PublicTLS struct {
@@ -46,6 +48,7 @@ type UpstreamTLS struct {
 	HumanServerName         string `json:"human_server_name"`
 	ProjectionServerName    string `json:"projection_server_name"`
 	ConfigurationServerName string `json:"configuration_server_name"`
+	AuthorizationServerName string `json:"authorization_server_name"`
 }
 type Identity struct {
 	JWKSPath         string   `json:"jwks_path"`
@@ -183,6 +186,12 @@ func (c Config) Validate() error {
 	}
 	if err := c.BrowserSession.Validate(); err != nil {
 		return err
+	}
+	if c.AuthorizationURL != "" || c.AuthorizationAudience != "" || c.UpstreamTLS.AuthorizationServerName != "" {
+		endpoint, parseErr := url.Parse(c.AuthorizationURL)
+		if parseErr != nil || endpoint.Scheme != "https" || endpoint.Host == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" || c.AuthorizationAudience == "" || c.UpstreamTLS.AuthorizationServerName == "" {
+			return errors.New("API Gateway authorization proxy configuration is invalid")
+		}
 	}
 	return nil
 }

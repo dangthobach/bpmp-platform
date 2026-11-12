@@ -6,9 +6,9 @@ import (
 	"errors"
 	"net"
 	"os"
+	"strings"
 	"time"
 
-	"github.com/dangthobach/bpmp-platform/apps/go/projection-service/internal/adapter/queryauth"
 	"github.com/dangthobach/bpmp-platform/go/platform/kafkaconfig"
 )
 
@@ -26,13 +26,33 @@ type config struct {
 	RuntimeConfig   dynamicConfigurationConfig `json:"runtime_configuration"`
 	Identity        identityConfig             `json:"identity"`
 	CursorSigning   cursorSigningConfig        `json:"cursor_signing"`
-	QueryPDP        queryauth.PDPConfig        `json:"query_pdp"`
+	PolicyBundles   policyBundleConfig         `json:"authorization_policy_bundles"`
+	BranchScope     branchScopeResolverConfig  `json:"authorization_branch_scope_resolver"`
 	QueryRevoke     queryRevokeConfig          `json:"query_revoke"`
+}
+type policyBundleConfig struct {
+	Consumer        kafkaconfig.Consumer `json:"consumer"`
+	Acknowledgement kafkaconfig.Producer `json:"acknowledgement_producer"`
+	ConsumerID      string               `json:"consumer_id"`
+	ConsumerType    string               `json:"consumer_type"`
+	TrustKeys       map[string]string    `json:"trust_keys"`
+	OwnerID         string               `json:"owner_id"`
+	MaxBundleBytes  int                  `json:"max_bundle_bytes"`
+	InitialBundles  []string             `json:"initial_bundles"`
 }
 type queryRevokeConfig struct {
 	Consumer  kafkaconfig.Consumer `json:"consumer"`
 	DLQ       kafkaconfig.Producer `json:"dlq"`
 	TrustKeys map[string]string    `json:"trust_keys"`
+}
+type branchScopeResolverConfig struct {
+	BaseURL        string `json:"base_url"`
+	CAPath         string `json:"ca_path"`
+	TimeoutMS      int64  `json:"timeout_ms"`
+	WorkloadID     string `json:"workload_id"`
+	SigningKeyID   string `json:"signing_key_id"`
+	SigningKeyPath string `json:"signing_key_path"`
+	ProofTTLMS     int64  `json:"proof_ttl_ms"`
 }
 
 type tlsConfig struct {
@@ -142,11 +162,14 @@ func (c config) Validate() error {
 		c.Identity.ClockSkewSeconds < 0 || len(c.CursorSigning.Keys) == 0 {
 		return errors.New("projection service configuration is invalid")
 	}
-	if c.QueryPDP.WorkloadTokenPath == "" {
-		return errors.New("PDP workload token path required")
+	if c.PolicyBundles.Consumer.Validate() != nil || c.PolicyBundles.Acknowledgement.Validate() != nil || c.PolicyBundles.Acknowledgement.Topic == c.PolicyBundles.Consumer.Topic || c.PolicyBundles.ConsumerID == "" || len(c.PolicyBundles.ConsumerID) > 40 || c.PolicyBundles.ConsumerType == "" || len(c.PolicyBundles.ConsumerType) > 100 || c.PolicyBundles.OwnerID == "" || c.PolicyBundles.MaxBundleBytes <= 0 || c.PolicyBundles.MaxBundleBytes > c.PolicyBundles.Consumer.MaxMessageBytes || len(c.PolicyBundles.TrustKeys) == 0 || len(c.PolicyBundles.TrustKeys) > c.Identity.MaxJWKSKeys {
+		return errors.New("invalid local authorization bundle configuration")
 	}
 	if c.QueryRevoke.Consumer.Validate() != nil || c.QueryRevoke.DLQ.Validate() != nil || c.QueryRevoke.Consumer.Topic == c.QueryRevoke.DLQ.Topic || len(c.QueryRevoke.TrustKeys) == 0 || len(c.QueryRevoke.TrustKeys) > c.Identity.MaxJWKSKeys {
 		return errors.New("invalid centralized query revoke Kafka configuration")
+	}
+	if !strings.HasPrefix(c.BranchScope.BaseURL, "https://") || c.BranchScope.CAPath == "" || c.BranchScope.TimeoutMS <= 0 || strings.TrimSpace(c.BranchScope.WorkloadID) == "" || strings.TrimSpace(c.BranchScope.SigningKeyID) == "" || c.BranchScope.SigningKeyPath == "" || c.BranchScope.ProofTTLMS <= 0 || c.BranchScope.ProofTTLMS > 300_000 {
+		return errors.New("current organization branch scope resolver configuration is invalid")
 	}
 	for id, path := range c.QueryRevoke.TrustKeys {
 		if id == "" || path == "" {

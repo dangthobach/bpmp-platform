@@ -36,6 +36,12 @@ impl From<AuthzError> for ApiError {
     }
 }
 
+impl From<sqlx::Error> for ApiError {
+    fn from(err: sqlx::Error) -> Self {
+        Self::new(AuthzError::Database(err))
+    }
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let status = status_code_for(&self.inner);

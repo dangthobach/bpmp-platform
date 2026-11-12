@@ -16,6 +16,7 @@ use crate::application::ports::authz_port::AuthzPort;
 use crate::application::ports::unit_of_work::UnitOfWorkFactory;
 use crate::application::queries;
 use crate::infrastructure::authz_adapter::SdkAuthzAdapter;
+use crate::infrastructure::branch_scope_auth::BranchScopeWorkloadVerifier;
 use crate::infrastructure::config::AppConfig;
 use crate::infrastructure::persistence::PgUnitOfWorkFactory;
 
@@ -26,6 +27,7 @@ pub struct AppContainer {
     pub authz_client: Arc<dyn AuthzClient>,
     pub authz: Arc<dyn AuthzPort>,
     pub uow_factory: Arc<dyn UnitOfWorkFactory>,
+    pub branch_scope_workload_verifier: Option<Arc<BranchScopeWorkloadVerifier>>,
 }
 
 impl AppContainer {
@@ -46,11 +48,18 @@ impl AppContainer {
         let authz: Arc<dyn AuthzPort> = Arc::new(SdkAuthzAdapter::new(authz_client.clone(), false));
         let uow_factory: Arc<dyn UnitOfWorkFactory> =
             Arc::new(PgUnitOfWorkFactory::new(pool.clone()));
+        let branch_scope_workload_verifier = cfg
+            .branch_scope_workload_keys_file
+            .as_deref()
+            .map(BranchScopeWorkloadVerifier::load)
+            .transpose()?
+            .map(Arc::new);
         Ok(Self {
             pool,
             authz_client,
             authz,
             uow_factory,
+            branch_scope_workload_verifier,
         })
     }
 
@@ -80,6 +89,12 @@ impl AppContainer {
     }
     pub fn get_org_deps(&self) -> queries::get_organization::Deps {
         queries::get_organization::Deps {
+            authz: self.authz.clone(),
+            uow_factory: self.uow_factory.clone(),
+        }
+    }
+    pub fn resolve_branch_scope_deps(&self) -> queries::resolve_branch_scope::Deps {
+        queries::resolve_branch_scope::Deps {
             authz: self.authz.clone(),
             uow_factory: self.uow_factory.clone(),
         }

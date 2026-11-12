@@ -15,6 +15,7 @@ import { WorkItemsPage } from "./features/work-items/WorkItemsPage";
 import { OrganizationsPage } from "./features/organizations/OrganizationsPage";
 import { ConfigurationPage } from "./features/configuration/ConfigurationPage";
 import { ProcessQueryPage } from "./features/process-query/ProcessQueryPage";
+import { AccessPage } from "./features/access/AccessPage";
 import { AppShell } from "./layout/AppShell";
 import { usePathname } from "./routing/router";
 import { RealtimeProvider } from "./realtime/RealtimeContext";
@@ -120,6 +121,8 @@ function AuthenticatedApp() {
         return <ConfigurationPage />;
       case "/processes":
         return <ProcessQueryPage />;
+      case "/access":
+        return <AccessPage />;
       default:
         return <WorkItemsPage />;
     }

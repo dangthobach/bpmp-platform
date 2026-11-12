@@ -3211,6 +3211,52 @@ fn lower(
             })
         })
         .collect::<Result<Vec<_>, LoweringError>>()?;
+    let mut workflow_properties = parsed.process_properties;
+    let branch_binding_count = workflow_properties
+        .iter()
+        .filter(|property| {
+            property.namespace_uri == "urn:bpmp:authorization"
+                && property.element_name == "workflow"
+                && property.name == "branch-id"
+        })
+        .count();
+    if branch_binding_count > 1 {
+        return Err(LoweringError::new(
+            0,
+            "workflow configuration must define only one authorization branch-id",
+        ));
+    }
+    let resource_scope_binding = workflow_properties
+        .iter()
+        .find(|property| {
+            property.namespace_uri == "urn:bpmp:authorization"
+                && property.element_name == "workflow"
+                && property.name == "branch-id"
+        })
+        .map(|property| {
+            let branch_id = property
+                .value
+                .as_ref()
+                .and_then(|value| value.value.as_ref())
+                .and_then(|value| match value {
+                    property_value::Value::StringValue(value) => Some(value.clone()),
+                    _ => None,
+                })
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| {
+                    LoweringError::new(
+                        0,
+                        "workflow authorization branch-id must be a non-empty string",
+                    )
+                })?;
+            Ok(bpmp_contracts::wir::v1::ResourceScopeBinding { branch_id })
+        })
+        .transpose()?;
+    workflow_properties.retain(|property| {
+        property.namespace_uri != "urn:bpmp:authorization"
+            || property.element_name != "workflow"
+            || property.name != "branch-id"
+    });
     Ok(WorkflowIntermediateRepresentation {
         schema_version: WIR_SCHEMA_VERSION,
         workflow_type: parsed.process_id.unwrap_or_default(),
@@ -3222,7 +3268,8 @@ fn lower(
         decision_tables: Vec::new(),
         tenant_id: tenant_id.to_owned(),
         case_models: Vec::new(),
-        properties: parsed.process_properties,
+        properties: workflow_properties,
+        resource_scope_binding,
     })
 }
 

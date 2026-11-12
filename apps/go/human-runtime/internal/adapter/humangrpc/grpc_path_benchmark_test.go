@@ -72,6 +72,9 @@ func (benchmarkStore) GetCase(context.Context, string, string) (application.Case
 func (benchmarkStore) ListAuditRecords(context.Context, string, string, string, int, *application.AuditCursor) ([]application.AuditRecord, *application.AuditCursor, error) {
 	return nil, nil, nil
 }
+func (benchmarkStore) ListAssignmentGroups(context.Context, string) ([]application.AssignmentGroup, error) {
+	return nil, nil
+}
 
 type benchmarkSecurity struct{}
 

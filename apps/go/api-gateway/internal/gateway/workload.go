@@ -7,6 +7,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
+
 	"github.com/dangthobach/bpmp-platform/apps/go/api-gateway/internal/config"
 	authv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/authorization/v1"
 	"google.golang.org/protobuf/proto"
@@ -16,6 +18,20 @@ type workloadSigner struct {
 	id, keyID string
 	key       ed25519.PrivateKey
 	ttl       time.Duration
+}
+
+func (s *workloadSigner) signAuthzDelegation(tenantID, actorID, capability, audience string, now time.Time) (string, error) {
+	if tenantID == "" || actorID == "" || capability == "" || audience == "" {
+		return "", errors.New("authorization delegation claims are incomplete")
+	}
+	claims := jwt.MapClaims{
+		"sub": s.id, "actor_id": actorID, "tenant_id": tenantID,
+		"capabilities": []string{capability}, "aud": []string{audience},
+		"iat": now.Unix(), "exp": now.Add(time.Minute).Unix(),
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
+	token.Header["kid"] = s.keyID
+	return token.SignedString(s.key)
 }
 
 func newWorkloadSigner(value config.Workload) (*workloadSigner, error) {

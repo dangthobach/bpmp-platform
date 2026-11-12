@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"math"
 	"time"
 )
 
@@ -24,19 +25,22 @@ const (
 )
 
 type InstanceEvent struct {
-	EventID         string
-	TenantID        string
-	InstanceID      string
-	WorkflowType    string
-	WorkflowVersion string
-	Sequence        uint64
-	OccurredAt      time.Time
-	ConfigVersion   string
-	PolicyVersion   string
-	EventType       string
-	ActorID         string
-	Kind            EventKind
-	NodeID          string
+	EventID                string
+	TenantID               string
+	InstanceID             string
+	WorkflowType           string
+	WorkflowVersion        string
+	Sequence               uint64
+	OccurredAt             time.Time
+	ConfigVersion          string
+	PolicyVersion          string
+	EventType              string
+	ActorID                string
+	ResourceBranchID       string
+	ResourceBranchAncestry []string
+	OrganizationVersion    uint64
+	Kind                   EventKind
+	NodeID                 string
 }
 
 func (e InstanceEvent) Validate() error {
@@ -49,6 +53,23 @@ func (e InstanceEvent) Validate() error {
 	}
 	if e.Kind == EventNodeActivated && e.NodeID == "" {
 		return ErrInvalidEvent
+	}
+	if e.Kind != EventStarted && e.ResourceBranchID != "" {
+		return ErrInvalidEvent
+	}
+	if len(e.ResourceBranchAncestry) > 0 && (e.ResourceBranchID == "" || e.ResourceBranchAncestry[len(e.ResourceBranchAncestry)-1] != e.ResourceBranchID || e.OrganizationVersion == 0) {
+		return ErrInvalidEvent
+	}
+	if len(e.ResourceBranchAncestry) == 0 && e.OrganizationVersion != 0 {
+		return ErrInvalidEvent
+	}
+	if e.OrganizationVersion > math.MaxInt64 {
+		return ErrInvalidEvent
+	}
+	for _, branchID := range e.ResourceBranchAncestry {
+		if branchID == "" {
+			return ErrInvalidEvent
+		}
 	}
 	return nil
 }

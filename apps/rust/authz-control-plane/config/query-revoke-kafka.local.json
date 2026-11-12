@@ -1,0 +1,12 @@
+{
+  "topic": "bpmp.authz.query-revocations.v1.local",
+  "worker_id": "authz-control-plane-local",
+  "batch_size": 64,
+  "lease_ms": 10000,
+  "poll_ms": 250,
+  "delivery_timeout_ms": 2000,
+  "retry_backoff_ms": 500,
+  "max_retry_attempts": 3,
+  "signing_key_id": "query-revoke-key-local",
+  "signing_key_path": "./secrets/query-revoke-private.key"
+}

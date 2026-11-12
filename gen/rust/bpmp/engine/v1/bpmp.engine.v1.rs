@@ -49,8 +49,10 @@ pub mod command_envelope {
         EvaluateCaseSentries(super::EvaluateCaseSentries),
     }
 }
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StartWorkflow {
+    #[prost(message, repeated, tag="1")]
+    pub initial_variables: ::prost::alloc::vec::Vec<WorkflowVariable>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CompleteServiceTask {
@@ -197,7 +199,7 @@ pub mod event_envelope {
         WorkflowTerminatedForCompliance(super::WorkflowTerminatedForCompliance),
     }
 }
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct WorkflowStarted {
     #[prost(string, tag="1")]
     pub workflow_type: ::prost::alloc::string::String,
@@ -207,6 +209,14 @@ pub struct WorkflowStarted {
     pub start_node_id: ::prost::alloc::string::String,
     #[prost(string, tag="4")]
     pub tenant_id: ::prost::alloc::string::String,
+    #[prost(string, tag="5")]
+    pub resource_branch_id: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag="6")]
+    pub initial_variables: ::prost::alloc::vec::Vec<WorkflowVariable>,
+    #[prost(string, repeated, tag="7")]
+    pub resource_branch_ancestry: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(uint64, tag="8")]
+    pub organization_version: u64,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ServiceTaskActivated {
@@ -545,6 +555,12 @@ pub struct WorkflowSnapshot {
     pub scope_invocation_counters: ::prost::alloc::vec::Vec<ScopeInvocationCounter>,
     #[prost(message, repeated, tag="19")]
     pub active_cases: ::prost::alloc::vec::Vec<ActiveCase>,
+    #[prost(string, tag="20")]
+    pub resource_branch_id: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag="21")]
+    pub resource_branch_ancestry: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(uint64, tag="22")]
+    pub organization_version: u64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ActiveCase {

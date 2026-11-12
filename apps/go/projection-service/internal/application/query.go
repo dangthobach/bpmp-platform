@@ -115,6 +115,8 @@ const (
 	CompareStartsWith
 	CompareIsNull
 	CompareIsNotNull
+	// CompareArrayContains is reserved for the internal branch ancestry field.
+	CompareArrayContains
 	CompareEndsWith
 	CompareBetween
 	CompareNotBetween
@@ -167,6 +169,9 @@ const (
 	ProcessInitiatorActorID
 	ProcessEventCount
 	ProcessIsDeleted
+	ProcessResourceBranchID
+	ProcessResourceBranchAncestry
+	ProcessOrganizationVersion
 )
 
 type EventField int32
@@ -734,6 +739,9 @@ func validateProcessPredicate(predicate ProcessPredicate, policy RuntimePolicy) 
 	if !validProcessField(predicate.Field) {
 		return fmt.Errorf("%w: process field is unsupported", ErrInvalidQuery)
 	}
+	if (predicate.Field == ProcessResourceBranchAncestry) != (predicate.Operator == CompareArrayContains) {
+		return fmt.Errorf("%w: branch ancestry only supports array membership", ErrInvalidQuery)
+	}
 	return validateValues(processFieldKind(predicate.Field), predicate.Operator, predicate.Values, predicate.TextTransform, predicate.NumericTransform, predicate.DateTransform, predicate.Coalesce, policy)
 }
 
@@ -779,13 +787,16 @@ func validateValues(kind ValueKind, operator Comparison, values []QueryValue, te
 	if operator == CompareBetween || operator == CompareNotBetween {
 		wanted = 2
 	}
-	if operator < CompareEqual || operator > CompareNotBetween ||
+	if operator < CompareEqual || operator > CompareArrayContains ||
 		(wanted >= 0 && len(values) != wanted) ||
 		(wanted == -1 && (len(values) == 0 || uint32(len(values)) > policy.QueryMaxInValues)) {
 		return invalidQuery("predicate.values", "value_cardinality", "operator value cardinality is invalid")
 	}
 	if (operator == CompareContains || operator == CompareStartsWith || operator == CompareEndsWith) && kind != ValueString {
 		return invalidQuery("predicate.operator", "operator_type", "text operator requires a string field")
+	}
+	if operator == CompareArrayContains && kind != ValueString {
+		return invalidQuery("predicate.operator", "operator_type", "array membership requires string values")
 	}
 	for _, value := range values {
 		if value.Kind != kind || (kind == ValueString && (value.String == "" || uint32(len(value.String)) > policy.QueryMaxStringBytes)) ||
@@ -805,6 +816,7 @@ func operatorAllowed(kind ValueKind, operator Comparison) bool {
 		return operator == CompareEqual || operator == CompareNotEqual ||
 			operator == CompareIn || operator == CompareNotIn ||
 			operator == CompareContains || operator == CompareStartsWith || operator == CompareEndsWith ||
+			operator == CompareArrayContains ||
 			operator == CompareIsNull || operator == CompareIsNotNull
 	case ValueInteger, ValueTimestamp:
 		return operator == CompareEqual || operator == CompareNotEqual ||
@@ -837,12 +849,12 @@ func orderedRange(values []QueryValue) bool {
 }
 
 func validProcessField(field ProcessField) bool {
-	return field >= ProcessInstanceID && field <= ProcessIsDeleted
+	return field >= ProcessInstanceID && field <= ProcessOrganizationVersion
 }
 
 func processFieldKind(field ProcessField) ValueKind {
 	switch field {
-	case ProcessLastEventSequence, ProcessDurationMS, ProcessVersion, ProcessEventCount:
+	case ProcessLastEventSequence, ProcessDurationMS, ProcessVersion, ProcessEventCount, ProcessOrganizationVersion:
 		return ValueInteger
 	case ProcessIsDeleted:
 		return ValueBoolean

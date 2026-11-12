@@ -26,7 +26,8 @@ def build():
         for method, op in item.items():
             if method not in HTTP:
                 continue
-            owner = ('Configuration' if '/configuration/' in path else
+            owner = ('Authz' if '/access/catalog/' in path else
+                     'Configuration' if '/configuration/' in path else
                      'Projection' if any(s in path for s in ('process-', 'saved-queries', 'query-exports', 'ops/query-plan')) else
                      'Engine' if '/workflows/' in path else
                      'Gateway' if '/runtime/' in path else 'Human')

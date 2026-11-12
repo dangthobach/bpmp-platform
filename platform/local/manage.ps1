@@ -42,6 +42,7 @@ function Start-Datastores {
         "configuration-postgres",
         "projection-postgres",
         "governance-postgres",
+        "authz-postgres",
         "redpanda",
         "redis",
         "otel-collector"

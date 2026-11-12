@@ -9,14 +9,15 @@ use bpmp_contracts::engine::v1::engine_command_service_server::{
 use bpmp_contracts::engine::v1::{CommandEnvelope, CommandReceipt};
 use bpmp_domain_core::{
     CaseId, CaseModelId, Command, CommandId, CorrelationId, IdempotencyKey, InstanceId, KeyScope,
-    NodeId, TenantId, WorkflowDefinition, WorkflowType, WorkflowValue, WorkflowVersion,
+    NodeId, TenantId, WorkflowDefinition, WorkflowType, WorkflowValue, WorkflowVersion, rehydrate,
 };
 use thiserror::Error;
 use tonic::{Request, Response, Status};
 
 use crate::{
     ActorProofKind, AuthorizationProviderPort, AuthorizedCommand, ConfigurationProviderPort,
-    Engine, EngineError, HandleOutcome, RuntimeSafePointGate, WorkflowStorePort,
+    Engine, EngineError, HandleOutcome, ResolvedBranchScope, RuntimeSafePointGate,
+    WorkflowStorePort, configured_branch_id,
 };
 
 pub trait CommandDefinitionProviderPort: Send + Sync {
@@ -40,6 +41,18 @@ pub trait EngineCommandHandlerPort: Send + Sync + 'static {
     ///
     /// Returns [`TransportError`] before mutation on invalid scope or failed execution.
     fn handle(&self, envelope: CommandEnvelope) -> Result<CommandReceipt, TransportError>;
+}
+
+/// Resolves branch ancestry from the organization owner using the command-bound
+/// workload proof. Implementations must fail closed on transport or validation errors.
+pub trait BranchScopeResolverPort: Send + Sync + 'static {
+    fn resolve(
+        &self,
+        tenant_id: &TenantId,
+        branch_id: &str,
+        command_id: &CommandId,
+        workload_proof: &[u8],
+    ) -> Result<ResolvedBranchScope, String>;
 }
 
 pub struct SafePointCommandHandler<H> {
@@ -69,6 +82,7 @@ where
 pub struct AuthoritativeCommandHandler<C, S, A, D> {
     engine: Engine<C, S, A>,
     definitions: D,
+    branch_scope_resolver: Option<Arc<dyn BranchScopeResolverPort>>,
 }
 
 impl<C, S, A, D> AuthoritativeCommandHandler<C, S, A, D> {
@@ -76,6 +90,22 @@ impl<C, S, A, D> AuthoritativeCommandHandler<C, S, A, D> {
         Self {
             engine,
             definitions,
+            branch_scope_resolver: None,
+        }
+    }
+
+    pub fn new_with_branch_scope_resolver<R>(
+        engine: Engine<C, S, A>,
+        definitions: D,
+        resolver: R,
+    ) -> Self
+    where
+        R: BranchScopeResolverPort,
+    {
+        Self {
+            engine,
+            definitions,
+            branch_scope_resolver: Some(Arc::new(resolver)),
         }
     }
 
@@ -119,7 +149,43 @@ where
             return Err(TransportError::DefinitionScopeMismatch);
         }
         let command_id = envelope.command_id.clone();
-        let request = map_authorized_command(&envelope, &definition, scope)?;
+        let mut request = map_authorized_command(&envelope, &definition, scope)?;
+        self.engine
+            .verify_command_proofs(&definition, &request)
+            .map_err(TransportError::Engine)?;
+        let branch_id = if matches!(
+            &request.command,
+            bpmp_domain_core::Command::StartWorkflow { .. }
+        ) {
+            configured_branch_id(&definition).map_err(TransportError::Engine)?
+        } else {
+            let loaded = self
+                .engine
+                .store()
+                .load(&request.tenant_id, &request.instance_id)
+                .map_err(|error| TransportError::BranchScope(error.to_string()))?;
+            let events = loaded
+                .events
+                .iter()
+                .map(|event| event.event.clone())
+                .collect::<Vec<_>>();
+            rehydrate(loaded.snapshot.map(|snapshot| snapshot.state), &events).resource_branch_id
+        };
+        if let Some(branch_id) = branch_id {
+            let resolver = self
+                .branch_scope_resolver
+                .as_ref()
+                .ok_or(TransportError::BranchScopeResolverUnavailable)?;
+            let resolved = resolver
+                .resolve(
+                    &request.tenant_id,
+                    &branch_id,
+                    &request.command_id,
+                    &request.workload_proof,
+                )
+                .map_err(TransportError::BranchScope)?;
+            request.resolved_branch_scope = Some(resolved);
+        }
         let outcome = self
             .engine
             .handle(&definition, request)
@@ -296,6 +362,7 @@ fn map_authorized_command(
         encryption_key_scope,
         variables,
         command,
+        resolved_branch_scope: None,
     })
 }
 
@@ -319,10 +386,13 @@ fn map_command(
                 occurred_at_epoch_ms,
             }
         }
-        WireCommand::StartWorkflow(_) => Command::StartWorkflow {
-            tenant_id: tenant_id.clone(),
-            occurred_at_epoch_ms,
-        },
+        WireCommand::StartWorkflow(value) => {
+            variables = map_workflow_variables(&value.initial_variables)?;
+            Command::StartWorkflow {
+                tenant_id: tenant_id.clone(),
+                occurred_at_epoch_ms,
+            }
+        }
         WireCommand::CompleteServiceTask(value) => Command::CompleteServiceTask {
             node_id: node_id(&value.node_id)?,
             outputs: map_workflow_variables(&value.outputs)?,
@@ -452,6 +522,10 @@ pub enum TransportError {
     Definition(String),
     #[error("resolved workflow definition scope does not match the command")]
     DefinitionScopeMismatch,
+    #[error("branch scope resolver is required for branch-bound workflows")]
+    BranchScopeResolverUnavailable,
+    #[error("branch scope could not be resolved: {0}")]
+    BranchScope(String),
     #[error("gRPC transport message limits must be greater than zero")]
     InvalidTransportConfiguration,
     #[error("runtime safe-point gate failed: {0}")]
@@ -470,10 +544,12 @@ impl From<TransportError> for Status {
                 );
                 Self::permission_denied("engine authorization denied the command")
             }
-            TransportError::Definition(_) | TransportError::RuntimeSafePoint(_) => {
-                Self::unavailable(error.to_string())
-            }
-            TransportError::Engine(_) | TransportError::DefinitionScopeMismatch => {
+            TransportError::Definition(_)
+            | TransportError::RuntimeSafePoint(_)
+            | TransportError::BranchScope(_) => Self::unavailable(error.to_string()),
+            TransportError::Engine(_)
+            | TransportError::DefinitionScopeMismatch
+            | TransportError::BranchScopeResolverUnavailable => {
                 Self::failed_precondition(error.to_string())
             }
             _ => Self::invalid_argument(error.to_string()),

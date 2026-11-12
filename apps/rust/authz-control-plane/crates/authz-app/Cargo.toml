@@ -11,6 +11,7 @@ authz-core = { workspace = true }
 authz-db   = { workspace = true }
 authz-sdk  = { workspace = true }
 authz-http-middleware = { workspace = true }
+bpmp-authz-contracts = { workspace = true }
 
 tokio = { workspace = true }
 async-trait = { workspace = true }
@@ -21,6 +22,9 @@ axum-extra = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true }
 hyper = { workspace = true }
+hyper-util = { version = "0.1.20", features = ["server", "http1", "tokio"] }
+tokio-rustls = "0.24.1"
+rustls-pemfile = "1.0.4"
 
 sqlx = { workspace = true }
 

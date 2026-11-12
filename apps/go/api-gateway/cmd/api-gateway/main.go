@@ -207,6 +207,21 @@ func run(path string) error {
 			gateway.WithBrowserSessions(sessionStore, value.BrowserSession),
 		)
 	}
+	if value.AuthorizationURL != "" {
+		authorizationClient := &http.Client{
+			Transport: platformtelemetry.HTTPTransport(&http.Transport{
+				ForceAttemptHTTP2: true,
+				TLSClientConfig: &tls.Config{
+					MinVersion: tls.VersionTLS13, ServerName: value.UpstreamTLS.AuthorizationServerName,
+					RootCAs: roots, Certificates: []tls.Certificate{clientCertificate},
+				},
+			}),
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		}
+		handlerOptions = append(handlerOptions, gateway.WithAuthorizationAdmin(
+			authorizationClient, value.AuthorizationURL, value.AuthorizationAudience,
+		))
+	}
 	handler, err := gateway.NewWithPolicy(
 		enginev1.NewEngineCommandServiceClient(engineConn),
 		humanv1.NewHumanRuntimeServiceClient(humanConn),

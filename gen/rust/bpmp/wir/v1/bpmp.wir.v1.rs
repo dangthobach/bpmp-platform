@@ -24,6 +24,15 @@ pub struct WorkflowIntermediateRepresentation {
     pub case_models: ::prost::alloc::vec::Vec<CaseModel>,
     #[prost(message, repeated, tag="11")]
     pub properties: ::prost::alloc::vec::Vec<ExtensionProperty>,
+    #[prost(message, optional, tag="12")]
+    pub resource_scope_binding: ::core::option::Option<ResourceScopeBinding>,
+}
+/// Maps a workflow input variable to authoritative resource scope metadata.
+/// The value is captured when the workflow starts and is immutable for that instance.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ResourceScopeBinding {
+    #[prost(string, tag="1")]
+    pub branch_id: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Node {

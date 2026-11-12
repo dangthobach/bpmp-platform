@@ -1,3 +1,4 @@
+pub mod catalog;
 pub mod policy;
 pub mod rbac;
 pub mod revoke;
@@ -33,4 +34,33 @@ pub fn admin_routes() -> Router<AppState> {
         .route("/roles", post(rbac::create_role))
         .route("/permissions", post(rbac::create_permission))
         .route("/users/:user_id/roles", post(rbac::assign_role))
+        // Versioned authorization catalog control-plane APIs.
+        .route(
+            "/catalog/versions",
+            get(catalog::list_versions).post(catalog::create_draft),
+        )
+        .route("/catalog/versions/:version_id", put(catalog::update_draft))
+        .route("/catalog/entries", get(catalog::list_owner_entries))
+        .route("/catalog/roles", get(catalog::list_roles))
+        .route("/catalog/audit", get(catalog::list_audit))
+        .route(
+            "/catalog/acknowledgements",
+            get(catalog::list_acknowledgements),
+        )
+        .route(
+            "/catalog/versions/:version_id/validate",
+            post(catalog::validate_version),
+        )
+        .route(
+            "/catalog/versions/:version_id/publish",
+            post(catalog::publish_version),
+        )
+        .route(
+            "/catalog/versions/:version_id/bundle",
+            get(catalog::download_bundle),
+        )
+        .route(
+            "/catalog/owner-manifests",
+            post(catalog::register_owner_manifest),
+        )
 }

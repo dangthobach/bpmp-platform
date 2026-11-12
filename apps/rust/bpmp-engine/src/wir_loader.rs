@@ -59,7 +59,18 @@ fn map_definition(
     })?;
     let mut nodes = Vec::with_capacity(wir.nodes.len());
     let mut boundary_events = Vec::new();
-    let workflow_properties = map_properties(wir.properties)?;
+    let mut workflow_properties = map_properties(wir.properties)?;
+    if let Some(binding) = wir.resource_scope_binding {
+        if binding.branch_id.trim().is_empty() {
+            return Err(WirLoadError::EmptyField("resource_scope_binding.branch_id"));
+        }
+        workflow_properties.push(ExtensionProperty {
+            namespace_uri: "urn:bpmp:authorization".into(),
+            element_name: "workflow".into(),
+            name: "branch-id".into(),
+            value: ExtensionPropertyValue::String(binding.branch_id),
+        });
+    }
     let mut node_metadata = Vec::new();
     let case_models = wir
         .case_models

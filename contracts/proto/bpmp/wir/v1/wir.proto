@@ -14,6 +14,13 @@ message WorkflowIntermediateRepresentation {
   string tenant_id = 9;
   repeated CaseModel case_models = 10;
   repeated ExtensionProperty properties = 11;
+  ResourceScopeBinding resource_scope_binding = 12;
+}
+
+// Maps a workflow input variable to authoritative resource scope metadata.
+// The value is captured when the workflow starts and is immutable for that instance.
+message ResourceScopeBinding {
+  string branch_id = 1;
 }
 
 message Node {

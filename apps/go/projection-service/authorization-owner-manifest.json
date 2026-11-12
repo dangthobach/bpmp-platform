@@ -1,0 +1,72 @@
+{
+  "owner_id": "projection-service",
+  "manifest_version": "1.0.0",
+  "entries": [
+    {
+      "resource_type": "workflow_instance",
+      "action": "query",
+      "capability": "workflow.query.all",
+      "supported_scope_types": ["branch", "resource"],
+      "readable_fields": [
+        "tenant_id",
+        "instance_id",
+        "workflow_type",
+        "workflow_version",
+        "status",
+        "active_node_id",
+        "last_event_sequence",
+        "started_at_epoch_ms",
+        "updated_at_epoch_ms",
+        "completed_at_epoch_ms",
+        "duration_ms",
+        "event_count",
+        "config_version",
+        "policy_version",
+        "is_deleted",
+        "version",
+        "initiator_actor_id",
+        "event_type",
+        "event_node_id",
+        "event_actor_id",
+        "event_sequence",
+        "event_occurred_at",
+        "event_config_version",
+        "event_policy_version"
+      ],
+      "writable_fields": []
+    },
+    {
+      "resource_type": "workflow_instance",
+      "action": "query",
+      "capability": "workflow.query.own",
+      "supported_scope_types": ["branch", "own", "resource"],
+      "readable_fields": [
+        "tenant_id",
+        "instance_id",
+        "workflow_type",
+        "workflow_version",
+        "status",
+        "active_node_id",
+        "last_event_sequence",
+        "started_at_epoch_ms",
+        "updated_at_epoch_ms",
+        "completed_at_epoch_ms",
+        "duration_ms",
+        "event_count",
+        "config_version",
+        "policy_version",
+        "is_deleted",
+        "version",
+        "initiator_actor_id",
+        "event_type",
+        "event_node_id",
+        "event_actor_id",
+        "event_sequence",
+        "event_occurred_at",
+        "event_config_version",
+        "event_policy_version"
+      ],
+      "writable_fields": []
+    }
+  ]
+}

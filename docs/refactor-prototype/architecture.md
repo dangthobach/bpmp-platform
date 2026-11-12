@@ -67,7 +67,7 @@ flowchart TB
 
 Foundation là nhóm UI gồm templates, allocation, documents, notifications, integrations và MDM admin; không phải bounded context hoặc database. Access MFE gọi directory và Authz nhưng không gộp hai authority.
 
-Authorization theo [đặc tả phân quyền và truy cập dữ liệu](authorization-and-data-access.md): Authz Control Plane là PDP/policy authority; resource-owning service là PEP, thực thi action, tenant, row và field constraints tại nơi đọc/ghi. Dùng RBAC + ABAC, deny-by-default, explicit-deny precedence và tenant guard bắt buộc. Action/resource catalog được cấu hình động trong phạm vi capability manifests do owner service phát hành; Configuration Service quản lý lifecycle snapshot khi contract phù hợp, Authz vẫn giữ semantic authority. BFF/UI không phải enforcement boundary cuối. Engine tiếp tục quyết định transition runtime; policy check không thay `decide/evolve` hoặc commit authority.
+Authorization theo [đặc tả phân quyền và truy cập dữ liệu](authorization-and-data-access.md): Authz Control Plane là policy/catalog authority, phát hành signed versioned bundles; `bpmp-engine` dùng embedded evaluator để authorize transition, còn resource-owning query service là PEP và áp row/field constraints tại nơi đọc. Dùng RBAC + ABAC, deny-by-default, explicit-deny precedence và tenant guard bắt buộc. Catalog động chỉ bật capability manifests do owner service phát hành. Configuration Service chung không sở hữu semantics policy. BFF/UI không phải enforcement boundary cuối; policy không thay `decide/evolve` hoặc commit authority của Engine.
 
 ## Command, query và event contract
 

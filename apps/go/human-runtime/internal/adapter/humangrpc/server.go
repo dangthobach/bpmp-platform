@@ -166,6 +166,19 @@ func (s *Server) ListAuditRecords(ctx context.Context, r *humanv1.ListAuditRecor
 	return &humanv1.ListAuditRecordsResponse{Records: out, NextPageToken: encodeAuditCursor(next)}, nil
 }
 
+func (s *Server) ListAssignmentGroups(ctx context.Context, r *humanv1.ListAssignmentGroupsRequest) (*humanv1.ListAssignmentGroupsResponse, error) {
+	_, identity, err := s.verify(ctx, r.GetTenantId(), "", r.GetActorProof(), s.now())
+	if err != nil { return nil, err }
+	if _, allowed := identity.Capabilities["authz.catalog.read"]; !allowed {
+		return nil, status.Error(codes.PermissionDenied, "actor lacks authz.catalog.read capability")
+	}
+	groups, err := s.query.ListAssignmentGroups(ctx, r.GetTenantId())
+	if err != nil { return nil, status.Error(codes.Internal, "query assignment groups") }
+	out := make([]*humanv1.AssignmentGroup, 0, len(groups))
+	for _, group := range groups { out = append(out, &humanv1.AssignmentGroup{GroupId: group.GroupID, PolicyCount: group.PolicyCount}) }
+	return &humanv1.ListAssignmentGroupsResponse{Groups: out}, nil
+}
+
 func (s *Server) verify(ctx context.Context, tenantID, commandID string, proof *authv1.ActorProof, evaluatedAt time.Time) (application.ActorCredential, application.ActorIdentity, error) {
 	credential, err := credentialFromProof(proof)
 	if err != nil {

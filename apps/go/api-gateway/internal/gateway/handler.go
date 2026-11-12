@@ -3,6 +3,7 @@ package gateway
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -21,6 +22,7 @@ import (
 	"github.com/dangthobach/bpmp-platform/go/platform/requestmeta"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -35,6 +37,7 @@ type Handler struct {
 	limiter            ports.RateLimiter
 	now                func() time.Time
 	configurationProxy *configurationProxy
+	authorizationProxy *authorizationProxy
 	policyProvider     PolicyProvider
 	upstreams          *upstreamController
 	sessionStore       ports.BrowserSessionStore
@@ -157,6 +160,9 @@ func (h *Handler) Routes() http.Handler {
 		if definition.configuration && h.configurationProxy == nil {
 			continue
 		}
+		if strings.HasPrefix(definition.Path, "/v1/access/") && h.authorizationProxy == nil {
+			continue
+		}
 		definition := definition
 		mux.HandleFunc(
 			definition.Method+" "+definition.Path,
@@ -182,6 +188,17 @@ type publicOperationDefinition struct {
 
 var publicOperationDefinitions = []publicOperationDefinition{
 	{PublicOperation{http.MethodGet, "/v1/runtime/browser-configuration", "getBrowserConfiguration"}, (*Handler).browserConfiguration, false},
+	{PublicOperation{http.MethodGet, "/v1/access/catalog/versions", "listAuthorizationCatalogVersions"}, (*Handler).authorizationCatalog, false},
+	{PublicOperation{http.MethodGet, "/v1/access/catalog/entries", "listAuthorizationCatalogEntries"}, (*Handler).authorizationCatalog, false},
+	{PublicOperation{http.MethodGet, "/v1/access/catalog/roles", "listAuthorizationRoles"}, (*Handler).authorizationCatalog, false},
+	{PublicOperation{http.MethodGet, "/v1/access/catalog/audit", "listAuthorizationCatalogAudit"}, (*Handler).authorizationCatalog, false},
+	{PublicOperation{http.MethodGet, "/v1/access/catalog/acknowledgements", "listAuthorizationCatalogAcknowledgements"}, (*Handler).authorizationCatalog, false},
+	{PublicOperation{http.MethodGet, "/v1/access/queues", "listAccessQueues"}, (*Handler).listAccessQueues, false},
+	{PublicOperation{http.MethodPost, "/v1/access/catalog/versions", "createAuthorizationCatalogDraft"}, (*Handler).authorizationCatalog, false},
+	{PublicOperation{http.MethodPut, "/v1/access/catalog/versions/{versionID}", "updateAuthorizationCatalogDraft"}, (*Handler).authorizationCatalog, false},
+	{PublicOperation{http.MethodPost, "/v1/access/catalog/versions/{versionID}/validate", "validateAuthorizationCatalog"}, (*Handler).authorizationCatalog, false},
+	{PublicOperation{http.MethodPost, "/v1/access/catalog/versions/{versionID}/publish", "publishAuthorizationCatalog"}, (*Handler).authorizationCatalog, false},
+	{PublicOperation{http.MethodGet, "/v1/access/catalog/versions/{versionID}/bundle", "downloadAuthorizationBundle"}, (*Handler).authorizationCatalog, false},
 	{PublicOperation{http.MethodPost, "/v1/workflows/{workflowType}/instances", "startWorkflow"}, (*Handler).startWorkflow, false},
 	{PublicOperation{http.MethodGet, "/v1/work-items", "listWorkItems"}, (*Handler).listWorkItems, false},
 	{PublicOperation{http.MethodGet, "/v1/work-items/{workItemID}", "getWorkItem"}, (*Handler).getWorkItem, false},
@@ -572,6 +589,7 @@ type requestScope struct {
 	traceParent, traceState                                     string
 	actorProofType                                              authv1.ActorProofType
 	signedActorProof                                            []byte
+	capabilities                                                []string
 	occurredAt                                                  time.Time
 	runtimePolicy                                               RuntimePolicy
 }
@@ -635,6 +653,7 @@ func (h *Handler) authenticateRequest(r *http.Request, commandRequired bool) (re
 		correlationID: correlation, actorID: identity.actorID,
 		actorProofType:   identity.proofType,
 		signedActorProof: append([]byte(nil), identity.signedProof...),
+		capabilities:     append([]string(nil), identity.capabilities...),
 		traceParent:      traceParent, traceState: traceState,
 		occurredAt: now, runtimePolicy: policy,
 	}, nil
@@ -778,9 +797,10 @@ func positiveUint32Query(r *http.Request, name string) (uint32, error) {
 }
 
 type startRequest struct {
-	InstanceID      string `json:"instance_id"`
-	WorkflowVersion string `json:"workflow_version"`
-	StartNodeID     string `json:"start_node_id"`
+	InstanceID      string                     `json:"instance_id"`
+	WorkflowVersion string                     `json:"workflow_version"`
+	StartNodeID     string                     `json:"start_node_id"`
+	Variables       map[string]json.RawMessage `json:"variables,omitempty"`
 }
 
 func (h *Handler) startWorkflow(w http.ResponseWriter, r *http.Request) {
@@ -800,6 +820,11 @@ func (h *Handler) startWorkflow(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid)
 		return
 	}
+	initialVariables, err := mapInitialWorkflowVariables(body.Variables)
+	if err != nil {
+		writeError(w, errInvalid)
+		return
+	}
 	if provider, ok := h.policyProvider.(instancePolicyProvider); ok {
 		scope.runtimePolicy, err = provider.PolicyForInstance(scope.tenantID, body.InstanceID)
 		if err != nil {
@@ -812,7 +837,7 @@ func (h *Handler) startWorkflow(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errUpstream)
 		return
 	}
-	envelope := &enginev1.CommandEnvelope{TenantId: scope.tenantID, InstanceId: body.InstanceID, CommandId: scope.commandID, IdempotencyKey: scope.idempotencyKey, CorrelationId: scope.correlationID, ActorId: scope.actorID, WorkflowType: workflowType, WorkflowVersion: body.WorkflowVersion, OccurredAtEpochMs: uint64(scope.occurredAt.UnixMilli()), EncryptionKeyScope: scope.runtimePolicy.EncryptionKeyScope, Command: &enginev1.CommandEnvelope_StartWorkflow{StartWorkflow: &enginev1.StartWorkflow{}}, AuthorizationContext: &authv1.AuthorizationContext{TenantId: scope.tenantID, CommandId: scope.commandID, CorrelationId: scope.correlationID, EvaluatedAtEpochMs: uint64(scope.occurredAt.UnixMilli()), ActorProof: actorProof(scope), WorkloadProof: &authv1.WorkloadProof{SignedProof: workload}, Resource: &authv1.TransitionResource{WorkflowType: workflowType, WorkflowVersion: body.WorkflowVersion, InstanceId: body.InstanceID, ActiveNodeId: body.StartNodeID, Action: "START"}}}
+	envelope := &enginev1.CommandEnvelope{TenantId: scope.tenantID, InstanceId: body.InstanceID, CommandId: scope.commandID, IdempotencyKey: scope.idempotencyKey, CorrelationId: scope.correlationID, ActorId: scope.actorID, WorkflowType: workflowType, WorkflowVersion: body.WorkflowVersion, OccurredAtEpochMs: uint64(scope.occurredAt.UnixMilli()), EncryptionKeyScope: scope.runtimePolicy.EncryptionKeyScope, Command: &enginev1.CommandEnvelope_StartWorkflow{StartWorkflow: &enginev1.StartWorkflow{InitialVariables: initialVariables}}, AuthorizationContext: &authv1.AuthorizationContext{TenantId: scope.tenantID, CommandId: scope.commandID, CorrelationId: scope.correlationID, EvaluatedAtEpochMs: uint64(scope.occurredAt.UnixMilli()), ActorProof: actorProof(scope), WorkloadProof: &authv1.WorkloadProof{SignedProof: workload}, Resource: &authv1.TransitionResource{WorkflowType: workflowType, WorkflowVersion: body.WorkflowVersion, InstanceId: body.InstanceID, ActiveNodeId: body.StartNodeID, Action: "START"}}}
 	receipt, err := invokeUpstream(h, upstreamContext(r, scope), scope, engineDependency,
 		func(ctx context.Context) (*enginev1.CommandReceipt, error) {
 			return h.engine.HandleCommand(ctx, envelope)
@@ -993,6 +1018,20 @@ func upstreamContext(r *http.Request, scope requestScope) context.Context {
 		TraceParent:   scope.traceParent,
 		TraceState:    scope.traceState,
 	})
+}
+
+// projectionScopeContext adds a short-lived, command-bound proof for Projection
+// to resolve current organization hierarchy without trusting browser scope data.
+func (h *Handler) projectionScopeContext(ctx context.Context, scope requestScope) (context.Context, error) {
+	commandID := scope.correlationID
+	proof, err := h.workload.sign(scope.tenantID, commandID, h.now().UTC())
+	if err != nil {
+		return nil, err
+	}
+	return metadata.AppendToOutgoingContext(ctx,
+		"x-bpmp-workload-proof", hex.EncodeToString(proof),
+		"x-bpmp-command-id", commandID,
+	), nil
 }
 
 var (

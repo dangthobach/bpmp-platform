@@ -20,6 +20,7 @@ type HumanRuntime interface {
 	DelegateWorkItem(context.Context, *humanv1.DelegateWorkItemRequest, ...grpc.CallOption) (*humanv1.DelegateWorkItemResponse, error)
 	GetCase(context.Context, *humanv1.GetCaseRequest, ...grpc.CallOption) (*humanv1.GetCaseResponse, error)
 	ListAuditRecords(context.Context, *humanv1.ListAuditRecordsRequest, ...grpc.CallOption) (*humanv1.ListAuditRecordsResponse, error)
+	ListAssignmentGroups(context.Context, *humanv1.ListAssignmentGroupsRequest, ...grpc.CallOption) (*humanv1.ListAssignmentGroupsResponse, error)
 }
 
 type Projection interface {

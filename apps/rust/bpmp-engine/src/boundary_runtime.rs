@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use bpmp_domain_core::{
     BoundaryRuntimePolicy, BoundaryTimerKind, BoundaryTrigger, Command, CommandId, CorrelationId,
     DomainEvent, IdempotencyKey, InstanceId, KeyScope, NodeId, TenantId, WorkflowDefinition,
-    WorkflowType, WorkflowVersion,
+    WorkflowType, WorkflowVersion, rehydrate,
 };
 use thiserror::Error;
 use time::OffsetDateTime;
@@ -14,7 +14,7 @@ use time::format_description::well_known::Rfc3339;
 use crate::application::{AuthorizedCommand, Engine};
 use crate::ports::ActorProofKind;
 use crate::ports::{AuthorizationProviderPort, ConfigurationProviderPort, WorkflowStorePort};
-use crate::{EventCodec, EventEnvelope, OutboxError, OutboxStorePort};
+use crate::{BranchScopeResolverPort, EventCodec, EventEnvelope, OutboxError, OutboxStorePort};
 
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub struct BoundarySubscriptionKey {
@@ -408,6 +408,7 @@ pub struct EngineBoundaryCommandDispatcher<C, S, A, R, P> {
     engine: Engine<C, S, A>,
     definitions: R,
     credentials: P,
+    branch_scope_resolver: Option<Arc<dyn BranchScopeResolverPort>>,
 }
 
 impl<C, S, A, R, P> EngineBoundaryCommandDispatcher<C, S, A, R, P> {
@@ -416,7 +417,16 @@ impl<C, S, A, R, P> EngineBoundaryCommandDispatcher<C, S, A, R, P> {
             engine,
             definitions,
             credentials,
+            branch_scope_resolver: None,
         }
+    }
+
+    pub fn with_branch_scope_resolver(
+        mut self,
+        resolver: Option<Arc<dyn BranchScopeResolverPort>>,
+    ) -> Self {
+        self.branch_scope_resolver = resolver;
+        self
     }
 
     pub const fn engine(&self) -> &Engine<C, S, A> {
@@ -448,6 +458,36 @@ where
         if credentials.actor_proof.is_empty() || credentials.workload_proof.is_empty() {
             return Err(BoundaryRuntimeError::InvalidDispatchCredentials);
         }
+        let loaded = self
+            .engine
+            .store()
+            .load(&request.tenant_id, &request.instance_id)
+            .map_err(|error| BoundaryRuntimeError::Dispatch(error.to_string()))?;
+        let events = loaded
+            .events
+            .iter()
+            .map(|event| event.event.clone())
+            .collect::<Vec<_>>();
+        let state = rehydrate(loaded.snapshot.map(|snapshot| snapshot.state), &events);
+        let resolved_branch_scope = match state.resource_branch_id {
+            Some(branch_id) => Some(
+                self.branch_scope_resolver
+                    .as_ref()
+                    .ok_or_else(|| {
+                        BoundaryRuntimeError::Dispatch(
+                            "branch scope resolver is unavailable".into(),
+                        )
+                    })?
+                    .resolve(
+                        &request.tenant_id,
+                        &branch_id,
+                        &request.command_id,
+                        &credentials.workload_proof,
+                    )
+                    .map_err(BoundaryRuntimeError::Dispatch)?,
+            ),
+            None => None,
+        };
         self.engine
             .handle(
                 &definition,
@@ -464,6 +504,7 @@ where
                     encryption_key_scope: credentials.encryption_key_scope,
                     variables: BTreeMap::new(),
                     command: request.command.clone(),
+                    resolved_branch_scope,
                 },
             )
             .map_err(|error| BoundaryRuntimeError::Dispatch(error.to_string()))?;

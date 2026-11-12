@@ -39,6 +39,10 @@
     {
       "name": "Configuration",
       "description": "Versioned runtime-configuration lifecycle."
+    },
+    {
+      "name": "Access",
+      "description": "Authorization catalog and signed policy publication."
     }
   ],
   "paths": {
@@ -90,7 +94,7 @@
         },
         "x-status": "current-registration",
         "x-owner": "Gateway",
-        "x-evidence": "apps/go/api-gateway/internal/apidocs/openapi.json",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
         "x-priority": "P0"
       }
     },
@@ -159,7 +163,7 @@
         },
         "x-status": "current-registration",
         "x-owner": "Engine",
-        "x-evidence": "apps/go/api-gateway/internal/apidocs/openapi.json",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
         "x-priority": "P0"
       }
     },
@@ -212,7 +216,7 @@
         },
         "x-status": "current-registration",
         "x-owner": "Human",
-        "x-evidence": "apps/go/api-gateway/internal/apidocs/openapi.json",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
         "x-priority": "P0"
       }
     },
@@ -270,7 +274,7 @@
         },
         "x-status": "current-registration",
         "x-owner": "Human",
-        "x-evidence": "apps/go/api-gateway/internal/apidocs/openapi.json",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
         "x-priority": "P0"
       }
     },
@@ -339,7 +343,7 @@
         },
         "x-status": "current-registration",
         "x-owner": "Human",
-        "x-evidence": "apps/go/api-gateway/internal/apidocs/openapi.json",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
         "x-priority": "P0"
       }
     },
@@ -408,7 +412,7 @@
         },
         "x-status": "current-registration",
         "x-owner": "Human",
-        "x-evidence": "apps/go/api-gateway/internal/apidocs/openapi.json",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
         "x-priority": "P0"
       }
     },
@@ -466,7 +470,7 @@
         },
         "x-status": "current-registration",
         "x-owner": "Human",
-        "x-evidence": "apps/go/api-gateway/internal/apidocs/openapi.json",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
         "x-priority": "P0"
       }
     },
@@ -530,7 +534,7 @@
         },
         "x-status": "current-registration",
         "x-owner": "Human",
-        "x-evidence": "apps/go/api-gateway/internal/apidocs/openapi.json",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
         "x-priority": "P0"
       }
     },
@@ -586,7 +590,7 @@
         },
         "x-status": "current-registration",
         "x-owner": "Projection",
-        "x-evidence": "apps/go/api-gateway/internal/apidocs/openapi.json",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
         "x-priority": "P0"
       }
     },
@@ -642,7 +646,7 @@
         },
         "x-status": "current-registration",
         "x-owner": "Projection",
-        "x-evidence": "apps/go/api-gateway/internal/apidocs/openapi.json",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
         "x-priority": "P0"
       }
     },
@@ -681,7 +685,7 @@
         },
         "x-status": "current-registration",
         "x-owner": "Projection",
-        "x-evidence": "apps/go/api-gateway/internal/apidocs/openapi.json",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
         "x-priority": "P0"
       }
     },
@@ -733,7 +737,7 @@
         },
         "x-status": "current-registration",
         "x-owner": "Projection",
-        "x-evidence": "apps/go/api-gateway/internal/apidocs/openapi.json",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
         "x-priority": "P0"
       }
     },
@@ -785,7 +789,7 @@
         },
         "x-status": "current-registration",
         "x-owner": "Projection",
-        "x-evidence": "apps/go/api-gateway/internal/apidocs/openapi.json",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
         "x-priority": "P0"
       }
     },
@@ -837,7 +841,7 @@
         },
         "x-status": "current-registration",
         "x-owner": "Projection",
-        "x-evidence": "apps/go/api-gateway/internal/apidocs/openapi.json",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
         "x-priority": "P0"
       },
       "get": {
@@ -874,7 +878,7 @@
         },
         "x-status": "current-registration",
         "x-owner": "Projection",
-        "x-evidence": "apps/go/api-gateway/internal/apidocs/openapi.json",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
         "x-priority": "P0"
       }
     },
@@ -928,7 +932,7 @@
         },
         "x-status": "current-registration",
         "x-owner": "Projection",
-        "x-evidence": "apps/go/api-gateway/internal/apidocs/openapi.json",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
         "x-priority": "P0"
       }
     },
@@ -980,7 +984,7 @@
         },
         "x-status": "current-registration",
         "x-owner": "Projection",
-        "x-evidence": "apps/go/api-gateway/internal/apidocs/openapi.json",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
         "x-priority": "P0"
       }
     },
@@ -1030,7 +1034,7 @@
         },
         "x-status": "current-registration",
         "x-owner": "Projection",
-        "x-evidence": "apps/go/api-gateway/internal/apidocs/openapi.json",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
         "x-priority": "P0"
       },
       "delete": {
@@ -1062,7 +1066,7 @@
         },
         "x-status": "current-registration",
         "x-owner": "Projection",
-        "x-evidence": "apps/go/api-gateway/internal/apidocs/openapi.json",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
         "x-priority": "P0"
       }
     },
@@ -1115,7 +1119,7 @@
         },
         "x-status": "current-registration",
         "x-owner": "Projection",
-        "x-evidence": "apps/go/api-gateway/internal/apidocs/openapi.json",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
         "x-priority": "P0"
       }
     },
@@ -1162,7 +1166,7 @@
         },
         "x-status": "current-registration",
         "x-owner": "Configuration",
-        "x-evidence": "apps/go/api-gateway/internal/apidocs/openapi.json",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
         "x-priority": "P0"
       },
       "post": {
@@ -1212,7 +1216,7 @@
         },
         "x-status": "current-registration",
         "x-owner": "Configuration",
-        "x-evidence": "apps/go/api-gateway/internal/apidocs/openapi.json",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
         "x-priority": "P0"
       }
     },
@@ -1262,7 +1266,7 @@
         },
         "x-status": "current-registration",
         "x-owner": "Configuration",
-        "x-evidence": "apps/go/api-gateway/internal/apidocs/openapi.json",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
         "x-priority": "P0"
       }
     },
@@ -1331,7 +1335,7 @@
         },
         "x-status": "current-registration",
         "x-owner": "Configuration",
-        "x-evidence": "apps/go/api-gateway/internal/apidocs/openapi.json",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
         "x-priority": "P0"
       }
     },
@@ -1398,7 +1402,7 @@
         },
         "x-status": "current-registration",
         "x-owner": "Configuration",
-        "x-evidence": "apps/go/api-gateway/internal/apidocs/openapi.json",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
         "x-priority": "P0"
       }
     },
@@ -1465,7 +1469,7 @@
         },
         "x-status": "current-registration",
         "x-owner": "Configuration",
-        "x-evidence": "apps/go/api-gateway/internal/apidocs/openapi.json",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
         "x-priority": "P0"
       }
     },
@@ -1532,7 +1536,7 @@
         },
         "x-status": "current-registration",
         "x-owner": "Configuration",
-        "x-evidence": "apps/go/api-gateway/internal/apidocs/openapi.json",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
         "x-priority": "P0"
       }
     },
@@ -1596,7 +1600,7 @@
         },
         "x-status": "current-registration",
         "x-owner": "Configuration",
-        "x-evidence": "apps/go/api-gateway/internal/apidocs/openapi.json",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
         "x-priority": "P0"
       }
     },
@@ -1660,7 +1664,7 @@
         },
         "x-status": "current-registration",
         "x-owner": "Configuration",
-        "x-evidence": "apps/go/api-gateway/internal/apidocs/openapi.json",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
         "x-priority": "P0"
       }
     },
@@ -1729,7 +1733,7 @@
         },
         "x-status": "current-registration",
         "x-owner": "Human",
-        "x-evidence": "apps/go/api-gateway/internal/apidocs/openapi.json",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
         "x-priority": "P0"
       }
     },
@@ -1798,7 +1802,452 @@
         },
         "x-status": "current-registration",
         "x-owner": "Human",
-        "x-evidence": "apps/go/api-gateway/internal/apidocs/openapi.json",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
+        "x-priority": "P0"
+      }
+    },
+    "/v1/access/catalog/versions": {
+      "get": {
+        "summary": "List authorization catalog versions",
+        "operationId": "listAuthorizationCatalogVersions",
+        "tags": [
+          "Access"
+        ],
+        "responses": {
+          "200": {
+            "description": "Authorization catalog versions"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        },
+        "x-status": "current-registration",
+        "x-owner": "Authz",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
+        "x-priority": "P0"
+      },
+      "post": {
+        "summary": "Create an authorization catalog draft",
+        "operationId": "createAuthorizationCatalogDraft",
+        "tags": [
+          "Access"
+        ],
+        "responses": {
+          "201": {
+            "description": "Draft created"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "snapshot",
+                  "reason"
+                ],
+                "properties": {
+                  "snapshot": {
+                    "$ref": "#/components/schemas/AuthorizationCatalogSnapshot"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-status": "current-registration",
+        "x-owner": "Authz",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
+        "x-priority": "P0"
+      }
+    },
+    "/v1/access/catalog/entries": {
+      "get": {
+        "summary": "List registered owner capabilities",
+        "operationId": "listAuthorizationCatalogEntries",
+        "tags": [
+          "Access"
+        ],
+        "responses": {
+          "200": {
+            "description": "Owner registered catalog entries"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        },
+        "x-status": "current-registration",
+        "x-owner": "Authz",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
+        "x-priority": "P0"
+      }
+    },
+    "/v1/access/catalog/roles": {
+      "get": {
+        "summary": "List tenant role codes for authorization grants",
+        "operationId": "listAuthorizationRoles",
+        "tags": [
+          "Access"
+        ],
+        "responses": {
+          "200": {
+            "description": "Role codes available in the authenticated tenant"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        },
+        "x-status": "current-registration",
+        "x-owner": "Authz",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
+        "x-priority": "P0"
+      }
+    },
+    "/v1/access/catalog/versions/{versionID}": {
+      "parameters": [
+        {
+          "name": "versionID",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "put": {
+        "summary": "Update a draft using its revision",
+        "operationId": "updateAuthorizationCatalogDraft",
+        "tags": [
+          "Access"
+        ],
+        "responses": {
+          "200": {
+            "description": "Draft updated and revision incremented"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "description": "Draft revision conflict"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "expected_draft_revision",
+                  "snapshot",
+                  "reason"
+                ],
+                "properties": {
+                  "expected_draft_revision": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "snapshot": {
+                    "$ref": "#/components/schemas/AuthorizationCatalogSnapshot"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-status": "current-registration",
+        "x-owner": "Authz",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
+        "x-priority": "P0"
+      }
+    },
+    "/v1/access/catalog/versions/{versionID}/validate": {
+      "parameters": [
+        {
+          "name": "versionID",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "post": {
+        "summary": "Validate a catalog draft",
+        "operationId": "validateAuthorizationCatalog",
+        "tags": [
+          "Access"
+        ],
+        "responses": {
+          "200": {
+            "description": "Validation result"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        },
+        "x-status": "current-registration",
+        "x-owner": "Authz",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
+        "x-priority": "P0"
+      }
+    },
+    "/v1/access/catalog/versions/{versionID}/publish": {
+      "parameters": [
+        {
+          "name": "versionID",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "post": {
+        "summary": "Sign and publish a catalog policy bundle",
+        "operationId": "publishAuthorizationCatalog",
+        "tags": [
+          "Access"
+        ],
+        "responses": {
+          "200": {
+            "description": "Signed bundle accepted for publication"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "description": "Catalog version conflict"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "expected_version_num",
+                  "reason"
+                ],
+                "properties": {
+                  "expected_version_num": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-status": "current-registration",
+        "x-owner": "Authz",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
+        "x-priority": "P0"
+      }
+    },
+    "/v1/access/catalog/versions/{versionID}/bundle": {
+      "parameters": [
+        {
+          "name": "versionID",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "get": {
+        "summary": "Download a published signed authorization bundle",
+        "operationId": "downloadAuthorizationBundle",
+        "tags": [
+          "Access"
+        ],
+        "responses": {
+          "200": {
+            "description": "Canonical signed bundle"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "Published bundle not found"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        },
+        "x-status": "current-registration",
+        "x-owner": "Authz",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
+        "x-priority": "P0"
+      }
+    },
+    "/v1/access/catalog/audit": {
+      "get": {
+        "summary": "List authorization catalog lifecycle audit entries",
+        "operationId": "listAuthorizationCatalogAudit",
+        "tags": [
+          "Access"
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Most recent catalog and policy lifecycle audit entries"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        },
+        "x-status": "current-registration",
+        "x-owner": "Authz",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
+        "x-priority": "P0"
+      }
+    },
+    "/v1/access/queues": {
+      "get": {
+        "summary": "List tenant assignment groups for access policies",
+        "operationId": "listAccessQueues",
+        "tags": [
+          "Access"
+        ],
+        "responses": {
+          "200": {
+            "description": "Assignment groups from active Human Runtime policies"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        },
+        "x-status": "current-registration",
+        "x-owner": "Human",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
+        "x-priority": "P0"
+      }
+    },
+    "/v1/access/catalog/acknowledgements": {
+      "get": {
+        "summary": "List authorization bundle consumer acknowledgements",
+        "operationId": "listAuthorizationCatalogAcknowledgements",
+        "tags": [
+          "Access"
+        ],
+        "parameters": [
+          {
+            "name": "catalog_version_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Consumers that verified and installed a published signed policy bundle"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        },
+        "x-status": "current-registration",
+        "x-owner": "Authz",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
         "x-priority": "P0"
       }
     },
@@ -65174,6 +65623,265 @@
           },
           "start_node_id": {
             "$ref": "#/components/schemas/Identifier"
+          },
+          "variables": {
+            "type": "object",
+            "description": "Typed initial workflow variables. The workflow configuration may bind one string variable as the process branch ID.",
+            "maxProperties": 128,
+            "additionalProperties": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "maxLength": 4096
+                },
+                {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "array",
+                  "maxItems": 256,
+                  "items": {
+                    "$ref": "#/components/schemas/WorkflowVariableValue"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "WorkflowVariableValue": {
+        "oneOf": [
+          {
+            "type": "string",
+            "maxLength": 4096
+          },
+          {
+            "type": "integer",
+            "format": "int64"
+          },
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "array",
+            "maxItems": 256,
+            "items": {
+              "$ref": "#/components/schemas/WorkflowVariableValue"
+            }
+          }
+        ]
+      },
+      "AuthorizationCatalogSnapshot": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema_version",
+          "entries",
+          "policy_grants"
+        ],
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "const": 1
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuthorizationCatalogEntry"
+            }
+          },
+          "policy_grants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuthorizationResourcePolicyGrant"
+            }
+          }
+        }
+      },
+      "AuthorizationCatalogEntry": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "owner_id",
+          "manifest_version",
+          "manifest_digest",
+          "resource_type",
+          "action",
+          "capability",
+          "enabled",
+          "supported_scope_types",
+          "readable_fields",
+          "writable_fields"
+        ],
+        "properties": {
+          "owner_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "manifest_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "manifest_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "resource_type": {
+            "type": "string",
+            "minLength": 1
+          },
+          "action": {
+            "type": "string",
+            "minLength": 1
+          },
+          "capability": {
+            "type": "string",
+            "minLength": 1
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "supported_scope_types": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "branch",
+                "queue",
+                "own",
+                "resource"
+              ]
+            }
+          },
+          "readable_fields": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "writable_fields": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      },
+      "AuthorizationResourcePolicyGrant": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "grant_id",
+          "owner_id",
+          "resource_type",
+          "action",
+          "effect",
+          "tenant_scope"
+        ],
+        "properties": {
+          "grant_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "owner_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "actor_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "roles": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required_capabilities": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "resource_type": {
+            "type": "string",
+            "minLength": 1
+          },
+          "action": {
+            "type": "string",
+            "minLength": 1
+          },
+          "effect": {
+            "type": "string",
+            "enum": [
+              "ALLOW",
+              "DENY"
+            ]
+          },
+          "branch_scope_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "branch_includes_descendants": {
+            "type": "boolean"
+          },
+          "queue_scope_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "own_scope": {
+            "type": "boolean"
+          },
+          "resource_scope_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "tenant_scope": {
+            "type": "boolean"
+          },
+          "readable_fields": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "writable_fields": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
           }
         }
       },
@@ -73954,5 +74662,5 @@
       }
     }
   },
-  "x-baseline-sha256": "ae0c74e56904fa2eb5b08a862a64f0aceffd54e12288a12429a9215feca96f3f"
+  "x-baseline-sha256": "577f2cf5c22682465cdc8a71a614dd03cf8cf0c2f009294df35840689bd79373"
 }

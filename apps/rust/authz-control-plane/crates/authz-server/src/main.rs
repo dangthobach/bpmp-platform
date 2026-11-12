@@ -17,6 +17,9 @@ pub mod grpc;
 pub mod handlers;
 pub mod job;
 pub mod middleware;
+#[cfg(target_os = "linux")]
+pub mod policy_bundle_acknowledgement_consumer;
+pub mod policy_bundle_publisher;
 pub mod query_revoke_publisher;
 pub mod state;
 #[cfg(target_os = "linux")]

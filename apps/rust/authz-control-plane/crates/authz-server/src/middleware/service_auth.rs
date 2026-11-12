@@ -15,6 +15,7 @@ use crate::state::AppState;
 #[derive(Debug, Deserialize)]
 struct ServiceClaims {
     sub: String,
+    actor_id: Option<String>,
     #[allow(dead_code)]
     exp: usize,
     #[serde(default)]
@@ -27,6 +28,8 @@ struct ServiceClaims {
 #[derive(Debug, Clone)]
 pub struct ServicePrincipal {
     pub subject: String,
+    pub signing_key_id: String,
+    pub actor_id: Option<String>,
     pub capabilities: Vec<String>,
     pub tenant_id: Option<String>,
     pub revoke_epoch: Option<u64>,
@@ -97,6 +100,8 @@ pub async fn verify_jwt(
     }
     Ok(ServicePrincipal {
         subject: token.claims.sub,
+        signing_key_id: kid.to_owned(),
+        actor_id: token.claims.actor_id,
         capabilities: token.claims.capabilities,
         tenant_id: token.claims.tenant_id,
         revoke_epoch: token.claims.revoke_epoch,

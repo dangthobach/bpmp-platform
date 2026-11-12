@@ -29,7 +29,7 @@ Không sửa generated artifacts thủ công. Generator giữ SHA-256 của embe
 
 **Authorization:** áp dụng [đặc tả phân quyền và truy cập dữ liệu](authorization-and-data-access.md). Mọi operation/command map sang typed action/resource; Authz decision không thay owner PEP. Owner áp tenant guard + row constraints trước pagination/aggregate/export và field permissions trước serialization/mutation. Deny-by-default; explicit deny thắng allow; policy/filter thiếu, lỗi hoặc không tương thích không fallback thành unrestricted access. Query policy không nhận SQL/raw field names. Writes/exports reauthorize tại commit/serve boundary; read cache chỉ theo staleness budget được phê duyệt.
 
-Action/resource catalog có thể bật/cấu hình theo dynamic configuration nhưng chỉ trong capability manifest/version được owner service đăng ký. Config không tự tạo action enforcement mới hoặc thay owner/semantics. Configuration Service hiện có versioned profiles; schema Authz runtime hiện là operational tuning, chưa phải catalog contract. Cần integration/schema gate trước khi expose admin API.
+Action/resource catalog được đăng ký theo manifest/version của service owner; tenant admin tạo draft, validate, publish qua Authz Control Plane. Authz là authority quản lý lifecycle/version của catalog và policy, ký bundle và phát hành cho evaluator tại owner service. Dynamic configuration chỉ chọn/bật/tinh chỉnh trong capability được owner đăng ký, không tự tạo action enforcement hay đổi owner/semantics. Configuration Service không sở hữu policy authorization.
 
 **Commands:** `X-Command-ID` + `Idempotency-Key`, cùng payload digest cho cùng intent. API receipt phân biệt accepted/committed với projection convergence. Query dùng POST không vì vậy mà trở thành business mutation. Validation/evaluation không tự deploy/commit workflow.
 
@@ -107,6 +107,7 @@ Bulk actions cần enum allowlist theo owner và discriminated per-action input 
 |---|---|---|
 | Cockpit Gateway | `GET /realtime/v1/events?names=...`, Last-Event-ID; bearer/tenant/correlation; cursor unknown → resync-required | `apps/go/cockpit-gateway/README.md` |
 | Authz control plane | `POST /authz/v1/check`, `/filter`, `/query`, `/query-revoke-feed`, `/explain`; `POST /admin/v1/query-revoke` | `apps/rust/authz-control-plane/crates/authz-server/src/app.rs` |
+| Authz organization scope | `GET /api/v1/branch-scopes/{branch_id}`; internal `GET /internal/v1/branch-scopes/{branch_id}` and `POST /internal/v1/branch-scopes/descendants` | `authz-app/src/presentation/router.rs`, `handlers/organization.rs`; mTLS plus per-workload signed command proof is required for internal routes |
 | Authz admin | `/admin/v1/tenants` POST/GET; `/tenants/:id` GET/PUT/DELETE; `/tenants/:id/status` PUT | `handlers/admin/mod.rs`; DTO/status semantics trong handlers |
 | Authz policy/RBAC | `/admin/v1/policies` POST; `/policies/:id/promote` POST; `/revoke` POST, `/revoke/:user_id` DELETE; `/roles`, `/permissions`, `/users/:user_id/roles` POST | Cùng Authz admin router; service JWT middleware |
 | Health/metrics/docs | Listener/path theo service bootstrap config | Operational endpoints không tính như UI/business feature APIs; không đưa vào business CRUD |

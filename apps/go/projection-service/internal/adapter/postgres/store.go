@@ -84,13 +84,17 @@ func (s *Store) applyInstance(
 		if event.Kind != application.EventStarted {
 			return fmt.Errorf("%w: instance %s starts at sequence %d", application.ErrSequenceGap, event.InstanceID, event.Sequence)
 		}
+		ancestry := event.ResourceBranchAncestry
+		if ancestry == nil {
+			ancestry = []string{}
+		}
 		_, err = tx.Exec(ctx, `INSERT INTO workflow_instance_read_models
 			(tenant_id,instance_id,workflow_type,workflow_version,status,active_node_id,last_event_sequence,
-			 started_at,updated_at,config_version,policy_version,initiator_actor_id)
-			VALUES($1,$2,$3,$4,'ACTIVE',$5,$6,$7,$7,$8,$9,$10)`,
+			 started_at,updated_at,config_version,policy_version,initiator_actor_id,resource_branch_id,resource_branch_ancestry,organization_version)
+			VALUES($1,$2,$3,$4,'ACTIVE',$5,$6,$7,$7,$8,$9,$10,NULLIF($11,''),$12,$13)`,
 			event.TenantID, event.InstanceID, event.WorkflowType, event.WorkflowVersion,
 			event.NodeID, event.Sequence, event.OccurredAt, event.ConfigVersion, event.PolicyVersion,
-			event.ActorID)
+			event.ActorID, event.ResourceBranchID, ancestry, int64(event.OrganizationVersion))
 		return err
 	}
 	if err != nil {

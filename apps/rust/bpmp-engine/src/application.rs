@@ -2,16 +2,16 @@ use std::collections::BTreeMap;
 
 use bpmp_domain_core::{
     ActorId, Command, CommandId, ConfigError, ConfigVersion, CorrelationId, DecisionContext,
-    DomainError, DomainEvent, IdempotencyKey, InstanceId, InstanceState, KeyScope, PolicyVersion,
-    ResolvedConfigSnapshot, TenantId, WorkflowDefinition, WorkflowType, WorkflowValue,
-    WorkflowVersion, decide, evolve, rehydrate,
+    DomainError, DomainEvent, ExtensionPropertyValue, IdempotencyKey, InstanceId, InstanceState,
+    KeyScope, PolicyVersion, ResolvedConfigSnapshot, TenantId, WorkflowDefinition, WorkflowType,
+    WorkflowValue, WorkflowVersion, decide, evolve, rehydrate,
 };
 use thiserror::Error;
 
 use crate::ports::{
     ActorProofKind, AuthorizationError, AuthorizationProviderPort, AuthorizationRequest,
     CommitOutcome, CommitRequest, ConfigurationLookup, ConfigurationProviderPort, LoadedInstance,
-    StoreError, WorkflowStorePort,
+    ResourceAuthorizationContext, StoreError, WorkflowStorePort,
 };
 
 /// Immutable wire-contract version for `bpmp.engine.v1.EventEnvelope`.
@@ -31,6 +31,17 @@ pub struct AuthorizedCommand {
     pub encryption_key_scope: KeyScope,
     pub variables: BTreeMap<String, WorkflowValue>,
     pub command: Command,
+    /// Canonical scope resolved by the owning organization service. Never map
+    /// this field from a client command payload.
+    pub resolved_branch_scope: Option<ResolvedBranchScope>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct ResolvedBranchScope {
+    pub branch_id: String,
+    /// Canonical root-to-leaf path returned by the organization owner.
+    pub ancestry: Vec<String>,
+    pub organization_version: u64,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -53,6 +64,9 @@ pub struct AuthorizationAudit {
     pub command_id: CommandId,
     pub correlation_id: CorrelationId,
     pub matched_grant_ids: Vec<String>,
+    pub resource_branch_id: Option<String>,
+    pub resource_branch_ancestry: Vec<String>,
+    pub organization_version: u64,
     pub encryption_key_scope: KeyScope,
 }
 
@@ -134,6 +148,33 @@ where
         &self.authorization
     }
 
+    /// Verifies actor and workload proofs before a transport adapter loads
+    /// tenant-scoped resource data for authorization.
+    pub fn verify_command_proofs(
+        &self,
+        definition: &WorkflowDefinition,
+        request: &AuthorizedCommand,
+    ) -> Result<(), EngineError> {
+        if request.tenant_id != definition.tenant_id {
+            return Err(EngineError::DefinitionTenantMismatch);
+        }
+        let (active_node_id, action) = transition_selector(definition, &request.command);
+        self.authorization.verify_proofs(&AuthorizationRequest {
+            tenant_id: &request.tenant_id,
+            command_id: &request.command_id,
+            evaluated_at_epoch_ms: request.evaluated_at_epoch_ms,
+            actor_proof: &request.actor_proof,
+            actor_proof_kind: request.actor_proof_kind,
+            workload_proof: &request.workload_proof,
+            workflow_type: &definition.workflow_type,
+            workflow_version: &definition.workflow_version,
+            active_node_id,
+            action,
+            resource: None,
+        })?;
+        Ok(())
+    }
+
     /// Re-authorizes a command and commits its resulting events.
     ///
     /// # Errors
@@ -145,36 +186,36 @@ where
         definition: &WorkflowDefinition,
         request: AuthorizedCommand,
     ) -> Result<HandleOutcome, EngineError> {
-        if request.tenant_id != definition.tenant_id {
-            return Err(EngineError::DefinitionTenantMismatch);
-        }
+        self.verify_command_proofs(definition, &request)?;
         let (active_node_id, action) = transition_selector(definition, &request.command);
-        let principal = self.authorization.authorize(&AuthorizationRequest {
-            tenant_id: &request.tenant_id,
-            command_id: &request.command_id,
-            evaluated_at_epoch_ms: request.evaluated_at_epoch_ms,
-            actor_proof: &request.actor_proof,
-            actor_proof_kind: request.actor_proof_kind,
-            workload_proof: &request.workload_proof,
-            workflow_type: &definition.workflow_type,
-            workflow_version: &definition.workflow_version,
-            active_node_id,
-            action,
-        })?;
-        if let Some(result) = self.store.lookup_idempotency(
-            &request.tenant_id,
-            &principal.actor_id,
-            &request.idempotency_key,
-            &request.command_id,
-        )? {
-            return Ok(HandleOutcome::Duplicate(result));
+        let start_branch_id = if matches!(&request.command, Command::StartWorkflow { .. }) {
+            configured_branch_id(definition)?
+        } else {
+            None
+        };
+        if let Some(scope) = &request.resolved_branch_scope {
+            let expected_branch = if matches!(&request.command, Command::StartWorkflow { .. }) {
+                start_branch_id.as_deref()
+            } else {
+                None
+            };
+            if scope.branch_id.trim().is_empty()
+                || scope.ancestry.is_empty()
+                || scope.ancestry.last() != Some(&scope.branch_id)
+                || scope.ancestry.iter().any(|branch| branch.trim().is_empty())
+                || scope.organization_version == 0
+                || expected_branch.is_some_and(|branch| branch != scope.branch_id)
+            {
+                return Err(EngineError::InvalidResolvedResourceScope);
+            }
+        } else if start_branch_id.is_some() {
+            return Err(EngineError::UnresolvedResourceScope);
         }
         let configuration = self.configuration.resolve(&ConfigurationLookup {
             tenant_id: request.tenant_id.clone(),
             workflow_type: definition.workflow_type.clone(),
             workflow_version: definition.workflow_version.clone(),
         })?;
-        validate_configuration_binding(&request, &configuration, &principal)?;
         let loaded = self.load_instance(&request)?;
         if loaded.snapshot.as_ref().is_some_and(|snapshot| {
             snapshot.workflow_type != definition.workflow_type
@@ -200,7 +241,70 @@ where
                 .map(|snapshot| snapshot.state.clone()),
             &history,
         );
-        let domain_events = decide(
+        let branch_id = if matches!(&request.command, Command::StartWorkflow { .. }) {
+            start_branch_id.clone()
+        } else {
+            state.resource_branch_id.clone()
+        };
+        let resource_action = workflow_resource_action(&request.command);
+        if branch_id.is_some()
+            && resource_action.is_some()
+            && request.resolved_branch_scope.is_none()
+        {
+            return Err(EngineError::UnresolvedResourceScope);
+        }
+        if request
+            .resolved_branch_scope
+            .as_ref()
+            .is_some_and(|scope| Some(scope.branch_id.as_str()) != branch_id.as_deref())
+        {
+            return Err(EngineError::InvalidResolvedResourceScope);
+        }
+        let resource_branch_path = request.resolved_branch_scope.as_ref().map_or_else(
+            || {
+                let state_path_is_canonical = state.organization_version > 0
+                    && branch_id.as_deref()
+                        == state.resource_branch_ancestry.last().map(String::as_str);
+                if state_path_is_canonical {
+                    state.resource_branch_ancestry.clone()
+                } else {
+                    Vec::new()
+                }
+            },
+            |scope| scope.ancestry.clone(),
+        );
+        let resource = resource_action.map(|resource_action| ResourceAuthorizationContext {
+            owner_id: "bpmp-engine",
+            resource_type: "workflow_instance",
+            action: resource_action,
+            resource_id: request.instance_id.as_str(),
+            resource_owned_by_actor: matches!(&request.command, Command::StartWorkflow { .. }),
+            branch_path: &resource_branch_path,
+            queue_id: None,
+        });
+        let principal = self.authorization.authorize(&AuthorizationRequest {
+            tenant_id: &request.tenant_id,
+            command_id: &request.command_id,
+            evaluated_at_epoch_ms: request.evaluated_at_epoch_ms,
+            actor_proof: &request.actor_proof,
+            actor_proof_kind: request.actor_proof_kind,
+            workload_proof: &request.workload_proof,
+            workflow_type: &definition.workflow_type,
+            workflow_version: &definition.workflow_version,
+            active_node_id,
+            action,
+            resource,
+        })?;
+        if let Some(result) = self.store.lookup_idempotency(
+            &request.tenant_id,
+            &principal.actor_id,
+            &request.idempotency_key,
+            &request.command_id,
+        )? {
+            return Ok(HandleOutcome::Duplicate(result));
+        }
+        validate_configuration_binding(&request, &configuration, &principal)?;
+        let mut domain_events = decide(
             definition,
             &state,
             &request.command,
@@ -209,6 +313,23 @@ where
                 variables: &request.variables,
             },
         )?;
+        if let Some(branch_id) = start_branch_id {
+            for event in &mut domain_events {
+                if let DomainEvent::WorkflowStarted {
+                    resource_branch_id,
+                    resource_branch_ancestry,
+                    organization_version,
+                    ..
+                } = event
+                {
+                    *resource_branch_id = Some(branch_id.clone());
+                    if let Some(scope) = &request.resolved_branch_scope {
+                        *resource_branch_ancestry = scope.ancestry.clone();
+                        *organization_version = scope.organization_version;
+                    }
+                }
+            }
+        }
         let envelopes = attach_metadata(
             definition,
             &request,
@@ -218,6 +339,12 @@ where
             domain_events,
         )?;
         let result = committed_result(loaded.version, &envelopes, &configuration)?;
+        let organization_version = request
+            .resolved_branch_scope
+            .as_ref()
+            .map_or(state.organization_version, |scope| {
+                scope.organization_version
+            });
         let snapshot =
             snapshot_at_latest_boundary(definition, &request, &configuration, state, &envelopes);
         let authorization_audit = build_authorization_audit(
@@ -227,6 +354,9 @@ where
             &principal,
             active_node_id,
             action,
+            branch_id.as_deref(),
+            &resource_branch_path,
+            organization_version,
         );
         let commit = self.store.commit(CommitRequest {
             tenant_id: request.tenant_id,
@@ -251,6 +381,42 @@ where
         self.store
             .load(&request.tenant_id, &request.instance_id)
             .map_err(EngineError::from_store_load)
+    }
+}
+
+pub fn configured_branch_id(
+    definition: &WorkflowDefinition,
+) -> Result<Option<String>, EngineError> {
+    let mut bindings = definition.properties().iter().filter_map(|property| {
+        (property.namespace_uri == "urn:bpmp:authorization"
+            && property.element_name == "workflow"
+            && property.name == "branch-id")
+            .then_some(&property.value)
+    });
+    let Some(binding) = bindings.next() else {
+        return Ok(None);
+    };
+    if bindings.next().is_some() {
+        return Err(EngineError::InvalidResourceScopeBinding);
+    }
+    let ExtensionPropertyValue::String(branch_id) = binding else {
+        return Err(EngineError::InvalidResourceScopeBinding);
+    };
+    if branch_id.trim().is_empty() || branch_id.len() > 128 {
+        return Err(EngineError::InvalidResourceScopeBinding);
+    }
+    Ok(Some(branch_id.clone()))
+}
+
+fn workflow_resource_action(command: &Command) -> Option<&'static str> {
+    match command {
+        Command::StartWorkflow { .. } => Some("workflow.start"),
+        Command::CompleteServiceTask { .. } => Some("task.service.complete"),
+        Command::CompleteUserTask { .. } => Some("task.user.complete"),
+        Command::CompleteScriptTask { .. } => Some("task.script.complete"),
+        Command::CompleteMultiInstanceIteration { .. } => Some("task.multi_instance.complete"),
+        Command::TriggerBoundaryEvent { .. } => Some("workflow.boundary.trigger"),
+        Command::ActivateCase { .. } | Command::EvaluateCaseSentries { .. } => None,
     }
 }
 
@@ -297,6 +463,9 @@ fn build_authorization_audit(
     principal: &crate::AuthorizedPrincipal,
     active_node_id: &str,
     action: &str,
+    resource_branch_id: Option<&str>,
+    resource_branch_ancestry: &[String],
+    organization_version: u64,
 ) -> AuthorizationAudit {
     AuthorizationAudit {
         decision_id: format!("allow:{}", request.command_id),
@@ -317,6 +486,9 @@ fn build_authorization_audit(
         command_id: request.command_id.clone(),
         correlation_id: request.correlation_id.clone(),
         matched_grant_ids: principal.matched_grant_ids.clone(),
+        resource_branch_id: resource_branch_id.map(str::to_owned),
+        resource_branch_ancestry: resource_branch_ancestry.to_vec(),
+        organization_version,
         encryption_key_scope: configuration.engine.authorization_audit_key_scope.clone(),
     }
 }
@@ -555,6 +727,12 @@ pub enum EngineError {
     DefinitionTenantMismatch,
     #[error("command encryption key scope does not match the published workflow configuration")]
     EncryptionKeyScopeMismatch,
+    #[error("workflow resource scope binding is missing or invalid")]
+    InvalidResourceScopeBinding,
+    #[error("workflow branch scope was not resolved by the organization owner")]
+    UnresolvedResourceScope,
+    #[error("resolved workflow branch scope is malformed or does not match the configured branch")]
+    InvalidResolvedResourceScope,
     #[error(
         "resolved configuration policy version {configured} differs from authorized policy version {authorized}"
     )]

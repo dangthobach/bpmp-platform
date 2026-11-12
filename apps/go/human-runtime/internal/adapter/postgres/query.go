@@ -9,6 +9,25 @@ import (
 	"github.com/dangthobach/bpmp-platform/apps/go/human-runtime/internal/domain"
 )
 
+func (s *Store) ListAssignmentGroups(ctx context.Context, tenantID string) ([]application.AssignmentGroup, error) {
+	rows, err := s.pool.Query(ctx, `SELECT candidate_group, count(*) FROM assignment_policies
+		WHERE tenant_id=$1 AND candidate_group IS NOT NULL AND NOT is_deleted
+		GROUP BY candidate_group ORDER BY candidate_group`, tenantID)
+	if err != nil { return nil, err }
+	defer rows.Close()
+	groups := make([]application.AssignmentGroup, 0)
+	for rows.Next() {
+		var group application.AssignmentGroup
+		var policyCount int64
+		if err = rows.Scan(&group.GroupID, &policyCount); err != nil { return nil, err }
+		if policyCount < 0 { return nil, errors.New("assignment policy count is invalid") }
+		group.PolicyCount = uint64(policyCount)
+		groups = append(groups, group)
+	}
+	if err = rows.Err(); err != nil { return nil, err }
+	return groups, nil
+}
+
 func (s *Store) ListWorkItems(ctx context.Context, tenantID, actorID string, groups []string, limit int, cursor *application.PageCursor) ([]domain.WorkItem, *application.PageCursor, error) {
 	if limit <= 0 {
 		return nil, nil, errors.New("work-item query limit must be normalized")

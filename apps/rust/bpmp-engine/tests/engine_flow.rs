@@ -101,6 +101,9 @@ fn authorization() -> EmbeddedAuthorizationProvider {
                 priority: 10,
             },
         ],
+        catalog_version: 0,
+        resource_grants: Vec::new(),
+        resource_catalog: Vec::new(),
         actor_revoke_epochs: Vec::new(),
         signing_key_id: String::new(),
         content_hash: Vec::new(),
@@ -188,6 +191,10 @@ fn cmmn_definition() -> WorkflowDefinition {
 struct AllowCaseAuthorization;
 
 impl AuthorizationProviderPort for AllowCaseAuthorization {
+    fn verify_proofs(&self, _request: &AuthorizationRequest<'_>) -> Result<(), AuthorizationError> {
+        Ok(())
+    }
+
     fn authorize(
         &self,
         _request: &AuthorizationRequest<'_>,
@@ -218,6 +225,7 @@ fn case_request(command_id: &str, idempotency_key: &str, command: Command) -> Au
         encryption_key_scope: KeyScope::new("tenant-a/operational").unwrap(),
         variables: BTreeMap::new(),
         command,
+        resolved_branch_scope: None,
     }
 }
 
@@ -586,6 +594,7 @@ fn start_request() -> AuthorizedCommand {
             tenant_id: TenantId::new("tenant-a").unwrap(),
             occurred_at_epoch_ms: 42,
         },
+        resolved_branch_scope: None,
     }
 }
 

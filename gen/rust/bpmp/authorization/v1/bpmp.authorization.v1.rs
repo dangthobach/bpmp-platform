@@ -161,6 +161,12 @@ pub struct AuthorizationAuditRecord {
     pub bundle_sequence: u64,
     #[prost(string, repeated, tag="21")]
     pub matched_grant_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, tag="22")]
+    pub resource_branch_id: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag="23")]
+    pub resource_branch_ancestry: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(uint64, tag="24")]
+    pub organization_version: u64,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct AuthorizationPolicyGrant {
@@ -218,6 +224,117 @@ pub struct AuthorizationPolicyBundle {
     pub content_hash: ::prost::alloc::vec::Vec<u8>,
     #[prost(bytes="vec", tag="12")]
     pub signature: ::prost::alloc::vec::Vec<u8>,
+    /// Generic resource authorization is separate from workflow transition
+    /// grants; consumers must select the evaluator matching the resource owner.
+    #[prost(uint64, tag="13")]
+    pub catalog_version: u64,
+    #[prost(message, repeated, tag="14")]
+    pub resource_grants: ::prost::alloc::vec::Vec<AuthorizationResourceGrant>,
+    #[prost(message, repeated, tag="15")]
+    pub resource_catalog: ::prost::alloc::vec::Vec<AuthorizationResourceDefinition>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct AuthorizationResourceDefinition {
+    #[prost(string, tag="1")]
+    pub owner_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub manifest_version: ::prost::alloc::string::String,
+    #[prost(bytes="vec", tag="3")]
+    pub manifest_digest: ::prost::alloc::vec::Vec<u8>,
+    #[prost(string, tag="4")]
+    pub resource_type: ::prost::alloc::string::String,
+    #[prost(string, tag="5")]
+    pub action: ::prost::alloc::string::String,
+    #[prost(string, tag="6")]
+    pub capability: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag="7")]
+    pub supported_scope_types: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, repeated, tag="8")]
+    pub readable_fields: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, repeated, tag="9")]
+    pub writable_fields: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+/// Kafka envelope around the already signed canonical policy bundle. Consumers
+/// treat bundle_bytes as untrusted and verify it before installing it locally.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct AuthorizationPolicyBundlePublication {
+    #[prost(string, tag="1")]
+    pub event_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub tenant_id: ::prost::alloc::string::String,
+    #[prost(uint64, tag="3")]
+    pub bundle_sequence: u64,
+    #[prost(uint64, tag="4")]
+    pub catalog_version: u64,
+    #[prost(uint64, tag="5")]
+    pub published_at_epoch_ms: u64,
+    #[prost(bytes="vec", tag="6")]
+    pub bundle_bytes: ::prost::alloc::vec::Vec<u8>,
+}
+/// Emitted by an evaluator only after it verifies and installs a publication.
+/// The Kafka producer identity is constrained by broker ACLs for the ack topic.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct AuthorizationPolicyBundleAcknowledgement {
+    #[prost(uint32, tag="1")]
+    pub schema_version: u32,
+    #[prost(string, tag="2")]
+    pub acknowledgement_id: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub consumer_id: ::prost::alloc::string::String,
+    #[prost(string, tag="4")]
+    pub consumer_type: ::prost::alloc::string::String,
+    #[prost(string, tag="5")]
+    pub tenant_id: ::prost::alloc::string::String,
+    #[prost(uint64, tag="6")]
+    pub bundle_sequence: u64,
+    #[prost(uint64, tag="7")]
+    pub catalog_version: u64,
+    #[prost(bytes="vec", tag="8")]
+    pub bundle_content_hash: ::prost::alloc::vec::Vec<u8>,
+    #[prost(uint64, tag="9")]
+    pub acknowledged_at_epoch_ms: u64,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct AuthorizationResourceGrant {
+    #[prost(string, tag="1")]
+    pub grant_id: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag="2")]
+    pub actor_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, repeated, tag="3")]
+    pub roles: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, repeated, tag="4")]
+    pub required_capabilities: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, tag="5")]
+    pub resource_type: ::prost::alloc::string::String,
+    #[prost(string, tag="6")]
+    pub action: ::prost::alloc::string::String,
+    #[prost(enumeration="AuthorizationPolicyEffect", tag="7")]
+    pub effect: i32,
+    #[prost(uint32, tag="8")]
+    pub priority: u32,
+    /// A branch ID applies to that branch and, when enabled, its descendants.
+    #[prost(string, repeated, tag="9")]
+    pub branch_scope_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(bool, tag="10")]
+    pub branch_includes_descendants: bool,
+    /// A non-empty queue set is intersected with branch scope (AND semantics).
+    #[prost(string, repeated, tag="11")]
+    pub queue_scope_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// Empty means the resource owner may use its catalog's default field set.
+    #[prost(string, repeated, tag="12")]
+    pub readable_fields: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, repeated, tag="13")]
+    pub writable_fields: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(bool, tag="14")]
+    pub own_scope: bool,
+    #[prost(string, repeated, tag="15")]
+    pub resource_scope_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, tag="16")]
+    pub owner_id: ::prost::alloc::string::String,
+    /// Tenant-wide access must be an explicit scope choice. It cannot be combined
+    /// with narrower branch, queue, owner, or resource scopes.
+    #[prost(bool, tag="17")]
+    pub tenant_scope: bool,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct AuthorizationRevokeEpochUpdate {
