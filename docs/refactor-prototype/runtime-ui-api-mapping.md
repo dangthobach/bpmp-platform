@@ -1,0 +1,106 @@
+# Runtime Cockpit UI/API mapping
+
+This file records application controls that call the current Gateway contract. The prototype inventory in `ui-api-mapping.csv` remains a source interaction inventory; it does not itself prove that runtime controls call an API. `current-registration` means the route is present in the current Gateway contract. Authoring routes are conditional on `authoring_address` being configured, and deployment remains a separate runtime proof.
+
+## Modeler
+
+| Screen control | User action | HTTP operation | Owner RPC | Capability enforced |
+|---|---|---|---|---|
+| Process model search/list | Search or refresh model catalog | `GET /v1/authoring/process-models` | `ListProcessModels` | `authoring.listProcessModel` |
+| New process model form | Create model and initial BPMN draft | `POST /v1/authoring/process-models` | `CreateProcessModel` | `authoring.createProcessModel` |
+| Select a model | Load model metadata and current draft | `GET /v1/authoring/process-models/{processModelID}` | `GetProcessModel` | `authoring.getProcessModel` + `authoring.getProcessModelDraft` |
+| BPMN canvas: add, rename or remove supported node | Update in-memory BPMN XML; no API call until saved | `PUT /v1/authoring/process-models/{processModelID}/draft` on Save | `SaveProcessModelDraft` | `authoring.saveProcessModelDraft` |
+| BPMN paired gateway canvas | Add/remove a one-task branch only for a one-level parallel split/join; exclusive conditions remain read-only | Same revision-checked Save route | `SaveProcessModelDraft` | `authoring.saveProcessModelDraft` |
+| BPMN source editor / Save draft | Persist source using expected revision | `PUT /v1/authoring/process-models/{processModelID}/draft` | `SaveProcessModelDraft` | `authoring.saveProcessModelDraft` |
+| Import BPMN file | Read a bounded `.bpmn`/`.xml` file into the local draft editor; no persistence until Save | No request on import; same `PUT` route on Save | `SaveProcessModelDraft` | `authoring.saveProcessModelDraft` |
+| Export BPMN file | Download the current editor source as `.bpmn` | Browser download from current loaded/local source | None | Existing model read capability |
+| Validate saved draft | Compile the exact persisted revision | `POST /v1/authoring/process-models/{processModelID}/draft/validate` | `ValidateProcessModelDraft` | `authoring.validateProcessModel` |
+| Check in immutable version | Check in the exact saved revision with its SHA-256 digest, unique version tag and summary | `POST /v1/authoring/process-models/{processModelID}/versions` | `CheckinProcessModel` | `authoring.checkinProcessModel`; service rechecks revision, digest and `VALID` state under a PostgreSQL transaction. Check-in records a version but does not deploy or activate it. |
+| Browse BPMN version history | Load newest-first paginated immutable version metadata without source XML | `GET /v1/authoring/process-models/{processModelID}/versions` | `ListProcessModelVersions` | `authoring.listProcessModelVersions`; tenant/model scoped keyset cursor uses unique monotonic version number. |
+| View/download a BPMN version | Load one immutable source snapshot after selecting its history row | `GET /v1/authoring/process-models/{processModelID}/versions/{versionID}` | `GetProcessModelVersion` | `authoring.getProcessModelVersion`; service verifies tenant, parent model and version ID; source is fetched only on demand. |
+| Compare two BPMN versions | Load two selected immutable snapshots and render a bounded line diff; fall back to side-by-side source for large inputs | Two calls to `GET /v1/authoring/process-models/{processModelID}/versions/{versionID}` | `GetProcessModelVersion` | Read-only client comparison of owner-returned snapshots; it does not mutate the draft or create a server-side diff artifact. |
+| Start a draft from an older BPMN version | Load the immutable source into the local editor, then explicitly Save and Validate it as a new draft revision | No request on load; `PUT /v1/authoring/process-models/{processModelID}/draft` then `POST /v1/authoring/process-models/{processModelID}/draft/validate` | `SaveProcessModelDraft`, `ValidateProcessModelDraft` | Save uses current expected revision. The selected version ID is persisted as draft base only when its source exactly matches the submitted BPMN; cross-model, missing and mismatched bases are rejected. Canceling before Save leaves owner state unchanged. |
+| Switch to DMN mode | Show the live decision catalog and draft editor | `GET /v1/authoring/decision-models` | `ListDecisionModels` | `authoring.listDecisionModel` |
+| Create decision model | Create metadata and initial DMN draft | `POST /v1/authoring/decision-models` | `CreateDecisionModel` | `authoring.createDecisionModel` |
+| Select decision model | Load metadata and the current DMN draft | `GET /v1/authoring/decision-models/{decisionModelID}` | `GetDecisionModel` | `authoring.getDecisionModel` + `authoring.getDecisionModelDraft` |
+| DMN decision-table editor or XML source / Save draft | Edit supported single-input/single-output rule tables or source, then persist using expected revision | `PUT /v1/authoring/decision-models/{decisionModelID}/draft` | `SaveDecisionModelDraft` | `authoring.saveDecisionModelDraft` |
+| Import DMN file | Read a bounded `.dmn`/`.xml` file into the local draft editor; no persistence until Save | No request on import; same `PUT` route on Save | `SaveDecisionModelDraft` | `authoring.saveDecisionModelDraft` |
+| Export DMN file | Download the current editor source as `.dmn` | Browser download from current loaded/local source | None | Existing model read capability |
+| Validate saved DMN draft | Compile the exact persisted revision | `POST /v1/authoring/decision-models/{decisionModelID}/draft/validate` | `ValidateDecisionModelDraft` | `authoring.validateDecisionModel` |
+| Check in immutable DMN version | Check in the exact saved revision with its SHA-256 digest, unique version tag and summary | `POST /v1/authoring/decision-models/{decisionModelID}/versions` | `CheckinDecisionModel` | `authoring.checkinDecisionModel`; service rechecks revision, digest and `VALID` state under a PostgreSQL transaction. Check-in does not deploy or activate the decision model. |
+| Browse DMN version history | Load newest-first paginated immutable version metadata without source XML | `GET /v1/authoring/decision-models/{decisionModelID}/versions` | `ListDecisionModelVersions` | `authoring.listDecisionModelVersions`; tenant/model scoped keyset cursor uses unique monotonic version number. |
+| View/download a DMN version | Load one immutable source snapshot after selecting its history row | `GET /v1/authoring/decision-models/{decisionModelID}/versions/{versionID}` | `GetDecisionModelVersion` | `authoring.getDecisionModelVersion`; service verifies tenant, parent model and version ID; source is fetched only on demand. |
+| Compare two DMN versions | Load two selected immutable snapshots and render a bounded XML line diff; fall back to side-by-side source for large inputs | Two calls to `GET /v1/authoring/decision-models/{decisionModelID}/versions/{versionID}` | `GetDecisionModelVersion` | Read-only source comparison; this does not interpret rule-level semantics or mutate the draft. |
+| Start a draft from an older DMN version | Load the immutable source into the local editor, then explicitly Save and Validate it as a new draft revision | No request on load; `PUT /v1/authoring/decision-models/{decisionModelID}/draft` then `POST /v1/authoring/decision-models/{decisionModelID}/draft/validate` | `SaveDecisionModelDraft`, `ValidateDecisionModelDraft` | Save uses current expected revision; canceling before Save leaves owner state unchanged. This does not mutate or mark the source version current. |
+| Switch to Forms mode | Browse tenant form definitions | `GET /v1/authoring/forms` | `ListForms` | `authoring.listForm`; bounded tenant page |
+| Create/select form | Create schema draft or load form metadata and schema draft | `POST /v1/authoring/forms`; `GET /v1/authoring/forms/{formID}` | `CreateForm`, `GetForm` | Owner validates form key and schema envelope; selected form reads require the corresponding Authz capability |
+| Edit JSON Schema / visual field presentation profile | Configure field order, widget, width, placeholder and help text locally; advanced JSON remains available; Save persists both schemas using expected revision | `PUT /v1/authoring/forms/{formID}/draft` | `SaveFormDraft` | CAS, command idempotency and audit; Authoring validates the same bounded UI profile used by Tasklist; supported schema subset is documented in `authoring-service.md` |
+| Validate form draft | Validate exact persisted revision | `POST /v1/authoring/forms/{formID}/draft/validate` | `ValidateFormDraft` | Stale revision rejected; validation command is idempotent and audited |
+| Publish form | Publish validated, unchanged draft with version tag and summary | `POST /v1/authoring/forms/{formID}/versions` | `PublishForm` | Requires SHA-256 digest of schema plus UI schema; immutable version, dedup and audit committed transactionally |
+| Browse form version history | List immutable form version metadata | `GET /v1/authoring/forms/{formID}/versions` | `ListFormVersions` | Tenant/form-scoped bounded page |
+
+Every mutating browser request gets command, correlation and idempotency identifiers from the Gateway. The Gateway replaces tenant, actor proof and route model ID with authenticated/request-derived values. Authoring verifies the actor proof and signed dynamic policy bundle again. A stale draft revision returns conflict; validation does not save unsaved editor text, publish, or deploy.
+
+## Client Portal
+
+| Screen control | User action | HTTP operation | Owner RPC | Capability enforced |
+|---|---|---|---|---|
+| My work summary/table | Load work items directly assigned to the authenticated actor | `GET /v1/work-items?scope=mine` | Human Runtime `ListWorkItems` | Actor identity is derived from verified ActorProof; the browser cannot substitute another assignee. Current UI shows the returned page only. |
+| Refresh | Re-query the actor's assigned work page | Same `GET /v1/work-items?scope=mine` route | Human Runtime query | Refresh repeats the server-side filtered query. |
+| Start workflow | Open the generic workflow start form | Client navigation to `/start`; submit uses `POST /v1/workflows/{workflowType}/instances` | Engine start command | Workflow availability and start authorization are checked by Gateway/Engine; no domain-specific intake service is assumed. |
+| Open tasklist | Navigate to the full work management UI | Client navigation to `/tasklist` | None | Tasklist provides its own server-side scope selector and command checks. |
+
+## Start workflow
+
+| Screen control | User action | HTTP operation | Owner RPC | Consistency / safety |
+|---|---|---|---|---|
+| Workflow type/version/start node | Identify the executable workflow definition and start node | `POST /v1/workflows/{workflowType}/instances` | Engine command | Gateway validates identifiers and derives tenant, actor, command, idempotency and authorization context. |
+| Initial variables JSON | Supply generic workflow inputs as a JSON object | Same `POST` route, `variables` field | Engine `StartWorkflow` command | Gateway converts JSON to typed workflow values and rejects unsupported types, invalid names, excess variables and oversized/nested lists. Engine receives values in the same durable start command; the browser does not assign authorization or branch scope. |
+| Start instance | Submit initial workflow command and show accepted command receipt | Same `POST` route | Engine command | `202` is durable command acceptance, not a claim that downstream projections have converged. |
+
+## Tasklist
+
+| Screen control | User action | HTTP operation | Owner RPC | Consistency / safety |
+|---|---|---|---|---|
+| All visible / My tasks / Group queue tabs | Load an actor-visible page, tasks assigned directly to the actor, or unclaimed tasks in the actor's authorized candidate groups | `GET /v1/work-items?scope=all|mine|group` | Human Runtime `ListWorkItems` | Scope and actor/groups come from a typed contract and verified ActorProof; group queue can return only unclaimed candidate-group assignments; cursor is bound to the selected scope. Text filtering remains limited to the loaded page. |
+| Refresh work items | Refresh the selected server-side queue page | Same `GET /v1/work-items` route with selected scope and page token | Human Runtime query | Repeats the actual query; a scope change resets pagination and selection. |
+| Work item details | Open authoritative assignment, process, SLA, status, form key and concurrency version | `GET /v1/work-items/{workItemID}` | Human Runtime query | Detail is re-read from the owner API; task form key comes from authoritative work-item configuration, not browser row state. |
+| Claim | Assign selected items to the authenticated actor | `POST /v1/work-items/{workItemID}/claim` | Human Runtime command | Sends expected work-item version and idempotency key; actor identity is derived from the authenticated request. |
+| Return to group | Unclaim selected items into a group selected from the live assignment-group catalog | `GET /v1/access/queues`; `POST /v1/work-items/{workItemID}/unclaim` | Human Runtime query/command | UI blocks submission while groups load, on catalog error, or when no groups exist; command still validates expected version and authorization server-side. |
+| Delegate | Assign selected items to one user ID or a group selected from the live assignment-group catalog | `GET /v1/access/queues`; `POST /v1/work-items/{workItemID}/delegate` | Human Runtime query/command | Exactly one target is sent; every selected row uses its own expected version and idempotency key. |
+| Open task form | Resolve current published form by authoritative `form_key` and render its JSON Schema fields using versioned field ordering, textarea, width, placeholder and help text | `GET /v1/authoring/forms/by-key/{formKey}/published` | `GetFormByKey` | Requires `authoring.getPublishedForm`; Authoring validates the bounded UI profile; no client-supplied schema, HTML, script, custom component or unsupported field reference is trusted. |
+| Complete form task | Submit typed outputs plus loaded published `form_version_id` | `POST /v1/work-items/{workItemID}/complete` | Gateway → Human Runtime → Engine durable command/event | Gateway re-reads work item and published form, requires submitted version to still be current, validates required fields/types/constraints, then Human Runtime persists payload digest and Engine records the version ID with completion. Form tasks cannot be batch-completed. |
+| Complete task without form | Complete selected items with a decision and optional typed workflow outputs | `POST /v1/work-items/{workItemID}/complete` | Human Runtime → Engine durable command/event | Requires expected version and idempotency key per item; outputs become workflow variables before downstream routing. |
+
+Batch operations are bounded by configured chunk size/concurrency. A successful HTTP response acknowledges each command; the refreshed queue is the authoritative view of resulting state.
+
+## Process explorer
+
+| Screen control | User action | HTTP operation | Owner RPC | Consistency / safety |
+|---|---|---|---|---|
+| Run query | Execute the current filter, sort, scope, field selection and pagination | `POST /v1/process-instances/query` | Projection query | The server validates tenant policy, row scope, selectable fields and query complexity. |
+| Export query CSV | Create a bounded export from the exact executed query snapshot | `POST /v1/query-exports` | Projection export job | Export cap is 10,000 rows; authorization is checked server-side against the submitted query. |
+| View events | Inspect paginated event history for one returned process instance | `POST /v1/process-events/query` | Projection event query | The request applies an exact instance ID process filter; server policy reapplies row and field authorization, so restricted values remain masked. |
+| Export status | Poll an export while it is pending | `GET /v1/query-exports/{exportID}` | Projection export job | Polls every two seconds only while pending; completed artifact includes its expiry. |
+| Cancel export | Cancel the pending export | `DELETE /v1/query-exports/{exportID}` | Projection export job | The UI stops polling once the export reaches a terminal state. |
+| Download CSV | Download a completed export result | No additional API call; uses `csv` returned by export status | None | Local browser download only; the artifact lifetime is bounded by the server expiry. |
+
+## Optimize dashboard
+
+| Screen control | User action | HTTP operation | Owner RPC | Consistency / safety |
+|---|---|---|---|---|
+| Aggregate time window | Re-run active/completed workflow counts for the last 7, 30 or 90 days | `POST /v1/process-instances/aggregate` with `started_at BETWEEN [window start, now]` | Projection aggregate query | The control is enabled only when `GET /v1/process-instances/query-capabilities` reports `PROCESS_FIELD_STARTED_AT` as filterable with `COMPARISON_OPERATOR_BETWEEN`; otherwise the request omits the filter and the UI explains the policy restriction. |
+| Average cycle time | Show per-workflow average duration for completed instances | Same aggregate route with `AVG(duration_ms)` | Projection aggregate query | Request and column are present only when query capabilities report `PROCESS_FIELD_DURATION_MS` selectable/readable; completed scope excludes in-flight instances. |
+| Group-by selector | Aggregate by workflow type/version, status, active node, configuration version or policy version | `POST /v1/process-instances/aggregate` with one `group_by` field | Projection aggregate query | Options intersect the UI low-cardinality field allowlist with current readable/selectable query capabilities; unknown/high-cardinality identifiers are not offered. Drill-through remains enabled only for workflow type. |
+
+| Saved dashboard list | Load current actor's dashboard configuration page | `GET /v1/saved-dashboards?page_size=&page_token=` | Projection | Tenant and actor are derived from verified actor proof; opaque signed keyset cursor. |
+| Save/update dashboard | Persist the named widget configuration, including supported grouping field and time window | `POST /v1/saved-dashboards` | Projection | Configuration-only JSON, maximum 64 KiB and 1–24 widgets; actor ownership and expected-version CAS; no query result rows are persisted. |
+| Open saved dashboard | Apply supported time-window configuration to current Optimize view | No dashboard execution endpoint; UI calls existing `POST /v1/process-instances/aggregate` | Projection | Each query is authorized with current policy and capability set; stored dashboard cannot preserve prior row access. Unsupported widget definitions are disabled. |
+| Delete saved dashboard | Delete actor-owned configuration | `DELETE /v1/saved-dashboards/{dashboardID}?expected_version=` | Projection | Owner binding and optimistic version prevent cross-actor deletion and stale writes. |
+
+## Current first-slice gaps
+
+- Modeler includes a visual linear BPMN canvas and a constrained paired-gateway canvas. Users can add/remove branches only for a one-level parallel split/join with one task per branch; exclusive gateway conditions are shown but not mutated by canvas actions. Nested gateways, loops, multi-process models and unsupported BPMN elements remain source-only. Any canvas edits persist through the same revision-checked draft API; validation still checks only the saved revision.
+- BPMN and DMN check-in create immutable source versions only from the current persisted revision after compiler validation and digest comparison. Form authoring supports JSON Schema/UI schema drafts, CAS save, bounded UI profile validation, immutable publication, and version history. Tasklist renders the supported primitive form subset and the published profile for ordering, textarea, width and helper text; completion is checked against the exact current published version. Arbitrary custom widgets/layout, pinned-at-process-activation versions, and version rollback remain gaps. Newest-first version history, source preview/download, bounded source-level comparison and restore-as-new-draft are available for BPMN/DMN. Deployment jobs, activation and rollback remain unavailable. BPMN/DMN import and export are bounded local file actions; structured DMN editing supports one input/output table; DMN simulation remains a gap.
+- Gateway registration is conditional on `authoring_address`. Without it the UI presents an unavailable state and does not fall back to local examples.
+- The UI has not yet been run against provisioned Gateway, Authoring, Authz, PostgreSQL, Kafka and Compiler deployments; this mapping is implementation evidence, not an end-to-end production acceptance result.

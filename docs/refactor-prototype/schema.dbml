@@ -689,11 +689,14 @@ Table authoring.form_definitions {
   id uuid [not null]
   form_key text [not null]
   name text [not null]
+  status text [not null]
+  revision bigint [not null]
+  latest_version_id uuid
   created_at timestamptz [not null]
   updated_at timestamptz [not null]
   row_version bigint [not null, default: 1]
-  created_by text [not null]
-  updated_by text [not null]
+  created_by uuid [not null]
+  updated_by uuid [not null]
   is_deleted boolean [not null, default: false]
   deleted_at timestamptz
   deleted_by text
@@ -703,23 +706,34 @@ Table authoring.form_definitions {
   }
 }
 
+Table authoring.form_drafts {
+  tenant_id uuid [not null]
+  form_id uuid [not null]
+  revision bigint [not null]
+  schema_json jsonb [not null]
+  ui_schema_json jsonb [not null]
+  validation_status text [not null]
+  diagnostics jsonb [not null]
+  updated_at timestamptz [not null]
+  updated_by uuid [not null]
+  indexes {
+    (tenant_id, form_id) [pk]
+  }
+}
+
 Table authoring.form_versions {
   tenant_id uuid [not null]
   id uuid [not null]
   form_id uuid [not null]
-  version bigint [not null]
-  schema jsonb [not null]
-  ui_schema jsonb [not null]
-  digest text [not null]
+  version_num bigint [not null]
+  source_revision bigint [not null]
+  schema_json jsonb [not null]
+  ui_schema_json jsonb [not null]
+  content_hash binary [not null]
   created_at timestamptz [not null]
-  updated_at timestamptz [not null]
-  row_version bigint [not null, default: 1]
-  created_by text [not null]
-  updated_by text [not null]
-  is_deleted boolean [not null, default: false]
-  deleted_at timestamptz
-  deleted_by text
-  delete_reason text
+  created_by uuid [not null]
+  version_tag text [not null]
+  summary text [not null]
   indexes {
     (tenant_id, id) [pk]
   }
@@ -2326,6 +2340,27 @@ Table projection.saved_queries {
   }
 }
 
+Table projection.saved_dashboards {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  owner_subject_ref uuid [not null]
+  name text [not null]
+  dashboard_config jsonb [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+    (tenant_id, owner_subject_ref, updated_at)
+  }
+}
+
 Table projection.export_jobs {
   tenant_id uuid [not null]
   id uuid [not null]
@@ -2495,6 +2530,8 @@ Ref: authoring.decision_cells.(tenant_id, rule_id) > authoring.decision_rules.(t
 Ref: authoring.decision_cells.(tenant_id, clause_id) > authoring.decision_clauses.(tenant_id, id)
 Ref: authoring.decision_evaluations.(tenant_id, decision_version_id) > authoring.decision_versions.(tenant_id, id)
 Ref: authoring.form_versions.(tenant_id, form_id) > authoring.form_definitions.(tenant_id, id)
+Ref: authoring.form_drafts.(tenant_id, form_id) > authoring.form_definitions.(tenant_id, id)
+Ref: authoring.form_definitions.(tenant_id, latest_version_id) > authoring.form_versions.(tenant_id, id)
 Ref: authoring.workflow_template_versions.(tenant_id, template_id) > authoring.workflow_templates.(tenant_id, id)
 Ref: authoring.model_dependencies.(tenant_id, process_version_id) > authoring.process_versions.(tenant_id, id)
 Ref: authoring.model_dependencies.(tenant_id, decision_version_id) > authoring.decision_versions.(tenant_id, id)

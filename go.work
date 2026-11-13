@@ -2,6 +2,7 @@ go 1.25.12
 
 use (
 	./apps/go/api-gateway
+	./apps/go/authoring-service
 	./apps/go/cockpit-gateway
 	./apps/go/configuration-service
 	./apps/go/human-runtime

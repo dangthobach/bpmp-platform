@@ -3,6 +3,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = "../../contracts/proto";
     let protoc_path = protoc_bin_vendored::protoc_bin_path()?;
     let proto_files = [
+        format!("{root}/bpmp/compiler/v1/compiler.proto"),
         format!("{root}/bpmp/configuration/v1/configuration.proto"),
         format!("{root}/bpmp/engine/v1/engine.proto"),
         format!("{root}/bpmp/governance/v1/governance.proto"),
@@ -12,12 +13,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         format!("{root}/bpmp/engine/v1/worker.proto"),
     ];
     let public_protos = [
-        &proto_files[0],
         &proto_files[1],
         &proto_files[2],
-        &proto_files[4],
+        &proto_files[3],
         &proto_files[5],
         &proto_files[6],
+        &proto_files[7],
     ];
     let mut descriptor_command = std::process::Command::new(&protoc_path);
     descriptor_command

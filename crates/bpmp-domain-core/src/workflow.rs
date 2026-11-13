@@ -1262,6 +1262,8 @@ pub enum Command {
     CompleteUserTask {
         node_id: NodeId,
         decision: String,
+        form_version_id: String,
+        outputs: BTreeMap<String, WorkflowValue>,
         occurred_at_epoch_ms: u64,
     },
     CompleteScriptTask {
@@ -1336,7 +1338,9 @@ pub enum DomainEvent {
     UserTaskCompleted {
         node_id: NodeId,
         decision: String,
+        form_version_id: String,
         result_variable: String,
+        outputs: BTreeMap<String, WorkflowValue>,
         occurred_at_epoch_ms: u64,
     },
     UserTaskCancelled {
@@ -1640,6 +1644,8 @@ pub fn decide(
             Command::CompleteUserTask {
                 node_id,
                 decision,
+                form_version_id,
+                outputs,
                 occurred_at_epoch_ms,
             },
             Lifecycle::Active { .. },
@@ -1661,10 +1667,17 @@ pub fn decide(
             if decision.trim().is_empty() {
                 return Err(DomainError::InvalidUserTaskDecision(node_id.clone()));
             }
+            if outputs.contains_key(result_variable) {
+                return Err(DomainError::UserTaskOutputConflictsWithDecision(
+                    result_variable.clone(),
+                ));
+            }
             let mut events = vec![DomainEvent::UserTaskCompleted {
                 node_id: node_id.clone(),
                 decision: decision.clone(),
+                form_version_id: form_version_id.clone(),
                 result_variable: result_variable.clone(),
+                outputs: outputs.clone(),
                 occurred_at_epoch_ms: *occurred_at_epoch_ms,
             }];
             let mut variables = state_variables_with_context(state, context.variables);
@@ -1672,6 +1685,7 @@ pub fn decide(
                 result_variable.clone(),
                 WorkflowValue::String(decision.clone()),
             );
+            variables.extend(outputs.clone());
             let mut routing = RoutingState::from(state);
             routing.complete_task(node_id)?;
             disarm_boundary_events(node_id, &mut routing, *occurred_at_epoch_ms, &mut events);
@@ -3377,12 +3391,14 @@ pub fn evolve(mut state: InstanceState, event: &DomainEvent) -> InstanceState {
             node_id,
             decision,
             result_variable,
+            outputs,
             ..
         } => {
             state.variables.insert(
                 result_variable.clone(),
                 WorkflowValue::String(decision.clone()),
             );
+            state.variables.extend(outputs.clone());
             complete_active_token(&mut state.active_tokens, node_id)
         }
         DomainEvent::UserTaskCancelled { .. } => state.lifecycle.clone(),
@@ -3671,6 +3687,8 @@ pub enum DomainError {
     NodeIsNotUserTask(NodeId),
     #[error("user task {0} requires a non-empty approval decision")]
     InvalidUserTaskDecision(NodeId),
+    #[error("user task output {0} conflicts with its configured decision variable")]
+    UserTaskOutputConflictsWithDecision(String),
     #[error("node {0} is not a script task")]
     NodeIsNotScriptTask(NodeId),
     #[error("node {0} is not a supported multi-instance activity")]
@@ -5206,6 +5224,8 @@ mod tests {
             &Command::CompleteUserTask {
                 node_id: review,
                 decision: "approved".into(),
+                form_version_id: String::new(),
+                outputs: BTreeMap::new(),
                 occurred_at_epoch_ms: 20,
             },
             context,
@@ -5366,6 +5386,8 @@ mod tests {
                 &Command::CompleteUserTask {
                     node_id: review,
                     decision: "   ".into(),
+                    form_version_id: String::new(),
+                    outputs: BTreeMap::new(),
                     occurred_at_epoch_ms: 2,
                 },
                 context,
@@ -5730,6 +5752,8 @@ mod tests {
                 &Command::CompleteUserTask {
                     node_id: review,
                     decision: decision.into(),
+                    form_version_id: String::new(),
+                    outputs: BTreeMap::new(),
                     occurred_at_epoch_ms: 2,
                 },
                 context,

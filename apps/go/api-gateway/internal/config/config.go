@@ -19,6 +19,7 @@ type Config struct {
 	EngineAddress         string         `json:"engine_address"`
 	HumanAddress          string         `json:"human_address"`
 	ProjectionAddress     string         `json:"projection_address"`
+	AuthoringAddress      string         `json:"authoring_address"`
 	ConfigurationURL      string         `json:"configuration_url"`
 	AuthorizationURL      string         `json:"authorization_url"`
 	AuthorizationAudience string         `json:"authorization_audience"`
@@ -49,6 +50,7 @@ type UpstreamTLS struct {
 	ProjectionServerName    string `json:"projection_server_name"`
 	ConfigurationServerName string `json:"configuration_server_name"`
 	AuthorizationServerName string `json:"authorization_server_name"`
+	AuthoringServerName     string `json:"authoring_server_name"`
 }
 type Identity struct {
 	JWKSPath         string   `json:"jwks_path"`
@@ -191,6 +193,11 @@ func (c Config) Validate() error {
 		endpoint, parseErr := url.Parse(c.AuthorizationURL)
 		if parseErr != nil || endpoint.Scheme != "https" || endpoint.Host == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" || c.AuthorizationAudience == "" || c.UpstreamTLS.AuthorizationServerName == "" {
 			return errors.New("API Gateway authorization proxy configuration is invalid")
+		}
+	}
+	if c.AuthoringAddress != "" || c.UpstreamTLS.AuthoringServerName != "" {
+		if c.AuthoringAddress == "" || c.UpstreamTLS.AuthoringServerName == "" {
+			return errors.New("API Gateway Authoring upstream configuration is incomplete")
 		}
 	}
 	return nil

@@ -27,6 +27,7 @@ import (
 	"github.com/dangthobach/bpmp-platform/apps/go/api-gateway/internal/apidocs"
 	"github.com/dangthobach/bpmp-platform/apps/go/api-gateway/internal/config"
 	"github.com/dangthobach/bpmp-platform/apps/go/api-gateway/internal/gateway"
+	authoringv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/authoring/v1"
 	configurationv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/configuration/v1"
 	enginev1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/engine/v1"
 	humanv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/human/v1"
@@ -98,6 +99,14 @@ func run(path string) error {
 		return err
 	}
 	defer projectionConn.Close()
+	var authoringConn *grpc.ClientConn
+	if value.AuthoringAddress != "" {
+		authoringConn, err = grpc.NewClient(value.AuthoringAddress, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, ServerName: value.UpstreamTLS.AuthoringServerName, RootCAs: roots, Certificates: []tls.Certificate{clientCertificate}})), grpc.WithUnaryInterceptor(requestmeta.UnaryClientInterceptor()), grpc.WithStreamInterceptor(requestmeta.StreamClientInterceptor()), grpc.WithStatsHandler(platformtelemetry.GRPCClientStatsHandler()), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(value.GRPC.MaxReceiveBytes), grpc.MaxCallSendMsgSize(value.GRPC.MaxSendBytes)))
+		if err != nil {
+			return fmt.Errorf("connect Authoring service: %w", err)
+		}
+		defer authoringConn.Close()
+	}
 	configurationConn, err := grpc.NewClient(
 		value.RuntimeConfig.ResolverAddress,
 		grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
@@ -193,6 +202,9 @@ func run(path string) error {
 		return fmt.Errorf("ping rate-limit Redis: %w", err)
 	}
 	var handlerOptions []gateway.HandlerOption
+	if authoringConn != nil {
+		handlerOptions = append(handlerOptions, gateway.WithAuthoring(authoringv1.NewAuthoringServiceClient(authoringConn)))
+	}
 	if value.BrowserSession.Enabled {
 		sessionStore, sessionErr := redissession.New(redisClient, redissession.Config{
 			Prefix:           value.BrowserSession.RedisKeyPrefix,
@@ -238,8 +250,7 @@ func run(path string) error {
 	engineConn.Connect()
 	humanConn.Connect()
 	projectionConn.Connect()
-	healthHandler := platformhealth.Handler(
-		value.Health.ReadinessTimeout(),
+	readinessChecks := []platformhealth.Check{
 		connectionReady(engineConn),
 		connectionReady(humanConn),
 		connectionReady(projectionConn),
@@ -247,7 +258,12 @@ func run(path string) error {
 		httpReady(configurationClient, value.ConfigurationURL+"/readyz"),
 		func(context.Context) error { return configurationCache.Ready(tenantIDs) },
 		func(ctx context.Context) error { return configurationKafka.Ping(ctx) },
-	)
+	}
+	if authoringConn != nil {
+		authoringConn.Connect()
+		readinessChecks = append(readinessChecks, connectionReady(authoringConn))
+	}
+	healthHandler := platformhealth.Handler(value.Health.ReadinessTimeout(), readinessChecks...)
 	routes := http.NewServeMux()
 	routes.Handle("/livez", healthHandler)
 	routes.Handle("/readyz", healthHandler)

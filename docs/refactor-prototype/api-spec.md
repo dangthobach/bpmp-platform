@@ -53,17 +53,17 @@ Action/resource catalog được đăng ký theo manifest/version của service 
 | Query/detail/history | Projection typed query/aggregate/event query đã có | Instance detail/diagram/variables/history facades reuse typed projection, không đọc RocksDB trực tiếp |
 | Runtime control | Không có cancel/suspend/resume/migrate/move commands trong current CommandEnvelope oneof | Target routes là backlog **blocked on verified Engine semantics**; dry-run/approval/version required |
 | Message/signal correlation | Runtime boundary/timer machinery có; không có generic public message/signal route trong Gateway registry | Target correlate routes phải có correlation uniqueness, subscriptions, TTL/authorization; không expose generic injection |
-| User task | Get/list/complete/delegate và claim/unclaim HTTP có | Giữ existing actions; add form schema/validation/richer submit-form, batch/history; mọi outcome qua cùng Engine authority |
+| User task | Get/list/complete/delegate, claim/unclaim và versioned JSON Schema/UI profile form lookup/validation/completion có | Bổ sung pin form version tại process activation, arbitrary custom UI widgets/layout, batch/history; mọi outcome qua cùng Engine authority |
 | Service tasks/workers | Internal HandleCommand service-task completion + bidirectional OpenDispatchStream có | Worker completion/lease/credit qua internal protocol; planned admin job list/retry/cancel không bypass lease fencing |
 | Script/multi-instance/boundary | Typed command variants và event contracts đã có | Không cần tạo public REST cho mọi internal event; external invocation chỉ khi use case/capability cho phép |
 | CMMN runtime case | ActivateCase/EvaluateCaseSentries và Human case query có | `/v1/runtime-cases` command facades; tách `/v1/customer-cases` hồ sơ customer khỏi existing `/v1/cases/{caseID}` runtime query |
-| DMN/BPMN/form authoring | Compiler/runtime có, authoring API owner planned | Model/draft/version/check-in/validation/compare/revert/export/import/deployment và evaluation sandbox; target DTO definition phải map compiler profile |
+| DMN/BPMN/form authoring | Authoring có BPMN/DMN draft CRUD, compiler validation, immutable BPMN/DMN source check-in và version history/read source; form schema/UI-schema draft CAS, validation, immutable publish/version history; Cockpit so sánh source BPMN/DMN bằng hai version-read APIs | Còn thiếu arbitrary form widgets/layout, form version pinning at activation, structured/server-side compare, direct revert, signed runtime artifact, deployment/activation và evaluation sandbox; check-in/publish không đồng nghĩa deploy |
 | Governance | Internal approval/prepare-commit/revoke RPCs có | Public governance facade cần workflow approval/authz; không expose EngineGovernanceService trực tiếp |
 | Realtime | Cockpit SSE current | Giữ reconciliation-only; không SSE payload như authoritative command result |
 
 Internal RPC đầy đủ được trích tự động trong operation reference. `RaftPeerService` chỉ cluster peers; `RemoteWorkerDispatchService` chỉ authorized workers; Governance RPC chỉ approved service calls. Không bọc toàn bộ RPC vào generic public `/commands` có arbitrary payload.
 
-### Completion flow current và target form extension
+### Completion flow và form version enforcement
 
 Current HTTP payload ví dụ (đọc exact schema trong baseline):
 
@@ -75,10 +75,10 @@ X-Command-ID: cmd-1
 Idempotency-Key: intent-1
 Content-Type: application/json
 
-{"decision":"APPROVE","expected_version":7}
+{"decision":"APPROVE","expected_version":7,"outputs":{"approval_limit":250000,"requires_follow_up":false,"review_tags":["legal","priority"]}}
 ```
 
-Bearer/session-CSRF theo môi trường. Current complete request không có arbitrary `values`/form schema fields. Target `POST /v1/work-items/{workItemID}/submit-form` bổ sung expectedVersion, formVersionId, values, outcome, reason và masterDataBundleId; cần durable form submission/evidence contract và compatibility tests. Không thêm property vào JSON frontend rồi giả backend đã lưu.
+Bearer/session-CSRF theo môi trường. `outputs` là workflow variables có kiểu, ghi vào event `UserTaskCompleted` và áp dụng trước routing tiếp theo. Human Runtime lưu digest payload completion; retry cùng command nhưng khác decision/output/version bị từ chối. Với work item có `form_key`, Gateway đọc schema published hiện tại từ Authoring, bắt buộc `form_version_id` trùng version hiện hành và validate required fields, exact properties, primitive/list types, enum cùng các giới hạn khai báo trước khi gọi Human Runtime. Engine ghi `form_version_id` cùng event. Đây là kiểm tra version tại thời điểm submit; version chưa được pin tại process activation. Tasklist áp dụng UI schema profile giới hạn: thứ tự fields, widget `textarea` cho string không-enum, chiều rộng `full|half`, placeholder/help text giới hạn ký tự; mọi field vẫn tuân schema JSON và không chấp nhận HTML/script/custom component. Task không có form vẫn nhận typed outputs. Typed values hỗ trợ boolean, signed 64-bit integer, string và list lồng nhau; từ chối object, null, số thập phân, quá 128 variables, list quá 256 phần tử hoặc lồng quá 16 cấp.
 
 ## 4. Coverage theo prototype feature
 
@@ -88,13 +88,13 @@ Bearer/session-CSRF theo môi trường. Current complete request không có arb
 | ModelerModule / Palette / Properties | Authoring process model draft; graph edits/drag/pan/zoom local; save/check-in/validate/deploy/artifact là API actions |
 | DMN table / visual / history / compare / inspect | Decision draft chứa clauses/rules/cells; cell edits local đến save; version/evaluation/compare/revert/export endpoints; inject sample conflict chỉ dev |
 | Operation | Typed process query, diagram/variables/history; cancel, migrate plan/execute, token-move plan/execute, batch; không PATCH projection để đổi runtime |
-| Tasklist | Existing work-item list/detail/claim/unclaim/complete/delegate; planned form validation/submit/history/batch; sort/filter current page local, server search là query |
+| Tasklist | Existing work-item list/detail/claim/unclaim/complete/delegate; server assignment scopes for all-visible, assigned-to-me and authorized group queue; form lookup by task key and completion with published version/schema validation; text filter current page local |
 | Task Management / Access Audit | Queue + typed policy CRUD/validate/publish/revoke; role/resource grants; audit query/export; drawer edit local, save/publish là command |
 | Identity | User lifecycle, memberships/roles/direct permission/security/bulk; service account certificate jobs; resource probe/status; server enforces last-admin và mandatory audit |
 | Foundation / Endpoints | Templates/instantiate, assignment policy, endpoints/probe, document settings, notification templates/preferences; không generic Common-service CRUD |
 | Client Portal | Service offerings, customer Case CRUD/submit/withdraw/lookup/timeline, comments, document attachment/upload; officer action reuse Task command, không Case approve trực tiếp |
 | Embedded viewer | Authorized diagram/variable query, local zoom/selection/copy; export/copy không mở quyền đọc hidden values |
-| Optimize / dashboards | Existing Projection aggregate cho operational scope; proposed analytics heatmap/throughput/health/portal-metrics, report query/export/schedule; incident retry về Engine |
+| Optimize / dashboards | Projection aggregate cho operational scope, actor-owned saved dashboard configuration CRUD, and bounded query export; aggregate execution always re-evaluates current policy | SLA breakdown/analytics heatmap, scheduled reports and incident retry still need owner APIs; dashboard save does not snapshot query results |
 | MDM Admin (mới theo yêu cầu, chưa có trong prototype) | Models/datasets/records/validation/import/releases/publication/snapshot/change/subscription APIs; không invent source UI evidence |
 
 Bulk actions cần enum allowlist theo owner và discriminated per-action input trong implementation contract: user lock/unlock/department/roles/permissions/security/delete/export; role grant/revoke/type/assignment/delete/export; permissions assign/revoke/mandatory-audit/export; resources probe/status/export; workload certificate rotate/renew/revoke/export; tasks approve/reject; instance cancel/migrate/move. Target batch schema hiện là envelope chung, `action` và `values` phải được refine trước sinh production client; không arbitrary patch owner state. “Permanent delete” trong prototype map Governance purge review, không generic hard-delete API.

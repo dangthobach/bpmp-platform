@@ -153,12 +153,24 @@ fn to_wire(envelope: &EventEnvelope) -> wire::EventEnvelope {
         DomainEvent::UserTaskCompleted {
             node_id,
             decision,
+            form_version_id,
             result_variable,
+            outputs,
             ..
         } => wire::event_envelope::Event::UserTaskCompleted(wire::UserTaskCompleted {
             node_id: node_id.to_string(),
             decision: decision.clone(),
             result_variable: result_variable.clone(),
+            form_version_id: form_version_id.clone(),
+            outputs: outputs.iter().map(|(name, value)| wire::WorkflowVariable {
+                name: name.clone(),
+                value: Some(match value {
+                    WorkflowValue::Boolean(value) => wire::workflow_variable::Value::BooleanValue(*value),
+                    WorkflowValue::Integer(value) => wire::workflow_variable::Value::IntegerValue(*value),
+                    WorkflowValue::String(value) => wire::workflow_variable::Value::StringValue(value.clone()),
+                    WorkflowValue::List(items) => wire::workflow_variable::Value::ListValue(workflow_value_list_to_wire(items)),
+                }),
+            }).collect(),
         }),
         DomainEvent::UserTaskCancelled {
             node_id, reason, ..
@@ -459,7 +471,9 @@ fn from_wire(envelope: wire::EventEnvelope) -> Result<EventEnvelope, EventCodecE
             DomainEvent::UserTaskCompleted {
                 node_id: identifier(NodeId::new, completed.node_id, "node_id")?,
                 decision: non_empty(completed.decision, "decision")?,
+                form_version_id: completed.form_version_id,
                 result_variable: non_empty(completed.result_variable, "result_variable")?,
+                outputs: workflow_variables_from_wire(completed.outputs)?,
                 occurred_at_epoch_ms,
             }
         }
@@ -1110,7 +1124,9 @@ mod tests {
                 1 => DomainEvent::UserTaskCompleted {
                     node_id,
                     decision: format!("decision-{suffix}"),
+                    form_version_id: String::new(),
                     result_variable: format!("result_{suffix}"),
+                    outputs: BTreeMap::new(),
                     occurred_at_epoch_ms: occurred_at,
                 },
                 2 => DomainEvent::ScriptTaskCompleted {
@@ -1298,7 +1314,9 @@ mod tests {
             DomainEvent::UserTaskCompleted {
                 node_id: NodeId::new("review").unwrap(),
                 decision: "approved".into(),
+                form_version_id: String::new(),
                 result_variable: "review_result".into(),
+                outputs: BTreeMap::new(),
                 occurred_at_epoch_ms: 123,
             },
             DomainEvent::UserTaskCancelled {

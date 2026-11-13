@@ -5,6 +5,13 @@ pub use bpmp_authz_contracts::authorization;
 pub const PUBLIC_FILE_DESCRIPTOR_SET: &[u8] =
     tonic::include_file_descriptor_set!("bpmp_public_descriptor");
 
+pub mod compiler {
+    #[allow(clippy::doc_markdown)]
+    pub mod v1 {
+        include!(concat!(env!("OUT_DIR"), "/bpmp.compiler.v1.rs"));
+    }
+}
+
 pub mod configuration {
     #[allow(
         clippy::default_trait_access,

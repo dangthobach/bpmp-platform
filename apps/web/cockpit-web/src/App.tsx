@@ -19,6 +19,11 @@ import { AccessPage } from "./features/access/AccessPage";
 import { AppShell } from "./layout/AppShell";
 import { usePathname } from "./routing/router";
 import { RealtimeProvider } from "./realtime/RealtimeContext";
+import { ClientPortalPage } from "./features/portal/ClientPortalPage";
+import { OptimizeDashboardPage } from "./features/optimize/OptimizeDashboardPage";
+import { IdentityDirectoryPage } from "./features/identity/IdentityDirectoryPage";
+import { TaskManagementPage } from "./features/task-management/TaskManagementPage";
+import { ModelerPage } from "./features/modeler/ModelerPage";
 
 export function App({ config }: { config: RuntimeConfig }) {
   const [queryClient] = useState(
@@ -111,6 +116,22 @@ function AuthenticatedApp() {
     switch (pathname) {
       case "/start":
         return <StartWorkflowPage />;
+      case "/portal":
+        return <ClientPortalPage />;
+      case "/modeler":
+        return <ModelerPage />;
+      case "/operation":
+        return <ProcessQueryPage />;
+      case "/identity":
+        return <IdentityDirectoryPage />;
+      case "/task-management":
+        return <TaskManagementPage />;
+      case "/optimize":
+        return <OptimizeDashboardPage />;
+      case "/foundation":
+        return <ConfigurationPage />;
+      case "/tasklist":
+        return <WorkItemsPage />;
       case "/cases":
         return <CasesPage />;
       case "/audit":

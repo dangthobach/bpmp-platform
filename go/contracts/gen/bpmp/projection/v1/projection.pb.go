@@ -3967,6 +3967,444 @@ func (*DeleteSavedQueryResponse) Descriptor() ([]byte, []int) {
 	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{39}
 }
 
+// Saved dashboards persist only dashboard configuration. Dashboard data is
+// always queried through the current Projection authorization policy.
+type SavedDashboard struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Id               string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name             string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Version          uint64                 `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
+	ConfigJson       string                 `protobuf:"bytes,4,opt,name=config_json,json=configJson,proto3" json:"config_json,omitempty"`
+	CreatedAtEpochMs uint64                 `protobuf:"varint,5,opt,name=created_at_epoch_ms,json=createdAtEpochMs,proto3" json:"created_at_epoch_ms,omitempty"`
+	UpdatedAtEpochMs uint64                 `protobuf:"varint,6,opt,name=updated_at_epoch_ms,json=updatedAtEpochMs,proto3" json:"updated_at_epoch_ms,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *SavedDashboard) Reset() {
+	*x = SavedDashboard{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[40]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SavedDashboard) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SavedDashboard) ProtoMessage() {}
+
+func (x *SavedDashboard) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[40]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SavedDashboard.ProtoReflect.Descriptor instead.
+func (*SavedDashboard) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{40}
+}
+
+func (x *SavedDashboard) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *SavedDashboard) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *SavedDashboard) GetVersion() uint64 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *SavedDashboard) GetConfigJson() string {
+	if x != nil {
+		return x.ConfigJson
+	}
+	return ""
+}
+
+func (x *SavedDashboard) GetCreatedAtEpochMs() uint64 {
+	if x != nil {
+		return x.CreatedAtEpochMs
+	}
+	return 0
+}
+
+func (x *SavedDashboard) GetUpdatedAtEpochMs() uint64 {
+	if x != nil {
+		return x.UpdatedAtEpochMs
+	}
+	return 0
+}
+
+type SaveDashboardRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	TenantId        string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	Id              string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	Name            string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	ExpectedVersion uint64                 `protobuf:"varint,4,opt,name=expected_version,json=expectedVersion,proto3" json:"expected_version,omitempty"`
+	ConfigJson      string                 `protobuf:"bytes,5,opt,name=config_json,json=configJson,proto3" json:"config_json,omitempty"`
+	ActorProof      *v1.ActorProof         `protobuf:"bytes,6,opt,name=actor_proof,json=actorProof,proto3" json:"actor_proof,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *SaveDashboardRequest) Reset() {
+	*x = SaveDashboardRequest{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SaveDashboardRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SaveDashboardRequest) ProtoMessage() {}
+
+func (x *SaveDashboardRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SaveDashboardRequest.ProtoReflect.Descriptor instead.
+func (*SaveDashboardRequest) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *SaveDashboardRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *SaveDashboardRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *SaveDashboardRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *SaveDashboardRequest) GetExpectedVersion() uint64 {
+	if x != nil {
+		return x.ExpectedVersion
+	}
+	return 0
+}
+
+func (x *SaveDashboardRequest) GetConfigJson() string {
+	if x != nil {
+		return x.ConfigJson
+	}
+	return ""
+}
+
+func (x *SaveDashboardRequest) GetActorProof() *v1.ActorProof {
+	if x != nil {
+		return x.ActorProof
+	}
+	return nil
+}
+
+type SaveDashboardResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Dashboard     *SavedDashboard        `protobuf:"bytes,1,opt,name=dashboard,proto3" json:"dashboard,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SaveDashboardResponse) Reset() {
+	*x = SaveDashboardResponse{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[42]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SaveDashboardResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SaveDashboardResponse) ProtoMessage() {}
+
+func (x *SaveDashboardResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[42]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SaveDashboardResponse.ProtoReflect.Descriptor instead.
+func (*SaveDashboardResponse) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{42}
+}
+
+func (x *SaveDashboardResponse) GetDashboard() *SavedDashboard {
+	if x != nil {
+		return x.Dashboard
+	}
+	return nil
+}
+
+type ListDashboardsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TenantId      string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	PageSize      uint32                 `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	PageToken     string                 `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	ActorProof    *v1.ActorProof         `protobuf:"bytes,4,opt,name=actor_proof,json=actorProof,proto3" json:"actor_proof,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListDashboardsRequest) Reset() {
+	*x = ListDashboardsRequest{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[43]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListDashboardsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListDashboardsRequest) ProtoMessage() {}
+
+func (x *ListDashboardsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[43]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListDashboardsRequest.ProtoReflect.Descriptor instead.
+func (*ListDashboardsRequest) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{43}
+}
+
+func (x *ListDashboardsRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *ListDashboardsRequest) GetPageSize() uint32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *ListDashboardsRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+func (x *ListDashboardsRequest) GetActorProof() *v1.ActorProof {
+	if x != nil {
+		return x.ActorProof
+	}
+	return nil
+}
+
+type ListDashboardsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Dashboards    []*SavedDashboard      `protobuf:"bytes,1,rep,name=dashboards,proto3" json:"dashboards,omitempty"`
+	NextPageToken string                 `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListDashboardsResponse) Reset() {
+	*x = ListDashboardsResponse{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[44]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListDashboardsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListDashboardsResponse) ProtoMessage() {}
+
+func (x *ListDashboardsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[44]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListDashboardsResponse.ProtoReflect.Descriptor instead.
+func (*ListDashboardsResponse) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{44}
+}
+
+func (x *ListDashboardsResponse) GetDashboards() []*SavedDashboard {
+	if x != nil {
+		return x.Dashboards
+	}
+	return nil
+}
+
+func (x *ListDashboardsResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
+type DeleteDashboardRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	TenantId        string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	Id              string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	ExpectedVersion uint64                 `protobuf:"varint,3,opt,name=expected_version,json=expectedVersion,proto3" json:"expected_version,omitempty"`
+	ActorProof      *v1.ActorProof         `protobuf:"bytes,4,opt,name=actor_proof,json=actorProof,proto3" json:"actor_proof,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *DeleteDashboardRequest) Reset() {
+	*x = DeleteDashboardRequest{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[45]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteDashboardRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteDashboardRequest) ProtoMessage() {}
+
+func (x *DeleteDashboardRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[45]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteDashboardRequest.ProtoReflect.Descriptor instead.
+func (*DeleteDashboardRequest) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{45}
+}
+
+func (x *DeleteDashboardRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *DeleteDashboardRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *DeleteDashboardRequest) GetExpectedVersion() uint64 {
+	if x != nil {
+		return x.ExpectedVersion
+	}
+	return 0
+}
+
+func (x *DeleteDashboardRequest) GetActorProof() *v1.ActorProof {
+	if x != nil {
+		return x.ActorProof
+	}
+	return nil
+}
+
+type DeleteDashboardResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteDashboardResponse) Reset() {
+	*x = DeleteDashboardResponse{}
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[46]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteDashboardResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteDashboardResponse) ProtoMessage() {}
+
+func (x *DeleteDashboardResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[46]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteDashboardResponse.ProtoReflect.Descriptor instead.
+func (*DeleteDashboardResponse) Descriptor() ([]byte, []int) {
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{46}
+}
+
 type QueryExport struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	Id               string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -3982,7 +4420,7 @@ type QueryExport struct {
 
 func (x *QueryExport) Reset() {
 	*x = QueryExport{}
-	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[40]
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3994,7 +4432,7 @@ func (x *QueryExport) String() string {
 func (*QueryExport) ProtoMessage() {}
 
 func (x *QueryExport) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[40]
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4007,7 +4445,7 @@ func (x *QueryExport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryExport.ProtoReflect.Descriptor instead.
 func (*QueryExport) Descriptor() ([]byte, []int) {
-	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{40}
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *QueryExport) GetId() string {
@@ -4071,7 +4509,7 @@ type CreateQueryExportRequest struct {
 
 func (x *CreateQueryExportRequest) Reset() {
 	*x = CreateQueryExportRequest{}
-	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[41]
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4083,7 +4521,7 @@ func (x *CreateQueryExportRequest) String() string {
 func (*CreateQueryExportRequest) ProtoMessage() {}
 
 func (x *CreateQueryExportRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[41]
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4096,7 +4534,7 @@ func (x *CreateQueryExportRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateQueryExportRequest.ProtoReflect.Descriptor instead.
 func (*CreateQueryExportRequest) Descriptor() ([]byte, []int) {
-	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{41}
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *CreateQueryExportRequest) GetTenantId() string {
@@ -4136,7 +4574,7 @@ type CreateQueryExportResponse struct {
 
 func (x *CreateQueryExportResponse) Reset() {
 	*x = CreateQueryExportResponse{}
-	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[42]
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4148,7 +4586,7 @@ func (x *CreateQueryExportResponse) String() string {
 func (*CreateQueryExportResponse) ProtoMessage() {}
 
 func (x *CreateQueryExportResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[42]
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4161,7 +4599,7 @@ func (x *CreateQueryExportResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateQueryExportResponse.ProtoReflect.Descriptor instead.
 func (*CreateQueryExportResponse) Descriptor() ([]byte, []int) {
-	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{42}
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *CreateQueryExportResponse) GetExport() *QueryExport {
@@ -4182,7 +4620,7 @@ type GetQueryExportRequest struct {
 
 func (x *GetQueryExportRequest) Reset() {
 	*x = GetQueryExportRequest{}
-	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[43]
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4194,7 +4632,7 @@ func (x *GetQueryExportRequest) String() string {
 func (*GetQueryExportRequest) ProtoMessage() {}
 
 func (x *GetQueryExportRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[43]
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4207,7 +4645,7 @@ func (x *GetQueryExportRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetQueryExportRequest.ProtoReflect.Descriptor instead.
 func (*GetQueryExportRequest) Descriptor() ([]byte, []int) {
-	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{43}
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *GetQueryExportRequest) GetTenantId() string {
@@ -4240,7 +4678,7 @@ type GetQueryExportResponse struct {
 
 func (x *GetQueryExportResponse) Reset() {
 	*x = GetQueryExportResponse{}
-	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[44]
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4252,7 +4690,7 @@ func (x *GetQueryExportResponse) String() string {
 func (*GetQueryExportResponse) ProtoMessage() {}
 
 func (x *GetQueryExportResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[44]
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4265,7 +4703,7 @@ func (x *GetQueryExportResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetQueryExportResponse.ProtoReflect.Descriptor instead.
 func (*GetQueryExportResponse) Descriptor() ([]byte, []int) {
-	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{44}
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *GetQueryExportResponse) GetExport() *QueryExport {
@@ -4286,7 +4724,7 @@ type CancelQueryExportRequest struct {
 
 func (x *CancelQueryExportRequest) Reset() {
 	*x = CancelQueryExportRequest{}
-	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[45]
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4298,7 +4736,7 @@ func (x *CancelQueryExportRequest) String() string {
 func (*CancelQueryExportRequest) ProtoMessage() {}
 
 func (x *CancelQueryExportRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[45]
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4311,7 +4749,7 @@ func (x *CancelQueryExportRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelQueryExportRequest.ProtoReflect.Descriptor instead.
 func (*CancelQueryExportRequest) Descriptor() ([]byte, []int) {
-	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{45}
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *CancelQueryExportRequest) GetTenantId() string {
@@ -4344,7 +4782,7 @@ type CancelQueryExportResponse struct {
 
 func (x *CancelQueryExportResponse) Reset() {
 	*x = CancelQueryExportResponse{}
-	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[46]
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4356,7 +4794,7 @@ func (x *CancelQueryExportResponse) String() string {
 func (*CancelQueryExportResponse) ProtoMessage() {}
 
 func (x *CancelQueryExportResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[46]
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4369,7 +4807,7 @@ func (x *CancelQueryExportResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelQueryExportResponse.ProtoReflect.Descriptor instead.
 func (*CancelQueryExportResponse) Descriptor() ([]byte, []int) {
-	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{46}
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *CancelQueryExportResponse) GetExport() *QueryExport {
@@ -4391,7 +4829,7 @@ type ExplainQueryPlanRequest struct {
 
 func (x *ExplainQueryPlanRequest) Reset() {
 	*x = ExplainQueryPlanRequest{}
-	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[47]
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4403,7 +4841,7 @@ func (x *ExplainQueryPlanRequest) String() string {
 func (*ExplainQueryPlanRequest) ProtoMessage() {}
 
 func (x *ExplainQueryPlanRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[47]
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4416,7 +4854,7 @@ func (x *ExplainQueryPlanRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplainQueryPlanRequest.ProtoReflect.Descriptor instead.
 func (*ExplainQueryPlanRequest) Descriptor() ([]byte, []int) {
-	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{47}
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *ExplainQueryPlanRequest) GetTenantId() string {
@@ -4457,7 +4895,7 @@ type ExplainQueryPlanResponse struct {
 
 func (x *ExplainQueryPlanResponse) Reset() {
 	*x = ExplainQueryPlanResponse{}
-	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[48]
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4469,7 +4907,7 @@ func (x *ExplainQueryPlanResponse) String() string {
 func (*ExplainQueryPlanResponse) ProtoMessage() {}
 
 func (x *ExplainQueryPlanResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[48]
+	mi := &file_bpmp_projection_v1_projection_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4482,7 +4920,7 @@ func (x *ExplainQueryPlanResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplainQueryPlanResponse.ProtoReflect.Descriptor instead.
 func (*ExplainQueryPlanResponse) Descriptor() ([]byte, []int) {
-	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{48}
+	return file_bpmp_projection_v1_projection_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *ExplainQueryPlanResponse) GetRedactedPlanJson() string {
@@ -4790,7 +5228,45 @@ const file_bpmp_projection_v1_projection_proto_rawDesc = "" +
 	"\x10expected_version\x18\x03 \x01(\x04R\x0fexpectedVersion\x12B\n" +
 	"\vactor_proof\x18\x04 \x01(\v2!.bpmp.authorization.v1.ActorProofR\n" +
 	"actorProof\"\x1a\n" +
-	"\x18DeleteSavedQueryResponse\"\x88\x02\n" +
+	"\x18DeleteSavedQueryResponse\"\xcd\x01\n" +
+	"\x0eSavedDashboard\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
+	"\aversion\x18\x03 \x01(\x04R\aversion\x12\x1f\n" +
+	"\vconfig_json\x18\x04 \x01(\tR\n" +
+	"configJson\x12-\n" +
+	"\x13created_at_epoch_ms\x18\x05 \x01(\x04R\x10createdAtEpochMs\x12-\n" +
+	"\x13updated_at_epoch_ms\x18\x06 \x01(\x04R\x10updatedAtEpochMs\"\xe7\x01\n" +
+	"\x14SaveDashboardRequest\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\x12\x12\n" +
+	"\x04name\x18\x03 \x01(\tR\x04name\x12)\n" +
+	"\x10expected_version\x18\x04 \x01(\x04R\x0fexpectedVersion\x12\x1f\n" +
+	"\vconfig_json\x18\x05 \x01(\tR\n" +
+	"configJson\x12B\n" +
+	"\vactor_proof\x18\x06 \x01(\v2!.bpmp.authorization.v1.ActorProofR\n" +
+	"actorProof\"Y\n" +
+	"\x15SaveDashboardResponse\x12@\n" +
+	"\tdashboard\x18\x01 \x01(\v2\".bpmp.projection.v1.SavedDashboardR\tdashboard\"\xb4\x01\n" +
+	"\x15ListDashboardsRequest\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x1b\n" +
+	"\tpage_size\x18\x02 \x01(\rR\bpageSize\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x03 \x01(\tR\tpageToken\x12B\n" +
+	"\vactor_proof\x18\x04 \x01(\v2!.bpmp.authorization.v1.ActorProofR\n" +
+	"actorProof\"\x84\x01\n" +
+	"\x16ListDashboardsResponse\x12B\n" +
+	"\n" +
+	"dashboards\x18\x01 \x03(\v2\".bpmp.projection.v1.SavedDashboardR\n" +
+	"dashboards\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\xb4\x01\n" +
+	"\x16DeleteDashboardRequest\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\x12)\n" +
+	"\x10expected_version\x18\x03 \x01(\x04R\x0fexpectedVersion\x12B\n" +
+	"\vactor_proof\x18\x04 \x01(\v2!.bpmp.authorization.v1.ActorProofR\n" +
+	"actorProof\"\x19\n" +
+	"\x17DeleteDashboardResponse\"\x88\x02\n" +
 	"\vQueryExport\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12=\n" +
 	"\x06status\x18\x02 \x01(\x0e2%.bpmp.projection.v1.QueryExportStatusR\x06status\x12\x1b\n" +
@@ -4934,7 +5410,7 @@ const file_bpmp_projection_v1_projection_proto_rawDesc = "" +
 	"\x1bQUERY_EXPORT_STATUS_PENDING\x10\x01\x12!\n" +
 	"\x1dQUERY_EXPORT_STATUS_COMPLETED\x10\x02\x12\x1e\n" +
 	"\x1aQUERY_EXPORT_STATUS_FAILED\x10\x03\x12!\n" +
-	"\x1dQUERY_EXPORT_STATUS_CANCELLED\x10\x042\xc0\f\n" +
+	"\x1dQUERY_EXPORT_STATUS_CANCELLED\x10\x042\xfb\x0e\n" +
 	"\x16ProjectionQueryService\x12v\n" +
 	"\x13GetWorkflowInstance\x12..bpmp.projection.v1.GetWorkflowInstanceRequest\x1a/.bpmp.projection.v1.GetWorkflowInstanceResponse\x12|\n" +
 	"\x15ListWorkflowInstances\x120.bpmp.projection.v1.ListWorkflowInstancesRequest\x1a1.bpmp.projection.v1.ListWorkflowInstancesResponse\x12\x82\x01\n" +
@@ -4945,7 +5421,10 @@ const file_bpmp_projection_v1_projection_proto_rawDesc = "" +
 	"\vQueryEvents\x12&.bpmp.projection.v1.QueryEventsRequest\x1a'.bpmp.projection.v1.QueryEventsResponse\x12X\n" +
 	"\tSaveQuery\x12$.bpmp.projection.v1.SaveQueryRequest\x1a%.bpmp.projection.v1.SaveQueryResponse\x12m\n" +
 	"\x10ListSavedQueries\x12+.bpmp.projection.v1.ListSavedQueriesRequest\x1a,.bpmp.projection.v1.ListSavedQueriesResponse\x12m\n" +
-	"\x10DeleteSavedQuery\x12+.bpmp.projection.v1.DeleteSavedQueryRequest\x1a,.bpmp.projection.v1.DeleteSavedQueryResponse\x12p\n" +
+	"\x10DeleteSavedQuery\x12+.bpmp.projection.v1.DeleteSavedQueryRequest\x1a,.bpmp.projection.v1.DeleteSavedQueryResponse\x12d\n" +
+	"\rSaveDashboard\x12(.bpmp.projection.v1.SaveDashboardRequest\x1a).bpmp.projection.v1.SaveDashboardResponse\x12g\n" +
+	"\x0eListDashboards\x12).bpmp.projection.v1.ListDashboardsRequest\x1a*.bpmp.projection.v1.ListDashboardsResponse\x12j\n" +
+	"\x0fDeleteDashboard\x12*.bpmp.projection.v1.DeleteDashboardRequest\x1a+.bpmp.projection.v1.DeleteDashboardResponse\x12p\n" +
 	"\x11CreateQueryExport\x12,.bpmp.projection.v1.CreateQueryExportRequest\x1a-.bpmp.projection.v1.CreateQueryExportResponse\x12g\n" +
 	"\x0eGetQueryExport\x12).bpmp.projection.v1.GetQueryExportRequest\x1a*.bpmp.projection.v1.GetQueryExportResponse\x12p\n" +
 	"\x11CancelQueryExport\x12,.bpmp.projection.v1.CancelQueryExportRequest\x1a-.bpmp.projection.v1.CancelQueryExportResponse\x12m\n" +
@@ -4965,7 +5444,7 @@ func file_bpmp_projection_v1_projection_proto_rawDescGZIP() []byte {
 }
 
 var file_bpmp_projection_v1_projection_proto_enumTypes = make([]protoimpl.EnumInfo, 13)
-var file_bpmp_projection_v1_projection_proto_msgTypes = make([]protoimpl.MessageInfo, 49)
+var file_bpmp_projection_v1_projection_proto_msgTypes = make([]protoimpl.MessageInfo, 56)
 var file_bpmp_projection_v1_projection_proto_goTypes = []any{
 	(LogicalOperator)(0),                    // 0: bpmp.projection.v1.LogicalOperator
 	(ComparisonOperator)(0),                 // 1: bpmp.projection.v1.ComparisonOperator
@@ -5020,21 +5499,28 @@ var file_bpmp_projection_v1_projection_proto_goTypes = []any{
 	(*ListSavedQueriesResponse)(nil),        // 50: bpmp.projection.v1.ListSavedQueriesResponse
 	(*DeleteSavedQueryRequest)(nil),         // 51: bpmp.projection.v1.DeleteSavedQueryRequest
 	(*DeleteSavedQueryResponse)(nil),        // 52: bpmp.projection.v1.DeleteSavedQueryResponse
-	(*QueryExport)(nil),                     // 53: bpmp.projection.v1.QueryExport
-	(*CreateQueryExportRequest)(nil),        // 54: bpmp.projection.v1.CreateQueryExportRequest
-	(*CreateQueryExportResponse)(nil),       // 55: bpmp.projection.v1.CreateQueryExportResponse
-	(*GetQueryExportRequest)(nil),           // 56: bpmp.projection.v1.GetQueryExportRequest
-	(*GetQueryExportResponse)(nil),          // 57: bpmp.projection.v1.GetQueryExportResponse
-	(*CancelQueryExportRequest)(nil),        // 58: bpmp.projection.v1.CancelQueryExportRequest
-	(*CancelQueryExportResponse)(nil),       // 59: bpmp.projection.v1.CancelQueryExportResponse
-	(*ExplainQueryPlanRequest)(nil),         // 60: bpmp.projection.v1.ExplainQueryPlanRequest
-	(*ExplainQueryPlanResponse)(nil),        // 61: bpmp.projection.v1.ExplainQueryPlanResponse
-	(*v1.ActorProof)(nil),                   // 62: bpmp.authorization.v1.ActorProof
+	(*SavedDashboard)(nil),                  // 53: bpmp.projection.v1.SavedDashboard
+	(*SaveDashboardRequest)(nil),            // 54: bpmp.projection.v1.SaveDashboardRequest
+	(*SaveDashboardResponse)(nil),           // 55: bpmp.projection.v1.SaveDashboardResponse
+	(*ListDashboardsRequest)(nil),           // 56: bpmp.projection.v1.ListDashboardsRequest
+	(*ListDashboardsResponse)(nil),          // 57: bpmp.projection.v1.ListDashboardsResponse
+	(*DeleteDashboardRequest)(nil),          // 58: bpmp.projection.v1.DeleteDashboardRequest
+	(*DeleteDashboardResponse)(nil),         // 59: bpmp.projection.v1.DeleteDashboardResponse
+	(*QueryExport)(nil),                     // 60: bpmp.projection.v1.QueryExport
+	(*CreateQueryExportRequest)(nil),        // 61: bpmp.projection.v1.CreateQueryExportRequest
+	(*CreateQueryExportResponse)(nil),       // 62: bpmp.projection.v1.CreateQueryExportResponse
+	(*GetQueryExportRequest)(nil),           // 63: bpmp.projection.v1.GetQueryExportRequest
+	(*GetQueryExportResponse)(nil),          // 64: bpmp.projection.v1.GetQueryExportResponse
+	(*CancelQueryExportRequest)(nil),        // 65: bpmp.projection.v1.CancelQueryExportRequest
+	(*CancelQueryExportResponse)(nil),       // 66: bpmp.projection.v1.CancelQueryExportResponse
+	(*ExplainQueryPlanRequest)(nil),         // 67: bpmp.projection.v1.ExplainQueryPlanRequest
+	(*ExplainQueryPlanResponse)(nil),        // 68: bpmp.projection.v1.ExplainQueryPlanResponse
+	(*v1.ActorProof)(nil),                   // 69: bpmp.authorization.v1.ActorProof
 }
 var file_bpmp_projection_v1_projection_proto_depIdxs = []int32{
-	62,  // 0: bpmp.projection.v1.GetWorkflowInstanceRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	69,  // 0: bpmp.projection.v1.GetWorkflowInstanceRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
 	13,  // 1: bpmp.projection.v1.GetWorkflowInstanceResponse.instance:type_name -> bpmp.projection.v1.WorkflowInstanceReadModel
-	62,  // 2: bpmp.projection.v1.ListWorkflowInstancesRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	69,  // 2: bpmp.projection.v1.ListWorkflowInstancesRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
 	13,  // 3: bpmp.projection.v1.ListWorkflowInstancesResponse.instances:type_name -> bpmp.projection.v1.WorkflowInstanceReadModel
 	2,   // 4: bpmp.projection.v1.ProcessPredicate.field:type_name -> bpmp.projection.v1.ProcessField
 	1,   // 5: bpmp.projection.v1.ProcessPredicate.operator:type_name -> bpmp.projection.v1.ComparisonOperator
@@ -5071,7 +5557,7 @@ var file_bpmp_projection_v1_projection_proto_depIdxs = []int32{
 	10,  // 36: bpmp.projection.v1.ProcessSort.date_transform:type_name -> bpmp.projection.v1.DateTransform
 	24,  // 37: bpmp.projection.v1.QueryCompletedProcessesRequest.filter:type_name -> bpmp.projection.v1.ProcessExpression
 	26,  // 38: bpmp.projection.v1.QueryCompletedProcessesRequest.sort:type_name -> bpmp.projection.v1.ProcessSort
-	62,  // 39: bpmp.projection.v1.QueryCompletedProcessesRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	69,  // 39: bpmp.projection.v1.QueryCompletedProcessesRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
 	2,   // 40: bpmp.projection.v1.QueryCompletedProcessesRequest.select:type_name -> bpmp.projection.v1.ProcessField
 	2,   // 41: bpmp.projection.v1.QueryCompletedProcessesRequest.collapse:type_name -> bpmp.projection.v1.ProcessField
 	32,  // 42: bpmp.projection.v1.QueryCompletedProcessesRequest.expand_events:type_name -> bpmp.projection.v1.EventExpansion
@@ -5081,7 +5567,7 @@ var file_bpmp_projection_v1_projection_proto_depIdxs = []int32{
 	26,  // 46: bpmp.projection.v1.QueryCompletedProcessesResponse.normalized_sort:type_name -> bpmp.projection.v1.ProcessSort
 	24,  // 47: bpmp.projection.v1.QueryProcessesRequest.filter:type_name -> bpmp.projection.v1.ProcessExpression
 	26,  // 48: bpmp.projection.v1.QueryProcessesRequest.sort:type_name -> bpmp.projection.v1.ProcessSort
-	62,  // 49: bpmp.projection.v1.QueryProcessesRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	69,  // 49: bpmp.projection.v1.QueryProcessesRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
 	3,   // 50: bpmp.projection.v1.QueryProcessesRequest.scope:type_name -> bpmp.projection.v1.QueryScope
 	2,   // 51: bpmp.projection.v1.QueryProcessesRequest.select:type_name -> bpmp.projection.v1.ProcessField
 	2,   // 52: bpmp.projection.v1.QueryProcessesRequest.collapse:type_name -> bpmp.projection.v1.ProcessField
@@ -5094,7 +5580,7 @@ var file_bpmp_projection_v1_projection_proto_depIdxs = []int32{
 	21,  // 59: bpmp.projection.v1.QueryEventsRequest.filter:type_name -> bpmp.projection.v1.EventExpression
 	24,  // 60: bpmp.projection.v1.QueryEventsRequest.process_filter:type_name -> bpmp.projection.v1.ProcessExpression
 	34,  // 61: bpmp.projection.v1.QueryEventsRequest.sort:type_name -> bpmp.projection.v1.EventSort
-	62,  // 62: bpmp.projection.v1.QueryEventsRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	69,  // 62: bpmp.projection.v1.QueryEventsRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
 	33,  // 63: bpmp.projection.v1.QueryEventsResponse.events:type_name -> bpmp.projection.v1.WorkflowEventReadModel
 	11,  // 64: bpmp.projection.v1.AggregateMetric.operation:type_name -> bpmp.projection.v1.AggregateOperation
 	2,   // 65: bpmp.projection.v1.AggregateMetric.field:type_name -> bpmp.projection.v1.ProcessField
@@ -5102,7 +5588,7 @@ var file_bpmp_projection_v1_projection_proto_depIdxs = []int32{
 	24,  // 67: bpmp.projection.v1.AggregateProcessesRequest.filter:type_name -> bpmp.projection.v1.ProcessExpression
 	2,   // 68: bpmp.projection.v1.AggregateProcessesRequest.group_by:type_name -> bpmp.projection.v1.ProcessField
 	37,  // 69: bpmp.projection.v1.AggregateProcessesRequest.metrics:type_name -> bpmp.projection.v1.AggregateMetric
-	62,  // 70: bpmp.projection.v1.AggregateProcessesRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	69,  // 70: bpmp.projection.v1.AggregateProcessesRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
 	18,  // 71: bpmp.projection.v1.AggregateCell.value:type_name -> bpmp.projection.v1.QueryValue
 	39,  // 72: bpmp.projection.v1.AggregateRow.dimensions:type_name -> bpmp.projection.v1.AggregateCell
 	39,  // 73: bpmp.projection.v1.AggregateRow.metrics:type_name -> bpmp.projection.v1.AggregateCell
@@ -5119,61 +5605,72 @@ var file_bpmp_projection_v1_projection_proto_depIdxs = []int32{
 	8,   // 84: bpmp.projection.v1.EventFieldCapability.text_transforms:type_name -> bpmp.projection.v1.TextTransform
 	9,   // 85: bpmp.projection.v1.EventFieldCapability.numeric_transforms:type_name -> bpmp.projection.v1.NumericTransform
 	10,  // 86: bpmp.projection.v1.EventFieldCapability.date_transforms:type_name -> bpmp.projection.v1.DateTransform
-	62,  // 87: bpmp.projection.v1.GetQueryCapabilitiesRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	69,  // 87: bpmp.projection.v1.GetQueryCapabilitiesRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
 	42,  // 88: bpmp.projection.v1.GetQueryCapabilitiesResponse.fields:type_name -> bpmp.projection.v1.ProcessFieldCapability
 	43,  // 89: bpmp.projection.v1.GetQueryCapabilitiesResponse.event_fields:type_name -> bpmp.projection.v1.EventFieldCapability
 	3,   // 90: bpmp.projection.v1.GetQueryCapabilitiesResponse.scopes:type_name -> bpmp.projection.v1.QueryScope
 	26,  // 91: bpmp.projection.v1.GetQueryCapabilitiesResponse.default_sort:type_name -> bpmp.projection.v1.ProcessSort
 	30,  // 92: bpmp.projection.v1.SavedQuery.query:type_name -> bpmp.projection.v1.QueryProcessesRequest
 	30,  // 93: bpmp.projection.v1.SaveQueryRequest.query:type_name -> bpmp.projection.v1.QueryProcessesRequest
-	62,  // 94: bpmp.projection.v1.SaveQueryRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	69,  // 94: bpmp.projection.v1.SaveQueryRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
 	46,  // 95: bpmp.projection.v1.SaveQueryResponse.saved_query:type_name -> bpmp.projection.v1.SavedQuery
-	62,  // 96: bpmp.projection.v1.ListSavedQueriesRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	69,  // 96: bpmp.projection.v1.ListSavedQueriesRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
 	46,  // 97: bpmp.projection.v1.ListSavedQueriesResponse.saved_queries:type_name -> bpmp.projection.v1.SavedQuery
-	62,  // 98: bpmp.projection.v1.DeleteSavedQueryRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
-	12,  // 99: bpmp.projection.v1.QueryExport.status:type_name -> bpmp.projection.v1.QueryExportStatus
-	30,  // 100: bpmp.projection.v1.CreateQueryExportRequest.query:type_name -> bpmp.projection.v1.QueryProcessesRequest
-	62,  // 101: bpmp.projection.v1.CreateQueryExportRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
-	53,  // 102: bpmp.projection.v1.CreateQueryExportResponse.export:type_name -> bpmp.projection.v1.QueryExport
-	62,  // 103: bpmp.projection.v1.GetQueryExportRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
-	53,  // 104: bpmp.projection.v1.GetQueryExportResponse.export:type_name -> bpmp.projection.v1.QueryExport
-	62,  // 105: bpmp.projection.v1.CancelQueryExportRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
-	53,  // 106: bpmp.projection.v1.CancelQueryExportResponse.export:type_name -> bpmp.projection.v1.QueryExport
-	30,  // 107: bpmp.projection.v1.ExplainQueryPlanRequest.query:type_name -> bpmp.projection.v1.QueryProcessesRequest
-	62,  // 108: bpmp.projection.v1.ExplainQueryPlanRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
-	14,  // 109: bpmp.projection.v1.ProjectionQueryService.GetWorkflowInstance:input_type -> bpmp.projection.v1.GetWorkflowInstanceRequest
-	16,  // 110: bpmp.projection.v1.ProjectionQueryService.ListWorkflowInstances:input_type -> bpmp.projection.v1.ListWorkflowInstancesRequest
-	27,  // 111: bpmp.projection.v1.ProjectionQueryService.QueryCompletedProcesses:input_type -> bpmp.projection.v1.QueryCompletedProcessesRequest
-	30,  // 112: bpmp.projection.v1.ProjectionQueryService.QueryProcesses:input_type -> bpmp.projection.v1.QueryProcessesRequest
-	44,  // 113: bpmp.projection.v1.ProjectionQueryService.GetQueryCapabilities:input_type -> bpmp.projection.v1.GetQueryCapabilitiesRequest
-	38,  // 114: bpmp.projection.v1.ProjectionQueryService.AggregateProcesses:input_type -> bpmp.projection.v1.AggregateProcessesRequest
-	35,  // 115: bpmp.projection.v1.ProjectionQueryService.QueryEvents:input_type -> bpmp.projection.v1.QueryEventsRequest
-	47,  // 116: bpmp.projection.v1.ProjectionQueryService.SaveQuery:input_type -> bpmp.projection.v1.SaveQueryRequest
-	49,  // 117: bpmp.projection.v1.ProjectionQueryService.ListSavedQueries:input_type -> bpmp.projection.v1.ListSavedQueriesRequest
-	51,  // 118: bpmp.projection.v1.ProjectionQueryService.DeleteSavedQuery:input_type -> bpmp.projection.v1.DeleteSavedQueryRequest
-	54,  // 119: bpmp.projection.v1.ProjectionQueryService.CreateQueryExport:input_type -> bpmp.projection.v1.CreateQueryExportRequest
-	56,  // 120: bpmp.projection.v1.ProjectionQueryService.GetQueryExport:input_type -> bpmp.projection.v1.GetQueryExportRequest
-	58,  // 121: bpmp.projection.v1.ProjectionQueryService.CancelQueryExport:input_type -> bpmp.projection.v1.CancelQueryExportRequest
-	60,  // 122: bpmp.projection.v1.ProjectionQueryService.ExplainQueryPlan:input_type -> bpmp.projection.v1.ExplainQueryPlanRequest
-	15,  // 123: bpmp.projection.v1.ProjectionQueryService.GetWorkflowInstance:output_type -> bpmp.projection.v1.GetWorkflowInstanceResponse
-	17,  // 124: bpmp.projection.v1.ProjectionQueryService.ListWorkflowInstances:output_type -> bpmp.projection.v1.ListWorkflowInstancesResponse
-	29,  // 125: bpmp.projection.v1.ProjectionQueryService.QueryCompletedProcesses:output_type -> bpmp.projection.v1.QueryCompletedProcessesResponse
-	31,  // 126: bpmp.projection.v1.ProjectionQueryService.QueryProcesses:output_type -> bpmp.projection.v1.QueryProcessesResponse
-	45,  // 127: bpmp.projection.v1.ProjectionQueryService.GetQueryCapabilities:output_type -> bpmp.projection.v1.GetQueryCapabilitiesResponse
-	41,  // 128: bpmp.projection.v1.ProjectionQueryService.AggregateProcesses:output_type -> bpmp.projection.v1.AggregateProcessesResponse
-	36,  // 129: bpmp.projection.v1.ProjectionQueryService.QueryEvents:output_type -> bpmp.projection.v1.QueryEventsResponse
-	48,  // 130: bpmp.projection.v1.ProjectionQueryService.SaveQuery:output_type -> bpmp.projection.v1.SaveQueryResponse
-	50,  // 131: bpmp.projection.v1.ProjectionQueryService.ListSavedQueries:output_type -> bpmp.projection.v1.ListSavedQueriesResponse
-	52,  // 132: bpmp.projection.v1.ProjectionQueryService.DeleteSavedQuery:output_type -> bpmp.projection.v1.DeleteSavedQueryResponse
-	55,  // 133: bpmp.projection.v1.ProjectionQueryService.CreateQueryExport:output_type -> bpmp.projection.v1.CreateQueryExportResponse
-	57,  // 134: bpmp.projection.v1.ProjectionQueryService.GetQueryExport:output_type -> bpmp.projection.v1.GetQueryExportResponse
-	59,  // 135: bpmp.projection.v1.ProjectionQueryService.CancelQueryExport:output_type -> bpmp.projection.v1.CancelQueryExportResponse
-	61,  // 136: bpmp.projection.v1.ProjectionQueryService.ExplainQueryPlan:output_type -> bpmp.projection.v1.ExplainQueryPlanResponse
-	123, // [123:137] is the sub-list for method output_type
-	109, // [109:123] is the sub-list for method input_type
-	109, // [109:109] is the sub-list for extension type_name
-	109, // [109:109] is the sub-list for extension extendee
-	0,   // [0:109] is the sub-list for field type_name
+	69,  // 98: bpmp.projection.v1.DeleteSavedQueryRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	69,  // 99: bpmp.projection.v1.SaveDashboardRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	53,  // 100: bpmp.projection.v1.SaveDashboardResponse.dashboard:type_name -> bpmp.projection.v1.SavedDashboard
+	69,  // 101: bpmp.projection.v1.ListDashboardsRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	53,  // 102: bpmp.projection.v1.ListDashboardsResponse.dashboards:type_name -> bpmp.projection.v1.SavedDashboard
+	69,  // 103: bpmp.projection.v1.DeleteDashboardRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	12,  // 104: bpmp.projection.v1.QueryExport.status:type_name -> bpmp.projection.v1.QueryExportStatus
+	30,  // 105: bpmp.projection.v1.CreateQueryExportRequest.query:type_name -> bpmp.projection.v1.QueryProcessesRequest
+	69,  // 106: bpmp.projection.v1.CreateQueryExportRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	60,  // 107: bpmp.projection.v1.CreateQueryExportResponse.export:type_name -> bpmp.projection.v1.QueryExport
+	69,  // 108: bpmp.projection.v1.GetQueryExportRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	60,  // 109: bpmp.projection.v1.GetQueryExportResponse.export:type_name -> bpmp.projection.v1.QueryExport
+	69,  // 110: bpmp.projection.v1.CancelQueryExportRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	60,  // 111: bpmp.projection.v1.CancelQueryExportResponse.export:type_name -> bpmp.projection.v1.QueryExport
+	30,  // 112: bpmp.projection.v1.ExplainQueryPlanRequest.query:type_name -> bpmp.projection.v1.QueryProcessesRequest
+	69,  // 113: bpmp.projection.v1.ExplainQueryPlanRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	14,  // 114: bpmp.projection.v1.ProjectionQueryService.GetWorkflowInstance:input_type -> bpmp.projection.v1.GetWorkflowInstanceRequest
+	16,  // 115: bpmp.projection.v1.ProjectionQueryService.ListWorkflowInstances:input_type -> bpmp.projection.v1.ListWorkflowInstancesRequest
+	27,  // 116: bpmp.projection.v1.ProjectionQueryService.QueryCompletedProcesses:input_type -> bpmp.projection.v1.QueryCompletedProcessesRequest
+	30,  // 117: bpmp.projection.v1.ProjectionQueryService.QueryProcesses:input_type -> bpmp.projection.v1.QueryProcessesRequest
+	44,  // 118: bpmp.projection.v1.ProjectionQueryService.GetQueryCapabilities:input_type -> bpmp.projection.v1.GetQueryCapabilitiesRequest
+	38,  // 119: bpmp.projection.v1.ProjectionQueryService.AggregateProcesses:input_type -> bpmp.projection.v1.AggregateProcessesRequest
+	35,  // 120: bpmp.projection.v1.ProjectionQueryService.QueryEvents:input_type -> bpmp.projection.v1.QueryEventsRequest
+	47,  // 121: bpmp.projection.v1.ProjectionQueryService.SaveQuery:input_type -> bpmp.projection.v1.SaveQueryRequest
+	49,  // 122: bpmp.projection.v1.ProjectionQueryService.ListSavedQueries:input_type -> bpmp.projection.v1.ListSavedQueriesRequest
+	51,  // 123: bpmp.projection.v1.ProjectionQueryService.DeleteSavedQuery:input_type -> bpmp.projection.v1.DeleteSavedQueryRequest
+	54,  // 124: bpmp.projection.v1.ProjectionQueryService.SaveDashboard:input_type -> bpmp.projection.v1.SaveDashboardRequest
+	56,  // 125: bpmp.projection.v1.ProjectionQueryService.ListDashboards:input_type -> bpmp.projection.v1.ListDashboardsRequest
+	58,  // 126: bpmp.projection.v1.ProjectionQueryService.DeleteDashboard:input_type -> bpmp.projection.v1.DeleteDashboardRequest
+	61,  // 127: bpmp.projection.v1.ProjectionQueryService.CreateQueryExport:input_type -> bpmp.projection.v1.CreateQueryExportRequest
+	63,  // 128: bpmp.projection.v1.ProjectionQueryService.GetQueryExport:input_type -> bpmp.projection.v1.GetQueryExportRequest
+	65,  // 129: bpmp.projection.v1.ProjectionQueryService.CancelQueryExport:input_type -> bpmp.projection.v1.CancelQueryExportRequest
+	67,  // 130: bpmp.projection.v1.ProjectionQueryService.ExplainQueryPlan:input_type -> bpmp.projection.v1.ExplainQueryPlanRequest
+	15,  // 131: bpmp.projection.v1.ProjectionQueryService.GetWorkflowInstance:output_type -> bpmp.projection.v1.GetWorkflowInstanceResponse
+	17,  // 132: bpmp.projection.v1.ProjectionQueryService.ListWorkflowInstances:output_type -> bpmp.projection.v1.ListWorkflowInstancesResponse
+	29,  // 133: bpmp.projection.v1.ProjectionQueryService.QueryCompletedProcesses:output_type -> bpmp.projection.v1.QueryCompletedProcessesResponse
+	31,  // 134: bpmp.projection.v1.ProjectionQueryService.QueryProcesses:output_type -> bpmp.projection.v1.QueryProcessesResponse
+	45,  // 135: bpmp.projection.v1.ProjectionQueryService.GetQueryCapabilities:output_type -> bpmp.projection.v1.GetQueryCapabilitiesResponse
+	41,  // 136: bpmp.projection.v1.ProjectionQueryService.AggregateProcesses:output_type -> bpmp.projection.v1.AggregateProcessesResponse
+	36,  // 137: bpmp.projection.v1.ProjectionQueryService.QueryEvents:output_type -> bpmp.projection.v1.QueryEventsResponse
+	48,  // 138: bpmp.projection.v1.ProjectionQueryService.SaveQuery:output_type -> bpmp.projection.v1.SaveQueryResponse
+	50,  // 139: bpmp.projection.v1.ProjectionQueryService.ListSavedQueries:output_type -> bpmp.projection.v1.ListSavedQueriesResponse
+	52,  // 140: bpmp.projection.v1.ProjectionQueryService.DeleteSavedQuery:output_type -> bpmp.projection.v1.DeleteSavedQueryResponse
+	55,  // 141: bpmp.projection.v1.ProjectionQueryService.SaveDashboard:output_type -> bpmp.projection.v1.SaveDashboardResponse
+	57,  // 142: bpmp.projection.v1.ProjectionQueryService.ListDashboards:output_type -> bpmp.projection.v1.ListDashboardsResponse
+	59,  // 143: bpmp.projection.v1.ProjectionQueryService.DeleteDashboard:output_type -> bpmp.projection.v1.DeleteDashboardResponse
+	62,  // 144: bpmp.projection.v1.ProjectionQueryService.CreateQueryExport:output_type -> bpmp.projection.v1.CreateQueryExportResponse
+	64,  // 145: bpmp.projection.v1.ProjectionQueryService.GetQueryExport:output_type -> bpmp.projection.v1.GetQueryExportResponse
+	66,  // 146: bpmp.projection.v1.ProjectionQueryService.CancelQueryExport:output_type -> bpmp.projection.v1.CancelQueryExportResponse
+	68,  // 147: bpmp.projection.v1.ProjectionQueryService.ExplainQueryPlan:output_type -> bpmp.projection.v1.ExplainQueryPlanResponse
+	131, // [131:148] is the sub-list for method output_type
+	114, // [114:131] is the sub-list for method input_type
+	114, // [114:114] is the sub-list for extension type_name
+	114, // [114:114] is the sub-list for extension extendee
+	0,   // [0:114] is the sub-list for field type_name
 }
 
 func init() { file_bpmp_projection_v1_projection_proto_init() }
@@ -5205,7 +5702,7 @@ func file_bpmp_projection_v1_projection_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bpmp_projection_v1_projection_proto_rawDesc), len(file_bpmp_projection_v1_projection_proto_rawDesc)),
 			NumEnums:      13,
-			NumMessages:   49,
+			NumMessages:   56,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

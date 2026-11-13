@@ -18,6 +18,7 @@ const (
 	engineDependency        = "engine"
 	humanDependency         = "human-runtime"
 	projectionDependency    = "projection-service"
+	authoringDependency     = "authoring-service"
 	configurationDependency = "configuration-service"
 )
 

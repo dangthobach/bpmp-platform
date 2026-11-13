@@ -85,6 +85,20 @@ Projection đăng ký manifest của chính service, bằng key có `sub=project
 go run ./cmd/authz-owner-register --authz-url https://authz.example --audience authz-admin --manifest ../projection-service/authorization-owner-manifest.json --private-key C:\secrets\projection-service-ed25519.key --key-id projection-service-k1
 ```
 
+Human Runtime đăng ký action đọc và quản trị assignment policy bằng manifest riêng, key phải có `sub=human-runtime`:
+
+```powershell
+go run ./cmd/authz-owner-register --authz-url https://authz.example --audience authz-admin --manifest ../human-runtime/authorization-owner-manifest.json --private-key C:\secrets\human-runtime-ed25519.key --key-id human-runtime-k1
+```
+
+Authoring đăng ký manifest cho Process Model và Decision Model bằng workload key có `sub=authoring-service`. Khi manifest chuyển từ `1.0.0` lên `1.1.0`, phải đăng ký đúng file mới và publish catalog/bundle tương ứng trước khi bật thao tác DMN; bundle còn chứa digest cũ sẽ bị PEP từ chối fail-closed:
+
+```powershell
+go run ./cmd/authz-owner-register --authz-url https://authz.example --audience authz-admin --manifest ../authoring-service/authorization-owner-manifest.json --private-key C:\secrets\authoring-service-ed25519.key --key-id authoring-service-k1
+```
+
+Cockpit gọi `GET /v1/assignment-policies` với `human.assignment-policy.read` và `PUT /v1/assignment-policies` với `human.assignment-policy.manage`. Đây là action do owner Human Runtime đăng ký vào Authz catalog; không cấp quyền bằng role tĩnh trong UI hoặc bằng cấu hình chung của Configuration Service.
+
 Đăng ký một lần theo manifest version; khi owner thay đổi capability hoặc field thì release manifest version mới bằng cùng luồng owner-authenticated. UI chọn đúng bộ `owner/resource/action/capability`, tránh gộp các capability khác nhau của cùng operation thành một lựa chọn mơ hồ.
 
 - **Authz Control Plane giữ canonical catalog và policy semantics.** Dùng policy lifecycle, signing và publication của Authz. Configuration Service chung không trở thành authority về quyền; chỉ tích hợp nếu contract cụ thể yêu cầu và Authz vẫn giữ semantic ownership.

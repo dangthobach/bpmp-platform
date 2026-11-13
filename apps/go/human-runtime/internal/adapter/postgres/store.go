@@ -2,12 +2,16 @@ package postgres
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dangthobach/bpmp-platform/apps/go/human-runtime/internal/application"
@@ -90,13 +94,94 @@ func (s *Store) ProjectActivation(ctx context.Context, activation domain.Activat
 
 func (s *Store) RequestCompletion(ctx context.Context, item domain.WorkItem, commandID, correlationID, actorID string) error {
 	return s.updateWorkItem(ctx, item, commandID, correlationID, actorID, "COMPLETION_REQUESTED",
-		`status=$1,decision=$2,completion_command_id=$3`, item.Status, item.Decision, commandID)
+		`status=$1,decision=$2,completion_command_id=$3,completion_payload_digest=$4`, item.Status, item.Decision, commandID, item.CompletionPayloadDigest)
 }
 
 func (s *Store) Delegate(ctx context.Context, item domain.WorkItem, commandID, correlationID, actorID string) error {
 	return s.updateWorkItem(ctx, item, commandID, correlationID, actorID, "DELEGATED",
 		`assignee_id=NULLIF($1,''),candidate_group=NULLIF($2,''),delegation_depth=$3`,
 		item.Assignment.AssigneeID, item.Assignment.CandidateGroup, item.DelegationDepth)
+}
+
+func (s *Store) UpsertAssignmentPolicy(ctx context.Context, policy domain.AssignmentPolicy, expectedVersion int64, commandID, idempotencyKey, correlationID, actorID string, at time.Time, payloadDigest []byte) (domain.AssignmentPolicy, bool, error) {
+	if len(payloadDigest) != sha256.Size {
+		return domain.AssignmentPolicy{}, false, errors.New("assignment policy payload digest is invalid")
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return domain.AssignmentPolicy{}, false, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	for _, lockName := range []string{"idempotency:" + idempotencyKey, "command:" + commandID} {
+		lockDigest := sha256.Sum256([]byte(policy.TenantID + "\x00" + lockName))
+		if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, int64(binary.BigEndian.Uint64(lockDigest[:8]))); err != nil {
+			return domain.AssignmentPolicy{}, false, err
+		}
+	}
+	var storedDigest, storedResponse []byte
+	err = tx.QueryRow(ctx, `SELECT payload_digest,response FROM human_admin_command_dedup WHERE tenant_id=$1 AND idempotency_key=$2`, policy.TenantID, idempotencyKey).Scan(&storedDigest, &storedResponse)
+	if err == nil {
+		if subtle.ConstantTimeCompare(storedDigest, payloadDigest) != 1 {
+			return domain.AssignmentPolicy{}, false, application.ErrIdempotencyConflict
+		}
+		var stored domain.AssignmentPolicy
+		if err = json.Unmarshal(storedResponse, &stored); err != nil {
+			return domain.AssignmentPolicy{}, false, err
+		}
+		return stored, true, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return domain.AssignmentPolicy{}, false, err
+	}
+	var existingCommand string
+	err = tx.QueryRow(ctx, `SELECT command_id FROM human_admin_command_dedup WHERE tenant_id=$1 AND command_id=$2`, policy.TenantID, commandID).Scan(&existingCommand)
+	if err == nil {
+		return domain.AssignmentPolicy{}, false, application.ErrIdempotencyConflict
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return domain.AssignmentPolicy{}, false, err
+	}
+	if expectedVersion == 0 {
+		policy.Version = 1
+		err = tx.QueryRow(ctx, `INSERT INTO assignment_policies(tenant_id,policy_ref,workflow_type,workflow_version,node_id,assignee_id,candidate_group,sla_duration_ms,escalation_policy_ref,config_version,version,is_deleted,created_at,created_by,updated_at,updated_by)
+			VALUES($1,$2,$3,$4,$5,NULLIF($6,''),NULLIF($7,''),$8,NULLIF($9,''),$10,1,false,$11,$12,$11,$12)
+			ON CONFLICT DO NOTHING RETURNING version`, policy.TenantID, policy.Reference, policy.WorkflowType, policy.WorkflowVersion, policy.NodeID, policy.Assignment.AssigneeID, policy.Assignment.CandidateGroup, int64(policy.SLADuration/time.Millisecond), policy.EscalationPolicyRef, policy.ConfigVersion, at, actorID).Scan(&policy.Version)
+	} else {
+		err = tx.QueryRow(ctx, `UPDATE assignment_policies SET assignee_id=NULLIF($6,''),candidate_group=NULLIF($7,''),sla_duration_ms=$8,
+			escalation_policy_ref=NULLIF($9,''),config_version=$10,version=version+1,updated_at=$11,updated_by=$12
+			WHERE tenant_id=$1 AND policy_ref=$2 AND workflow_type=$3 AND workflow_version=$4 AND node_id=$5 AND version=$13 AND NOT is_deleted
+			RETURNING version`, policy.TenantID, policy.Reference, policy.WorkflowType, policy.WorkflowVersion, policy.NodeID, policy.Assignment.AssigneeID, policy.Assignment.CandidateGroup, int64(policy.SLADuration/time.Millisecond), policy.EscalationPolicyRef, policy.ConfigVersion, at, actorID, expectedVersion).Scan(&policy.Version)
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.AssignmentPolicy{}, false, application.ErrVersionConflict
+	}
+	if err != nil {
+		return domain.AssignmentPolicy{}, false, err
+	}
+	action := "ASSIGNMENT_POLICY_UPDATED"
+	if expectedVersion == 0 {
+		action = "ASSIGNMENT_POLICY_CREATED"
+	}
+	details := map[string]any{"policy_ref": policy.Reference, "workflow_type": policy.WorkflowType, "workflow_version": policy.WorkflowVersion, "node_id": policy.NodeID, "assignee_id": policy.Assignment.AssigneeID, "candidate_group": policy.Assignment.CandidateGroup, "sla_duration_ms": policy.SLADuration / time.Millisecond, "escalation_policy_ref": policy.EscalationPolicyRef, "config_version": policy.ConfigVersion}
+	if err = appendAudit(ctx, tx, policy.TenantID, "assignment-policy:"+commandID, "", "", actorID, action, at, commandID, correlationID, expectedVersion, policy.Version, details); err != nil {
+		return domain.AssignmentPolicy{}, false, err
+	}
+	response, err := json.Marshal(policy)
+	if err != nil {
+		return domain.AssignmentPolicy{}, false, err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO human_admin_command_dedup(tenant_id,idempotency_key,command_id,payload_digest,response,created_at) VALUES($1,$2,$3,$4,$5,$6)`, policy.TenantID, idempotencyKey, commandID, payloadDigest, response, at)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return domain.AssignmentPolicy{}, false, application.ErrIdempotencyConflict
+		}
+		return domain.AssignmentPolicy{}, false, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return domain.AssignmentPolicy{}, false, err
+	}
+	return policy, false, nil
 }
 
 func (s *Store) updateWorkItem(ctx context.Context, item domain.WorkItem, commandID, correlationID, actorID, action, setSQL string, values ...any) error {
@@ -348,13 +433,13 @@ func (s *Store) transitionPlanItem(ctx context.Context, tenantID, caseID, itemID
 
 const workItemSelect = `SELECT tenant_id,work_item_id,activation_event_id,instance_id,workflow_type,workflow_version,node_id,task_type,
  assignment_policy_ref,COALESCE(assignee_id,''),COALESCE(candidate_group,''),COALESCE(form_key,''),status,COALESCE(decision,''),
- COALESCE(completion_command_id,''),delegation_depth,sla_deadline,COALESCE(escalation_policy_ref,''),version,created_at,updated_at FROM work_items`
+ COALESCE(completion_command_id,''),COALESCE(completion_payload_digest,''),delegation_depth,sla_deadline,COALESCE(escalation_policy_ref,''),version,created_at,updated_at FROM work_items`
 
 type rowScanner interface{ Scan(...any) error }
 
 func scanWorkItem(row rowScanner) (domain.WorkItem, error) {
 	var w domain.WorkItem
-	err := row.Scan(&w.TenantID, &w.ID, &w.ActivationEventID, &w.InstanceID, &w.WorkflowType, &w.WorkflowVersion, &w.NodeID, &w.TaskType, &w.AssignmentPolicyRef, &w.Assignment.AssigneeID, &w.Assignment.CandidateGroup, &w.FormKey, &w.Status, &w.Decision, &w.CompletionCommandID, &w.DelegationDepth, &w.SLADeadline, &w.EscalationPolicyRef, &w.Version, &w.CreatedAt, &w.UpdatedAt)
+	err := row.Scan(&w.TenantID, &w.ID, &w.ActivationEventID, &w.InstanceID, &w.WorkflowType, &w.WorkflowVersion, &w.NodeID, &w.TaskType, &w.AssignmentPolicyRef, &w.Assignment.AssigneeID, &w.Assignment.CandidateGroup, &w.FormKey, &w.Status, &w.Decision, &w.CompletionCommandID, &w.CompletionPayloadDigest, &w.DelegationDepth, &w.SLADeadline, &w.EscalationPolicyRef, &w.Version, &w.CreatedAt, &w.UpdatedAt)
 	return w, err
 }
 

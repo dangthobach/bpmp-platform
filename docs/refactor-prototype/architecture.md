@@ -54,7 +54,7 @@ flowchart TB
 | Engine | Rust engine/server, compiler, RocksDB/Raft | Transition, tokens, idempotency, signed artifacts; không biến runtime events thành SQL source of truth |
 | Human | `apps/go/human-runtime`, work_items/assignment_policies | Worklist/assignment/SLA; projection và command orchestration theo contract hiện tại |
 | Authz / Identity | Rust authz-control-plane + external identity lifecycle | Typed policy publication/revocation; directory facade cho IdP, không tự triển khai password/MFA provider |
-| Authoring | Compiler có, authoring repository/API chưa thấy trong deployable inventory | Draft BPMN/DMN, immutable versions, forms/templates, deployment jobs; tách editor khỏi runtime |
+| Authoring | Authoring Service hiện sở hữu BPMN/DMN drafts, compiler validation, immutable BPMN/DMN source check-in và history/read source; production deployment chưa được xác nhận | Hoàn thiện forms, compare/revert, signed runtime artifact và deployment jobs; tách editor khỏi runtime |
 | Case | Planned trong ADR-011 | Customer/request/business lifecycle, comments, document references, workflow-start saga; không sở hữu task decision |
 | Document | Planned | Upload/object storage, scan, version, access/retention; Case giữ reference, không blob |
 | Integration | Planned | Endpoint/credential refs, probes, callbacks, delivery retries; outbound worker không được quyết định transition |

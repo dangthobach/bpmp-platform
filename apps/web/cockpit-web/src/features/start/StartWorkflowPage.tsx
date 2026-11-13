@@ -10,13 +10,27 @@ export function StartWorkflowPage() {
   const [workflowVersion, setWorkflowVersion] = useState("");
   const [instanceId, setInstanceId] = useState("");
   const [startNodeId, setStartNodeId] = useState("");
+  const [variablesJson, setVariablesJson] = useState("{}");
+  const [variablesError, setVariablesError] = useState("");
   const mutation = useMutation({
-    mutationFn: () => api.startWorkflow({ workflowType, workflowVersion, instanceId, startNodeId }),
+    mutationFn: (variables: Record<string, unknown>) => api.startWorkflow({ workflowType, workflowVersion, instanceId, startNodeId, variables }),
   });
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    mutation.mutate();
+    let variables: unknown;
+    try {
+      variables = JSON.parse(variablesJson);
+    } catch {
+      setVariablesError("Initial variables must be valid JSON.");
+      return;
+    }
+    if (!variables || typeof variables !== "object" || Array.isArray(variables)) {
+      setVariablesError("Initial variables must be a JSON object keyed by variable name.");
+      return;
+    }
+    setVariablesError("");
+    mutation.mutate(variables as Record<string, unknown>);
   }
 
   return (
@@ -46,6 +60,20 @@ export function StartWorkflowPage() {
               <label htmlFor="start-node">Start node ID</label>
               <input id="start-node" value={startNodeId} onChange={(event) => setStartNodeId(event.target.value)} required />
             </div>
+          </div>
+          <div className="field">
+            <label htmlFor="initial-variables">Initial variables (JSON object)</label>
+            <textarea
+              id="initial-variables"
+              value={variablesJson}
+              onChange={(event) => { setVariablesJson(event.target.value); setVariablesError(""); }}
+              rows={8}
+              spellCheck={false}
+              aria-invalid={Boolean(variablesError)}
+              aria-describedby="initial-variables-help"
+            />
+            <span id="initial-variables-help" className="field__hint">Values support strings, integers, booleans and nested lists of these types. Gateway validates variable count, size, names and value types.</span>
+            {variablesError ? <span className="field__hint" role="alert">{variablesError}</span> : null}
           </div>
           <div className="form-actions">
             <Button type="submit" variant="primary" icon={Play} disabled={mutation.isPending}>

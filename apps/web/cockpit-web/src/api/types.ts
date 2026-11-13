@@ -19,10 +19,65 @@ export interface WorkItemPage {
   work_items: WorkItem[];
   next_page_token: string;
 }
+export type WorkItemListScope = "ALL" | "ASSIGNED_TO_ME" | "GROUP_QUEUE";
+
+export interface ProcessModel {
+  id: string; tenant_id: string; model_key: string; name: string; category: string; description: string;
+  status: string; revision: number; latest_version_id: string; created_at_epoch_ms: number;
+  updated_at_epoch_ms: number; is_deleted: boolean; latest_version_source_revision: number;
+}
+export interface CompilerDiagnostic { code: string; severity: string; message: string; element_id: string; line: number; column: number }
+export interface ProcessModelDraft { process_model_id: string; revision: number; base_version_id: string; bpmn_xml: string; validation_status: string; diagnostics: CompilerDiagnostic[]; updated_at_epoch_ms: number }
+export interface ProcessModelPage { models: ProcessModel[]; next_page_token: string }
+export interface ProcessModelDetail { model: ProcessModel; draft: ProcessModelDraft }
+export interface CreateProcessModelInput { model_key: string; name: string; category?: string; description?: string; initial_bpmn_xml: string }
+export interface SaveProcessModelDraftInput { expected_revision: number; base_version_id?: string; bpmn_xml: string }
+export interface ValidateProcessModelDraftInput { expected_revision: number }
+export interface CheckinProcessModelInput { expected_revision: number; revision_digest: string; version_tag: string; summary: string }
+export interface ProcessModelVersion { id: string; tenant_id: string; process_model_id: string; version_num: number; source_revision: number; bpmn_xml: string; content_hash: string; created_by: string; created_at_epoch_ms: number; version_tag: string; summary: string }
+export interface ProcessModelVersionSummary { id: string; tenant_id: string; process_model_id: string; version_num: number; source_revision: number; created_by: string; created_at_epoch_ms: number; version_tag: string; summary: string }
+export interface ProcessModelVersionPage { versions: ProcessModelVersionSummary[]; next_page_token: string }
+export interface DecisionModel { id: string; tenant_id: string; model_key: string; name: string; description: string; status: string; revision: number; latest_version_source_revision: number; created_at_epoch_ms: number; updated_at_epoch_ms: number }
+export interface DecisionModelDraft { decision_model_id: string; revision: number; dmn_xml: string; validation_status: string; diagnostics: CompilerDiagnostic[]; updated_at_epoch_ms: number }
+export interface DecisionModelPage { models: DecisionModel[]; next_page_token: string }
+export interface DecisionModelDetail { model: DecisionModel; draft: DecisionModelDraft }
+export interface CreateDecisionModelInput { model_key: string; name: string; description?: string; initial_dmn_xml: string }
+export interface SaveDecisionModelDraftInput { expected_revision: number; dmn_xml: string }
+export interface CheckinDecisionModelInput { expected_revision: number; revision_digest: string; version_tag: string; summary: string }
+export interface DecisionModelVersion { id: string; tenant_id: string; decision_model_id: string; version_num: number; source_revision: number; dmn_xml: string; content_hash: string; created_by: string; created_at_epoch_ms: number; version_tag: string; summary: string }
+export interface DecisionModelVersionSummary { id: string; tenant_id: string; decision_model_id: string; version_num: number; source_revision: number; created_by: string; created_at_epoch_ms: number; version_tag: string; summary: string }
+export interface DecisionModelVersionPage { versions: DecisionModelVersionSummary[]; next_page_token: string }
+export interface FormDefinition { id:string; tenant_id:string; form_key:string; name:string; revision:number; status:string; latest_version_id:string; updated_at_epoch_ms:number }
+export interface FormDraft { form_id:string; revision:number; schema_json:string; ui_schema_json:string; validation_status:string; diagnostics:CompilerDiagnostic[]; updated_at_epoch_ms:number }
+export interface FormVersion { id:string; tenant_id:string; form_id:string; version_num:number; source_revision:number; schema_json:string; ui_schema_json:string; content_hash:string; created_by:string; created_at_epoch_ms:number; version_tag:string; summary:string }
+export interface FormVersionSummary { id:string; tenant_id:string; form_id:string; version_num:number; source_revision:number; created_by:string; created_at_epoch_ms:number; version_tag:string; summary:string }
+export interface FormPage { forms:FormDefinition[]; next_page_token:string }
+export interface FormDetail { form:FormDefinition; draft:FormDraft }
+export interface PublishedForm { form:FormDefinition; published_version:FormVersion }
+export interface FormVersionPage { versions:FormVersionSummary[]; next_page_token:string }
+export interface CreateFormInput { form_key:string; name:string; schema_json:string; ui_schema_json:string }
+export interface SaveFormDraftInput { expected_revision:number; name:string; schema_json:string; ui_schema_json:string }
+export interface PublishFormInput { expected_revision:number; revision_digest:string; version_tag:string; summary:string }
 
 export interface WorkItemResponse {
   work_item: WorkItem;
 }
+
+export interface AssignmentPolicy {
+  policy_ref: string;
+  workflow_type: string;
+  workflow_version: string;
+  node_id: string;
+  assignee_id: string;
+  candidate_group: string;
+  sla_duration_ms: number;
+  escalation_policy_ref: string;
+  config_version: string;
+  version: number;
+  is_deleted: boolean;
+}
+export interface AssignmentPolicyPage { policies: AssignmentPolicy[]; next_page_token: string }
+export interface UpsertAssignmentPolicyInput extends Omit<AssignmentPolicy, "version" | "is_deleted"> { expected_version: number }
 
 export interface CommandReceipt {
   command_id: string;
@@ -75,12 +130,35 @@ export interface StartWorkflowInput {
   instanceId: string;
   workflowVersion: string;
   startNodeId: string;
+  variables?: Record<string, unknown>;
 }
 
 export interface CompleteWorkItemInput {
   workItemId: string;
   decision: string;
   expectedVersion: number;
+  /** Typed workflow variables; values are booleans, safe integers, strings, or nested lists. */
+  outputs?: Record<string, WorkflowVariableOutput>;
+  formVersionId?: string;
+  idempotencyKey?: string;
+}
+
+export type WorkflowVariableOutput =
+  | boolean
+  | number
+  | string
+  | WorkflowVariableOutput[];
+
+export interface ClaimWorkItemInput {
+  workItemId: string;
+  expectedVersion: number;
+  idempotencyKey?: string;
+}
+
+export interface UnclaimWorkItemInput {
+  workItemId: string;
+  expectedVersion: number;
+  candidateGroup: string;
   idempotencyKey?: string;
 }
 
@@ -178,6 +256,13 @@ export interface AggregateCell { name: string; value?: QueryValue }
 export interface AggregatePage { rows: { dimensions: AggregateCell[]; metrics: AggregateCell[] }[]; policy_version?: string }
 export interface SavedQuery { id: string; name: string; version: number; query: ProcessQueryInput; created_at_epoch_ms: number; updated_at_epoch_ms: number }
 export interface SavedQueryPage { saved_queries: SavedQuery[]; next_page_token: string }
+export interface SavedDashboard { id: string; name: string; version: number; config_json: string; created_at_epoch_ms: number; updated_at_epoch_ms: number }
+export interface SavedDashboardPage { dashboards: SavedDashboard[]; next_page_token: string }
+export interface IdentityUser {
+  user_id: string; username: string; external_id?: string | undefined; is_active: boolean; query_revoked: boolean;
+  attributes_version: number; roles: string[]; version: number; created_at_epoch_ms: number; updated_at_epoch_ms: number;
+}
+export interface IdentityUserPage { users: IdentityUser[]; next_page_token: string }
 export interface QueryExport { id: string; status: "QUERY_EXPORT_STATUS_PENDING" | "QUERY_EXPORT_STATUS_COMPLETED" | "QUERY_EXPORT_STATUS_FAILED" | "QUERY_EXPORT_STATUS_CANCELLED"; row_count?: number; csv?: string; error_code?: string; created_at_epoch_ms: number; expires_at_epoch_ms: number }
 export interface QueryPlan { redacted_plan_json: string; query_fingerprint: string }
 export interface FieldCapability { field: ProcessField; value_kind: string; filterable: boolean; sortable: boolean; selectable: boolean; operators: ComparisonOperator[]; text_transforms?: TextTransform[]; numeric_transforms?: NumericTransform[]; date_transforms?: DateTransform[] }

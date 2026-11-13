@@ -1,16 +1,18 @@
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowLeft, ArrowRight, Braces, ChevronDown, ChevronRight, Filter, GitBranch, ListFilter, Plus,
-  RefreshCw, Search, Trash2,
+  ArrowLeft, ArrowRight, BookmarkPlus, Braces, ChevronDown, ChevronRight, Download, Filter, GitBranch, ListFilter, Plus,
+  Eye, Play, RefreshCw, Search, Trash2, X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useApi } from "../../api/ApiContext";
 import type { CompletedProcessQueryInput, ProcessExpressionInput, ProcessField, ProcessQueryInput, QueryScope } from "../../api/types";
 import { useAuth } from "../../auth/AuthContext";
 import { Button } from "../../components/Button";
+import { Dialog } from "../../components/Dialog";
 import { EmptyState, ErrorState, LoadingRows } from "../../components/Feedback";
 import { IconButton } from "../../components/IconButton";
 import { StatusBadge } from "../../components/StatusBadge";
+import { processQueryFromSearch } from "./deepLink";
 import {
   allowedOperators, browserQueryLimits, compileFieldValue, compileQuery, dateTransforms, eventFields, fieldDefinition,
   newGroup, newPredicate, operatorLabel, processFields, removeNode, updateNode,
@@ -34,20 +36,29 @@ interface ExecutedQuery {
 
 export function ProcessQueryPage() {
   const api = useApi();
+  const queryClient = useQueryClient();
   const { identity } = useAuth();
-  const [root, setRoot] = useState<QueryNode>(() => newGroup("process"));
+  const [initialQuery] = useState(() => processQueryFromSearch(window.location.search));
+  const [root, setRoot] = useState<QueryNode>(initialQuery.root);
   const [sorts, setSorts] = useState<SortDraft[]>([
     { id: crypto.randomUUID(), field: "PROCESS_FIELD_COMPLETED_AT", direction: "SORT_DIRECTION_DESCENDING", textTransform: "TEXT_TRANSFORM_NONE", numericTransform: "NUMERIC_TRANSFORM_NONE", dateTransform: "DATE_TRANSFORM_NONE", coalesceValue: "" },
   ]);
   const [pageSize, setPageSize] = useState(50);
   const [includeDeleted, setIncludeDeleted] = useState(false);
-  const [scope, setScope] = useState<QueryScope>("QUERY_SCOPE_COMPLETED");
+  const [scope, setScope] = useState<QueryScope>(initialQuery.scope);
   const [selectedFields, setSelectedFields] = useState<ProcessField[]>([]);
   const [collapse, setCollapse] = useState<ProcessField | "">("");
   const [expandEventLimit, setExpandEventLimit] = useState(0);
   const [executed, setExecuted] = useState<ExecutedQuery | null>(null);
   const [pageTokens, setPageTokens] = useState<string[]>([""]);
   const [submitErrors, setSubmitErrors] = useState<Record<string, string>>({});
+  const [savedQueryName, setSavedQueryName] = useState("");
+  const [savedPageTokens, setSavedPageTokens] = useState<string[]>([""]);
+  const [exportId, setExportId] = useState("");
+  const [inspectedInstanceId, setInspectedInstanceId] = useState("");
+  const [eventPageTokens, setEventPageTokens] = useState<string[]>([""]);
+  const eventPageToken = eventPageTokens.at(-1) ?? "";
+  const savedPageToken = savedPageTokens.at(-1) ?? "";
   const pageToken = pageTokens.at(-1) ?? "";
   const capabilities = useQuery({
     queryKey: ["process-query-capabilities", identity?.tenantId],
@@ -78,6 +89,48 @@ export function ProcessQueryPage() {
       ...(pageToken ? { page_token: pageToken } : {}),
     }),
     enabled: Boolean(identity && executed),
+    placeholderData: keepPreviousData,
+  });
+  const savedQueries = useQuery({
+    queryKey: ["saved-process-queries", identity?.tenantId, savedPageToken],
+    queryFn: () => api.listSavedQueries(savedPageToken),
+    enabled: Boolean(identity),
+    placeholderData: keepPreviousData,
+  });
+  const saveSavedQuery = useMutation({
+    mutationFn: (input: { id: string; name: string; query: ProcessQueryInput }) => api.saveQuery(input),
+    onSuccess: async () => { setSavedQueryName(""); await queryClient.invalidateQueries({ queryKey: ["saved-process-queries", identity?.tenantId] }); },
+  });
+  const deleteSavedQuery = useMutation({
+    mutationFn: (input: { id: string; version: number }) => api.deleteSavedQuery(input.id, input.version),
+    onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ["saved-process-queries", identity?.tenantId] }); },
+  });
+  const createExport = useMutation({
+    mutationFn: () => {
+      if (!executed) throw new Error("Run a process query before exporting.");
+      return api.createQueryExport(executed.request, 10_000);
+    },
+    onSuccess: (result) => setExportId(result.id),
+  });
+  const exportStatus = useQuery({
+    queryKey: ["process-query-export", identity?.tenantId, exportId],
+    queryFn: () => api.getQueryExport(exportId),
+    enabled: Boolean(identity && exportId),
+    refetchInterval: (current) => current.state.data?.status === "QUERY_EXPORT_STATUS_PENDING" ? 2_000 : false,
+  });
+  const cancelExport = useMutation({
+    mutationFn: () => api.cancelQueryExport(exportId),
+    onSuccess: (result) => { if (result.status === "QUERY_EXPORT_STATUS_CANCELLED") setExportId(""); },
+  });
+  const eventHistory = useQuery({
+    queryKey: ["process-event-history", identity?.tenantId, inspectedInstanceId, eventPageToken],
+    queryFn: () => api.queryEvents({
+      process_filter: { predicate: { field: "PROCESS_FIELD_INSTANCE_ID", operator: "COMPARISON_OPERATOR_EQUAL", values: [{ string_value: inspectedInstanceId }] } },
+      sort: [{ field: "EVENT_FIELD_SEQUENCE", direction: "SORT_DIRECTION_ASCENDING" }],
+      page_size: capabilities.data?.default_page_size ?? 50,
+      ...(eventPageToken ? { page_token: eventPageToken } : {}),
+    }),
+    enabled: Boolean(identity && inspectedInstanceId),
     placeholderData: keepPreviousData,
   });
 
@@ -134,6 +187,8 @@ export function ProcessQueryPage() {
       ...(expandEventLimit ? { expand_events: { limit: expandEventLimit } } : {}),
     };
     setPageTokens([""]);
+    setExportId("");
+    createExport.reset();
     setExecuted({ request, signature: JSON.stringify(request) });
   }
 
@@ -260,6 +315,21 @@ export function ProcessQueryPage() {
         </div>
       </section>
 
+      <section className="table-surface saved-query-manager">
+        <header className="portal-section-heading"><div><h2>Saved queries</h2><p>Saved queries belong to your authenticated actor. Running one submits the stored snapshot to Projection Service.</p></div></header>
+        <form className="header-actions" onSubmit={(event) => { event.preventDefault(); if (!executed || !savedQueryName.trim()) return; saveSavedQuery.mutate({ id: crypto.randomUUID(), name: savedQueryName.trim(), query: executed.request }); }}>
+          <label className="saved-query-manager__name">Name current query<input value={savedQueryName} onChange={(event) => setSavedQueryName(event.target.value)} maxLength={256} placeholder="e.g. Recently completed approvals" disabled={!executed || saveSavedQuery.isPending} /></label>
+          <Button icon={BookmarkPlus} type="submit" disabled={!executed || !savedQueryName.trim() || saveSavedQuery.isPending}>{saveSavedQuery.isPending ? "Saving…" : "Save query"}</Button>
+        </form>
+        {saveSavedQuery.isError ? <p role="alert" className="query-node__error">{saveSavedQuery.error.message}</p> : null}
+        {savedQueries.isPending ? <LoadingRows /> : null}
+        {savedQueries.isError ? <ErrorState message={savedQueries.error.message} retry={() => void savedQueries.refetch()} /> : null}
+        {savedQueries.isSuccess && savedQueries.data.saved_queries.length === 0 ? <EmptyState title="No saved queries" detail="Run a query, give it a name, and save it for reuse." /> : null}
+        {savedQueries.data?.saved_queries.length ? <div className="table-scroll"><table><thead><tr><th>Name</th><th>Scope</th><th>Updated</th><th>Version</th><th>Actions</th></tr></thead><tbody>{savedQueries.data.saved_queries.map((saved) => <tr key={saved.id}><td>{saved.name}</td><td>{saved.query.scope?.replace("QUERY_SCOPE_", "") ?? "—"}</td><td>{new Date(saved.updated_at_epoch_ms).toLocaleString()}</td><td>{saved.version}</td><td className="saved-query-manager__actions"><Button icon={Play} onClick={() => { setPageTokens([""]); setExportId(""); createExport.reset(); setExecuted({ request: saved.query, signature: JSON.stringify(saved.query) }); }}>Run</Button><Button icon={Trash2} disabled={deleteSavedQuery.isPending} onClick={() => deleteSavedQuery.mutate({ id: saved.id, version: saved.version })}>Delete</Button></td></tr>)}</tbody></table></div> : null}
+        {deleteSavedQuery.isError ? <p role="alert" className="query-node__error">{deleteSavedQuery.error.message}</p> : null}
+        {savedQueries.data ? <footer className="pagination"><span>Saved query page {savedPageTokens.length}</span><div><IconButton icon={ArrowLeft} label="Previous saved query page" disabled={savedPageTokens.length === 1 || savedQueries.isFetching} onClick={() => setSavedPageTokens((tokens) => tokens.slice(0, -1))} /><IconButton icon={ArrowRight} label="Next saved query page" disabled={!savedQueries.data.next_page_token || savedQueries.isFetching} onClick={() => { const next = savedQueries.data.next_page_token; if (next) setSavedPageTokens((tokens) => [...tokens, next]); }} /></div></footer> : null}
+      </section>
+
       <section className="table-surface query-results" aria-live="polite">
         <header>
           <div>
@@ -267,8 +337,15 @@ export function ProcessQueryPage() {
             <strong>Results</strong>
             <span>{query.data?.processes.length ?? 0} rows on this page</span>
           </div>
-          <IconButton icon={RefreshCw} label="Refresh query" disabled={!executed || query.isFetching} onClick={() => void query.refetch()} />
+          <div className="header-actions"><Button icon={Download} onClick={() => createExport.mutate()} disabled={!executed || createExport.isPending || Boolean(exportId)}>{createExport.isPending ? "Submitting export…" : "Export query CSV"}</Button><IconButton icon={RefreshCw} label="Refresh query" disabled={!executed || query.isFetching} onClick={() => void query.refetch()} /></div>
         </header>
+        {createExport.isError ? <p role="alert" className="query-node__error">{createExport.error.message}</p> : null}
+        {exportId && exportStatus.isPending ? <LoadingRows /> : null}
+        {exportStatus.isError ? <ErrorState message={exportStatus.error.message} retry={() => void exportStatus.refetch()} /> : null}
+        {exportStatus.data?.status === "QUERY_EXPORT_STATUS_PENDING" ? <div className="inline-notice" role="status">The authorization-checked export is processing.<Button icon={X} onClick={() => cancelExport.mutate()} disabled={cancelExport.isPending}>{cancelExport.isPending ? "Cancelling…" : "Cancel export"}</Button></div> : null}
+        {exportStatus.data?.status === "QUERY_EXPORT_STATUS_COMPLETED" ? <div className="inline-notice" role="status">Export ready · {exportStatus.data.row_count?.toLocaleString() ?? 0} rows · expires {new Date(exportStatus.data.expires_at_epoch_ms).toLocaleString()} <Button icon={Download} onClick={() => downloadQueryCsv(exportStatus.data!.csv, executed?.request.scope)}>Download CSV</Button><Button onClick={() => setExportId("")}>Dismiss</Button></div> : null}
+        {exportStatus.data?.status === "QUERY_EXPORT_STATUS_FAILED" ? <ErrorState message={`Export failed (${exportStatus.data.error_code || "unknown error"})`} retry={() => { setExportId(""); createExport.mutate(); }} /> : null}
+        {cancelExport.isError ? <ErrorState message={cancelExport.error.message} retry={() => cancelExport.mutate()} /> : null}
         {query.isPending && executed ? <LoadingRows /> : null}
         {query.isError ? <ErrorState message={query.error instanceof Error ? query.error.message : "Query failed"} retry={() => void query.refetch()} /> : null}
         {!executed ? <EmptyState title="Query not run" detail="Complete the filter tree, then run the query." /> : null}
@@ -276,7 +353,7 @@ export function ProcessQueryPage() {
         {query.data && query.data.processes.length > 0 ? (
           <div className="table-scroll">
             <table className="process-results-table">
-              <thead><tr><th>Instance</th><th>Workflow</th><th>Status</th><th>Completed</th><th>Duration</th><th>Events</th><th>Initiator</th></tr></thead>
+              <thead><tr><th>Instance</th><th>Workflow</th><th>Status</th><th>Completed</th><th>Duration</th><th>Events</th><th>Initiator</th><th>History</th></tr></thead>
               <tbody>
                 {query.data.processes.map((process) => (
                   <tr key={process.instance.instance_id}>
@@ -287,6 +364,7 @@ export function ProcessQueryPage() {
                     <td>{formatDuration(process.duration_ms)}</td>
                     <td>{display(process.event_count)}</td>
                     <td>{display(process.instance.initiator_actor_id)}</td>
+                    <td><Button icon={Eye} onClick={() => { setEventPageTokens([""]); setInspectedInstanceId(process.instance.instance_id); }}>View events</Button></td>
                   </tr>
                 ))}
               </tbody>
@@ -306,6 +384,20 @@ export function ProcessQueryPage() {
           </footer>
         ) : null}
       </section>
+      <Dialog
+        open={Boolean(inspectedInstanceId)}
+        title="Process event history"
+        description={`Authorized events for instance ${inspectedInstanceId}`}
+        onClose={() => setInspectedInstanceId("")}
+        size="wide"
+      >
+        {eventHistory.isPending ? <LoadingRows /> : null}
+        {eventHistory.isError ? <ErrorState message={eventHistory.error.message} retry={() => void eventHistory.refetch()} /> : null}
+        {eventHistory.isSuccess && eventHistory.data.events.length === 0 ? <EmptyState title="No events available" detail="No authorized events were returned for this process instance." /> : null}
+        {eventHistory.data?.events.length ? <div className="table-scroll"><table><thead><tr><th>Sequence</th><th>Occurred</th><th>Event</th><th>Node</th><th>Actor</th><th>Config</th><th>Policy</th></tr></thead><tbody>{eventHistory.data.events.map((event, index) => <tr key={`${event.instance_id ?? inspectedInstanceId}:${event.sequence ?? index}`}><td>{display(event.sequence)}</td><td>{formatTimestamp(event.occurred_at_epoch_ms)}</td><td>{display(event.event_type)}</td><td>{display(event.node_id)}</td><td>{display(event.actor_id)}</td><td>{display(event.config_version)}</td><td>{display(event.policy_version)}</td></tr>)}</tbody></table></div> : null}
+        {eventHistory.data ? <footer className="pagination"><span>Event page {eventPageTokens.length}</span><div><IconButton icon={ArrowLeft} label="Previous event page" disabled={eventPageTokens.length === 1 || eventHistory.isFetching} onClick={() => setEventPageTokens((tokens) => tokens.slice(0, -1))} /><IconButton icon={ArrowRight} label="Next event page" disabled={!eventHistory.data.next_page_token || eventHistory.isFetching} onClick={() => { const next = eventHistory.data.next_page_token; if (next) setEventPageTokens((tokens) => [...tokens, next]); }} /></div></footer> : null}
+        <p className="query-policy-note">Projection Service reapplies tenant row and field authorization to this event query; masked fields are shown as “Masked”.</p>
+      </Dialog>
     </>
   );
 }
@@ -483,6 +575,16 @@ function appendChild(group: GroupNode, child: QueryNode, onChange: (id: string, 
 
 function display(value: string | number | undefined): string {
   return value === undefined || value === "" ? "Masked" : String(value);
+}
+
+function downloadQueryCsv(csv: string | undefined, scope: QueryScope | undefined): void {
+  if (csv === undefined) return;
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `bpmp-process-query-${(scope ?? "export").replace("QUERY_SCOPE_", "").toLowerCase()}.csv`;
+  anchor.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function formatTimestamp(value: number | undefined): string {

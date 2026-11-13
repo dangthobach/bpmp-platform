@@ -19,13 +19,15 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	HumanRuntimeService_GetWorkItem_FullMethodName          = "/bpmp.human.v1.HumanRuntimeService/GetWorkItem"
-	HumanRuntimeService_ListWorkItems_FullMethodName        = "/bpmp.human.v1.HumanRuntimeService/ListWorkItems"
-	HumanRuntimeService_CompleteWorkItem_FullMethodName     = "/bpmp.human.v1.HumanRuntimeService/CompleteWorkItem"
-	HumanRuntimeService_DelegateWorkItem_FullMethodName     = "/bpmp.human.v1.HumanRuntimeService/DelegateWorkItem"
-	HumanRuntimeService_GetCase_FullMethodName              = "/bpmp.human.v1.HumanRuntimeService/GetCase"
-	HumanRuntimeService_ListAuditRecords_FullMethodName     = "/bpmp.human.v1.HumanRuntimeService/ListAuditRecords"
-	HumanRuntimeService_ListAssignmentGroups_FullMethodName = "/bpmp.human.v1.HumanRuntimeService/ListAssignmentGroups"
+	HumanRuntimeService_GetWorkItem_FullMethodName            = "/bpmp.human.v1.HumanRuntimeService/GetWorkItem"
+	HumanRuntimeService_ListWorkItems_FullMethodName          = "/bpmp.human.v1.HumanRuntimeService/ListWorkItems"
+	HumanRuntimeService_CompleteWorkItem_FullMethodName       = "/bpmp.human.v1.HumanRuntimeService/CompleteWorkItem"
+	HumanRuntimeService_DelegateWorkItem_FullMethodName       = "/bpmp.human.v1.HumanRuntimeService/DelegateWorkItem"
+	HumanRuntimeService_GetCase_FullMethodName                = "/bpmp.human.v1.HumanRuntimeService/GetCase"
+	HumanRuntimeService_ListAuditRecords_FullMethodName       = "/bpmp.human.v1.HumanRuntimeService/ListAuditRecords"
+	HumanRuntimeService_ListAssignmentGroups_FullMethodName   = "/bpmp.human.v1.HumanRuntimeService/ListAssignmentGroups"
+	HumanRuntimeService_ListAssignmentPolicies_FullMethodName = "/bpmp.human.v1.HumanRuntimeService/ListAssignmentPolicies"
+	HumanRuntimeService_UpsertAssignmentPolicy_FullMethodName = "/bpmp.human.v1.HumanRuntimeService/UpsertAssignmentPolicy"
 )
 
 // HumanRuntimeServiceClient is the client API for HumanRuntimeService service.
@@ -39,6 +41,8 @@ type HumanRuntimeServiceClient interface {
 	GetCase(ctx context.Context, in *GetCaseRequest, opts ...grpc.CallOption) (*GetCaseResponse, error)
 	ListAuditRecords(ctx context.Context, in *ListAuditRecordsRequest, opts ...grpc.CallOption) (*ListAuditRecordsResponse, error)
 	ListAssignmentGroups(ctx context.Context, in *ListAssignmentGroupsRequest, opts ...grpc.CallOption) (*ListAssignmentGroupsResponse, error)
+	ListAssignmentPolicies(ctx context.Context, in *ListAssignmentPoliciesRequest, opts ...grpc.CallOption) (*ListAssignmentPoliciesResponse, error)
+	UpsertAssignmentPolicy(ctx context.Context, in *UpsertAssignmentPolicyRequest, opts ...grpc.CallOption) (*UpsertAssignmentPolicyResponse, error)
 }
 
 type humanRuntimeServiceClient struct {
@@ -119,6 +123,26 @@ func (c *humanRuntimeServiceClient) ListAssignmentGroups(ctx context.Context, in
 	return out, nil
 }
 
+func (c *humanRuntimeServiceClient) ListAssignmentPolicies(ctx context.Context, in *ListAssignmentPoliciesRequest, opts ...grpc.CallOption) (*ListAssignmentPoliciesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListAssignmentPoliciesResponse)
+	err := c.cc.Invoke(ctx, HumanRuntimeService_ListAssignmentPolicies_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *humanRuntimeServiceClient) UpsertAssignmentPolicy(ctx context.Context, in *UpsertAssignmentPolicyRequest, opts ...grpc.CallOption) (*UpsertAssignmentPolicyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpsertAssignmentPolicyResponse)
+	err := c.cc.Invoke(ctx, HumanRuntimeService_UpsertAssignmentPolicy_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // HumanRuntimeServiceServer is the server API for HumanRuntimeService service.
 // All implementations must embed UnimplementedHumanRuntimeServiceServer
 // for forward compatibility.
@@ -130,6 +154,8 @@ type HumanRuntimeServiceServer interface {
 	GetCase(context.Context, *GetCaseRequest) (*GetCaseResponse, error)
 	ListAuditRecords(context.Context, *ListAuditRecordsRequest) (*ListAuditRecordsResponse, error)
 	ListAssignmentGroups(context.Context, *ListAssignmentGroupsRequest) (*ListAssignmentGroupsResponse, error)
+	ListAssignmentPolicies(context.Context, *ListAssignmentPoliciesRequest) (*ListAssignmentPoliciesResponse, error)
+	UpsertAssignmentPolicy(context.Context, *UpsertAssignmentPolicyRequest) (*UpsertAssignmentPolicyResponse, error)
 	mustEmbedUnimplementedHumanRuntimeServiceServer()
 }
 
@@ -160,6 +186,12 @@ func (UnimplementedHumanRuntimeServiceServer) ListAuditRecords(context.Context, 
 }
 func (UnimplementedHumanRuntimeServiceServer) ListAssignmentGroups(context.Context, *ListAssignmentGroupsRequest) (*ListAssignmentGroupsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListAssignmentGroups not implemented")
+}
+func (UnimplementedHumanRuntimeServiceServer) ListAssignmentPolicies(context.Context, *ListAssignmentPoliciesRequest) (*ListAssignmentPoliciesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListAssignmentPolicies not implemented")
+}
+func (UnimplementedHumanRuntimeServiceServer) UpsertAssignmentPolicy(context.Context, *UpsertAssignmentPolicyRequest) (*UpsertAssignmentPolicyResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpsertAssignmentPolicy not implemented")
 }
 func (UnimplementedHumanRuntimeServiceServer) mustEmbedUnimplementedHumanRuntimeServiceServer() {}
 func (UnimplementedHumanRuntimeServiceServer) testEmbeddedByValue()                             {}
@@ -308,6 +340,42 @@ func _HumanRuntimeService_ListAssignmentGroups_Handler(srv interface{}, ctx cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _HumanRuntimeService_ListAssignmentPolicies_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListAssignmentPoliciesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HumanRuntimeServiceServer).ListAssignmentPolicies(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HumanRuntimeService_ListAssignmentPolicies_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HumanRuntimeServiceServer).ListAssignmentPolicies(ctx, req.(*ListAssignmentPoliciesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _HumanRuntimeService_UpsertAssignmentPolicy_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpsertAssignmentPolicyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HumanRuntimeServiceServer).UpsertAssignmentPolicy(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HumanRuntimeService_UpsertAssignmentPolicy_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HumanRuntimeServiceServer).UpsertAssignmentPolicy(ctx, req.(*UpsertAssignmentPolicyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // HumanRuntimeService_ServiceDesc is the grpc.ServiceDesc for HumanRuntimeService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -342,6 +410,14 @@ var HumanRuntimeService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListAssignmentGroups",
 			Handler:    _HumanRuntimeService_ListAssignmentGroups_Handler,
+		},
+		{
+			MethodName: "ListAssignmentPolicies",
+			Handler:    _HumanRuntimeService_ListAssignmentPolicies_Handler,
+		},
+		{
+			MethodName: "UpsertAssignmentPolicy",
+			Handler:    _HumanRuntimeService_UpsertAssignmentPolicy_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

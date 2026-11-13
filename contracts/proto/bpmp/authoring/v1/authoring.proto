@@ -1,0 +1,228 @@
+syntax = "proto3";
+
+package bpmp.authoring.v1;
+
+import "bpmp/authorization/v1/authorization.proto";
+
+// Authoring owns tenant-scoped process definitions and mutable drafts. It does
+// not own Engine runtime state or deployment activation.
+service AuthoringService {
+  rpc ListProcessModels(ListProcessModelsRequest) returns (ListProcessModelsResponse);
+  rpc CreateProcessModel(CreateProcessModelRequest) returns (CreateProcessModelResponse);
+  rpc GetProcessModel(GetProcessModelRequest) returns (GetProcessModelResponse);
+  rpc SaveProcessModelDraft(SaveProcessModelDraftRequest) returns (SaveProcessModelDraftResponse);
+  rpc ValidateProcessModelDraft(ValidateProcessModelDraftRequest) returns (ValidateProcessModelDraftResponse);
+  rpc CheckinProcessModel(CheckinProcessModelRequest) returns (CheckinProcessModelResponse);
+  rpc ListProcessModelVersions(ListProcessModelVersionsRequest) returns (ListProcessModelVersionsResponse);
+  rpc GetProcessModelVersion(GetProcessModelVersionRequest) returns (GetProcessModelVersionResponse);
+  rpc ListDecisionModels(ListDecisionModelsRequest) returns (ListDecisionModelsResponse);
+  rpc CreateDecisionModel(CreateDecisionModelRequest) returns (CreateDecisionModelResponse);
+  rpc GetDecisionModel(GetDecisionModelRequest) returns (GetDecisionModelResponse);
+  rpc SaveDecisionModelDraft(SaveDecisionModelDraftRequest) returns (SaveDecisionModelDraftResponse);
+  rpc ValidateDecisionModelDraft(ValidateDecisionModelDraftRequest) returns (ValidateDecisionModelDraftResponse);
+  rpc CheckinDecisionModel(CheckinDecisionModelRequest) returns (CheckinDecisionModelResponse);
+  rpc ListDecisionModelVersions(ListDecisionModelVersionsRequest) returns (ListDecisionModelVersionsResponse);
+  rpc GetDecisionModelVersion(GetDecisionModelVersionRequest) returns (GetDecisionModelVersionResponse);
+  rpc ListForms(ListFormsRequest) returns (ListFormsResponse);
+  rpc CreateForm(CreateFormRequest) returns (CreateFormResponse);
+  rpc GetForm(GetFormRequest) returns (GetFormResponse);
+  rpc GetFormByKey(GetFormByKeyRequest) returns (GetFormByKeyResponse);
+  rpc SaveFormDraft(SaveFormDraftRequest) returns (SaveFormDraftResponse);
+  rpc ValidateFormDraft(ValidateFormDraftRequest) returns (ValidateFormDraftResponse);
+  rpc PublishForm(PublishFormRequest) returns (PublishFormResponse);
+  rpc ListFormVersions(ListFormVersionsRequest) returns (ListFormVersionsResponse);
+  rpc GetFormVersion(GetFormVersionRequest) returns (GetFormVersionResponse);
+}
+
+message ListFormsRequest { string tenant_id = 1; bpmp.authorization.v1.ActorProof actor_proof = 2; string page_token = 3; uint32 page_size = 4; string search = 5; }
+message ListFormsResponse { repeated FormDefinition forms = 1; string next_page_token = 2; }
+message CreateFormRequest { string tenant_id = 1; string command_id = 2; string idempotency_key = 3; string correlation_id = 4; bpmp.authorization.v1.ActorProof actor_proof = 5; string form_key = 6; string name = 7; string schema_json = 8; string ui_schema_json = 9; }
+message CreateFormResponse { FormDefinition form = 1; FormDraft draft = 2; bool replayed = 3; }
+message GetFormRequest { string tenant_id = 1; string form_id = 2; bpmp.authorization.v1.ActorProof actor_proof = 3; }
+message GetFormResponse { FormDefinition form = 1; FormDraft draft = 2; }
+message GetFormByKeyRequest { string tenant_id = 1; string form_key = 2; bpmp.authorization.v1.ActorProof actor_proof = 3; }
+message GetFormByKeyResponse { FormDefinition form = 1; FormVersion published_version = 2; }
+message SaveFormDraftRequest { string tenant_id = 1; string form_id = 2; string command_id = 3; string idempotency_key = 4; string correlation_id = 5; bpmp.authorization.v1.ActorProof actor_proof = 6; int64 expected_revision = 7; string name = 8; string schema_json = 9; string ui_schema_json = 10; }
+message SaveFormDraftResponse { FormDraft draft = 1; bool replayed = 2; }
+message ValidateFormDraftRequest { string tenant_id = 1; string form_id = 2; bpmp.authorization.v1.ActorProof actor_proof = 3; int64 expected_revision = 4; string command_id = 5; string idempotency_key = 6; string correlation_id = 7; }
+message ValidateFormDraftResponse { string form_id = 1; int64 revision = 2; bool valid = 3; repeated CompilerDiagnostic diagnostics = 4; }
+message PublishFormRequest { string tenant_id = 1; string form_id = 2; string command_id = 3; string idempotency_key = 4; string correlation_id = 5; bpmp.authorization.v1.ActorProof actor_proof = 6; int64 expected_revision = 7; string revision_digest = 8; string version_tag = 9; string summary = 10; }
+message PublishFormResponse { FormVersion version = 1; bool replayed = 2; }
+message ListFormVersionsRequest { string tenant_id = 1; string form_id = 2; bpmp.authorization.v1.ActorProof actor_proof = 3; string page_token = 4; uint32 page_size = 5; }
+message ListFormVersionsResponse { repeated FormVersionSummary versions = 1; string next_page_token = 2; }
+message GetFormVersionRequest { string tenant_id = 1; string form_id = 2; string version_id = 3; bpmp.authorization.v1.ActorProof actor_proof = 4; }
+message GetFormVersionResponse { FormVersion version = 1; }
+message FormDefinition { string id = 1; string tenant_id = 2; string form_key = 3; string name = 4; int64 revision = 5; string status = 6; string latest_version_id = 7; uint64 updated_at_epoch_ms = 8; }
+message FormDraft { string form_id = 1; int64 revision = 2; string schema_json = 3; string ui_schema_json = 4; string validation_status = 5; repeated CompilerDiagnostic diagnostics = 6; uint64 updated_at_epoch_ms = 7; }
+message FormVersion { string id = 1; string tenant_id = 2; string form_id = 3; uint64 version_num = 4; int64 source_revision = 5; string schema_json = 6; string ui_schema_json = 7; bytes content_hash = 8; string created_by = 9; uint64 created_at_epoch_ms = 10; string version_tag = 11; string summary = 12; }
+message FormVersionSummary { string id = 1; string tenant_id = 2; string form_id = 3; uint64 version_num = 4; int64 source_revision = 5; string created_by = 6; uint64 created_at_epoch_ms = 7; string version_tag = 8; string summary = 9; }
+
+message ListDecisionModelsRequest { string tenant_id = 1; bpmp.authorization.v1.ActorProof actor_proof = 2; string page_token = 3; uint32 page_size = 4; string search = 5; }
+message ListDecisionModelsResponse { repeated DecisionModel models = 1; string next_page_token = 2; }
+message CreateDecisionModelRequest { string tenant_id = 1; string command_id = 2; string idempotency_key = 3; string correlation_id = 4; bpmp.authorization.v1.ActorProof actor_proof = 5; string model_key = 6; string name = 7; string description = 8; string initial_dmn_xml = 9; }
+message GetDecisionModelRequest { string tenant_id = 1; string decision_model_id = 2; bpmp.authorization.v1.ActorProof actor_proof = 3; }
+message SaveDecisionModelDraftRequest { string tenant_id = 1; string decision_model_id = 2; string command_id = 3; string idempotency_key = 4; string correlation_id = 5; bpmp.authorization.v1.ActorProof actor_proof = 6; int64 expected_revision = 7; string dmn_xml = 8; }
+message ValidateDecisionModelDraftRequest { string tenant_id = 1; string decision_model_id = 2; bpmp.authorization.v1.ActorProof actor_proof = 3; int64 expected_revision = 4; string command_id = 5; string idempotency_key = 6; string correlation_id = 7; }
+message CreateDecisionModelResponse { DecisionModel model = 1; DecisionModelDraft draft = 2; }
+message GetDecisionModelResponse { DecisionModel model = 1; DecisionModelDraft draft = 2; }
+message SaveDecisionModelDraftResponse { DecisionModelDraft draft = 1; bool replayed = 2; }
+message ValidateDecisionModelDraftResponse { string decision_model_id = 1; int64 revision = 2; bool valid = 3; repeated CompilerDiagnostic diagnostics = 4; }
+message DecisionModel { string id = 1; string tenant_id = 2; string model_key = 3; string name = 4; string description = 5; string status = 6; int64 revision = 7; uint64 created_at_epoch_ms = 8; uint64 updated_at_epoch_ms = 9; int64 latest_version_source_revision = 10; }
+message DecisionModelDraft { string decision_model_id = 1; int64 revision = 2; string dmn_xml = 3; string validation_status = 4; repeated CompilerDiagnostic diagnostics = 5; uint64 updated_at_epoch_ms = 6; }
+message CheckinDecisionModelRequest { string tenant_id = 1; string decision_model_id = 2; string command_id = 3; string idempotency_key = 4; string correlation_id = 5; bpmp.authorization.v1.ActorProof actor_proof = 6; int64 expected_revision = 7; string revision_digest = 8; string version_tag = 9; string summary = 10; }
+message CheckinDecisionModelResponse { DecisionModelVersion version = 1; bool replayed = 2; }
+message DecisionModelVersion { string id = 1; string tenant_id = 2; string decision_model_id = 3; uint64 version_num = 4; int64 source_revision = 5; string dmn_xml = 6; bytes content_hash = 7; string created_by = 8; uint64 created_at_epoch_ms = 9; string version_tag = 10; string summary = 11; }
+message ListDecisionModelVersionsRequest { string tenant_id = 1; string decision_model_id = 2; bpmp.authorization.v1.ActorProof actor_proof = 3; string page_token = 4; uint32 page_size = 5; }
+message ListDecisionModelVersionsResponse { repeated DecisionModelVersionSummary versions = 1; string next_page_token = 2; }
+message GetDecisionModelVersionRequest { string tenant_id = 1; string decision_model_id = 2; string version_id = 3; bpmp.authorization.v1.ActorProof actor_proof = 4; }
+message GetDecisionModelVersionResponse { DecisionModelVersion version = 1; }
+message DecisionModelVersionSummary { string id = 1; string tenant_id = 2; string decision_model_id = 3; uint64 version_num = 4; int64 source_revision = 5; string created_by = 6; uint64 created_at_epoch_ms = 7; string version_tag = 8; string summary = 9; }
+
+message ListProcessModelsRequest {
+  string tenant_id = 1;
+  bpmp.authorization.v1.ActorProof actor_proof = 2;
+  string page_token = 3;
+  uint32 page_size = 4;
+  string search = 5;
+}
+
+message ListProcessModelsResponse {
+  repeated ProcessModel models = 1;
+  string next_page_token = 2;
+}
+
+message CreateProcessModelRequest {
+  string tenant_id = 1;
+  string command_id = 2;
+  string idempotency_key = 3;
+  string correlation_id = 4;
+  bpmp.authorization.v1.ActorProof actor_proof = 5;
+  string model_key = 6;
+  string name = 7;
+  string category = 8;
+  string description = 9;
+  string initial_bpmn_xml = 10;
+}
+
+message GetProcessModelRequest {
+  string tenant_id = 1;
+  string process_model_id = 2;
+  bpmp.authorization.v1.ActorProof actor_proof = 3;
+}
+
+message SaveProcessModelDraftRequest {
+  string tenant_id = 1;
+  string process_model_id = 2;
+  string command_id = 3;
+  string idempotency_key = 4;
+  string correlation_id = 5;
+  bpmp.authorization.v1.ActorProof actor_proof = 6;
+  int64 expected_revision = 7;
+  string base_version_id = 8;
+  string bpmn_xml = 9;
+}
+
+message ValidateProcessModelDraftRequest {
+  string tenant_id = 1;
+  string process_model_id = 2;
+  bpmp.authorization.v1.ActorProof actor_proof = 3;
+  int64 expected_revision = 4;
+  string command_id = 5;
+  string idempotency_key = 6;
+  string correlation_id = 7;
+}
+
+message CheckinProcessModelRequest {
+  string tenant_id = 1;
+  string process_model_id = 2;
+  string command_id = 3;
+  string idempotency_key = 4;
+  string correlation_id = 5;
+  bpmp.authorization.v1.ActorProof actor_proof = 6;
+  int64 expected_revision = 7;
+  string revision_digest = 8;
+  string version_tag = 9;
+  string summary = 10;
+}
+
+message CreateProcessModelResponse {
+  ProcessModel model = 1;
+  ProcessModelDraft draft = 2;
+}
+
+message GetProcessModelResponse {
+  ProcessModel model = 1;
+  ProcessModelDraft draft = 2;
+}
+
+message SaveProcessModelDraftResponse {
+  ProcessModelDraft draft = 1;
+  bool replayed = 2;
+}
+
+message ValidateProcessModelDraftResponse {
+  string process_model_id = 1;
+  int64 revision = 2;
+  bool valid = 3;
+  repeated CompilerDiagnostic diagnostics = 4;
+}
+
+message CheckinProcessModelResponse {
+  ProcessModelVersion version = 1;
+  bool replayed = 2;
+}
+
+message ProcessModel {
+  string id = 1;
+  string tenant_id = 2;
+  string model_key = 3;
+  string name = 4;
+  string category = 5;
+  string description = 6;
+  string status = 7;
+  int64 revision = 8;
+  string latest_version_id = 9;
+  uint64 created_at_epoch_ms = 10;
+  uint64 updated_at_epoch_ms = 11;
+  bool is_deleted = 12;
+  int64 latest_version_source_revision = 13;
+}
+
+message ProcessModelDraft {
+  string process_model_id = 1;
+  int64 revision = 2;
+  string base_version_id = 3;
+  string bpmn_xml = 4;
+  string validation_status = 5;
+  repeated CompilerDiagnostic diagnostics = 6;
+  uint64 updated_at_epoch_ms = 7;
+}
+
+message ProcessModelVersion {
+  string id = 1;
+  string tenant_id = 2;
+  string process_model_id = 3;
+  uint64 version_num = 4;
+  int64 source_revision = 5;
+  string bpmn_xml = 6;
+  bytes content_hash = 7;
+  string created_by = 8;
+  uint64 created_at_epoch_ms = 9;
+  string version_tag = 10;
+  string summary = 11;
+}
+
+message ListProcessModelVersionsRequest { string tenant_id = 1; string process_model_id = 2; bpmp.authorization.v1.ActorProof actor_proof = 3; string page_token = 4; uint32 page_size = 5; }
+message ListProcessModelVersionsResponse { repeated ProcessModelVersionSummary versions = 1; string next_page_token = 2; }
+message GetProcessModelVersionRequest { string tenant_id = 1; string process_model_id = 2; string version_id = 3; bpmp.authorization.v1.ActorProof actor_proof = 4; }
+message GetProcessModelVersionResponse { ProcessModelVersion version = 1; }
+message ProcessModelVersionSummary { string id = 1; string tenant_id = 2; string process_model_id = 3; uint64 version_num = 4; int64 source_revision = 5; string created_by = 6; uint64 created_at_epoch_ms = 7; string version_tag = 8; string summary = 9; }
+
+message CompilerDiagnostic {
+  string code = 1;
+  string severity = 2;
+  string message = 3;
+  string element_id = 4;
+  uint64 line = 5;
+  uint64 column = 6;
+}

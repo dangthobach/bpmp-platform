@@ -23,15 +23,25 @@ import type {
   CaseResponse,
   CommandReceipt,
   CompleteWorkItemInput,
+  ClaimWorkItemInput,
   DelegateWorkItemInput,
+  UnclaimWorkItemInput,
   StartWorkflowInput,
   WorkItemPage,
+  WorkItemListScope,
   WorkItemResponse,
+  ProcessModelPage, ProcessModelDetail, ProcessModelDraft, CreateProcessModelInput,
+  SaveProcessModelDraftInput, ValidateProcessModelDraftInput, CheckinProcessModelInput, ProcessModelVersion, ProcessModelVersionPage, CompilerDiagnostic,
+  DecisionModelPage, DecisionModelDetail, DecisionModelDraft, CreateDecisionModelInput, SaveDecisionModelDraftInput, CheckinDecisionModelInput, DecisionModelVersion, DecisionModelVersionPage,
+  FormPage, FormDefinition, FormDraft, FormDetail, PublishedForm, FormVersion, FormVersionPage, CreateFormInput, SaveFormDraftInput, PublishFormInput,
   CompletedProcessPage,
   CompletedProcessQueryInput,
   ProcessQueryInput,
   QueryCapabilities,
-  AggregateQueryInput, AggregatePage, EventQueryInput, EventPage, SavedQuery, SavedQueryPage, QueryExport, QueryPlan,
+  AssignmentPolicyPage,
+  UpsertAssignmentPolicyInput,
+  IdentityUserPage,
+  AggregateQueryInput, AggregatePage, EventQueryInput, EventPage, SavedQuery, SavedQueryPage, SavedDashboard, SavedDashboardPage, QueryExport, QueryPlan,
 } from "./types";
 import {
   authorizationCatalogEntrySchema,
@@ -78,6 +88,40 @@ const workflowInstanceSchema = z.object({
   config_version: z.string().optional(), policy_version: z.string().optional(), initiator_actor_id: z.string().optional(),
   is_deleted: z.boolean().optional(), version: z.number().int().nonnegative().optional(),
 });
+const assignmentPolicySchema = z.object({
+  policy_ref: z.string().min(1), workflow_type: z.string().min(1), workflow_version: z.string().min(1),
+  node_id: z.string().min(1), assignee_id: z.string().optional().default(""), candidate_group: z.string().optional().default(""),
+  sla_duration_ms: z.number().int().nonnegative().optional().default(0), escalation_policy_ref: z.string().optional().default(""),
+  config_version: z.string().min(1), version: z.number().int().positive(), is_deleted: z.boolean().optional().default(false),
+});
+const processModelSchema = z.object({
+  id: z.string().uuid(), tenant_id: z.string().uuid(), model_key: z.string(), name: z.string(),
+  category: z.string().optional().default(""), description: z.string().optional().default(""), status: z.string(),
+  revision: z.number().int().positive(), latest_version_id: z.string().optional().default(""),
+  latest_version_source_revision: z.number().int().nonnegative().optional().default(0),
+  created_at_epoch_ms: z.number().int().nonnegative(), updated_at_epoch_ms: z.number().int().nonnegative(), is_deleted: z.boolean().optional().default(false),
+});
+const compilerDiagnosticSchema = z.object({code:z.string(),severity:z.string(),message:z.string(),element_id:z.string().optional().default(""),line:z.number().int().nonnegative().optional().default(0),column:z.number().int().nonnegative().optional().default(0)});
+const processModelDraftSchema = z.object({process_model_id:z.string().uuid(),revision:z.number().int().positive(),base_version_id:z.string().optional().default(""),bpmn_xml:z.string(),validation_status:z.string(),diagnostics:z.array(compilerDiagnosticSchema).default([]),updated_at_epoch_ms:z.number().int().nonnegative()});
+const processModelPageSchema = z.object({models:z.array(processModelSchema).default([]),next_page_token:z.string().optional().default("")});
+const processModelDetailSchema = z.object({model:processModelSchema,draft:processModelDraftSchema});
+const processVersionSummarySchema=z.object({id:z.string().uuid(),tenant_id:z.string().uuid(),process_model_id:z.string().uuid(),version_num:z.number().int().positive(),source_revision:z.number().int().positive(),created_by:z.string().uuid(),created_at_epoch_ms:z.number().int().nonnegative(),version_tag:z.string(),summary:z.string()});
+const processVersionSchema=processVersionSummarySchema.extend({bpmn_xml:z.string(),content_hash:z.string()});
+const processVersionPageSchema=z.object({versions:z.array(processVersionSummarySchema).default([]),next_page_token:z.string().optional().default("")});
+const decisionModelSchema=z.object({id:z.string().uuid(),tenant_id:z.string().uuid(),model_key:z.string(),name:z.string(),description:z.string().optional().default(""),status:z.string(),revision:z.number().int().positive(),latest_version_source_revision:z.number().int().nonnegative().optional().default(0),created_at_epoch_ms:z.number().int().nonnegative(),updated_at_epoch_ms:z.number().int().nonnegative()});
+const decisionModelDraftSchema=z.object({decision_model_id:z.string().uuid(),revision:z.number().int().positive(),dmn_xml:z.string(),validation_status:z.string(),diagnostics:z.array(compilerDiagnosticSchema).default([]),updated_at_epoch_ms:z.number().int().nonnegative()});
+const decisionModelDetailSchema=z.object({model:decisionModelSchema,draft:decisionModelDraftSchema});
+const decisionVersionSummarySchema=z.object({id:z.string().uuid(),tenant_id:z.string().uuid(),decision_model_id:z.string().uuid(),version_num:z.number().int().positive(),source_revision:z.number().int().positive(),created_by:z.string().uuid(),created_at_epoch_ms:z.number().int().nonnegative(),version_tag:z.string(),summary:z.string()});
+const decisionVersionSchema=decisionVersionSummarySchema.extend({dmn_xml:z.string(),content_hash:z.string()});
+const decisionVersionPageSchema=z.object({versions:z.array(decisionVersionSummarySchema).default([]),next_page_token:z.string().optional().default("")});
+const formDefinitionSchema=z.object({id:z.string().uuid(),tenant_id:z.string().uuid(),form_key:z.string(),name:z.string(),revision:z.number().int().positive(),status:z.string(),latest_version_id:z.string().optional().default(""),updated_at_epoch_ms:z.number().int().nonnegative()});
+const formDraftSchema=z.object({form_id:z.string().uuid(),revision:z.number().int().positive(),schema_json:z.string(),ui_schema_json:z.string().optional().default("{}"),validation_status:z.string(),diagnostics:z.array(compilerDiagnosticSchema).default([]),updated_at_epoch_ms:z.number().int().nonnegative()});
+const formVersionSummarySchema=z.object({id:z.string().uuid(),tenant_id:z.string().uuid(),form_id:z.string().uuid(),version_num:z.number().int().positive(),source_revision:z.number().int().positive(),created_by:z.string().uuid(),created_at_epoch_ms:z.number().int().nonnegative(),version_tag:z.string(),summary:z.string()});
+const formVersionSchema=formVersionSummarySchema.extend({schema_json:z.string(),ui_schema_json:z.string().optional().default("{}"),content_hash:z.string()});
+const formPageSchema=z.object({forms:z.array(formDefinitionSchema).default([]),next_page_token:z.string().optional().default("")});
+const formDetailSchema=z.object({form:formDefinitionSchema,draft:formDraftSchema});
+const publishedFormSchema=z.object({form:formDefinitionSchema,published_version:formVersionSchema});
+const formVersionPageSchema=z.object({versions:z.array(formVersionSummarySchema).default([]),next_page_token:z.string().optional().default("")});
 const processFieldSchema = z.enum([
   "PROCESS_FIELD_INSTANCE_ID", "PROCESS_FIELD_WORKFLOW_TYPE", "PROCESS_FIELD_WORKFLOW_VERSION", "PROCESS_FIELD_STATUS",
   "PROCESS_FIELD_ACTIVE_NODE_ID", "PROCESS_FIELD_LAST_EVENT_SEQUENCE", "PROCESS_FIELD_STARTED_AT", "PROCESS_FIELD_UPDATED_AT",
@@ -118,7 +162,20 @@ const eventPageSchema=z.object({events:z.array(eventSchema).default([]),next_pag
 const aggregatePageSchema=z.object({rows:z.array(z.object({dimensions:z.array(z.object({name:z.string(),value:queryValueSchema.optional()})).default([]),metrics:z.array(z.object({name:z.string(),value:queryValueSchema.optional()})).default([])})).default([]),policy_version:z.string().optional()});
 const savedQuerySchema=z.object({id:z.string().min(1),name:z.string().min(1),version:z.number().int().positive(),query:z.record(z.string(),z.unknown()),created_at_epoch_ms:z.number().int().nonnegative(),updated_at_epoch_ms:z.number().int().nonnegative()});
 const savedQueryPageSchema=z.object({saved_queries:z.array(savedQuerySchema).default([]),next_page_token:z.string().default("")});
-const queryExportSchema=z.object({id:z.string().min(1),status:z.enum(["QUERY_EXPORT_STATUS_PENDING","QUERY_EXPORT_STATUS_COMPLETED","QUERY_EXPORT_STATUS_FAILED","QUERY_EXPORT_STATUS_CANCELLED"]),row_count:z.number().int().nonnegative().optional(),csv:z.string().optional(),error_code:z.string().optional(),created_at_epoch_ms:z.number().int().nonnegative(),expires_at_epoch_ms:z.number().int().nonnegative()});
+const savedDashboardSchema=z.object({id:z.string().min(1),name:z.string().min(1),version:z.number().int().positive(),config_json:z.string().min(1),created_at_epoch_ms:z.number().int().nonnegative(),updated_at_epoch_ms:z.number().int().nonnegative()});
+const savedDashboardPageSchema=z.object({dashboards:z.array(savedDashboardSchema).default([]),next_page_token:z.string().default("")});
+const identityUserPageSchema=z.object({users:z.array(z.object({user_id:z.string().uuid(),username:z.string().min(1),external_id:z.string().optional(),is_active:z.boolean(),query_revoked:z.boolean(),attributes_version:z.number().int().nonnegative(),roles:z.array(z.string()).default([]),version:z.number().int().nonnegative(),created_at_epoch_ms:z.number().int().nonnegative(),updated_at_epoch_ms:z.number().int().nonnegative()})).default([]),next_page_token:z.string().default("")});
+const queryExportSchema=z.object({id:z.string().min(1),status:z.enum(["QUERY_EXPORT_STATUS_PENDING","QUERY_EXPORT_STATUS_COMPLETED","QUERY_EXPORT_STATUS_FAILED","QUERY_EXPORT_STATUS_CANCELLED"]),row_count:z.number().int().nonnegative().optional(),csv:z.string().optional().transform(decodeBase64Utf8),error_code:z.string().optional(),created_at_epoch_ms:z.number().int().nonnegative(),expires_at_epoch_ms:z.number().int().nonnegative()});
+
+function decodeBase64Utf8(value?: string): string | undefined {
+  if (value === undefined || value === "") return value;
+  try {
+    const binary = atob(value);
+    return new TextDecoder().decode(Uint8Array.from(binary, (character) => character.charCodeAt(0)));
+  } catch {
+    throw new Error("Invalid base64 CSV payload");
+  }
+}
 const queryPlanSchema=z.object({redacted_plan_json:z.string(),query_fingerprint:z.string().min(1)});
 const queryCapabilitiesSchema = z.object({
   schema_version: z.string().min(1), config_version: z.string().min(1), policy_version: z.string().min(1),
@@ -156,9 +213,83 @@ export class BpmpApiClient {
     return parsed.data;
   }
 
-  async listWorkItems(pageToken = "", pageSize = this.config.defaultPageSize): Promise<WorkItemPage> {
+  async listProcessModels(search = "", pageToken = "", pageSize = this.config.defaultPageSize): Promise<ProcessModelPage> {
+    const query = new URLSearchParams({ page_size: String(pageSize) });
+    if (search) query.set("search", search);
+    if (pageToken) query.set("page_token", pageToken);
+    const parsed = processModelPageSchema.safeParse(await this.request<unknown>(`/v1/authoring/process-models?${query.toString()}`));
+    if (!parsed.success) throw new ApiError("Invalid process model page", 502, "");
+    return parsed.data as ProcessModelPage;
+  }
+
+  async createProcessModel(input: CreateProcessModelInput, idempotencyKey?: string): Promise<ProcessModelDetail> {
+    const parsed = processModelDetailSchema.safeParse(await this.request<unknown>("/v1/authoring/process-models", {
+      method: "POST", body: input, ...(idempotencyKey ? { idempotencyKey } : {}),
+    }));
+    if (!parsed.success) throw new ApiError("Invalid process model response", 502, "");
+    return parsed.data as ProcessModelDetail;
+  }
+
+  async getProcessModel(modelId: string): Promise<ProcessModelDetail> {
+    const parsed = processModelDetailSchema.safeParse(await this.request<unknown>(`/v1/authoring/process-models/${encodeURIComponent(modelId)}`));
+    if (!parsed.success) throw new ApiError("Invalid process model response", 502, "");
+    return parsed.data as ProcessModelDetail;
+  }
+
+  async saveProcessModelDraft(modelId: string, input: SaveProcessModelDraftInput, idempotencyKey?: string): Promise<{ draft: ProcessModelDraft; replayed: boolean }> {
+    const schema = z.object({ draft: processModelDraftSchema, replayed: z.boolean().optional().default(false) });
+    const parsed = schema.safeParse(await this.request<unknown>(`/v1/authoring/process-models/${encodeURIComponent(modelId)}/draft`, {
+      method: "PUT", body: input, ...(idempotencyKey ? { idempotencyKey } : {}),
+    }));
+    if (!parsed.success) throw new ApiError("Invalid saved draft response", 502, "");
+    return parsed.data as { draft: ProcessModelDraft; replayed: boolean };
+  }
+
+  async validateProcessModelDraft(modelId: string, input: ValidateProcessModelDraftInput, idempotencyKey?: string): Promise<{ process_model_id: string; revision: number; valid: boolean; diagnostics: CompilerDiagnostic[] }> {
+    const schema = z.object({ process_model_id: z.string().uuid(), revision: z.number().int().positive(), valid: z.boolean().optional().default(false), diagnostics: z.array(compilerDiagnosticSchema).default([]) });
+    const parsed = schema.safeParse(await this.request<unknown>(`/v1/authoring/process-models/${encodeURIComponent(modelId)}/draft/validate`, {
+      method: "POST", body: input, ...(idempotencyKey ? { idempotencyKey } : {}),
+    }));
+    if (!parsed.success) throw new ApiError("Invalid validation response", 502, "");
+    return parsed.data;
+  }
+
+  async checkinProcessModel(modelId: string, input: CheckinProcessModelInput, idempotencyKey?: string): Promise<{ version: ProcessModelVersion; replayed: boolean }> {
+    const schema = z.object({ version: z.object({ id: z.string().uuid(), tenant_id: z.string().uuid(), process_model_id: z.string().uuid(), version_num: z.number().int().positive(), source_revision: z.number().int().positive(), bpmn_xml: z.string(), content_hash: z.string(), created_by: z.string().uuid(), created_at_epoch_ms: z.number().int().nonnegative(), version_tag: z.string(), summary: z.string() }), replayed: z.boolean().optional().default(false) });
+    const parsed = schema.safeParse(await this.request<unknown>(`/v1/authoring/process-models/${encodeURIComponent(modelId)}/versions`, { method: "POST", body: input, ...(idempotencyKey ? { idempotencyKey } : {}) }));
+    if (!parsed.success) throw new ApiError("Invalid process model version response", 502, "");
+    return parsed.data;
+  }
+  async listProcessModelVersions(modelId:string,pageToken="",pageSize=this.config.defaultPageSize):Promise<ProcessModelVersionPage>{const query=new URLSearchParams({page_size:String(pageSize)});if(pageToken)query.set("page_token",pageToken);const parsed=processVersionPageSchema.safeParse(await this.request<unknown>(`/v1/authoring/process-models/${encodeURIComponent(modelId)}/versions?${query.toString()}`));if(!parsed.success)throw new ApiError("Invalid process version page",502,"");return parsed.data;}
+  async getProcessModelVersion(modelId:string,versionId:string):Promise<ProcessModelVersion>{const parsed=z.object({version:processVersionSchema}).safeParse(await this.request<unknown>(`/v1/authoring/process-models/${encodeURIComponent(modelId)}/versions/${encodeURIComponent(versionId)}`));if(!parsed.success)throw new ApiError("Invalid process version response",502,"");return parsed.data.version;}
+
+  async listDecisionModels(search = "", pageToken = "", pageSize = this.config.defaultPageSize): Promise<DecisionModelPage> {
+    const query = new URLSearchParams({ page_size: String(pageSize) }); if (search) query.set("search",search); if (pageToken) query.set("page_token",pageToken);
+    const schema=z.object({models:z.array(decisionModelSchema).default([]),next_page_token:z.string().optional().default("")});const parsed=schema.safeParse(await this.request<unknown>(`/v1/authoring/decision-models?${query.toString()}`));if(!parsed.success)throw new ApiError("Invalid decision model page",502,"");return parsed.data;
+  }
+
+  async createDecisionModel(input: CreateDecisionModelInput,idempotencyKey?:string):Promise<DecisionModelDetail>{const parsed=decisionModelDetailSchema.safeParse(await this.request<unknown>("/v1/authoring/decision-models",{method:"POST",body:input,...(idempotencyKey?{idempotencyKey}:{})}));if(!parsed.success)throw new ApiError("Invalid decision model response",502,"");return parsed.data;}
+  async getDecisionModel(modelId:string):Promise<DecisionModelDetail>{const parsed=decisionModelDetailSchema.safeParse(await this.request<unknown>(`/v1/authoring/decision-models/${encodeURIComponent(modelId)}`));if(!parsed.success)throw new ApiError("Invalid decision model response",502,"");return parsed.data;}
+  async saveDecisionModelDraft(modelId:string,input:SaveDecisionModelDraftInput,idempotencyKey?:string):Promise<{draft:DecisionModelDraft;replayed:boolean}>{const schema=z.object({draft:decisionModelDraftSchema,replayed:z.boolean().optional().default(false)});const parsed=schema.safeParse(await this.request<unknown>(`/v1/authoring/decision-models/${encodeURIComponent(modelId)}/draft`,{method:"PUT",body:input,...(idempotencyKey?{idempotencyKey}:{})}));if(!parsed.success)throw new ApiError("Invalid saved decision draft response",502,"");return parsed.data;}
+  async validateDecisionModelDraft(modelId:string,input:ValidateProcessModelDraftInput,idempotencyKey?:string):Promise<{decision_model_id:string;revision:number;valid:boolean;diagnostics:CompilerDiagnostic[]}>{const schema=z.object({decision_model_id:z.string().uuid(),revision:z.number().int().positive(),valid:z.boolean().optional().default(false),diagnostics:z.array(compilerDiagnosticSchema).default([])});const parsed=schema.safeParse(await this.request<unknown>(`/v1/authoring/decision-models/${encodeURIComponent(modelId)}/draft/validate`,{method:"POST",body:input,...(idempotencyKey?{idempotencyKey}:{})}));if(!parsed.success)throw new ApiError("Invalid decision validation response",502,"");return parsed.data;}
+  async checkinDecisionModel(modelId:string,input:CheckinDecisionModelInput,idempotencyKey?:string):Promise<{version:DecisionModelVersion;replayed:boolean}>{const schema=z.object({version:z.object({id:z.string().uuid(),tenant_id:z.string().uuid(),decision_model_id:z.string().uuid(),version_num:z.number().int().positive(),source_revision:z.number().int().positive(),dmn_xml:z.string(),content_hash:z.string(),created_by:z.string().uuid(),created_at_epoch_ms:z.number().int().nonnegative(),version_tag:z.string(),summary:z.string()}),replayed:z.boolean().optional().default(false)});const parsed=schema.safeParse(await this.request<unknown>(`/v1/authoring/decision-models/${encodeURIComponent(modelId)}/versions`,{method:"POST",body:input,...(idempotencyKey?{idempotencyKey}:{})}));if(!parsed.success)throw new ApiError("Invalid decision version response",502,"");return parsed.data;}
+  async listDecisionModelVersions(modelId:string,pageToken="",pageSize=this.config.defaultPageSize):Promise<DecisionModelVersionPage>{const query=new URLSearchParams({page_size:String(pageSize)});if(pageToken)query.set("page_token",pageToken);const parsed=decisionVersionPageSchema.safeParse(await this.request<unknown>(`/v1/authoring/decision-models/${encodeURIComponent(modelId)}/versions?${query.toString()}`));if(!parsed.success)throw new ApiError("Invalid decision version page",502,"");return parsed.data;}
+  async getDecisionModelVersion(modelId:string,versionId:string):Promise<DecisionModelVersion>{const parsed=z.object({version:decisionVersionSchema}).safeParse(await this.request<unknown>(`/v1/authoring/decision-models/${encodeURIComponent(modelId)}/versions/${encodeURIComponent(versionId)}`));if(!parsed.success)throw new ApiError("Invalid decision version response",502,"");return parsed.data.version;}
+
+  async listForms(search="",pageToken="",pageSize=this.config.defaultPageSize):Promise<FormPage>{const query=new URLSearchParams({page_size:String(pageSize)});if(search)query.set("search",search);if(pageToken)query.set("page_token",pageToken);const parsed=formPageSchema.safeParse(await this.request<unknown>(`/v1/authoring/forms?${query.toString()}`));if(!parsed.success)throw new ApiError("Invalid form page",502,"");return parsed.data;}
+  async createForm(input:CreateFormInput,idempotencyKey?:string):Promise<{form:FormDefinition;draft:FormDraft;replayed:boolean}>{const schema=z.object({form:formDefinitionSchema,draft:formDraftSchema,replayed:z.boolean().optional().default(false)});const parsed=schema.safeParse(await this.request<unknown>("/v1/authoring/forms",{method:"POST",body:input,...(idempotencyKey?{idempotencyKey}:{})}));if(!parsed.success)throw new ApiError("Invalid form creation response",502,"");return parsed.data;}
+  async getForm(formId:string):Promise<FormDetail>{const parsed=formDetailSchema.safeParse(await this.request<unknown>(`/v1/authoring/forms/${encodeURIComponent(formId)}`));if(!parsed.success)throw new ApiError("Invalid form detail",502,"");return parsed.data;}
+  async getPublishedFormByKey(formKey:string):Promise<PublishedForm>{const parsed=publishedFormSchema.safeParse(await this.request<unknown>(`/v1/authoring/forms/by-key/${encodeURIComponent(formKey)}`));if(!parsed.success)throw new ApiError("Invalid published form",502,"");return parsed.data;}
+  async saveFormDraft(formId:string,input:SaveFormDraftInput,idempotencyKey?:string):Promise<{draft:FormDraft;replayed:boolean}>{const schema=z.object({draft:formDraftSchema,replayed:z.boolean().optional().default(false)});const parsed=schema.safeParse(await this.request<unknown>(`/v1/authoring/forms/${encodeURIComponent(formId)}/draft`,{method:"PUT",body:input,...(idempotencyKey?{idempotencyKey}:{})}));if(!parsed.success)throw new ApiError("Invalid saved form draft",502,"");return parsed.data;}
+  async validateFormDraft(formId:string,expectedRevision:number):Promise<{form_id:string;revision:number;valid:boolean;diagnostics:CompilerDiagnostic[]}>{const schema=z.object({form_id:z.string().uuid(),revision:z.number().int().positive(),valid:z.boolean(),diagnostics:z.array(compilerDiagnosticSchema).default([])});const parsed=schema.safeParse(await this.request<unknown>(`/v1/authoring/forms/${encodeURIComponent(formId)}/draft/validate`,{method:"POST",body:{expected_revision:expectedRevision}}));if(!parsed.success)throw new ApiError("Invalid form validation response",502,"");return parsed.data;}
+  async publishForm(formId:string,input:PublishFormInput,idempotencyKey?:string):Promise<{version:FormVersion;replayed:boolean}>{const schema=z.object({version:formVersionSchema,replayed:z.boolean().optional().default(false)});const parsed=schema.safeParse(await this.request<unknown>(`/v1/authoring/forms/${encodeURIComponent(formId)}/versions`,{method:"POST",body:input,...(idempotencyKey?{idempotencyKey}:{})}));if(!parsed.success)throw new ApiError("Invalid published form version",502,"");return parsed.data;}
+  async listFormVersions(formId:string,pageToken="",pageSize=this.config.defaultPageSize):Promise<FormVersionPage>{const query=new URLSearchParams({page_size:String(pageSize)});if(pageToken)query.set("page_token",pageToken);const parsed=formVersionPageSchema.safeParse(await this.request<unknown>(`/v1/authoring/forms/${encodeURIComponent(formId)}/versions?${query.toString()}`));if(!parsed.success)throw new ApiError("Invalid form version page",502,"");return parsed.data;}
+  async getFormVersion(formId:string,versionId:string):Promise<FormVersion>{const parsed=z.object({version:formVersionSchema}).safeParse(await this.request<unknown>(`/v1/authoring/forms/${encodeURIComponent(formId)}/versions/${encodeURIComponent(versionId)}`));if(!parsed.success)throw new ApiError("Invalid form version",502,"");return parsed.data.version;}
+
+  async listWorkItems(pageToken = "", pageSize = this.config.defaultPageSize, scope: WorkItemListScope = "ALL"): Promise<WorkItemPage> {
     const query = new URLSearchParams({ page_size: String(pageSize) });
     if (pageToken) query.set("page_token", pageToken);
+    query.set("scope", scope === "ASSIGNED_TO_ME" ? "mine" : scope === "GROUP_QUEUE" ? "group" : "all");
     const response = await this.request<Partial<WorkItemPage>>(
       `/v1/work-items?${query.toString()}`,
     );
@@ -181,9 +312,27 @@ export class BpmpApiClient {
         body: {
           decision: input.decision,
           expected_version: input.expectedVersion,
+          ...(input.outputs ? { outputs: input.outputs } : {}),
+          ...(input.formVersionId ? { form_version_id: input.formVersionId } : {}),
         },
         ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
       });
+  }
+
+  claimWorkItem(input: ClaimWorkItemInput): Promise<CommandReceipt> {
+    return this.request(`/v1/work-items/${encodeURIComponent(input.workItemId)}/claim`, {
+      method: "POST",
+      body: { expected_version: input.expectedVersion },
+      ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
+    });
+  }
+
+  unclaimWorkItem(input: UnclaimWorkItemInput): Promise<CommandReceipt> {
+    return this.request(`/v1/work-items/${encodeURIComponent(input.workItemId)}/unclaim`, {
+      method: "POST",
+      body: { expected_version: input.expectedVersion, candidate_group: input.candidateGroup },
+      ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
+    });
   }
 
   delegateWorkItem(input: DelegateWorkItemInput): Promise<CommandReceipt> {
@@ -207,6 +356,7 @@ export class BpmpApiClient {
           instance_id: input.instanceId,
           workflow_version: input.workflowVersion,
           start_node_id: input.startNodeId,
+          ...(input.variables ? { variables: input.variables } : {}),
         },
       },
     );
@@ -257,6 +407,9 @@ export class BpmpApiClient {
   async saveQuery(input:{id:string;name:string;expected_version?:number;query:ProcessQueryInput}):Promise<SavedQuery>{const raw=await this.request<unknown>("/v1/saved-queries",{method:"POST",body:input});const parsed=z.object({saved_query:savedQuerySchema}).safeParse(raw);if(!parsed.success)throw new ApiError("Invalid saved query response",502,"");return parsed.data.saved_query as unknown as SavedQuery;}
   async listSavedQueries(pageToken="",pageSize=this.config.defaultPageSize):Promise<SavedQueryPage>{const query=new URLSearchParams({page_size:String(pageSize)});if(pageToken)query.set("page_token",pageToken);const parsed=savedQueryPageSchema.safeParse(await this.request<unknown>(`/v1/saved-queries?${query.toString()}`));if(!parsed.success)throw new ApiError("Invalid saved query page",502,"");return parsed.data as unknown as SavedQueryPage;}
   async deleteSavedQuery(id:string,expectedVersion:number):Promise<void>{await this.request(`/v1/saved-queries/${encodeURIComponent(id)}?expected_version=${expectedVersion}`,{method:"DELETE"});}
+  async saveDashboard(input:{id:string;name:string;expected_version?:number;config_json:string}):Promise<SavedDashboard>{const raw=await this.request<unknown>("/v1/saved-dashboards",{method:"POST",body:input});const parsed=z.object({dashboard:savedDashboardSchema}).safeParse(raw);if(!parsed.success)throw new ApiError("Invalid dashboard response",502,"");return parsed.data.dashboard as SavedDashboard;}
+  async listDashboards(pageToken="",pageSize=this.config.defaultPageSize):Promise<SavedDashboardPage>{const query=new URLSearchParams({page_size:String(pageSize)});if(pageToken)query.set("page_token",pageToken);const parsed=savedDashboardPageSchema.safeParse(await this.request<unknown>(`/v1/saved-dashboards?${query.toString()}`));if(!parsed.success)throw new ApiError("Invalid dashboard page",502,"");return parsed.data as SavedDashboardPage;}
+  async deleteDashboard(id:string,expectedVersion:number):Promise<void>{await this.request(`/v1/saved-dashboards/${encodeURIComponent(id)}?expected_version=${expectedVersion}`,{method:"DELETE"});}
   async createQueryExport(query:ProcessQueryInput,maxRows=10000):Promise<QueryExport>{const raw=await this.request<unknown>("/v1/query-exports",{method:"POST",body:{query,max_rows:maxRows}});const parsed=z.object({export:queryExportSchema}).safeParse(raw);if(!parsed.success)throw new ApiError("Invalid query export response",502,"");return parsed.data.export as QueryExport;}
   async getQueryExport(id:string):Promise<QueryExport>{const raw=await this.request<unknown>(`/v1/query-exports/${encodeURIComponent(id)}`);const parsed=z.object({export:queryExportSchema}).safeParse(raw);if(!parsed.success)throw new ApiError("Invalid query export response",502,"");return parsed.data.export as QueryExport;}
   async cancelQueryExport(id:string):Promise<QueryExport>{const raw=await this.request<unknown>(`/v1/query-exports/${encodeURIComponent(id)}`,{method:"DELETE"});const parsed=z.object({export:queryExportSchema}).safeParse(raw);if(!parsed.success)throw new ApiError("Invalid query export response",502,"");return parsed.data.export as QueryExport;}
@@ -274,6 +427,14 @@ export class BpmpApiClient {
       await this.request<unknown>("/v1/access/catalog/roles"),
     );
     if (!parsed.success) throw new ApiError("Invalid authorization role catalog", 502, "");
+    return parsed.data;
+  }
+
+  async listIdentityUsers(afterUserId = "", limit = this.config.defaultPageSize): Promise<IdentityUserPage> {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (afterUserId) query.set("after_user_id", afterUserId);
+    const parsed = identityUserPageSchema.safeParse(await this.request<unknown>(`/v1/access/users?${query.toString()}`));
+    if (!parsed.success) throw new ApiError("Invalid tenant user directory response", 502, "");
     return parsed.data;
   }
 
@@ -305,6 +466,22 @@ export class BpmpApiClient {
     const parsed = z.object({ groups: z.array(assignmentGroupSchema) }).safeParse(raw);
     if (!parsed.success) throw new ApiError("Invalid assignment group response", 502, "");
     return parsed.data.groups;
+  }
+
+  async listAssignmentPolicies(pageToken = "", pageSize = this.config.defaultPageSize): Promise<AssignmentPolicyPage> {
+    const query = new URLSearchParams({ page_size: String(pageSize) });
+    if (pageToken) query.set("page_token", pageToken);
+    const raw = await this.request<unknown>(`/v1/assignment-policies?${query.toString()}`);
+    const parsed = z.object({ policies: z.array(assignmentPolicySchema).default([]), next_page_token: z.string().default("") }).safeParse(raw);
+    if (!parsed.success) throw new ApiError("Invalid assignment policy response", 502, "");
+    return parsed.data;
+  }
+
+  async upsertAssignmentPolicy(input: UpsertAssignmentPolicyInput, idempotencyKey?: string) {
+    const raw = await this.request<unknown>("/v1/assignment-policies", { method: "PUT", body: input, ...(idempotencyKey ? { idempotencyKey } : {}) });
+    const parsed = z.object({ policy: assignmentPolicySchema, duplicate: z.boolean().default(false) }).safeParse(raw);
+    if (!parsed.success) throw new ApiError("Invalid assignment policy mutation response", 502, "");
+    return parsed.data;
   }
 
   async createAuthorizationCatalogDraft(snapshot: Record<string, unknown>, reason: string) {

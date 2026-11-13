@@ -1288,6 +1288,8 @@ fn complete_user_envelope() -> CommandEnvelope {
             CompleteUserTask {
                 node_id: "review".into(),
                 decision: "approved".into(),
+                outputs: Vec::new(),
+                form_version_id: String::new(),
             },
         )),
         encryption_key_scope: "tenant-a/operational".into(),

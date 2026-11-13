@@ -426,6 +426,40 @@ message ListSavedQueriesResponse { repeated SavedQuery saved_queries = 1; string
 message DeleteSavedQueryRequest { string tenant_id = 1; string id = 2; uint64 expected_version = 3; bpmp.authorization.v1.ActorProof actor_proof = 4; }
 message DeleteSavedQueryResponse {}
 
+// Saved dashboards persist only dashboard configuration. Dashboard data is
+// always queried through the current Projection authorization policy.
+message SavedDashboard {
+  string id = 1;
+  string name = 2;
+  uint64 version = 3;
+  string config_json = 4;
+  uint64 created_at_epoch_ms = 5;
+  uint64 updated_at_epoch_ms = 6;
+}
+message SaveDashboardRequest {
+  string tenant_id = 1;
+  string id = 2;
+  string name = 3;
+  uint64 expected_version = 4;
+  string config_json = 5;
+  bpmp.authorization.v1.ActorProof actor_proof = 6;
+}
+message SaveDashboardResponse { SavedDashboard dashboard = 1; }
+message ListDashboardsRequest {
+  string tenant_id = 1;
+  uint32 page_size = 2;
+  string page_token = 3;
+  bpmp.authorization.v1.ActorProof actor_proof = 4;
+}
+message ListDashboardsResponse { repeated SavedDashboard dashboards = 1; string next_page_token = 2; }
+message DeleteDashboardRequest {
+  string tenant_id = 1;
+  string id = 2;
+  uint64 expected_version = 3;
+  bpmp.authorization.v1.ActorProof actor_proof = 4;
+}
+message DeleteDashboardResponse {}
+
 enum QueryExportStatus {
   QUERY_EXPORT_STATUS_UNSPECIFIED = 0;
   QUERY_EXPORT_STATUS_PENDING = 1;
@@ -465,6 +499,9 @@ service ProjectionQueryService {
   rpc SaveQuery(SaveQueryRequest) returns (SaveQueryResponse);
   rpc ListSavedQueries(ListSavedQueriesRequest) returns (ListSavedQueriesResponse);
   rpc DeleteSavedQuery(DeleteSavedQueryRequest) returns (DeleteSavedQueryResponse);
+  rpc SaveDashboard(SaveDashboardRequest) returns (SaveDashboardResponse);
+  rpc ListDashboards(ListDashboardsRequest) returns (ListDashboardsResponse);
+  rpc DeleteDashboard(DeleteDashboardRequest) returns (DeleteDashboardResponse);
   rpc CreateQueryExport(CreateQueryExportRequest) returns (CreateQueryExportResponse);
   rpc GetQueryExport(GetQueryExportRequest) returns (GetQueryExportResponse);
   rpc CancelQueryExport(CancelQueryExportRequest) returns (CancelQueryExportResponse);

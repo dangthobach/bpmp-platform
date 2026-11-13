@@ -16,6 +16,19 @@ import (
 
 type testQuery struct{ item domain.WorkItem }
 
+type assignmentPolicyQuery struct {
+	testQuery
+	called                        bool
+	workflowType, workflowVersion string
+	pageSize                      int
+}
+
+func (q *assignmentPolicyQuery) ListAssignmentPolicies(_ context.Context, tenantID, workflowType, workflowVersion string, pageSize int, _ *application.AssignmentPolicyCursor) ([]domain.AssignmentPolicy, *application.AssignmentPolicyCursor, error) {
+	q.called = tenantID == "tenant-a"
+	q.workflowType, q.workflowVersion, q.pageSize = workflowType, workflowVersion, pageSize
+	return []domain.AssignmentPolicy{{TenantID: tenantID, Reference: "review-default", WorkflowType: workflowType, WorkflowVersion: workflowVersion, NodeID: "review", Assignment: domain.Assignment{CandidateGroup: "finance"}, ConfigVersion: "cfg-1", Version: 2}}, nil, nil
+}
+
 var testPolicy = application.RuntimePolicyProviderFunc(func(string) (application.RuntimePolicy, error) {
 	return application.RuntimePolicy{
 		MaxAssignmentCandidates: 16,
@@ -28,7 +41,7 @@ var testPolicy = application.RuntimePolicyProviderFunc(func(string) (application
 func (q testQuery) GetWorkItem(context.Context, string, string) (domain.WorkItem, error) {
 	return q.item, nil
 }
-func (q testQuery) ListWorkItems(context.Context, string, string, []string, int, *application.PageCursor) ([]domain.WorkItem, *application.PageCursor, error) {
+func (q testQuery) ListWorkItems(context.Context, string, string, []string, application.WorkItemListScope, int, *application.PageCursor) ([]domain.WorkItem, *application.PageCursor, error) {
 	return []domain.WorkItem{q.item}, nil, nil
 }
 func (testQuery) GetCase(context.Context, string, string) (application.CaseView, error) {
@@ -114,6 +127,26 @@ func TestGetWorkItemRejectsUnassignedActor(t *testing.T) {
 	}
 	if verifier.tenant != "tenant-a" || string(verifier.proof) != "signed-jwt" {
 		t.Fatalf("proof verification boundary lost scope: %#v", verifier)
+	}
+}
+
+func TestListAssignmentPoliciesRequiresOwnerCapability(t *testing.T) {
+	store := &testStore{}
+	service, _ := application.NewService(store, &testEngine{}, testPolicy)
+	query := &assignmentPolicyQuery{}
+	verifier := &testVerifier{actor: application.ActorIdentity{ActorID: "manager", Capabilities: map[string]struct{}{"human.assignment-policy.read": {}}}}
+	server, _ := New(service, query, verifier, testPolicy, func() time.Time { return time.Unix(2, 0).UTC() })
+	request := &humanv1.ListAssignmentPoliciesRequest{TenantId: "tenant-a", WorkflowType: "purchase", WorkflowVersion: "v1", PageSize: 15, ActorProof: &authv1.ActorProof{Type: authv1.ActorProofType_ACTOR_PROOF_TYPE_ORIGINAL_JWT, SignedProof: []byte("signed")}}
+	response, err := server.ListAssignmentPolicies(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !query.called || query.workflowType != "purchase" || query.workflowVersion != "v1" || query.pageSize != 15 || len(response.Policies) != 1 || response.Policies[0].CandidateGroup != "finance" {
+		t.Fatalf("assignment policy query did not preserve scope: query=%+v response=%+v", query, response)
+	}
+	verifier.actor.Capabilities = map[string]struct{}{}
+	if _, err = server.ListAssignmentPolicies(context.Background(), request); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("missing assignment-policy capability was not denied: %v", err)
 	}
 }
 

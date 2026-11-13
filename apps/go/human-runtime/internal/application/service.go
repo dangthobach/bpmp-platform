@@ -2,20 +2,30 @@ package application
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/dangthobach/bpmp-platform/apps/go/human-runtime/internal/domain"
+	enginev1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/engine/v1"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 var (
-	ErrForbidden            = errors.New("actor is not assigned to the work item")
-	ErrActorProof           = errors.New("exactly one original token or signed actor context is required")
-	ErrVersionConflict      = errors.New("work item version conflict")
-	ErrIdempotencyConflict  = errors.New("command id was already used with different completion data")
-	ErrProjectionDependency = errors.New("committed event projection dependency is missing")
-	ErrPolicyLimit          = errors.New("human runtime policy limit exceeded")
+	ErrForbidden               = errors.New("actor is not assigned to the work item")
+	ErrActorProof              = errors.New("exactly one original token or signed actor context is required")
+	ErrVersionConflict         = errors.New("work item version conflict")
+	ErrIdempotencyConflict     = errors.New("command id was already used with different completion data")
+	ErrInvalidCompletionOutput = errors.New("completion outputs must have unique non-empty names")
+	ErrProjectionDependency    = errors.New("committed event projection dependency is missing")
+	ErrPolicyLimit             = errors.New("human runtime policy limit exceeded")
+	ErrAssignmentPolicy        = errors.New("assignment policy is invalid")
 )
 
 type RuntimePolicy struct {
@@ -72,6 +82,8 @@ type CompleteRequest struct {
 	IdempotencyKey  string
 	CorrelationID   string
 	Decision        string
+	FormVersionID   string
+	Outputs         []*enginev1.WorkflowVariable
 	ExpectedVersion int64
 	Actor           ActorCredential
 	ActorGroups     map[string]struct{}
@@ -91,6 +103,13 @@ type DelegateRequest struct {
 	OccurredAt      time.Time
 }
 
+type UpsertAssignmentPolicyRequest struct {
+	TenantID, CommandID, IdempotencyKey, CorrelationID, ActorID string
+	Policy                                                      domain.AssignmentPolicy
+	ExpectedVersion                                             int64
+	OccurredAt                                                  time.Time
+}
+
 type EngineCompleteCommand struct {
 	TenantID           string
 	InstanceID         string
@@ -99,6 +118,8 @@ type EngineCompleteCommand struct {
 	IdempotencyKey     string
 	CorrelationID      string
 	Decision           string
+	FormVersionID      string
+	Outputs            []*enginev1.WorkflowVariable
 	WorkflowType       string
 	WorkflowVersion    string
 	OriginalToken      []byte
@@ -172,6 +193,10 @@ type Store interface {
 	AchieveCaseMilestone(context.Context, string, string, string, string, time.Time) error
 }
 
+type assignmentPolicyWriter interface {
+	UpsertAssignmentPolicy(context.Context, domain.AssignmentPolicy, int64, string, string, string, string, time.Time, []byte) (domain.AssignmentPolicy, bool, error)
+}
+
 type Service struct {
 	store  Store
 	engine EnginePort
@@ -187,6 +212,51 @@ func NewService(store Store, engine EnginePort, policy RuntimePolicyProvider) (*
 
 func (s *Service) ProjectActivation(ctx context.Context, activation domain.Activation) (domain.WorkItem, bool, error) {
 	return s.store.ProjectActivation(ctx, activation)
+}
+
+func (s *Service) UpsertAssignmentPolicy(ctx context.Context, request UpsertAssignmentPolicyRequest) (domain.AssignmentPolicy, bool, error) {
+	p := request.Policy
+	if strings.TrimSpace(request.TenantID) == "" || strings.TrimSpace(request.ActorID) == "" ||
+		strings.TrimSpace(request.CommandID) == "" || strings.TrimSpace(request.IdempotencyKey) == "" ||
+		strings.TrimSpace(p.Reference) == "" || strings.TrimSpace(p.WorkflowType) == "" ||
+		strings.TrimSpace(p.WorkflowVersion) == "" || strings.TrimSpace(p.NodeID) == "" ||
+		strings.TrimSpace(p.ConfigVersion) == "" || request.ExpectedVersion < 0 || request.OccurredAt.IsZero() {
+		return domain.AssignmentPolicy{}, false, ErrAssignmentPolicy
+	}
+	if p.TenantID != "" && p.TenantID != request.TenantID {
+		return domain.AssignmentPolicy{}, false, ErrAssignmentPolicy
+	}
+	if err := p.Assignment.Validate(); err != nil {
+		return domain.AssignmentPolicy{}, false, ErrAssignmentPolicy
+	}
+	if p.SLADuration < 0 || p.SLADuration > time.Duration(math.MaxInt64)/time.Millisecond*time.Millisecond {
+		return domain.AssignmentPolicy{}, false, ErrAssignmentPolicy
+	}
+	p.TenantID = request.TenantID
+	p.Reference = strings.TrimSpace(p.Reference)
+	p.WorkflowType = strings.TrimSpace(p.WorkflowType)
+	p.WorkflowVersion = strings.TrimSpace(p.WorkflowVersion)
+	p.NodeID = strings.TrimSpace(p.NodeID)
+	p.Assignment.AssigneeID = strings.TrimSpace(p.Assignment.AssigneeID)
+	p.Assignment.CandidateGroup = strings.TrimSpace(p.Assignment.CandidateGroup)
+	p.EscalationPolicyRef = strings.TrimSpace(p.EscalationPolicyRef)
+	p.ConfigVersion = strings.TrimSpace(p.ConfigVersion)
+	digestInput := struct {
+		TenantID, ActorID string
+		Policy            domain.AssignmentPolicy
+		ExpectedVersion   int64
+	}{request.TenantID, request.ActorID, p, request.ExpectedVersion}
+	encoded, err := json.Marshal(digestInput)
+	if err != nil {
+		return domain.AssignmentPolicy{}, false, err
+	}
+	digest := sha256.Sum256(encoded)
+	writer, ok := s.store.(assignmentPolicyWriter)
+	if !ok {
+		return domain.AssignmentPolicy{}, false, errors.New("assignment policy administration is unavailable")
+	}
+	return writer.UpsertAssignmentPolicy(ctx, p, request.ExpectedVersion, request.CommandID,
+		request.IdempotencyKey, request.CorrelationID, request.ActorID, request.OccurredAt, digest[:])
 }
 
 func (s *Service) Complete(ctx context.Context, request CompleteRequest) error {
@@ -213,8 +283,12 @@ func (s *Service) Complete(ctx context.Context, request CompleteRequest) error {
 	if request.IdempotencyKey == "" {
 		request.IdempotencyKey = request.CommandID
 	}
+	completionDigest, err := completionPayloadDigest(request.Decision, request.FormVersionID, request.Outputs)
+	if err != nil {
+		return err
+	}
 	if item.Status == domain.WorkItemCompletionRequested {
-		if item.CompletionCommandID != request.CommandID || item.Decision != request.Decision {
+		if item.CompletionCommandID != request.CommandID || item.Decision != request.Decision || item.CompletionPayloadDigest != completionDigest {
 			return ErrIdempotencyConflict
 		}
 	} else {
@@ -226,6 +300,7 @@ func (s *Service) Complete(ctx context.Context, request CompleteRequest) error {
 			return completionErr
 		}
 		pending.CompletionCommandID = request.CommandID
+		pending.CompletionPayloadDigest = completionDigest
 		if err := s.store.RequestCompletion(ctx, pending, request.CommandID, request.CorrelationID, request.Actor.ActorID); err != nil {
 			return err
 		}
@@ -233,7 +308,8 @@ func (s *Service) Complete(ctx context.Context, request CompleteRequest) error {
 	command := EngineCompleteCommand{
 		TenantID: request.TenantID, InstanceID: item.InstanceID, NodeID: item.NodeID,
 		CommandID: request.CommandID, IdempotencyKey: request.IdempotencyKey, CorrelationID: request.CorrelationID,
-		Decision: request.Decision, ActorID: request.Actor.ActorID,
+		Decision: request.Decision, FormVersionID: request.FormVersionID, ActorID: request.Actor.ActorID,
+		Outputs:       request.Outputs,
 		OccurredAt:    request.OccurredAt,
 		RuntimePolicy: policy,
 		WorkflowType:  item.WorkflowType, WorkflowVersion: item.WorkflowVersion,
@@ -244,6 +320,22 @@ func (s *Service) Complete(ctx context.Context, request CompleteRequest) error {
 		return fmt.Errorf("forward complete user task: %w", err)
 	}
 	return nil
+}
+
+func completionPayloadDigest(decision, formVersionID string, outputs []*enginev1.WorkflowVariable) (string, error) {
+	ordered := append([]*enginev1.WorkflowVariable(nil), outputs...)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].GetName() < ordered[j].GetName() })
+	for i, output := range ordered {
+		if output == nil || strings.TrimSpace(output.GetName()) == "" || (i > 0 && ordered[i-1].GetName() == output.GetName()) {
+			return "", ErrInvalidCompletionOutput
+		}
+	}
+	payload, err := protojson.Marshal(&enginev1.CompleteUserTask{Decision: decision, Outputs: ordered, FormVersionId: formVersionID})
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(payload)
+	return hex.EncodeToString(digest[:]), nil
 }
 
 func (s *Service) Delegate(ctx context.Context, request DelegateRequest) error {

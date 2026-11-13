@@ -20,6 +20,93 @@ pub struct ListAssignmentGroupsResponse {
     pub groups: ::prost::alloc::vec::Vec<AssignmentGroup>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct AssignmentPolicy {
+    #[prost(string, tag="1")]
+    pub policy_ref: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub workflow_type: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub workflow_version: ::prost::alloc::string::String,
+    #[prost(string, tag="4")]
+    pub node_id: ::prost::alloc::string::String,
+    #[prost(string, tag="5")]
+    pub assignee_id: ::prost::alloc::string::String,
+    #[prost(string, tag="6")]
+    pub candidate_group: ::prost::alloc::string::String,
+    #[prost(uint64, tag="7")]
+    pub sla_duration_ms: u64,
+    #[prost(string, tag="8")]
+    pub escalation_policy_ref: ::prost::alloc::string::String,
+    #[prost(string, tag="9")]
+    pub config_version: ::prost::alloc::string::String,
+    #[prost(int64, tag="10")]
+    pub version: i64,
+    #[prost(bool, tag="11")]
+    pub is_deleted: bool,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ListAssignmentPoliciesRequest {
+    #[prost(string, tag="1")]
+    pub tenant_id: ::prost::alloc::string::String,
+    #[prost(uint32, tag="2")]
+    pub page_size: u32,
+    #[prost(string, tag="3")]
+    pub page_token: ::prost::alloc::string::String,
+    #[prost(string, tag="4")]
+    pub workflow_type: ::prost::alloc::string::String,
+    #[prost(string, tag="5")]
+    pub workflow_version: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="6")]
+    pub actor_proof: ::core::option::Option<super::super::authorization::v1::ActorProof>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListAssignmentPoliciesResponse {
+    #[prost(message, repeated, tag="1")]
+    pub policies: ::prost::alloc::vec::Vec<AssignmentPolicy>,
+    #[prost(string, tag="2")]
+    pub next_page_token: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct UpsertAssignmentPolicyRequest {
+    #[prost(string, tag="1")]
+    pub tenant_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub command_id: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub idempotency_key: ::prost::alloc::string::String,
+    #[prost(string, tag="4")]
+    pub correlation_id: ::prost::alloc::string::String,
+    #[prost(string, tag="5")]
+    pub policy_ref: ::prost::alloc::string::String,
+    #[prost(string, tag="6")]
+    pub workflow_type: ::prost::alloc::string::String,
+    #[prost(string, tag="7")]
+    pub workflow_version: ::prost::alloc::string::String,
+    #[prost(string, tag="8")]
+    pub node_id: ::prost::alloc::string::String,
+    #[prost(string, tag="9")]
+    pub assignee_id: ::prost::alloc::string::String,
+    #[prost(string, tag="10")]
+    pub candidate_group: ::prost::alloc::string::String,
+    #[prost(uint64, tag="11")]
+    pub sla_duration_ms: u64,
+    #[prost(string, tag="12")]
+    pub escalation_policy_ref: ::prost::alloc::string::String,
+    #[prost(string, tag="13")]
+    pub config_version: ::prost::alloc::string::String,
+    #[prost(int64, tag="14")]
+    pub expected_version: i64,
+    #[prost(message, optional, tag="15")]
+    pub actor_proof: ::core::option::Option<super::super::authorization::v1::ActorProof>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct UpsertAssignmentPolicyResponse {
+    #[prost(message, optional, tag="1")]
+    pub policy: ::core::option::Option<AssignmentPolicy>,
+    #[prost(bool, tag="2")]
+    pub duplicate: bool,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct GetWorkItemRequest {
     #[prost(string, tag="1")]
     pub tenant_id: ::prost::alloc::string::String,
@@ -43,6 +130,8 @@ pub struct ListWorkItemsRequest {
     pub page_token: ::prost::alloc::string::String,
     #[prost(message, optional, tag="4")]
     pub actor_proof: ::core::option::Option<super::super::authorization::v1::ActorProof>,
+    #[prost(enumeration="WorkItemListScope", tag="5")]
+    pub scope: i32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListWorkItemsResponse {
@@ -51,7 +140,7 @@ pub struct ListWorkItemsResponse {
     #[prost(string, tag="2")]
     pub next_page_token: ::prost::alloc::string::String,
 }
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CompleteWorkItemRequest {
     #[prost(string, tag="1")]
     pub tenant_id: ::prost::alloc::string::String,
@@ -69,6 +158,10 @@ pub struct CompleteWorkItemRequest {
     pub actor_proof: ::core::option::Option<super::super::authorization::v1::ActorProof>,
     #[prost(string, tag="8")]
     pub idempotency_key: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag="9")]
+    pub outputs: ::prost::alloc::vec::Vec<super::super::engine::v1::WorkflowVariable>,
+    #[prost(string, tag="10")]
+    pub form_version_id: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct DelegateWorkItemRequest {
@@ -224,5 +317,37 @@ pub struct AuditRecord {
     pub to_version: i64,
     #[prost(bytes="vec", tag="11")]
     pub details_json: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum WorkItemListScope {
+    Unspecified = 0,
+    All = 1,
+    AssignedToMe = 2,
+    GroupQueue = 3,
+}
+impl WorkItemListScope {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "WORK_ITEM_LIST_SCOPE_UNSPECIFIED",
+            Self::All => "WORK_ITEM_LIST_SCOPE_ALL",
+            Self::AssignedToMe => "WORK_ITEM_LIST_SCOPE_ASSIGNED_TO_ME",
+            Self::GroupQueue => "WORK_ITEM_LIST_SCOPE_GROUP_QUEUE",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "WORK_ITEM_LIST_SCOPE_UNSPECIFIED" => Some(Self::Unspecified),
+            "WORK_ITEM_LIST_SCOPE_ALL" => Some(Self::All),
+            "WORK_ITEM_LIST_SCOPE_ASSIGNED_TO_ME" => Some(Self::AssignedToMe),
+            "WORK_ITEM_LIST_SCOPE_GROUP_QUEUE" => Some(Self::GroupQueue),
+            _ => None,
+        }
+    }
 }
 // @@protoc_insertion_point(module)

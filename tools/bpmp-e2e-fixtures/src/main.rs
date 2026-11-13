@@ -53,6 +53,8 @@ const PROJECTION_QUERY_API_MIGRATION: &str =
     include_str!("../../../db/projection-service/migrations/005_query_api.sql");
 const PROJECTION_STORAGE_HARDENING_MIGRATION: &str =
     include_str!("../../../db/projection-service/migrations/006_query_storage_hardening.sql");
+const PROJECTION_SAVED_DASHBOARDS_MIGRATION: &str =
+    include_str!("../../../db/projection-service/migrations/010_saved_dashboards.sql");
 const GOVERNANCE_MIGRATION: &str =
     include_str!("../../../db/governance-service/migrations/001_governance.sql");
 
@@ -483,6 +485,10 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
         (
             "006_query_storage_hardening.sql",
             PROJECTION_STORAGE_HARDENING_MIGRATION,
+        ),
+        (
+            "010_saved_dashboards.sql",
+            PROJECTION_SAVED_DASHBOARDS_MIGRATION,
         ),
     ] {
         write(&projection_migration_dir.join(name), migration.as_bytes())?;

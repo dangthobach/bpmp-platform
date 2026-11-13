@@ -63,7 +63,7 @@ func (benchmarkStore) TransitionCaseStage(context.Context, string, string, strin
 func (benchmarkStore) AchieveCaseMilestone(context.Context, string, string, string, string, time.Time) error {
 	return nil
 }
-func (benchmarkStore) ListWorkItems(context.Context, string, string, []string, int, *application.PageCursor) ([]domain.WorkItem, *application.PageCursor, error) {
+func (benchmarkStore) ListWorkItems(context.Context, string, string, []string, application.WorkItemListScope, int, *application.PageCursor) ([]domain.WorkItem, *application.PageCursor, error) {
 	return nil, nil, nil
 }
 func (benchmarkStore) GetCase(context.Context, string, string) (application.CaseView, error) {

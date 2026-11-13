@@ -40,6 +40,8 @@ message CompleteServiceTask {
 message CompleteUserTask {
   string node_id = 1;
   string decision = 2;
+  repeated WorkflowVariable outputs = 3;
+  string form_version_id = 4;
 }
 
 message CompleteScriptTask {
@@ -148,6 +150,8 @@ message UserTaskCompleted {
   string node_id = 1;
   string decision = 2;
   string result_variable = 3;
+  repeated WorkflowVariable outputs = 4;
+  string form_version_id = 5;
 }
 
 message CaseActivated {

@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+package bpmp.compiler.v1;
+
+// Internal bounded compiler contract. Workload mTLS authenticates callers;
+// tenant/model metadata is used for audit and diagnostic context.
+service BpmnCompilerService {
+  rpc ValidateBpmn(ValidateBpmnRequest) returns (ValidateBpmnResponse);
+  rpc ValidateDmn(ValidateDmnRequest) returns (ValidateDmnResponse);
+}
+
+message ValidateBpmnRequest {
+  string tenant_id = 1;
+  string process_model_id = 2;
+  int64 draft_revision = 3;
+  string source_name = 4;
+  bytes bpmn_xml = 5;
+}
+
+message ValidateBpmnResponse {
+  bool valid = 1;
+  repeated Diagnostic diagnostics = 2;
+}
+
+message ValidateDmnRequest {
+  string tenant_id = 1;
+  string decision_model_id = 2;
+  int64 draft_revision = 3;
+  string source_name = 4;
+  bytes dmn_xml = 5;
+}
+
+message ValidateDmnResponse {
+  bool valid = 1;
+  repeated Diagnostic diagnostics = 2;
+}
+
+message Diagnostic {
+  string code = 1;
+  string severity = 2;
+  string message = 3;
+  string element_id = 4;
+  uint64 line = 5;
+  uint64 column = 6;
+}

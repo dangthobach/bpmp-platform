@@ -1,0 +1,40 @@
+{
+  "owner_id": "human-runtime",
+  "manifest_version": "1.0.0",
+  "entries": [
+    {
+      "resource_type": "assignment_policy",
+      "action": "query",
+      "capability": "human.assignment-policy.read",
+      "supported_scope_types": ["resource"],
+      "readable_fields": [
+        "tenant_id",
+        "policy_ref",
+        "workflow_type",
+        "workflow_version",
+        "node_id",
+        "assignee_id",
+        "candidate_group",
+        "sla_duration_ms",
+        "escalation_policy_ref",
+        "config_version",
+        "version"
+      ],
+      "writable_fields": []
+    },
+    {
+      "resource_type": "assignment_policy",
+      "action": "manage",
+      "capability": "human.assignment-policy.manage",
+      "supported_scope_types": ["resource"],
+      "readable_fields": [],
+      "writable_fields": [
+        "assignee_id",
+        "candidate_group",
+        "sla_duration_ms",
+        "escalation_policy_ref",
+        "config_version"
+      ]
+    }
+  ]
+}

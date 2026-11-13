@@ -541,6 +541,75 @@ pub struct DeleteSavedQueryRequest {
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct DeleteSavedQueryResponse {
 }
+/// Saved dashboards persist only dashboard configuration. Dashboard data is
+/// always queried through the current Projection authorization policy.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct SavedDashboard {
+    #[prost(string, tag="1")]
+    pub id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(uint64, tag="3")]
+    pub version: u64,
+    #[prost(string, tag="4")]
+    pub config_json: ::prost::alloc::string::String,
+    #[prost(uint64, tag="5")]
+    pub created_at_epoch_ms: u64,
+    #[prost(uint64, tag="6")]
+    pub updated_at_epoch_ms: u64,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct SaveDashboardRequest {
+    #[prost(string, tag="1")]
+    pub tenant_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub id: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(uint64, tag="4")]
+    pub expected_version: u64,
+    #[prost(string, tag="5")]
+    pub config_json: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="6")]
+    pub actor_proof: ::core::option::Option<super::super::authorization::v1::ActorProof>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct SaveDashboardResponse {
+    #[prost(message, optional, tag="1")]
+    pub dashboard: ::core::option::Option<SavedDashboard>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ListDashboardsRequest {
+    #[prost(string, tag="1")]
+    pub tenant_id: ::prost::alloc::string::String,
+    #[prost(uint32, tag="2")]
+    pub page_size: u32,
+    #[prost(string, tag="3")]
+    pub page_token: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="4")]
+    pub actor_proof: ::core::option::Option<super::super::authorization::v1::ActorProof>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListDashboardsResponse {
+    #[prost(message, repeated, tag="1")]
+    pub dashboards: ::prost::alloc::vec::Vec<SavedDashboard>,
+    #[prost(string, tag="2")]
+    pub next_page_token: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct DeleteDashboardRequest {
+    #[prost(string, tag="1")]
+    pub tenant_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub id: ::prost::alloc::string::String,
+    #[prost(uint64, tag="3")]
+    pub expected_version: u64,
+    #[prost(message, optional, tag="4")]
+    pub actor_proof: ::core::option::Option<super::super::authorization::v1::ActorProof>,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct DeleteDashboardResponse {
+}
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct QueryExport {
     #[prost(string, tag="1")]

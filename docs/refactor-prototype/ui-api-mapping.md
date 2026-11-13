@@ -2,7 +2,7 @@
 
 Generated lexical candidates, not verified semantic coverage. Every inventory row is included once; a control and its callback can represent the same interaction. All rows remain pending source/browser review. Do not count API_CANDIDATE as implemented or accepted parity.
 
-Full source hash/expression: [inventory JSON](interaction-inventory.json). Machine mapping: [CSV](ui-api-mapping.csv). Operation IDs: [API reference](api-operation-reference.md).
+Full source hash/expression: [inventory JSON](interaction-inventory.json). Machine mapping: [CSV](ui-api-mapping.csv). Operation IDs: [API reference](api-operation-reference.md). Runtime application control-to-operation mapping and API status are recorded in [runtime UI/API mapping](runtime-ui-api-mapping.md).
 
 | Classification | Rows |
 |---|---:|
@@ -1341,6 +1341,48 @@ Full source hash/expression: [inventory JSON](interaction-inventory.json). Machi
 | UI-1324 | components/tasklist/TasklistModule.tsx:866 | onClick | API_CANDIDATE | targetBatchWorkItemActions |
 | UI-1325 | components/tasklist/TasklistModule.tsx:873 | button | LOCAL_UI |  |
 | UI-1326 | components/tasklist/TasklistModule.tsx:874 | onClick | LOCAL_UI |  |
+
+## Product implementation mappings verified against the current code
+
+The table above is a lexical inventory of prototype interactions. The following rows describe the implemented Cockpit product interactions and have been verified against the page, API client, Gateway route, and owner RPC. They are separate from the prototype's pending lexical candidates.
+
+| Product interaction | Cockpit source | API operation | State / authorization contract |
+|---|---|---|---|
+| Load assignment policy page | `apps/web/cockpit-web/src/features/task-management/TaskManagementPage.tsx` | `listAssignmentPolicies` → `GET /v1/assignment-policies` | Human Runtime read capability; bounded page token |
+| Create assignment policy | `TaskManagementPage.tsx` form + `src/api/client.ts` | `upsertAssignmentPolicy` → `PUT /v1/assignment-policies` | `expected_version=0`, exactly one assignee/group, stable retry idempotency key |
+| Update assignment policy | Policy row Edit action + form | `upsertAssignmentPolicy` → `PUT /v1/assignment-policies` | Composite identity locked in edit mode; optimistic version check; audit at owner |
+| Refresh assignment groups after save | React Query invalidation | `listAccessQueues` → `GET /v1/access/queues` | Authz catalog read capability; live owner result |
+
+## Verified Optimize reporting mappings
+
+| Product interaction | Cockpit source | API operation | State / authorization contract |
+|---|---|---|---|
+| Read allowed export scopes/fields | `apps/web/cockpit-web/src/features/optimize/OptimizeDashboardPage.tsx` | `getProcessQueryCapabilities` | Projection capability response controls scope and selected fields |
+| Start process CSV export | `OptimizeDashboardPage.tsx` | `createQueryExport` → `POST /v1/query-exports` | Bounded to 10,000 rows; authenticated actor context; Projection validates query policy |
+| Poll/cancel/export result | `OptimizeDashboardPage.tsx` | `getQueryExport`, `cancelQueryExport` | Result is owner/tenant-bound; byte payload is decoded from base64 before download |
+| Drill into an aggregate by workflow and scope | Optimize aggregate row → Process Explorer | `queryProcesses` → `POST /v1/process-instances/query` after the user runs the prefilled filter | Workflow and scope are query inputs only; Projection re-evaluates current tenant/actor policy and returns authorized rows/fields |
+| SLA charts, cycle-time analytics, PDF | Not exposed as live controls | No matching API used | Remain capability gaps; no prototype mock data is rendered as a real report |
+
+## Verified Process Explorer saved-query mappings
+
+| Product interaction | Cockpit source | API operation | State / authorization contract |
+|---|---|---|---|
+| List saved query pages | `apps/web/cockpit-web/src/features/process-query/ProcessQueryPage.tsx` | `listSavedQueries` → `GET /v1/saved-queries` | Projection binds list to actor and tenant |
+| Save the executed query | Process Explorer Saved queries panel | `saveQuery` → `POST /v1/saved-queries` | Server validates and stores a query snapshot; does not persist query results or grant rights |
+| Run saved snapshot | Saved query Run action | `queryProcesses` → `POST /v1/process-instances/query` | Current actor, tenant and live query policy are re-evaluated |
+| Delete saved query | Saved query Delete action | `deleteSavedQuery` → `DELETE /v1/saved-queries/{id}?expected_version=` | Owner-bound delete and optimistic version check |
+
+## Verified Identity directory mappings
+
+| Product interaction | Cockpit source | API operation | State / authorization contract |
+|---|---|---|---|
+| Load tenant user page | `apps/web/cockpit-web/src/features/identity/IdentityDirectoryPage.tsx` | `listIdentityUsers` → `GET /v1/access/users?limit=&after_user_id=` | Gateway delegates to Authz; tenant-bound service principal and `identity.user.read` are enforced by Authz |
+| Display actual roles and account/query state | Identity directory table | Same user-directory response | Data comes from Authz user and active role assignments; UI does not infer lifecycle or role membership |
+| Provision/change account or credentials | Not exposed | No identity-provider lifecycle API is integrated | Authz page remains read-only; IdP retains account provisioning, credentials and MFA ownership |
+
+## Modeler Authoring contract (runtime integration implemented; deployment still conditional)
+
+`contracts/proto/bpmp/authoring/v1/authoring.proto` defines BPMN and DMN draft lifecycle operations. Go application/gRPC/PostgreSQL adapters, signed Authz PEP, compiler adapter, Gateway HTTP routes, browser API methods, and Modeler controls implement list/create/get/save/validate for both draft types. The Gateway routes are registered only when `authoring_address` is configured; the UI reports API unavailability instead of using prototype sample data. The DMN table editor supports a safe single-input/single-output subset with source mode for other models. Immutable versions, forms and deployment remain gaps. See [authoring-service.md](authoring-service.md) and [runtime-ui-api-mapping.md](runtime-ui-api-mapping.md) for operation-level evidence.
 
 ## Review rule
 

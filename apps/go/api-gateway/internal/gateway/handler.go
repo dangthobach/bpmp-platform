@@ -15,6 +15,7 @@ import (
 
 	"github.com/dangthobach/bpmp-platform/apps/go/api-gateway/internal/config"
 	"github.com/dangthobach/bpmp-platform/apps/go/api-gateway/internal/core/ports"
+	authoringv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/authoring/v1"
 	authv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/authorization/v1"
 	enginev1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/engine/v1"
 	humanv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/human/v1"
@@ -32,6 +33,7 @@ type Handler struct {
 	engine             ports.Engine
 	human              ports.HumanRuntime
 	projection         ports.Projection
+	authoring          ports.Authoring
 	verifier           *verifier
 	workload           *workloadSigner
 	limiter            ports.RateLimiter
@@ -163,6 +165,9 @@ func (h *Handler) Routes() http.Handler {
 		if strings.HasPrefix(definition.Path, "/v1/access/") && h.authorizationProxy == nil {
 			continue
 		}
+		if strings.HasPrefix(definition.Path, "/v1/authoring/") && h.authoring == nil {
+			continue
+		}
 		definition := definition
 		mux.HandleFunc(
 			definition.Method+" "+definition.Path,
@@ -191,9 +196,12 @@ var publicOperationDefinitions = []publicOperationDefinition{
 	{PublicOperation{http.MethodGet, "/v1/access/catalog/versions", "listAuthorizationCatalogVersions"}, (*Handler).authorizationCatalog, false},
 	{PublicOperation{http.MethodGet, "/v1/access/catalog/entries", "listAuthorizationCatalogEntries"}, (*Handler).authorizationCatalog, false},
 	{PublicOperation{http.MethodGet, "/v1/access/catalog/roles", "listAuthorizationRoles"}, (*Handler).authorizationCatalog, false},
+	{PublicOperation{http.MethodGet, "/v1/access/users", "listIdentityUsers"}, (*Handler).authorizationCatalog, false},
 	{PublicOperation{http.MethodGet, "/v1/access/catalog/audit", "listAuthorizationCatalogAudit"}, (*Handler).authorizationCatalog, false},
 	{PublicOperation{http.MethodGet, "/v1/access/catalog/acknowledgements", "listAuthorizationCatalogAcknowledgements"}, (*Handler).authorizationCatalog, false},
 	{PublicOperation{http.MethodGet, "/v1/access/queues", "listAccessQueues"}, (*Handler).listAccessQueues, false},
+	{PublicOperation{http.MethodGet, "/v1/assignment-policies", "listAssignmentPolicies"}, (*Handler).listAssignmentPolicies, false},
+	{PublicOperation{http.MethodPut, "/v1/assignment-policies", "upsertAssignmentPolicy"}, (*Handler).upsertAssignmentPolicy, false},
 	{PublicOperation{http.MethodPost, "/v1/access/catalog/versions", "createAuthorizationCatalogDraft"}, (*Handler).authorizationCatalog, false},
 	{PublicOperation{http.MethodPut, "/v1/access/catalog/versions/{versionID}", "updateAuthorizationCatalogDraft"}, (*Handler).authorizationCatalog, false},
 	{PublicOperation{http.MethodPost, "/v1/access/catalog/versions/{versionID}/validate", "validateAuthorizationCatalog"}, (*Handler).authorizationCatalog, false},
@@ -201,6 +209,31 @@ var publicOperationDefinitions = []publicOperationDefinition{
 	{PublicOperation{http.MethodGet, "/v1/access/catalog/versions/{versionID}/bundle", "downloadAuthorizationBundle"}, (*Handler).authorizationCatalog, false},
 	{PublicOperation{http.MethodPost, "/v1/workflows/{workflowType}/instances", "startWorkflow"}, (*Handler).startWorkflow, false},
 	{PublicOperation{http.MethodGet, "/v1/work-items", "listWorkItems"}, (*Handler).listWorkItems, false},
+	{PublicOperation{http.MethodGet, "/v1/authoring/process-models", "listProcessModels"}, (*Handler).listProcessModels, false},
+	{PublicOperation{http.MethodPost, "/v1/authoring/process-models", "createProcessModel"}, (*Handler).createProcessModel, false},
+	{PublicOperation{http.MethodGet, "/v1/authoring/process-models/{processModelID}", "getProcessModel"}, (*Handler).getProcessModel, false},
+	{PublicOperation{http.MethodPut, "/v1/authoring/process-models/{processModelID}/draft", "saveProcessModelDraft"}, (*Handler).saveProcessModelDraft, false},
+	{PublicOperation{http.MethodPost, "/v1/authoring/process-models/{processModelID}/draft/validate", "validateProcessModelDraft"}, (*Handler).validateProcessModelDraft, false},
+	{PublicOperation{http.MethodPost, "/v1/authoring/process-models/{processModelID}/versions", "checkinProcessModel"}, (*Handler).checkinProcessModel, false},
+	{PublicOperation{http.MethodGet, "/v1/authoring/process-models/{processModelID}/versions", "listProcessModelVersions"}, (*Handler).listProcessModelVersions, false},
+	{PublicOperation{http.MethodGet, "/v1/authoring/process-models/{processModelID}/versions/{versionID}", "getProcessModelVersion"}, (*Handler).getProcessModelVersion, false},
+	{PublicOperation{http.MethodGet, "/v1/authoring/decision-models", "listDecisionModels"}, (*Handler).listDecisionModels, false},
+	{PublicOperation{http.MethodPost, "/v1/authoring/decision-models", "createDecisionModel"}, (*Handler).createDecisionModel, false},
+	{PublicOperation{http.MethodGet, "/v1/authoring/decision-models/{decisionModelID}", "getDecisionModel"}, (*Handler).getDecisionModel, false},
+	{PublicOperation{http.MethodPut, "/v1/authoring/decision-models/{decisionModelID}/draft", "saveDecisionModelDraft"}, (*Handler).saveDecisionModelDraft, false},
+	{PublicOperation{http.MethodPost, "/v1/authoring/decision-models/{decisionModelID}/draft/validate", "validateDecisionModelDraft"}, (*Handler).validateDecisionModelDraft, false},
+	{PublicOperation{http.MethodPost, "/v1/authoring/decision-models/{decisionModelID}/versions", "checkinDecisionModel"}, (*Handler).checkinDecisionModel, false},
+	{PublicOperation{http.MethodGet, "/v1/authoring/decision-models/{decisionModelID}/versions", "listDecisionModelVersions"}, (*Handler).listDecisionModelVersions, false},
+	{PublicOperation{http.MethodGet, "/v1/authoring/decision-models/{decisionModelID}/versions/{versionID}", "getDecisionModelVersion"}, (*Handler).getDecisionModelVersion, false},
+	{PublicOperation{http.MethodGet, "/v1/authoring/forms", "listForms"}, (*Handler).listForms, false},
+	{PublicOperation{http.MethodPost, "/v1/authoring/forms", "createForm"}, (*Handler).createForm, false},
+	{PublicOperation{http.MethodGet, "/v1/authoring/forms/by-key/{formKey}", "getPublishedFormByKey"}, (*Handler).getPublishedFormByKey, false},
+	{PublicOperation{http.MethodGet, "/v1/authoring/forms/{formID}", "getForm"}, (*Handler).getForm, false},
+	{PublicOperation{http.MethodPut, "/v1/authoring/forms/{formID}/draft", "saveFormDraft"}, (*Handler).saveFormDraft, false},
+	{PublicOperation{http.MethodPost, "/v1/authoring/forms/{formID}/draft/validate", "validateFormDraft"}, (*Handler).validateFormDraft, false},
+	{PublicOperation{http.MethodPost, "/v1/authoring/forms/{formID}/versions", "publishForm"}, (*Handler).publishForm, false},
+	{PublicOperation{http.MethodGet, "/v1/authoring/forms/{formID}/versions", "listFormVersions"}, (*Handler).listFormVersions, false},
+	{PublicOperation{http.MethodGet, "/v1/authoring/forms/{formID}/versions/{versionID}", "getFormVersion"}, (*Handler).getFormVersion, false},
 	{PublicOperation{http.MethodGet, "/v1/work-items/{workItemID}", "getWorkItem"}, (*Handler).getWorkItem, false},
 	{PublicOperation{http.MethodPost, "/v1/work-items/{workItemID}/complete", "completeWorkItem"}, (*Handler).completeWorkItem, false},
 	{PublicOperation{http.MethodPost, "/v1/work-items/{workItemID}/delegate", "delegateWorkItem"}, (*Handler).delegateWorkItem, false},
@@ -216,6 +249,9 @@ var publicOperationDefinitions = []publicOperationDefinition{
 	{PublicOperation{http.MethodPost, "/v1/saved-queries", "saveProcessQuery"}, (*Handler).saveProcessQuery, false},
 	{PublicOperation{http.MethodGet, "/v1/saved-queries", "listSavedQueries"}, (*Handler).listSavedQueries, false},
 	{PublicOperation{http.MethodDelete, "/v1/saved-queries/{savedQueryID}", "deleteSavedQuery"}, (*Handler).deleteSavedQuery, false},
+	{PublicOperation{http.MethodPost, "/v1/saved-dashboards", "saveDashboard"}, (*Handler).saveDashboard, false},
+	{PublicOperation{http.MethodGet, "/v1/saved-dashboards", "listDashboards"}, (*Handler).listDashboards, false},
+	{PublicOperation{http.MethodDelete, "/v1/saved-dashboards/{dashboardID}", "deleteDashboard"}, (*Handler).deleteDashboard, false},
 	{PublicOperation{http.MethodPost, "/v1/query-exports", "createQueryExport"}, (*Handler).createQueryExport, false},
 	{PublicOperation{http.MethodGet, "/v1/query-exports/{exportID}", "getQueryExport"}, (*Handler).getQueryExport, false},
 	{PublicOperation{http.MethodDelete, "/v1/query-exports/{exportID}", "cancelQueryExport"}, (*Handler).cancelQueryExport, false},
@@ -678,6 +714,18 @@ func (h *Handler) listWorkItems(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid)
 		return
 	}
+	var listScope humanv1.WorkItemListScope
+	switch strings.ToLower(strings.TrimSpace(r.URL.Query().Get("scope"))) {
+	case "", "all":
+		listScope = humanv1.WorkItemListScope_WORK_ITEM_LIST_SCOPE_ALL
+	case "mine", "assigned_to_me":
+		listScope = humanv1.WorkItemListScope_WORK_ITEM_LIST_SCOPE_ASSIGNED_TO_ME
+	case "group", "group_queue":
+		listScope = humanv1.WorkItemListScope_WORK_ITEM_LIST_SCOPE_GROUP_QUEUE
+	default:
+		writeError(w, errInvalid)
+		return
+	}
 	response, err := invokeUpstream(h, upstreamContext(r, scope), scope, humanDependency,
 		func(ctx context.Context) (*humanv1.ListWorkItemsResponse, error) {
 			return h.human.ListWorkItems(ctx, &humanv1.ListWorkItemsRequest{
@@ -685,6 +733,7 @@ func (h *Handler) listWorkItems(w http.ResponseWriter, r *http.Request) {
 				PageSize:   pageSize,
 				PageToken:  r.URL.Query().Get("page_token"),
 				ActorProof: actorProof(scope),
+				Scope:      listScope,
 			})
 		})
 	if err != nil {
@@ -858,8 +907,10 @@ func (h *Handler) startWorkflow(w http.ResponseWriter, r *http.Request) {
 }
 
 type completeRequest struct {
-	Decision        string `json:"decision"`
-	ExpectedVersion int64  `json:"expected_version"`
+	Decision        string                     `json:"decision"`
+	ExpectedVersion int64                      `json:"expected_version"`
+	Outputs         map[string]json.RawMessage `json:"outputs"`
+	FormVersionID   string                     `json:"form_version_id"`
 }
 
 func (h *Handler) completeWorkItem(w http.ResponseWriter, r *http.Request) {
@@ -875,9 +926,40 @@ func (h *Handler) completeWorkItem(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid)
 		return
 	}
+	outputs, err := mapInitialWorkflowVariables(body.Outputs)
+	if err != nil {
+		writeError(w, errInvalid)
+		return
+	}
+	workItemResponse, err := invokeUpstream(h, upstreamContext(r, scope), scope, humanDependency, func(ctx context.Context) (*humanv1.GetWorkItemResponse, error) {
+		return h.human.GetWorkItem(ctx, &humanv1.GetWorkItemRequest{TenantId: scope.tenantID, WorkItemId: id, ActorProof: actorProof(scope)})
+	})
+	if err != nil || workItemResponse.GetWorkItem() == nil {
+		writeError(w, errUpstream)
+		return
+	}
+	formVersionID := ""
+	formKey := workItemResponse.GetWorkItem().GetFormKey()
+	if formKey != "" {
+		if h.authoring == nil || !hasCapability(scope.capabilities, "authoring.getPublishedForm") || body.FormVersionID == "" {
+			writeError(w, errInvalid)
+			return
+		}
+		form, formErr := invokeUpstream(h, upstreamContext(r, scope), scope, authoringDependency, func(ctx context.Context) (*authoringv1.GetFormByKeyResponse, error) {
+			return h.authoring.GetFormByKey(ctx, &authoringv1.GetFormByKeyRequest{TenantId: scope.tenantID, FormKey: formKey, ActorProof: actorProof(scope)})
+		})
+		if formErr != nil || form.GetPublishedVersion().GetId() != body.FormVersionID || !validFormOutputs(form.GetPublishedVersion().GetSchemaJson(), body.Outputs) {
+			writeError(w, errInvalid)
+			return
+		}
+		formVersionID = body.FormVersionID
+	} else if body.FormVersionID != "" {
+		writeError(w, errInvalid)
+		return
+	}
 	response, err := invokeUpstream(h, upstreamContext(r, scope), scope, humanDependency,
 		func(ctx context.Context) (*humanv1.CompleteWorkItemResponse, error) {
-			return h.human.CompleteWorkItem(ctx, &humanv1.CompleteWorkItemRequest{TenantId: scope.tenantID, WorkItemId: id, CommandId: scope.commandID, IdempotencyKey: scope.idempotencyKey, CorrelationId: scope.correlationID, Decision: body.Decision, ExpectedVersion: body.ExpectedVersion, ActorProof: actorProof(scope)})
+			return h.human.CompleteWorkItem(ctx, &humanv1.CompleteWorkItemRequest{TenantId: scope.tenantID, WorkItemId: id, CommandId: scope.commandID, IdempotencyKey: scope.idempotencyKey, CorrelationId: scope.correlationID, Decision: body.Decision, ExpectedVersion: body.ExpectedVersion, ActorProof: actorProof(scope), Outputs: outputs, FormVersionId: formVersionID})
 		})
 	if err != nil {
 		writeError(w, errUpstream)

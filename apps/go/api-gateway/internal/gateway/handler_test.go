@@ -67,8 +67,10 @@ func (c *recordingEngine) HandleCommand(ctx context.Context, envelope *enginev1.
 
 type recordingHuman struct {
 	humanv1.HumanRuntimeServiceClient
-	listRequest *humanv1.ListWorkItemsRequest
-	metadata    metadata.MD
+	listRequest         *humanv1.ListWorkItemsRequest
+	policyListRequest   *humanv1.ListAssignmentPoliciesRequest
+	policyUpsertRequest *humanv1.UpsertAssignmentPolicyRequest
+	metadata            metadata.MD
 }
 
 type recordingProjection struct {
@@ -101,6 +103,18 @@ func (c *recordingHuman) ListWorkItems(ctx context.Context, request *humanv1.Lis
 		}},
 		NextPageToken: "next",
 	}, nil
+}
+
+func (c *recordingHuman) ListAssignmentPolicies(ctx context.Context, request *humanv1.ListAssignmentPoliciesRequest, _ ...grpc.CallOption) (*humanv1.ListAssignmentPoliciesResponse, error) {
+	c.policyListRequest = request
+	c.metadata, _ = metadata.FromOutgoingContext(ctx)
+	return &humanv1.ListAssignmentPoliciesResponse{Policies: []*humanv1.AssignmentPolicy{{PolicyRef: "review-default", WorkflowType: "purchase", WorkflowVersion: "v1", NodeId: "review", CandidateGroup: "finance", ConfigVersion: "cfg-1", Version: 1}}}, nil
+}
+
+func (c *recordingHuman) UpsertAssignmentPolicy(ctx context.Context, request *humanv1.UpsertAssignmentPolicyRequest, _ ...grpc.CallOption) (*humanv1.UpsertAssignmentPolicyResponse, error) {
+	c.policyUpsertRequest = request
+	c.metadata, _ = metadata.FromOutgoingContext(ctx)
+	return &humanv1.UpsertAssignmentPolicyResponse{Policy: &humanv1.AssignmentPolicy{PolicyRef: request.PolicyRef, WorkflowType: request.WorkflowType, WorkflowVersion: request.WorkflowVersion, NodeId: request.NodeId, CandidateGroup: request.CandidateGroup, ConfigVersion: request.ConfigVersion, Version: 1}}, nil
 }
 
 func TestGatewayPreservesActorProofAndIdempotencyKey(t *testing.T) {
@@ -263,6 +277,85 @@ func TestListWorkItemsForwardsTenantActorAndCursor(t *testing.T) {
 	}
 	if values := human.metadata.Get("x-bpmp-correlation-id"); len(values) != 1 || values[0] != "correlation-1" {
 		t.Fatalf("correlation metadata was not preserved: %v", values)
+	}
+}
+
+func TestAssignmentPolicyRoutesRequireCapabilitiesAndForwardScopedCommands(t *testing.T) {
+	public, private, _ := ed25519.GenerateKey(nil)
+	now := time.Unix(1_000, 0).UTC()
+	tokenFor := func(capability string) string {
+		claims := jwt.MapClaims{"iss": "issuer", "sub": "actor-1", "aud": []string{"gateway"}, "exp": now.Add(time.Hour).Unix(), "iat": now.Add(-time.Minute).Unix(), "tenant_id": "tenant-a", "capabilities": []string{capability}}
+		token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
+		token.Header["kid"] = "actor-key"
+		raw, err := token.SignedString(private)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return raw
+	}
+	human := &recordingHuman{}
+	handler, err := NewHandler(&recordingEngine{}, human, testVerifier(t, public), &workloadSigner{id: "api-gateway", keyID: "workload-key", key: private, ttl: time.Minute}, newModelRateLimiter(10, time.Minute), staticPolicyProvider{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler.now = func() time.Time { return now }
+
+	list := httptest.NewRequest(http.MethodGet, "/v1/assignment-policies?page_size=20", nil)
+	list.Header.Set("Authorization", "Bearer "+tokenFor("human.assignment-policy.read"))
+	list.Header.Set("X-BPMP-Tenant-ID", "tenant-a")
+	list.Header.Set("X-Correlation-ID", "correlation-1")
+	listResponse := httptest.NewRecorder()
+	handler.Routes().ServeHTTP(listResponse, list)
+	if listResponse.Code != http.StatusOK || human.policyListRequest == nil {
+		t.Fatalf("list failed: %d %s", listResponse.Code, listResponse.Body.String())
+	}
+	if human.policyListRequest.TenantId != "tenant-a" || human.policyListRequest.PageSize != 20 || human.policyListRequest.ActorProof == nil {
+		t.Fatalf("list scope was not forwarded: %+v", human.policyListRequest)
+	}
+
+	write := httptest.NewRequest(http.MethodPut, "/v1/assignment-policies", strings.NewReader(`{"tenant_id":"attacker","command_id":"client","policy_ref":"review-default","workflow_type":"purchase","workflow_version":"v1","node_id":"review","candidate_group":"finance","config_version":"cfg-1","expected_version":0}`))
+	write.Header.Set("Authorization", "Bearer "+tokenFor("human.assignment-policy.manage"))
+	write.Header.Set("X-BPMP-Tenant-ID", "tenant-a")
+	write.Header.Set("X-Correlation-ID", "correlation-2")
+	write.Header.Set("X-Command-ID", "command-2")
+	write.Header.Set("Idempotency-Key", "idem-2")
+	writeResponse := httptest.NewRecorder()
+	handler.Routes().ServeHTTP(writeResponse, write)
+	if writeResponse.Code != http.StatusOK || human.policyUpsertRequest == nil {
+		t.Fatalf("upsert failed: %d %s", writeResponse.Code, writeResponse.Body.String())
+	}
+	if human.policyUpsertRequest.TenantId != "tenant-a" || human.policyUpsertRequest.CommandId != "command-2" || human.policyUpsertRequest.IdempotencyKey != "idem-2" || human.policyUpsertRequest.ActorProof == nil {
+		t.Fatalf("write scope was not authoritative: %+v", human.policyUpsertRequest)
+	}
+}
+
+func TestIdentityUserDirectoryUsesDelegatedReadCapabilityAndTenant(t *testing.T) {
+	public, private, _ := ed25519.GenerateKey(nil)
+	now := time.Unix(1_000, 0).UTC()
+	actorToken := jwt.NewWithClaims(jwt.SigningMethodEdDSA, jwt.MapClaims{"iss": "issuer", "sub": "admin-1", "aud": []string{"gateway"}, "exp": now.Add(time.Hour).Unix(), "iat": now.Add(-time.Minute).Unix(), "tenant_id": "tenant-a", "capabilities": []string{"identity.user.read"}})
+	actorToken.Header["kid"] = "actor-key"
+	raw, err := actorToken.SignedString(private)
+	if err != nil { t.Fatal(err) }
+	var upstreamRequest *http.Request
+	upstream := doerFunc(func(request *http.Request) (*http.Response, error) {
+		upstreamRequest = request
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"users":[],"next_page_token":""}`))}, nil
+	})
+	handler, err := NewHandler(&recordingEngine{}, &recordingHuman{}, testVerifier(t, public), &workloadSigner{id: "api-gateway", keyID: "workload-key", key: private, ttl: time.Minute}, newModelRateLimiter(10, time.Minute), staticPolicyProvider{}, WithAuthorizationAdmin(upstream, "https://authz.example.test", "authz-admin"))
+	if err != nil { t.Fatal(err) }
+	handler.now = func() time.Time { return now }
+	request := httptest.NewRequest(http.MethodGet, "/v1/access/users?limit=25&after_user_id=00000000-0000-0000-0000-000000000001", nil)
+	request.Header.Set("Authorization", "Bearer "+raw)
+	request.Header.Set("X-BPMP-Tenant-ID", "tenant-a")
+	request.Header.Set("X-Correlation-ID", "identity-users-1")
+	response := httptest.NewRecorder()
+	handler.Routes().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || upstreamRequest == nil { t.Fatalf("user directory proxy failed: %d %s", response.Code, response.Body.String()) }
+	if upstreamRequest.URL.Path != "/admin/v1/users" || upstreamRequest.URL.Query().Get("tenant_id") != "tenant-a" || upstreamRequest.URL.Query().Get("after_user_id") != "00000000-0000-0000-0000-000000000001" || upstreamRequest.URL.Query().Get("limit") != "25" {
+		t.Fatalf("delegated user query is incorrect: %s", upstreamRequest.URL.String())
+	}
+	if delegated := upstreamRequest.Header.Get("Authorization"); !strings.HasPrefix(delegated, "Bearer ") || delegated == "Bearer "+raw {
+		t.Fatalf("expected gateway-signed delegation token, got %q", delegated)
 	}
 }
 

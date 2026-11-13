@@ -3,7 +3,7 @@
   "info": {
     "title": "BPMP Platform Public API",
     "version": "1.0.0",
-    "description": "Authoritative public HTTP contract for workflow commands, human work, completed-process queries, audit queries, and runtime configuration lifecycle.",
+    "description": "Authoritative public HTTP contract for workflow commands, human work, completed-process queries, audit queries, runtime configuration, Human Runtime assignment policies, and the initial process-model draft lifecycle (when Authoring is configured).",
     "license": {
       "name": "Apache-2.0",
       "identifier": "Apache-2.0"
@@ -46,6 +46,14 @@
     {
       "name": "Access",
       "description": "Authorization catalog and signed policy publication."
+    },
+    {
+      "name": "Human Work Administration",
+      "description": "Versioned assignment policies owned by Human Runtime."
+    },
+    {
+      "name": "Authoring",
+      "description": "Process model metadata and mutable BPMN drafts; validation does not publish or deploy."
     }
   ],
   "paths": {
@@ -183,6 +191,17 @@
           },
           {
             "$ref": "#/components/parameters/PageToken"
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "description": "Assignment scope applied by Human Runtime; group_queue contains only unclaimed work items in the actor's authorized candidate groups.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["all", "mine", "group"],
+              "default": "all"
+            }
           }
         ],
         "responses": {
@@ -872,6 +891,80 @@
           "502": {
             "$ref": "#/components/responses/UpstreamUnavailable"
           }
+        }
+      }
+    },
+    "/v1/saved-dashboards": {
+      "parameters": [
+        { "$ref": "#/components/parameters/TenantID" },
+        { "$ref": "#/components/parameters/CorrelationID" }
+      ],
+      "post": {
+        "summary": "Create or update an actor-owned saved dashboard",
+        "operationId": "saveDashboard",
+        "tags": ["Process Query"],
+        "x-capability": "Projection current query authorization; owner bound to verified actor",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["id", "name", "config_json"],
+                "properties": {
+                  "id": { "$ref": "#/components/schemas/Identifier" },
+                  "name": { "type": "string", "minLength": 1, "maxLength": 256 },
+                  "expected_version": { "type": "integer", "minimum": 0 },
+                  "config_json": { "type": "string", "minLength": 1, "maxLength": 65536, "description": "JSON object with schema_version 1 and 1–24 typed widget entries. Stores configuration only; query results are not persisted." }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Saved dashboard configuration" },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "502": { "$ref": "#/components/responses/UpstreamUnavailable" }
+        }
+      },
+      "get": {
+        "summary": "List actor-owned saved dashboards",
+        "operationId": "listDashboards",
+        "tags": ["Process Query"],
+        "x-capability": "Projection current query authorization; list bound to verified actor",
+        "parameters": [
+          { "$ref": "#/components/parameters/PageSize" },
+          { "$ref": "#/components/parameters/PageToken" }
+        ],
+        "responses": {
+          "200": { "description": "Saved dashboard page" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "502": { "$ref": "#/components/responses/UpstreamUnavailable" }
+        }
+      }
+    },
+    "/v1/saved-dashboards/{dashboardID}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/TenantID" },
+        { "$ref": "#/components/parameters/CorrelationID" },
+        { "name": "dashboardID", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } }
+      ],
+      "delete": {
+        "summary": "Delete an actor-owned saved dashboard with optimistic concurrency",
+        "operationId": "deleteDashboard",
+        "tags": ["Process Query"],
+        "x-capability": "Projection current query authorization; delete bound to verified actor",
+        "parameters": [
+          { "name": "expected_version", "in": "query", "required": true, "schema": { "type": "integer", "minimum": 1 } }
+        ],
+        "responses": {
+          "204": { "description": "Deleted" },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "502": { "$ref": "#/components/responses/UpstreamUnavailable" }
         }
       }
     },
@@ -2085,6 +2178,1384 @@
           }
         }
       }
+    },
+    "/v1/assignment-policies": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantID"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationID"
+        }
+      ],
+      "get": {
+        "summary": "List active assignment policies",
+        "operationId": "listAssignmentPolicies",
+        "tags": [
+          "Human Work Administration"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PageSize"
+          },
+          {
+            "$ref": "#/components/parameters/PageToken"
+          },
+          {
+            "name": "workflow_type",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/Identifier"
+            }
+          },
+          {
+            "name": "workflow_version",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/Identifier"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Assignment policy page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListAssignmentPoliciesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        },
+        "x-capability": "human.assignment-policy.read"
+      },
+      "put": {
+        "summary": "Create or update an assignment policy",
+        "operationId": "upsertAssignmentPolicy",
+        "tags": [
+          "Human Work Administration"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CommandID"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertAssignmentPolicyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Policy created or updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpsertAssignmentPolicyResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "description": "Idempotency key was reused with a different payload"
+          },
+          "412": {
+            "description": "Expected policy version does not match"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        },
+        "x-capability": "human.assignment-policy.manage"
+      }
+    },
+    "/v1/access/users": {
+      "get": {
+        "summary": "List tenant user directory entries",
+        "operationId": "listIdentityUsers",
+        "tags": [
+          "Access"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantID"
+          },
+          {
+            "$ref": "#/components/parameters/CorrelationID"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "after_user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tenant user directory page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserDirectoryPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        },
+        "x-capability": "identity.user.read"
+      }
+    },
+    "/v1/authoring/process-models": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantID"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationID"
+        }
+      ],
+      "get": {
+        "operationId": "listProcessModels",
+        "summary": "List process models",
+        "tags": [
+          "Authoring"
+        ],
+        "x-capability": "authoring.listProcessModel",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "bffSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthoringListModelsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Capability denied"
+          },
+          "404": {
+            "description": "Process model not found"
+          },
+          "409": {
+            "description": "Revision or idempotency conflict"
+          },
+          "503": {
+            "description": "Authoring dependency unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "page_size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "page_token",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "createProcessModel",
+        "summary": "Create process model and initial BPMN draft",
+        "tags": [
+          "Authoring"
+        ],
+        "x-capability": "authoring.createProcessModel",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "bffSession": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthoringCreateModelResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Capability denied"
+          },
+          "404": {
+            "description": "Process model not found"
+          },
+          "409": {
+            "description": "Revision or idempotency conflict"
+          },
+          "503": {
+            "description": "Authoring dependency unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthoringCreateModelRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantID"
+          },
+          {
+            "$ref": "#/components/parameters/CorrelationID"
+          },
+          {
+            "$ref": "#/components/parameters/CommandID"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ]
+      }
+    },
+    "/v1/authoring/process-models/{processModelID}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantID"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationID"
+        },
+        {
+          "name": "processModelID",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      ],
+      "get": {
+        "operationId": "getProcessModel",
+        "summary": "Get process model and current draft",
+        "tags": [
+          "Authoring"
+        ],
+        "x-capability": "authoring.getProcessModel + authoring.getProcessModelDraft",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "bffSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthoringGetModelResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Capability denied"
+          },
+          "404": {
+            "description": "Process model not found"
+          },
+          "409": {
+            "description": "Revision or idempotency conflict"
+          },
+          "503": {
+            "description": "Authoring dependency unavailable"
+          }
+        }
+      }
+    },
+    "/v1/authoring/process-models/{processModelID}/draft": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantID"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationID"
+        },
+        {
+          "$ref": "#/components/parameters/CommandID"
+        },
+        {
+          "$ref": "#/components/parameters/IdempotencyKey"
+        },
+        {
+          "name": "processModelID",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      ],
+      "put": {
+        "operationId": "saveProcessModelDraft",
+        "summary": "Save BPMN draft with revision compare-and-swap",
+        "tags": [
+          "Authoring"
+        ],
+        "x-capability": "authoring.saveProcessModelDraft",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "bffSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthoringSaveDraftResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Capability denied"
+          },
+          "404": {
+            "description": "Process model not found"
+          },
+          "409": {
+            "description": "Revision or idempotency conflict"
+          },
+          "503": {
+            "description": "Authoring dependency unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthoringSaveDraftRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/authoring/process-models/{processModelID}/draft/validate": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantID"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationID"
+        },
+        {
+          "$ref": "#/components/parameters/CommandID"
+        },
+        {
+          "$ref": "#/components/parameters/IdempotencyKey"
+        },
+        {
+          "name": "processModelID",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      ],
+      "post": {
+        "operationId": "validateProcessModelDraft",
+        "summary": "Validate the exact persisted draft revision",
+        "tags": [
+          "Authoring"
+        ],
+        "x-capability": "authoring.validateProcessModel",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "bffSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthoringValidateDraftResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Capability denied"
+          },
+          "404": {
+            "description": "Process model not found"
+          },
+          "409": {
+            "description": "Revision or idempotency conflict"
+          },
+          "503": {
+            "description": "Authoring dependency unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthoringValidateDraftRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/authoring/decision-models": {
+      "get": {
+        "operationId": "listDecisionModels",
+        "tags": [
+          "Authoring"
+        ],
+        "summary": "listDecisionModels",
+        "parameters": [
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "page_token",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authorized Authoring result"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "409": {
+            "description": "Revision or idempotency conflict"
+          },
+          "503": {
+            "description": "Authoring dependency unavailable"
+          }
+        },
+        "x-capability": "authoring.listDecisionModel"
+      },
+      "post": {
+        "operationId": "createDecisionModel",
+        "tags": [
+          "Authoring"
+        ],
+        "summary": "createDecisionModel",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Authorized Authoring result"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "409": {
+            "description": "Revision or idempotency conflict"
+          },
+          "503": {
+            "description": "Authoring dependency unavailable"
+          },
+          "201": {
+            "description": "Decision model created"
+          }
+        },
+        "x-capability": "authoring.createDecisionModel",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDecisionModelRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/authoring/decision-models/{decisionModelID}": {
+      "get": {
+        "operationId": "getDecisionModel",
+        "tags": [
+          "Authoring"
+        ],
+        "summary": "getDecisionModel",
+        "parameters": [
+          {
+            "name": "decisionModelID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authorized Authoring result"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "409": {
+            "description": "Revision or idempotency conflict"
+          },
+          "503": {
+            "description": "Authoring dependency unavailable"
+          }
+        },
+        "x-capability": "authoring.getDecisionModel + authoring.getDecisionModelDraft"
+      }
+    },
+    "/v1/authoring/decision-models/{decisionModelID}/draft": {
+      "put": {
+        "operationId": "saveDecisionModelDraft",
+        "tags": [
+          "Authoring"
+        ],
+        "summary": "saveDecisionModelDraft",
+        "parameters": [
+          {
+            "name": "decisionModelID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authorized Authoring result"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "409": {
+            "description": "Revision or idempotency conflict"
+          },
+          "503": {
+            "description": "Authoring dependency unavailable"
+          }
+        },
+        "x-capability": "authoring.saveDecisionModelDraft",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveDecisionModelDraftRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/authoring/decision-models/{decisionModelID}/draft/validate": {
+      "post": {
+        "operationId": "validateDecisionModelDraft",
+        "tags": [
+          "Authoring"
+        ],
+        "summary": "validateDecisionModelDraft",
+        "parameters": [
+          {
+            "name": "decisionModelID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authorized Authoring result"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "409": {
+            "description": "Revision or idempotency conflict"
+          },
+          "503": {
+            "description": "Authoring dependency unavailable"
+          },
+          "201": {
+            "description": "Draft validation result"
+          }
+        },
+        "x-capability": "authoring.validateDecisionModel",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ValidateDecisionModelDraftRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/authoring/process-models/{processModelID}/versions": {
+      "get": {
+        "operationId": "listProcessModelVersions",
+        "summary": "List immutable process model version metadata",
+        "tags": [
+          "Authoring"
+        ],
+        "x-capability": "authoring.listProcessModelVersions",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "bffSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "processModelID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "page_token",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Owner-authorized Authoring response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthoringProcessModelVersionPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Capability denied"
+          },
+          "404": {
+            "description": "Model or version not found"
+          },
+          "503": {
+            "description": "Authoring dependency unavailable"
+          }
+        }
+      }
+    },
+    "/v1/authoring/decision-models/{decisionModelID}/versions": {
+      "get": {
+        "operationId": "listDecisionModelVersions",
+        "summary": "List immutable decision model version metadata",
+        "tags": [
+          "Authoring"
+        ],
+        "x-capability": "authoring.listDecisionModelVersions",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "bffSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "decisionModelID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "page_token",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Owner-authorized Authoring response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthoringDecisionModelVersionPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Capability denied"
+          },
+          "404": {
+            "description": "Model or version not found"
+          },
+          "503": {
+            "description": "Authoring dependency unavailable"
+          }
+        }
+      }
+    },
+    "/v1/authoring/process-models/{processModelID}/versions/{versionID}": {
+      "get": {
+        "operationId": "getProcessModelVersion",
+        "summary": "Get immutable process model version source",
+        "tags": [
+          "Authoring"
+        ],
+        "x-capability": "authoring.getProcessModelVersion",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "bffSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "processModelID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "versionID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Owner-authorized Authoring response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthoringGetProcessModelVersionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Capability denied"
+          },
+          "404": {
+            "description": "Model or version not found"
+          },
+          "503": {
+            "description": "Authoring dependency unavailable"
+          }
+        }
+      }
+    },
+    "/v1/authoring/decision-models/{decisionModelID}/versions/{versionID}": {
+      "get": {
+        "operationId": "getDecisionModelVersion",
+        "summary": "Get immutable decision model version source",
+        "tags": [
+          "Authoring"
+        ],
+        "x-capability": "authoring.getDecisionModelVersion",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "bffSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "decisionModelID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "versionID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Owner-authorized Authoring response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthoringGetDecisionModelVersionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Capability denied"
+          },
+          "404": {
+            "description": "Model or version not found"
+          },
+          "503": {
+            "description": "Authoring dependency unavailable"
+          }
+        }
+      }
+    },
+    "/v1/authoring/forms": {
+      "get": {
+        "operationId": "listForms",
+        "summary": "List tenant forms",
+        "responses": {
+          "200": {
+            "description": "List tenant forms"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "502": {
+            "description": "Upstream unavailable"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createForm",
+        "summary": "Create a versioned form draft",
+        "responses": {
+          "201": {
+            "description": "Create a versioned form draft"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "502": {
+            "description": "Upstream unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateFormRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/authoring/forms/{formID}": {
+      "get": {
+        "operationId": "getForm",
+        "summary": "Read a form draft",
+        "responses": {
+          "200": {
+            "description": "Read a form draft"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "502": {
+            "description": "Upstream unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "formID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/authoring/forms/by-key/{formKey}": {
+      "get": {
+        "operationId": "getPublishedFormByKey",
+        "summary": "Resolve the published form version for a workflow form key",
+        "responses": {
+          "200": {
+            "description": "Resolve the published form version for a workflow form key"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "502": {
+            "description": "Upstream unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "formKey",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256
+            }
+          }
+        ]
+      }
+    },
+    "/v1/authoring/forms/{formID}/draft": {
+      "put": {
+        "operationId": "saveFormDraft",
+        "summary": "Save a compare-and-swap form draft",
+        "responses": {
+          "200": {
+            "description": "Save a compare-and-swap form draft"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "502": {
+            "description": "Upstream unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveFormDraftRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "formID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/authoring/forms/{formID}/draft/validate": {
+      "post": {
+        "operationId": "validateFormDraft",
+        "summary": "Validate the persisted form draft",
+        "responses": {
+          "200": {
+            "description": "Validate the persisted form draft"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "502": {
+            "description": "Upstream unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ValidateFormDraftRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "formID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/authoring/forms/{formID}/versions": {
+      "post": {
+        "operationId": "publishForm",
+        "summary": "Publish an immutable form version",
+        "responses": {
+          "201": {
+            "description": "Publish an immutable form version"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "502": {
+            "description": "Upstream unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishFormRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "formID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      },
+      "get": {
+        "operationId": "listFormVersions",
+        "summary": "List immutable form versions",
+        "responses": {
+          "200": {
+            "description": "List immutable form versions"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "502": {
+            "description": "Upstream unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "formID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/authoring/forms/{formID}/versions/{versionID}": {
+      "get": {
+        "operationId": "getFormVersion",
+        "summary": "Read an immutable form version",
+        "responses": {
+          "200": {
+            "description": "Read an immutable form version"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "502": {
+            "description": "Upstream unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "formID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "versionID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -3215,13 +4686,23 @@
             "maxProperties": 128,
             "additionalProperties": {
               "oneOf": [
-                { "type": "string", "maxLength": 4096 },
-                { "type": "integer", "format": "int64" },
-                { "type": "boolean" },
+                {
+                  "type": "string",
+                  "maxLength": 4096
+                },
+                {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                {
+                  "type": "boolean"
+                },
                 {
                   "type": "array",
                   "maxItems": 256,
-                  "items": { "$ref": "#/components/schemas/WorkflowVariableValue" }
+                  "items": {
+                    "$ref": "#/components/schemas/WorkflowVariableValue"
+                  }
                 }
               ]
             }
@@ -3230,70 +4711,234 @@
       },
       "WorkflowVariableValue": {
         "oneOf": [
-          { "type": "string", "maxLength": 4096 },
-          { "type": "integer", "format": "int64" },
-          { "type": "boolean" },
+          {
+            "type": "string",
+            "maxLength": 4096
+          },
+          {
+            "type": "integer",
+            "format": "int64"
+          },
+          {
+            "type": "boolean"
+          },
           {
             "type": "array",
             "maxItems": 256,
-            "items": { "$ref": "#/components/schemas/WorkflowVariableValue" }
+            "items": {
+              "$ref": "#/components/schemas/WorkflowVariableValue"
+            }
           }
         ]
       },
       "AuthorizationCatalogSnapshot": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["schema_version", "entries", "policy_grants"],
+        "required": [
+          "schema_version",
+          "entries",
+          "policy_grants"
+        ],
         "properties": {
-          "schema_version": { "type": "integer", "const": 1 },
+          "schema_version": {
+            "type": "integer",
+            "const": 1
+          },
           "entries": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/AuthorizationCatalogEntry" }
+            "items": {
+              "$ref": "#/components/schemas/AuthorizationCatalogEntry"
+            }
           },
           "policy_grants": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/AuthorizationResourcePolicyGrant" }
+            "items": {
+              "$ref": "#/components/schemas/AuthorizationResourcePolicyGrant"
+            }
           }
         }
       },
       "AuthorizationCatalogEntry": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["owner_id", "manifest_version", "manifest_digest", "resource_type", "action", "capability", "enabled", "supported_scope_types", "readable_fields", "writable_fields"],
+        "required": [
+          "owner_id",
+          "manifest_version",
+          "manifest_digest",
+          "resource_type",
+          "action",
+          "capability",
+          "enabled",
+          "supported_scope_types",
+          "readable_fields",
+          "writable_fields"
+        ],
         "properties": {
-          "owner_id": { "type": "string", "minLength": 1 },
-          "manifest_version": { "type": "string", "minLength": 1 },
-          "manifest_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-          "resource_type": { "type": "string", "minLength": 1 },
-          "action": { "type": "string", "minLength": 1 },
-          "capability": { "type": "string", "minLength": 1 },
-          "enabled": { "type": "boolean" },
-          "supported_scope_types": { "type": "array", "uniqueItems": true, "items": { "enum": ["branch", "queue", "own", "resource"] } },
-          "readable_fields": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
-          "writable_fields": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+          "owner_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "manifest_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "manifest_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "resource_type": {
+            "type": "string",
+            "minLength": 1
+          },
+          "action": {
+            "type": "string",
+            "minLength": 1
+          },
+          "capability": {
+            "type": "string",
+            "minLength": 1
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "supported_scope_types": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "branch",
+                "queue",
+                "own",
+                "resource"
+              ]
+            }
+          },
+          "readable_fields": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "writable_fields": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
         }
       },
       "AuthorizationResourcePolicyGrant": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["grant_id", "owner_id", "resource_type", "action", "effect", "tenant_scope"],
+        "required": [
+          "grant_id",
+          "owner_id",
+          "resource_type",
+          "action",
+          "effect",
+          "tenant_scope"
+        ],
         "properties": {
-          "grant_id": { "type": "string", "minLength": 1 },
-          "owner_id": { "type": "string", "minLength": 1 },
-          "actor_ids": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
-          "roles": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
-          "required_capabilities": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
-          "resource_type": { "type": "string", "minLength": 1 },
-          "action": { "type": "string", "minLength": 1 },
-          "effect": { "type": "string", "enum": ["ALLOW", "DENY"] },
-          "branch_scope_ids": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
-          "branch_includes_descendants": { "type": "boolean" },
-          "queue_scope_ids": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
-          "own_scope": { "type": "boolean" },
-          "resource_scope_ids": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
-          "tenant_scope": { "type": "boolean" },
-          "readable_fields": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
-          "writable_fields": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+          "grant_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "owner_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "actor_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "roles": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required_capabilities": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "resource_type": {
+            "type": "string",
+            "minLength": 1
+          },
+          "action": {
+            "type": "string",
+            "minLength": 1
+          },
+          "effect": {
+            "type": "string",
+            "enum": [
+              "ALLOW",
+              "DENY"
+            ]
+          },
+          "branch_scope_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "branch_includes_descendants": {
+            "type": "boolean"
+          },
+          "queue_scope_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "own_scope": {
+            "type": "boolean"
+          },
+          "resource_scope_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "tenant_scope": {
+            "type": "boolean"
+          },
+          "readable_fields": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "writable_fields": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
         }
       },
       "CommandReceipt": {
@@ -3331,6 +4976,18 @@
           "expected_version": {
             "type": "integer",
             "minimum": 0
+          },
+          "outputs": {
+            "type": "object",
+            "maxProperties": 128,
+            "description": "Optional typed workflow variables persisted with the user-task completion event. Values are booleans, signed 64-bit integers, strings, or nested lists (maximum 16 levels and 256 items per list); objects, null, and fractional numbers are rejected. Maximum 128 output variables.",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/WorkflowVariableOutputValue"
+            }
+          },
+          "form_version_id": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
@@ -3903,6 +5560,1227 @@
           "candidate_group": {
             "type": "string",
             "minLength": 1
+          }
+        }
+      },
+      "AssignmentPolicy": {
+        "type": "object",
+        "required": [
+          "policy_ref",
+          "workflow_type",
+          "workflow_version",
+          "node_id",
+          "config_version",
+          "version"
+        ],
+        "properties": {
+          "policy_ref": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "workflow_type": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "workflow_version": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "node_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "assignee_id": {
+            "type": "string",
+            "default": ""
+          },
+          "candidate_group": {
+            "type": "string",
+            "default": ""
+          },
+          "sla_duration_ms": {
+            "type": "integer",
+            "format": "uint64",
+            "default": 0
+          },
+          "escalation_policy_ref": {
+            "type": "string",
+            "default": ""
+          },
+          "config_version": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "is_deleted": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ListAssignmentPoliciesResponse": {
+        "type": "object",
+        "properties": {
+          "policies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssignmentPolicy"
+            }
+          },
+          "next_page_token": {
+            "type": "string"
+          }
+        }
+      },
+      "UpsertAssignmentPolicyRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "policy_ref",
+          "workflow_type",
+          "workflow_version",
+          "node_id",
+          "config_version",
+          "expected_version"
+        ],
+        "properties": {
+          "policy_ref": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "workflow_type": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "workflow_version": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "node_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "assignee_id": {
+            "type": "string"
+          },
+          "candidate_group": {
+            "type": "string"
+          },
+          "sla_duration_ms": {
+            "type": "integer",
+            "format": "uint64"
+          },
+          "escalation_policy_ref": {
+            "type": "string"
+          },
+          "config_version": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "expected_version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        },
+        "description": "Exactly one of assignee_id or candidate_group must be populated. expected_version=0 creates; otherwise it must equal current version."
+      },
+      "UpsertAssignmentPolicyResponse": {
+        "type": "object",
+        "required": [
+          "policy"
+        ],
+        "properties": {
+          "policy": {
+            "$ref": "#/components/schemas/AssignmentPolicy"
+          },
+          "duplicate": {
+            "type": "boolean"
+          }
+        }
+      },
+      "UserDirectoryEntry": {
+        "type": "object",
+        "required": [
+          "user_id",
+          "username",
+          "is_active",
+          "query_revoked",
+          "attributes_version",
+          "roles",
+          "version",
+          "created_at_epoch_ms",
+          "updated_at_epoch_ms"
+        ],
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "username": {
+            "type": "string"
+          },
+          "external_id": {
+            "type": "string"
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "query_revoked": {
+            "type": "boolean"
+          },
+          "attributes_version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "created_at_epoch_ms": {
+            "type": "integer",
+            "format": "uint64"
+          },
+          "updated_at_epoch_ms": {
+            "type": "integer",
+            "format": "uint64"
+          }
+        }
+      },
+      "UserDirectoryPage": {
+        "type": "object",
+        "required": [
+          "users",
+          "next_page_token"
+        ],
+        "properties": {
+          "users": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UserDirectoryEntry"
+            }
+          },
+          "next_page_token": {
+            "type": "string"
+          }
+        }
+      },
+      "AuthoringProcessModel": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "tenantId": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "modelKey": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "category": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "status": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "latestVersionId": {
+            "type": "string"
+          },
+          "createdAtEpochMs": {
+            "type": "integer",
+            "format": "uint64"
+          },
+          "updatedAtEpochMs": {
+            "type": "integer",
+            "format": "uint64"
+          },
+          "isDeleted": {
+            "type": "boolean"
+          },
+          "latestVersionSourceRevision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "AuthoringDiagnostic": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "elementId": {
+            "type": "string"
+          },
+          "line": {
+            "type": "integer",
+            "format": "uint64"
+          },
+          "column": {
+            "type": "integer",
+            "format": "uint64"
+          }
+        }
+      },
+      "AuthoringProcessModelDraft": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "processModelId": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "baseVersionId": {
+            "type": "string"
+          },
+          "bpmnXml": {
+            "type": "string",
+            "maxLength": 1048576
+          },
+          "validationStatus": {
+            "type": "string"
+          },
+          "diagnostics": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuthoringDiagnostic"
+            }
+          },
+          "updatedAtEpochMs": {
+            "type": "integer",
+            "format": "uint64"
+          }
+        }
+      },
+      "AuthoringListModelsResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuthoringProcessModel"
+            }
+          },
+          "nextPageToken": {
+            "type": "string"
+          }
+        }
+      },
+      "AuthoringCreateModelRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "modelKey",
+          "name",
+          "initialBpmnXml"
+        ],
+        "properties": {
+          "modelKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "category": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "initialBpmnXml": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1048576
+          }
+        }
+      },
+      "AuthoringCreateModelResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "model": {
+            "$ref": "#/components/schemas/AuthoringProcessModel"
+          },
+          "draft": {
+            "$ref": "#/components/schemas/AuthoringProcessModelDraft"
+          }
+        }
+      },
+      "AuthoringGetModelResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "model": {
+            "$ref": "#/components/schemas/AuthoringProcessModel"
+          },
+          "draft": {
+            "$ref": "#/components/schemas/AuthoringProcessModelDraft"
+          }
+        }
+      },
+      "AuthoringSaveDraftRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expectedRevision",
+          "bpmnXml"
+        ],
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "baseVersionId": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "bpmnXml": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1048576
+          }
+        }
+      },
+      "AuthoringSaveDraftResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "draft": {
+            "$ref": "#/components/schemas/AuthoringProcessModelDraft"
+          },
+          "replayed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AuthoringValidateDraftRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expectedRevision"
+        ],
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          }
+        }
+      },
+      "AuthoringValidateDraftResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "processModelId": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "valid": {
+            "type": "boolean"
+          },
+          "diagnostics": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuthoringDiagnostic"
+            }
+          }
+        }
+      },
+      "DecisionModel": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "model_key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "created_at_epoch_ms": {
+            "type": "integer"
+          },
+          "updated_at_epoch_ms": {
+            "type": "integer"
+          },
+          "latest_version_source_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "DecisionModelDraft": {
+        "type": "object",
+        "properties": {
+          "decision_model_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "dmn_xml": {
+            "type": "string",
+            "maxLength": 1048576
+          },
+          "validation_status": {
+            "type": "string"
+          },
+          "diagnostics": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuthoringDiagnostic"
+            }
+          },
+          "updated_at_epoch_ms": {
+            "type": "integer"
+          }
+        }
+      },
+      "DecisionModelPage": {
+        "type": "object",
+        "properties": {
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DecisionModel"
+            }
+          },
+          "next_page_token": {
+            "type": "string"
+          }
+        }
+      },
+      "DecisionModelDetail": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "$ref": "#/components/schemas/DecisionModel"
+          },
+          "draft": {
+            "$ref": "#/components/schemas/DecisionModelDraft"
+          }
+        }
+      },
+      "SaveDecisionModelDraftResponse": {
+        "type": "object",
+        "properties": {
+          "draft": {
+            "$ref": "#/components/schemas/DecisionModelDraft"
+          },
+          "replayed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ValidateDecisionModelDraftResponse": {
+        "type": "object",
+        "properties": {
+          "decision_model_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "valid": {
+            "type": "boolean"
+          },
+          "diagnostics": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuthoringDiagnostic"
+            }
+          }
+        }
+      },
+      "CreateDecisionModelRequest": {
+        "type": "object",
+        "required": [
+          "model_key",
+          "name",
+          "initial_dmn_xml"
+        ],
+        "properties": {
+          "model_key": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "initial_dmn_xml": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1048576
+          }
+        }
+      },
+      "SaveDecisionModelDraftRequest": {
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "dmn_xml"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "dmn_xml": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1048576
+          }
+        }
+      },
+      "ValidateDecisionModelDraftRequest": {
+        "type": "object",
+        "required": [
+          "expected_revision"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "AuthoringCheckinProcessModelRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expected_revision",
+          "revision_digest",
+          "version_tag",
+          "summary"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "revision_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{64}$"
+          },
+          "version_tag": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        }
+      },
+      "AuthoringProcessModelVersion": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "process_model_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version_num": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "source_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "bpmn_xml": {
+            "type": "string"
+          },
+          "content_hash": {
+            "type": "string",
+            "contentEncoding": "base64"
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created_at_epoch_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "version_tag": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          }
+        }
+      },
+      "AuthoringCheckinProcessModelResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "$ref": "#/components/schemas/AuthoringProcessModelVersion"
+          },
+          "replayed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AuthoringCheckinDecisionModelRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expected_revision",
+          "revision_digest",
+          "version_tag",
+          "summary"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "revision_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{64}$"
+          },
+          "version_tag": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        }
+      },
+      "AuthoringDecisionModelVersion": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version_num": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "source_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "content_hash": {
+            "type": "string",
+            "contentEncoding": "base64"
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created_at_epoch_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "version_tag": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "decision_model_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "dmn_xml": {
+            "type": "string"
+          }
+        }
+      },
+      "AuthoringCheckinDecisionModelResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "$ref": "#/components/schemas/AuthoringDecisionModelVersion"
+          },
+          "replayed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AuthoringProcessModelVersionSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version_num": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "source_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created_at_epoch_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "version_tag": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "process_model_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "AuthoringProcessModelVersionPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuthoringProcessModelVersionSummary"
+            }
+          },
+          "next_page_token": {
+            "type": "string"
+          }
+        }
+      },
+      "AuthoringGetProcessModelVersionResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "$ref": "#/components/schemas/AuthoringProcessModelVersion"
+          }
+        }
+      },
+      "AuthoringDecisionModelVersionSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version_num": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "source_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created_at_epoch_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "version_tag": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "decision_model_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "AuthoringDecisionModelVersionPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuthoringDecisionModelVersionSummary"
+            }
+          },
+          "next_page_token": {
+            "type": "string"
+          }
+        }
+      },
+      "AuthoringGetDecisionModelVersionResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "$ref": "#/components/schemas/AuthoringDecisionModelVersion"
+          }
+        }
+      },
+      "WorkflowVariableOutputValue": {
+        "description": "Boolean, signed 64-bit integer, string, or nested list; maximum nesting depth 16 and 256 items per list.",
+        "oneOf": [
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "minimum": -9223372036854775808,
+            "maximum": 9223372036854775807
+          },
+          {
+            "type": "string"
+          },
+          {
+            "type": "array",
+            "maxItems": 256,
+            "items": {
+              "$ref": "#/components/schemas/WorkflowVariableOutputValue"
+            }
+          }
+        ]
+      },
+      "FormDefinition": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "form_key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          },
+          "latest_version_id": {
+            "type": "string"
+          },
+          "updated_at_epoch_ms": {
+            "type": "integer"
+          }
+        }
+      },
+      "FormDraft": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "form_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "schema_json": {
+            "type": "string"
+          },
+          "ui_schema_json": {
+            "type": "string"
+          },
+          "validation_status": {
+            "type": "string"
+          },
+          "diagnostics": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TargetIssue"
+            }
+          },
+          "updated_at_epoch_ms": {
+            "type": "integer"
+          }
+        }
+      },
+      "FormVersion": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "form_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version_num": {
+            "type": "integer"
+          },
+          "source_revision": {
+            "type": "integer"
+          },
+          "schema_json": {
+            "type": "string"
+          },
+          "ui_schema_json": {
+            "type": "string"
+          },
+          "content_hash": {
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created_at_epoch_ms": {
+            "type": "integer"
+          },
+          "version_tag": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          }
+        }
+      },
+      "FormVersionSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "form_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version_num": {
+            "type": "integer"
+          },
+          "source_revision": {
+            "type": "integer"
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created_at_epoch_ms": {
+            "type": "integer"
+          },
+          "version_tag": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateFormRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "form_key",
+          "name",
+          "schema_json"
+        ],
+        "properties": {
+          "form_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "schema_json": {
+            "type": "string",
+            "maxLength": 262144
+          },
+          "ui_schema_json": {
+            "type": "string",
+            "maxLength": 262144
+          }
+        }
+      },
+      "SaveFormDraftRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expected_revision",
+          "name",
+          "schema_json"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "schema_json": {
+            "type": "string",
+            "maxLength": 262144
+          },
+          "ui_schema_json": {
+            "type": "string",
+            "maxLength": 262144
+          }
+        }
+      },
+      "ValidateFormDraftRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expected_revision"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "PublishFormRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expected_revision",
+          "revision_digest",
+          "version_tag",
+          "summary"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "revision_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{64}$"
+          },
+          "version_tag": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
           }
         }
       }

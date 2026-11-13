@@ -420,6 +420,9 @@ dependencies = [
  "quick-xml",
  "tempfile",
  "thiserror 2.0.18",
+ "tokio",
+ "tonic",
+ "tonic-prost",
 ]
 
 [[package]]

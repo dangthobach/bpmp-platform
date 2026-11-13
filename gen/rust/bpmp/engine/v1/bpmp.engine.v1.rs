@@ -61,12 +61,16 @@ pub struct CompleteServiceTask {
     #[prost(message, repeated, tag="2")]
     pub outputs: ::prost::alloc::vec::Vec<WorkflowVariable>,
 }
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CompleteUserTask {
     #[prost(string, tag="1")]
     pub node_id: ::prost::alloc::string::String,
     #[prost(string, tag="2")]
     pub decision: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag="3")]
+    pub outputs: ::prost::alloc::vec::Vec<WorkflowVariable>,
+    #[prost(string, tag="4")]
+    pub form_version_id: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct CompleteScriptTask {
@@ -243,7 +247,7 @@ pub struct UserTaskActivated {
     #[prost(string, tag="4")]
     pub form_key: ::prost::alloc::string::String,
 }
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct UserTaskCompleted {
     #[prost(string, tag="1")]
     pub node_id: ::prost::alloc::string::String,
@@ -251,6 +255,10 @@ pub struct UserTaskCompleted {
     pub decision: ::prost::alloc::string::String,
     #[prost(string, tag="3")]
     pub result_variable: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag="4")]
+    pub outputs: ::prost::alloc::vec::Vec<WorkflowVariable>,
+    #[prost(string, tag="5")]
+    pub form_version_id: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct CaseActivated {

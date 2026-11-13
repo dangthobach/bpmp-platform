@@ -29,6 +29,9 @@ const (
 	ProjectionQueryService_SaveQuery_FullMethodName               = "/bpmp.projection.v1.ProjectionQueryService/SaveQuery"
 	ProjectionQueryService_ListSavedQueries_FullMethodName        = "/bpmp.projection.v1.ProjectionQueryService/ListSavedQueries"
 	ProjectionQueryService_DeleteSavedQuery_FullMethodName        = "/bpmp.projection.v1.ProjectionQueryService/DeleteSavedQuery"
+	ProjectionQueryService_SaveDashboard_FullMethodName           = "/bpmp.projection.v1.ProjectionQueryService/SaveDashboard"
+	ProjectionQueryService_ListDashboards_FullMethodName          = "/bpmp.projection.v1.ProjectionQueryService/ListDashboards"
+	ProjectionQueryService_DeleteDashboard_FullMethodName         = "/bpmp.projection.v1.ProjectionQueryService/DeleteDashboard"
 	ProjectionQueryService_CreateQueryExport_FullMethodName       = "/bpmp.projection.v1.ProjectionQueryService/CreateQueryExport"
 	ProjectionQueryService_GetQueryExport_FullMethodName          = "/bpmp.projection.v1.ProjectionQueryService/GetQueryExport"
 	ProjectionQueryService_CancelQueryExport_FullMethodName       = "/bpmp.projection.v1.ProjectionQueryService/CancelQueryExport"
@@ -49,6 +52,9 @@ type ProjectionQueryServiceClient interface {
 	SaveQuery(ctx context.Context, in *SaveQueryRequest, opts ...grpc.CallOption) (*SaveQueryResponse, error)
 	ListSavedQueries(ctx context.Context, in *ListSavedQueriesRequest, opts ...grpc.CallOption) (*ListSavedQueriesResponse, error)
 	DeleteSavedQuery(ctx context.Context, in *DeleteSavedQueryRequest, opts ...grpc.CallOption) (*DeleteSavedQueryResponse, error)
+	SaveDashboard(ctx context.Context, in *SaveDashboardRequest, opts ...grpc.CallOption) (*SaveDashboardResponse, error)
+	ListDashboards(ctx context.Context, in *ListDashboardsRequest, opts ...grpc.CallOption) (*ListDashboardsResponse, error)
+	DeleteDashboard(ctx context.Context, in *DeleteDashboardRequest, opts ...grpc.CallOption) (*DeleteDashboardResponse, error)
 	CreateQueryExport(ctx context.Context, in *CreateQueryExportRequest, opts ...grpc.CallOption) (*CreateQueryExportResponse, error)
 	GetQueryExport(ctx context.Context, in *GetQueryExportRequest, opts ...grpc.CallOption) (*GetQueryExportResponse, error)
 	CancelQueryExport(ctx context.Context, in *CancelQueryExportRequest, opts ...grpc.CallOption) (*CancelQueryExportResponse, error)
@@ -163,6 +169,36 @@ func (c *projectionQueryServiceClient) DeleteSavedQuery(ctx context.Context, in 
 	return out, nil
 }
 
+func (c *projectionQueryServiceClient) SaveDashboard(ctx context.Context, in *SaveDashboardRequest, opts ...grpc.CallOption) (*SaveDashboardResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SaveDashboardResponse)
+	err := c.cc.Invoke(ctx, ProjectionQueryService_SaveDashboard_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *projectionQueryServiceClient) ListDashboards(ctx context.Context, in *ListDashboardsRequest, opts ...grpc.CallOption) (*ListDashboardsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListDashboardsResponse)
+	err := c.cc.Invoke(ctx, ProjectionQueryService_ListDashboards_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *projectionQueryServiceClient) DeleteDashboard(ctx context.Context, in *DeleteDashboardRequest, opts ...grpc.CallOption) (*DeleteDashboardResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteDashboardResponse)
+	err := c.cc.Invoke(ctx, ProjectionQueryService_DeleteDashboard_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *projectionQueryServiceClient) CreateQueryExport(ctx context.Context, in *CreateQueryExportRequest, opts ...grpc.CallOption) (*CreateQueryExportResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(CreateQueryExportResponse)
@@ -217,6 +253,9 @@ type ProjectionQueryServiceServer interface {
 	SaveQuery(context.Context, *SaveQueryRequest) (*SaveQueryResponse, error)
 	ListSavedQueries(context.Context, *ListSavedQueriesRequest) (*ListSavedQueriesResponse, error)
 	DeleteSavedQuery(context.Context, *DeleteSavedQueryRequest) (*DeleteSavedQueryResponse, error)
+	SaveDashboard(context.Context, *SaveDashboardRequest) (*SaveDashboardResponse, error)
+	ListDashboards(context.Context, *ListDashboardsRequest) (*ListDashboardsResponse, error)
+	DeleteDashboard(context.Context, *DeleteDashboardRequest) (*DeleteDashboardResponse, error)
 	CreateQueryExport(context.Context, *CreateQueryExportRequest) (*CreateQueryExportResponse, error)
 	GetQueryExport(context.Context, *GetQueryExportRequest) (*GetQueryExportResponse, error)
 	CancelQueryExport(context.Context, *CancelQueryExportRequest) (*CancelQueryExportResponse, error)
@@ -260,6 +299,15 @@ func (UnimplementedProjectionQueryServiceServer) ListSavedQueries(context.Contex
 }
 func (UnimplementedProjectionQueryServiceServer) DeleteSavedQuery(context.Context, *DeleteSavedQueryRequest) (*DeleteSavedQueryResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteSavedQuery not implemented")
+}
+func (UnimplementedProjectionQueryServiceServer) SaveDashboard(context.Context, *SaveDashboardRequest) (*SaveDashboardResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SaveDashboard not implemented")
+}
+func (UnimplementedProjectionQueryServiceServer) ListDashboards(context.Context, *ListDashboardsRequest) (*ListDashboardsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListDashboards not implemented")
+}
+func (UnimplementedProjectionQueryServiceServer) DeleteDashboard(context.Context, *DeleteDashboardRequest) (*DeleteDashboardResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteDashboard not implemented")
 }
 func (UnimplementedProjectionQueryServiceServer) CreateQueryExport(context.Context, *CreateQueryExportRequest) (*CreateQueryExportResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateQueryExport not implemented")
@@ -475,6 +523,60 @@ func _ProjectionQueryService_DeleteSavedQuery_Handler(srv interface{}, ctx conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ProjectionQueryService_SaveDashboard_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SaveDashboardRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProjectionQueryServiceServer).SaveDashboard(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProjectionQueryService_SaveDashboard_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProjectionQueryServiceServer).SaveDashboard(ctx, req.(*SaveDashboardRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProjectionQueryService_ListDashboards_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListDashboardsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProjectionQueryServiceServer).ListDashboards(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProjectionQueryService_ListDashboards_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProjectionQueryServiceServer).ListDashboards(ctx, req.(*ListDashboardsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProjectionQueryService_DeleteDashboard_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteDashboardRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProjectionQueryServiceServer).DeleteDashboard(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProjectionQueryService_DeleteDashboard_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProjectionQueryServiceServer).DeleteDashboard(ctx, req.(*DeleteDashboardRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ProjectionQueryService_CreateQueryExport_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CreateQueryExportRequest)
 	if err := dec(in); err != nil {
@@ -593,6 +695,18 @@ var ProjectionQueryService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteSavedQuery",
 			Handler:    _ProjectionQueryService_DeleteSavedQuery_Handler,
+		},
+		{
+			MethodName: "SaveDashboard",
+			Handler:    _ProjectionQueryService_SaveDashboard_Handler,
+		},
+		{
+			MethodName: "ListDashboards",
+			Handler:    _ProjectionQueryService_ListDashboards_Handler,
+		},
+		{
+			MethodName: "DeleteDashboard",
+			Handler:    _ProjectionQueryService_DeleteDashboard_Handler,
 		},
 		{
 			MethodName: "CreateQueryExport",

@@ -1,0 +1,501 @@
+{
+  "owner_id": "authoring-service",
+  "manifest_version": "1.5.0",
+  "entries": [
+    {
+      "resource_type": "process_model",
+      "action": "query",
+      "capability": "authoring.listProcessModel",
+      "supported_scope_types": [
+        "resource",
+        "tenant"
+      ],
+      "readable_fields": [
+        "id",
+        "model_key",
+        "name",
+        "category",
+        "description",
+        "status",
+        "revision",
+        "latest_version_id",
+        "created_at",
+        "updated_at"
+      ],
+      "writable_fields": []
+    },
+    {
+      "resource_type": "process_model",
+      "action": "create",
+      "capability": "authoring.createProcessModel",
+      "supported_scope_types": [
+        "resource",
+        "tenant"
+      ],
+      "readable_fields": [],
+      "writable_fields": [
+        "model_key",
+        "name",
+        "category",
+        "description",
+        "initial_bpmn_xml"
+      ]
+    },
+    {
+      "resource_type": "process_model",
+      "action": "read",
+      "capability": "authoring.getProcessModel",
+      "supported_scope_types": [
+        "resource",
+        "tenant"
+      ],
+      "readable_fields": [
+        "id",
+        "model_key",
+        "name",
+        "category",
+        "description",
+        "status",
+        "revision",
+        "latest_version_id"
+      ],
+      "writable_fields": []
+    },
+    {
+      "resource_type": "process_model_draft",
+      "action": "read",
+      "capability": "authoring.getProcessModelDraft",
+      "supported_scope_types": [
+        "resource",
+        "tenant"
+      ],
+      "readable_fields": [
+        "revision",
+        "base_version_id",
+        "bpmn_xml",
+        "validation_status",
+        "diagnostics",
+        "updated_at"
+      ],
+      "writable_fields": []
+    },
+    {
+      "resource_type": "process_model_draft",
+      "action": "update",
+      "capability": "authoring.saveProcessModelDraft",
+      "supported_scope_types": [
+        "resource",
+        "tenant"
+      ],
+      "readable_fields": [],
+      "writable_fields": [
+        "base_version_id",
+        "bpmn_xml"
+      ]
+    },
+    {
+      "resource_type": "process_model_draft",
+      "action": "validate",
+      "capability": "authoring.validateProcessModel",
+      "supported_scope_types": [
+        "resource",
+        "tenant"
+      ],
+      "readable_fields": [
+        "revision",
+        "bpmn_xml"
+      ],
+      "writable_fields": [
+        "validation_status",
+        "diagnostics"
+      ]
+    },
+    {
+      "resource_type": "process_model_version",
+      "action": "create",
+      "capability": "authoring.checkinProcessModel",
+      "supported_scope_types": [
+        "resource",
+        "tenant"
+      ],
+      "readable_fields": [
+        "revision",
+        "bpmn_xml",
+        "validation_status"
+      ],
+      "writable_fields": [
+        "latest_version_id",
+        "version_tag",
+        "summary"
+      ]
+    },
+    {
+      "resource_type": "process_model_version",
+      "action": "query",
+      "capability": "authoring.listProcessModelVersions",
+      "supported_scope_types": [
+        "resource",
+        "tenant"
+      ],
+      "readable_fields": [
+        "id",
+        "version_num",
+        "source_revision",
+        "created_by",
+        "created_at",
+        "version_tag",
+        "summary"
+      ],
+      "writable_fields": []
+    },
+    {
+      "resource_type": "process_model_version",
+      "action": "read",
+      "capability": "authoring.getProcessModelVersion",
+      "supported_scope_types": [
+        "resource",
+        "tenant"
+      ],
+      "readable_fields": [
+        "id",
+        "version_num",
+        "source_revision",
+        "bpmn_xml",
+        "content_hash",
+        "created_by",
+        "created_at",
+        "version_tag",
+        "summary"
+      ],
+      "writable_fields": []
+    },
+    {
+      "resource_type": "decision_model",
+      "action": "query",
+      "capability": "authoring.listDecisionModel",
+      "supported_scope_types": [
+        "resource",
+        "tenant"
+      ],
+      "readable_fields": [
+        "id",
+        "model_key",
+        "name",
+        "description",
+        "status",
+        "revision",
+        "latest_version_source_revision",
+        "created_at",
+        "updated_at"
+      ],
+      "writable_fields": []
+    },
+    {
+      "resource_type": "decision_model",
+      "action": "create",
+      "capability": "authoring.createDecisionModel",
+      "supported_scope_types": [
+        "resource",
+        "tenant"
+      ],
+      "readable_fields": [],
+      "writable_fields": [
+        "model_key",
+        "name",
+        "description",
+        "initial_dmn_xml"
+      ]
+    },
+    {
+      "resource_type": "decision_model",
+      "action": "read",
+      "capability": "authoring.getDecisionModel",
+      "supported_scope_types": [
+        "resource",
+        "tenant"
+      ],
+      "readable_fields": [
+        "id",
+        "model_key",
+        "name",
+        "description",
+        "status",
+        "revision",
+        "latest_version_source_revision"
+      ],
+      "writable_fields": []
+    },
+    {
+      "resource_type": "decision_model_draft",
+      "action": "read",
+      "capability": "authoring.getDecisionModelDraft",
+      "supported_scope_types": [
+        "resource",
+        "tenant"
+      ],
+      "readable_fields": [
+        "revision",
+        "dmn_xml",
+        "validation_status",
+        "diagnostics",
+        "updated_at"
+      ],
+      "writable_fields": []
+    },
+    {
+      "resource_type": "decision_model_draft",
+      "action": "update",
+      "capability": "authoring.saveDecisionModelDraft",
+      "supported_scope_types": [
+        "resource",
+        "tenant"
+      ],
+      "readable_fields": [],
+      "writable_fields": [
+        "dmn_xml"
+      ]
+    },
+    {
+      "resource_type": "decision_model_draft",
+      "action": "validate",
+      "capability": "authoring.validateDecisionModel",
+      "supported_scope_types": [
+        "resource",
+        "tenant"
+      ],
+      "readable_fields": [
+        "revision",
+        "dmn_xml"
+      ],
+      "writable_fields": [
+        "validation_status",
+        "diagnostics"
+      ]
+    },
+    {
+      "resource_type": "decision_model_version",
+      "action": "create",
+      "capability": "authoring.checkinDecisionModel",
+      "supported_scope_types": [
+        "resource",
+        "tenant"
+      ],
+      "readable_fields": [
+        "revision",
+        "dmn_xml",
+        "validation_status"
+      ],
+      "writable_fields": [
+        "latest_version_id",
+        "version_tag",
+        "summary"
+      ]
+    },
+    {
+      "resource_type": "decision_model_version",
+      "action": "query",
+      "capability": "authoring.listDecisionModelVersions",
+      "supported_scope_types": [
+        "resource",
+        "tenant"
+      ],
+      "readable_fields": [
+        "id",
+        "version_num",
+        "source_revision",
+        "created_by",
+        "created_at",
+        "version_tag",
+        "summary"
+      ],
+      "writable_fields": []
+    },
+    {
+      "resource_type": "decision_model_version",
+      "action": "read",
+      "capability": "authoring.getDecisionModelVersion",
+      "supported_scope_types": [
+        "resource",
+        "tenant"
+      ],
+      "readable_fields": [
+        "id",
+        "version_num",
+        "source_revision",
+        "dmn_xml",
+        "content_hash",
+        "created_by",
+        "created_at",
+        "version_tag",
+        "summary"
+      ],
+      "writable_fields": []
+    },
+    {
+      "resource_type": "form_definition",
+      "action": "query",
+      "capability": "authoring.listForm",
+      "supported_scope_types": [
+        "resource",
+        "tenant"
+      ],
+      "readable_fields": [
+        "id",
+        "form_key",
+        "name",
+        "status",
+        "revision",
+        "latest_version_id",
+        "updated_at"
+      ],
+      "writable_fields": []
+    },
+    {
+      "resource_type": "form_definition",
+      "action": "create",
+      "capability": "authoring.createForm",
+      "supported_scope_types": [
+        "resource",
+        "tenant"
+      ],
+      "readable_fields": [],
+      "writable_fields": [
+        "form_key",
+        "name",
+        "schema_json",
+        "ui_schema_json"
+      ]
+    },
+    {
+      "resource_type": "form_definition",
+      "action": "read",
+      "capability": "authoring.getForm",
+      "supported_scope_types": [
+        "resource",
+        "tenant"
+      ],
+      "readable_fields": [
+        "id",
+        "form_key",
+        "name",
+        "status",
+        "revision",
+        "latest_version_id"
+      ],
+      "writable_fields": []
+    },
+    {
+      "resource_type": "form_version",
+      "action": "read",
+      "capability": "authoring.getPublishedForm",
+      "supported_scope_types": [
+        "resource",
+        "tenant"
+      ],
+      "readable_fields": [
+        "form_key",
+        "name",
+        "schema_json",
+        "ui_schema_json",
+        "content_hash",
+        "version_num"
+      ],
+      "writable_fields": []
+    },
+    {
+      "resource_type": "form_draft",
+      "action": "update",
+      "capability": "authoring.saveFormDraft",
+      "supported_scope_types": [
+        "resource",
+        "tenant"
+      ],
+      "readable_fields": [],
+      "writable_fields": [
+        "name",
+        "schema_json",
+        "ui_schema_json"
+      ]
+    },
+    {
+      "resource_type": "form_draft",
+      "action": "validate",
+      "capability": "authoring.validateFormDraft",
+      "supported_scope_types": [
+        "resource",
+        "tenant"
+      ],
+      "readable_fields": [
+        "revision",
+        "schema_json",
+        "ui_schema_json"
+      ],
+      "writable_fields": [
+        "validation_status",
+        "diagnostics"
+      ]
+    },
+    {
+      "resource_type": "form_version",
+      "action": "create",
+      "capability": "authoring.publishForm",
+      "supported_scope_types": [
+        "resource",
+        "tenant"
+      ],
+      "readable_fields": [
+        "revision",
+        "schema_json",
+        "ui_schema_json",
+        "validation_status"
+      ],
+      "writable_fields": [
+        "latest_version_id",
+        "version_tag",
+        "summary",
+        "status"
+      ]
+    },
+    {
+      "resource_type": "form_version",
+      "action": "query",
+      "capability": "authoring.listFormVersions",
+      "supported_scope_types": [
+        "resource",
+        "tenant"
+      ],
+      "readable_fields": [
+        "id",
+        "version_num",
+        "source_revision",
+        "created_by",
+        "created_at",
+        "version_tag",
+        "summary"
+      ],
+      "writable_fields": []
+    },
+    {
+      "resource_type": "form_version",
+      "action": "read",
+      "capability": "authoring.getFormVersion",
+      "supported_scope_types": [
+        "resource",
+        "tenant"
+      ],
+      "readable_fields": [
+        "id",
+        "version_num",
+        "source_revision",
+        "schema_json",
+        "ui_schema_json",
+        "content_hash",
+        "created_by",
+        "created_at",
+        "version_tag",
+        "summary"
+      ],
+      "writable_fields": []
+    }
+  ]
+}

@@ -401,6 +401,8 @@ fn map_command(
         WireCommand::CompleteUserTask(value) => Command::CompleteUserTask {
             node_id: node_id(&value.node_id)?,
             decision: value.decision.clone(),
+            form_version_id: value.form_version_id.clone(),
+            outputs: map_workflow_variables(&value.outputs)?,
             occurred_at_epoch_ms,
         },
         WireCommand::CompleteScriptTask(value) => Command::CompleteScriptTask {
@@ -459,9 +461,36 @@ fn workflow_variable_from_wire(
         Value::BooleanValue(value) => WorkflowValue::Boolean(*value),
         Value::IntegerValue(value) => WorkflowValue::Integer(*value),
         Value::StringValue(value) => WorkflowValue::String(value.clone()),
-        Value::ListValue(_) => return Err(TransportError::InvalidField("case_fact.value")),
+        Value::ListValue(value) => workflow_value_list_from_wire(value, 0)?,
     };
     Ok((variable.name.clone(), value))
+}
+
+fn workflow_value_list_from_wire(
+    value: &bpmp_contracts::engine::v1::WorkflowValueList,
+    depth: usize,
+) -> Result<WorkflowValue, TransportError> {
+    use bpmp_contracts::engine::v1::workflow_value_item::Value;
+    if depth > 16 || value.items.len() > 256 {
+        return Err(TransportError::InvalidField("workflow_variable.list_value"));
+    }
+    let items = value
+        .items
+        .iter()
+        .map(|item| {
+            match item
+                .value
+                .as_ref()
+                .ok_or(TransportError::InvalidField("workflow_variable.list_item"))?
+            {
+                Value::BooleanValue(value) => Ok(WorkflowValue::Boolean(*value)),
+                Value::IntegerValue(value) => Ok(WorkflowValue::Integer(*value)),
+                Value::StringValue(value) => Ok(WorkflowValue::String(value.clone())),
+                Value::ListValue(value) => workflow_value_list_from_wire(value, depth + 1),
+            }
+        })
+        .collect::<Result<Vec<_>, TransportError>>()?;
+    Ok(WorkflowValue::List(items))
 }
 
 fn map_case_facts(
@@ -480,6 +509,9 @@ fn map_case_facts(
 fn map_workflow_variables(
     variables: &[bpmp_contracts::engine::v1::WorkflowVariable],
 ) -> Result<BTreeMap<String, WorkflowValue>, TransportError> {
+    if variables.len() > 128 {
+        return Err(TransportError::InvalidField("workflow_variables"));
+    }
     let mut mapped = BTreeMap::new();
     for variable in variables {
         let (name, value) = workflow_variable_from_wire(variable)?;
@@ -708,6 +740,8 @@ mod tests {
                 CompleteUserTask {
                     node_id: "review".into(),
                     decision: "approved".into(),
+                    outputs: Vec::new(),
+                    form_version_id: String::new(),
                 },
             )),
             encryption_key_scope: "tenant-a/operational".into(),

@@ -11,11 +11,24 @@ import (
 type PageCursor struct {
 	UpdatedAt  time.Time
 	WorkItemID string
+	Scope      WorkItemListScope
 }
+
+type WorkItemListScope int32
+
+const (
+	WorkItemListScopeAll WorkItemListScope = iota
+	WorkItemListScopeAssignedToMe
+	WorkItemListScopeGroupQueue
+)
+
 type CaseView struct{ Case domain.Case }
 type AuditCursor struct {
 	OccurredAt time.Time
 	AuditID    string
+}
+type AssignmentPolicyCursor struct {
+	PolicyRef, WorkflowType, WorkflowVersion, NodeID string
 }
 type AuditRecord struct {
 	AuditID       string
@@ -34,13 +47,21 @@ type AssignmentGroup struct {
 	GroupID     string
 	PolicyCount uint64
 }
+type AssignmentPolicyPage struct {
+	Policies []domain.AssignmentPolicy
+	Next     *AssignmentPolicyCursor
+}
 
 type QueryPort interface {
 	GetWorkItem(context.Context, string, string) (domain.WorkItem, error)
-	ListWorkItems(context.Context, string, string, []string, int, *PageCursor) ([]domain.WorkItem, *PageCursor, error)
+	ListWorkItems(context.Context, string, string, []string, WorkItemListScope, int, *PageCursor) ([]domain.WorkItem, *PageCursor, error)
 	GetCase(context.Context, string, string) (CaseView, error)
 	ListAuditRecords(context.Context, string, string, string, int, *AuditCursor) ([]AuditRecord, *AuditCursor, error)
 	ListAssignmentGroups(context.Context, string) ([]AssignmentGroup, error)
+}
+
+type AssignmentPolicyQueryPort interface {
+	ListAssignmentPolicies(context.Context, string, string, string, int, *AssignmentPolicyCursor) ([]domain.AssignmentPolicy, *AssignmentPolicyCursor, error)
 }
 
 type ActorIdentity struct {

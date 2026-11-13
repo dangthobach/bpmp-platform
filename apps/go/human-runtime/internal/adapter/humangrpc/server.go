@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"math"
 	"time"
 
 	"github.com/dangthobach/bpmp-platform/apps/go/human-runtime/internal/application"
@@ -55,6 +56,20 @@ func (s *Server) ListWorkItems(ctx context.Context, r *humanv1.ListWorkItemsRequ
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid page token")
 	}
+	var listScope application.WorkItemListScope
+	switch r.GetScope() {
+	case humanv1.WorkItemListScope_WORK_ITEM_LIST_SCOPE_UNSPECIFIED, humanv1.WorkItemListScope_WORK_ITEM_LIST_SCOPE_ALL:
+		listScope = application.WorkItemListScopeAll
+	case humanv1.WorkItemListScope_WORK_ITEM_LIST_SCOPE_ASSIGNED_TO_ME:
+		listScope = application.WorkItemListScopeAssignedToMe
+	case humanv1.WorkItemListScope_WORK_ITEM_LIST_SCOPE_GROUP_QUEUE:
+		listScope = application.WorkItemListScopeGroupQueue
+	default:
+		return nil, status.Error(codes.InvalidArgument, "invalid work-item list scope")
+	}
+	if cursor != nil && cursor.Scope != listScope {
+		return nil, status.Error(codes.InvalidArgument, "page token does not match work-item list scope")
+	}
 	groups := make([]string, 0, len(identity.Groups))
 	policy, err := s.policy.Policy(r.GetTenantId())
 	if err != nil {
@@ -70,9 +85,12 @@ func (s *Server) ListWorkItems(ctx context.Context, r *humanv1.ListWorkItemsRequ
 	for group := range identity.Groups {
 		groups = append(groups, group)
 	}
-	items, next, err := s.query.ListWorkItems(ctx, r.GetTenantId(), identity.ActorID, groups, pageSize, cursor)
+	items, next, err := s.query.ListWorkItems(ctx, r.GetTenantId(), identity.ActorID, groups, listScope, pageSize, cursor)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "query work items")
+	}
+	if next != nil {
+		next.Scope = listScope
 	}
 	out := make([]*humanv1.WorkItem, 0, len(items))
 	for _, item := range items {
@@ -90,7 +108,7 @@ func (s *Server) CompleteWorkItem(ctx context.Context, r *humanv1.CompleteWorkIt
 	if idempotencyKey == "" {
 		idempotencyKey = r.GetCommandId()
 	}
-	err = s.service.Complete(ctx, application.CompleteRequest{TenantID: r.GetTenantId(), WorkItemID: r.GetWorkItemId(), CommandID: r.GetCommandId(), IdempotencyKey: idempotencyKey, CorrelationID: r.GetCorrelationId(), Decision: r.GetDecision(), ExpectedVersion: r.GetExpectedVersion(), Actor: credential, ActorGroups: identity.Groups, OccurredAt: now})
+	err = s.service.Complete(ctx, application.CompleteRequest{TenantID: r.GetTenantId(), WorkItemID: r.GetWorkItemId(), CommandID: r.GetCommandId(), IdempotencyKey: idempotencyKey, CorrelationID: r.GetCorrelationId(), Decision: r.GetDecision(), FormVersionID: r.GetFormVersionId(), Outputs: r.GetOutputs(), ExpectedVersion: r.GetExpectedVersion(), Actor: credential, ActorGroups: identity.Groups, OccurredAt: now})
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -168,15 +186,113 @@ func (s *Server) ListAuditRecords(ctx context.Context, r *humanv1.ListAuditRecor
 
 func (s *Server) ListAssignmentGroups(ctx context.Context, r *humanv1.ListAssignmentGroupsRequest) (*humanv1.ListAssignmentGroupsResponse, error) {
 	_, identity, err := s.verify(ctx, r.GetTenantId(), "", r.GetActorProof(), s.now())
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	if _, allowed := identity.Capabilities["authz.catalog.read"]; !allowed {
 		return nil, status.Error(codes.PermissionDenied, "actor lacks authz.catalog.read capability")
 	}
 	groups, err := s.query.ListAssignmentGroups(ctx, r.GetTenantId())
-	if err != nil { return nil, status.Error(codes.Internal, "query assignment groups") }
+	if err != nil {
+		return nil, status.Error(codes.Internal, "query assignment groups")
+	}
 	out := make([]*humanv1.AssignmentGroup, 0, len(groups))
-	for _, group := range groups { out = append(out, &humanv1.AssignmentGroup{GroupId: group.GroupID, PolicyCount: group.PolicyCount}) }
+	for _, group := range groups {
+		out = append(out, &humanv1.AssignmentGroup{GroupId: group.GroupID, PolicyCount: group.PolicyCount})
+	}
 	return &humanv1.ListAssignmentGroupsResponse{Groups: out}, nil
+}
+
+func (s *Server) ListAssignmentPolicies(ctx context.Context, r *humanv1.ListAssignmentPoliciesRequest) (*humanv1.ListAssignmentPoliciesResponse, error) {
+	_, identity, err := s.verify(ctx, r.GetTenantId(), "", r.GetActorProof(), s.now())
+	if err != nil {
+		return nil, err
+	}
+	if _, allowed := identity.Capabilities["human.assignment-policy.read"]; !allowed {
+		return nil, status.Error(codes.PermissionDenied, "actor lacks human.assignment-policy.read capability")
+	}
+	query, ok := s.query.(application.AssignmentPolicyQueryPort)
+	if !ok {
+		return nil, status.Error(codes.Unavailable, "assignment policy query is unavailable")
+	}
+	cursor, err := decodeAssignmentPolicyCursor(r.GetPageToken())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid assignment policy page token")
+	}
+	policy, err := s.policy.Policy(r.GetTenantId())
+	if err != nil {
+		return nil, status.Error(codes.Unavailable, "runtime policy unavailable")
+	}
+	pageSize, err := application.NormalizePageSize(int(r.GetPageSize()), policy)
+	if err != nil {
+		return nil, status.Error(codes.Unavailable, "runtime policy invalid")
+	}
+	items, next, err := query.ListAssignmentPolicies(ctx, r.GetTenantId(), r.GetWorkflowType(), r.GetWorkflowVersion(), pageSize, cursor)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "query assignment policies")
+	}
+	response := &humanv1.ListAssignmentPoliciesResponse{Policies: make([]*humanv1.AssignmentPolicy, 0, len(items)), NextPageToken: encodeAssignmentPolicyCursor(next)}
+	for _, item := range items {
+		response.Policies = append(response.Policies, toProtoAssignmentPolicy(item))
+	}
+	return response, nil
+}
+
+func (s *Server) UpsertAssignmentPolicy(ctx context.Context, r *humanv1.UpsertAssignmentPolicyRequest) (*humanv1.UpsertAssignmentPolicyResponse, error) {
+	now := s.now()
+	_, identity, err := s.verify(ctx, r.GetTenantId(), r.GetCommandId(), r.GetActorProof(), now)
+	if err != nil {
+		return nil, err
+	}
+	if _, allowed := identity.Capabilities["human.assignment-policy.manage"]; !allowed {
+		return nil, status.Error(codes.PermissionDenied, "actor lacks human.assignment-policy.manage capability")
+	}
+	if r.GetSlaDurationMs() > uint64(math.MaxInt64/int64(time.Millisecond)) {
+		return nil, status.Error(codes.InvalidArgument, "assignment policy SLA duration is invalid")
+	}
+	policy, duplicate, err := s.service.UpsertAssignmentPolicy(ctx, application.UpsertAssignmentPolicyRequest{
+		TenantID: r.GetTenantId(), CommandID: r.GetCommandId(), IdempotencyKey: r.GetIdempotencyKey(), CorrelationID: r.GetCorrelationId(), ActorID: identity.ActorID,
+		ExpectedVersion: r.GetExpectedVersion(), OccurredAt: now,
+		Policy: domain.AssignmentPolicy{TenantID: r.GetTenantId(), Reference: r.GetPolicyRef(), WorkflowType: r.GetWorkflowType(), WorkflowVersion: r.GetWorkflowVersion(), NodeID: r.GetNodeId(),
+			Assignment: domain.Assignment{AssigneeID: r.GetAssigneeId(), CandidateGroup: r.GetCandidateGroup()}, SLADuration: time.Duration(r.GetSlaDurationMs()) * time.Millisecond,
+			EscalationPolicyRef: r.GetEscalationPolicyRef(), ConfigVersion: r.GetConfigVersion()},
+	})
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return &humanv1.UpsertAssignmentPolicyResponse{Policy: toProtoAssignmentPolicy(policy), Duplicate: duplicate}, nil
+}
+
+func toProtoAssignmentPolicy(policy domain.AssignmentPolicy) *humanv1.AssignmentPolicy {
+	return &humanv1.AssignmentPolicy{PolicyRef: policy.Reference, WorkflowType: policy.WorkflowType, WorkflowVersion: policy.WorkflowVersion, NodeId: policy.NodeID,
+		AssigneeId: policy.Assignment.AssigneeID, CandidateGroup: policy.Assignment.CandidateGroup, SlaDurationMs: uint64(policy.SLADuration / time.Millisecond),
+		EscalationPolicyRef: policy.EscalationPolicyRef, ConfigVersion: policy.ConfigVersion, Version: policy.Version}
+}
+
+func encodeAssignmentPolicyCursor(cursor *application.AssignmentPolicyCursor) string {
+	if cursor == nil {
+		return ""
+	}
+	raw, _ := json.Marshal(cursor)
+	return base64.RawURLEncoding.EncodeToString(raw)
+}
+
+func decodeAssignmentPolicyCursor(value string) (*application.AssignmentPolicyCursor, error) {
+	if value == "" {
+		return nil, nil
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return nil, err
+	}
+	var cursor application.AssignmentPolicyCursor
+	if err := json.Unmarshal(raw, &cursor); err != nil {
+		return nil, err
+	}
+	if cursor.PolicyRef == "" || cursor.WorkflowType == "" || cursor.WorkflowVersion == "" || cursor.NodeID == "" {
+		return nil, errors.New("empty assignment policy cursor")
+	}
+	return &cursor, nil
 }
 
 func (s *Server) verify(ctx context.Context, tenantID, commandID string, proof *authv1.ActorProof, evaluatedAt time.Time) (application.ActorCredential, application.ActorIdentity, error) {
@@ -227,6 +343,8 @@ func mapError(err error) error {
 		return status.Error(codes.AlreadyExists, err.Error())
 	case errors.Is(err, application.ErrPolicyLimit):
 		return status.Error(codes.ResourceExhausted, err.Error())
+	case errors.Is(err, application.ErrAssignmentPolicy):
+		return status.Error(codes.InvalidArgument, err.Error())
 	default:
 		return status.Error(codes.FailedPrecondition, err.Error())
 	}

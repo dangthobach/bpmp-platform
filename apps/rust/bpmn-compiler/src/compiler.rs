@@ -274,6 +274,57 @@ impl BpmnCompiler {
         }
     }
 
+    /// Validates one standalone DMN document using the same bounded parser and
+    /// unary-test/literal rules used while compiling BPMN decision references.
+    ///
+    /// # Errors
+    ///
+    /// Returns source diagnostics when the document is malformed, oversized,
+    /// contains no decision tables, or repeats decision IDs.
+    pub fn validate_dmn(
+        &self,
+        source: SourceDocument<'_>,
+    ) -> Result<(), Vec<CompileDiagnostic>> {
+        let locations = SourceLocations::new(source.name, source.bytes);
+        if source.bytes.len() > self.limits.max_input_bytes {
+            return Err(vec![locations.diagnostic(
+                0,
+                DiagnosticKind::InputTooLarge {
+                    actual: source.bytes.len(),
+                    configured_limit: self.limits.max_input_bytes,
+                },
+            )]);
+        }
+        let tables = parse_dmn(source, self.limits, &locations)?;
+        if tables.is_empty() {
+            return Err(vec![locations.diagnostic(
+                0,
+                DiagnosticKind::InvalidDecisionTable {
+                    table_id: source.name.to_owned(),
+                    detail: "DMN document must contain at least one decision table".into(),
+                },
+            )]);
+        }
+        let mut seen = BTreeSet::new();
+        let mut diagnostics = Vec::new();
+        for table in tables {
+            if !seen.insert(table.id.clone()) {
+                diagnostics.push(locations.diagnostic(
+                    0,
+                    DiagnosticKind::InvalidDecisionTable {
+                        table_id: table.id,
+                        detail: "decision table ID is duplicated in this document".into(),
+                    },
+                ));
+            }
+        }
+        if diagnostics.is_empty() {
+            Ok(())
+        } else {
+            Err(diagnostics)
+        }
+    }
+
     /// Prints WIR as deterministic normalized BPMN for review and round-trip checks.
     ///
     /// # Errors
@@ -4573,6 +4624,22 @@ mod tests {
 
     fn compiler() -> BpmnCompiler {
         BpmnCompiler::new(CompilerLimits::new(64 * 1024, 32).unwrap())
+    }
+
+    #[test]
+    fn validates_standalone_dmn_with_the_compiler_parser() {
+        let valid = r#"<dmn:definitions xmlns:dmn="https://www.omg.org/spec/DMN/20191111/MODEL/">
+  <dmn:decision id="risk"><dmn:decisionTable id="risk-table" hitPolicy="FIRST">
+    <dmn:input id="amount" label="Amount" typeRef="integer" />
+    <dmn:output id="tier" name="tier" typeRef="string" />
+    <dmn:rule id="low"><dmn:inputEntry text="&lt; 100" /><dmn:outputEntry text="&quot;low&quot;" /></dmn:rule>
+  </dmn:decisionTable></dmn:decision>
+</dmn:definitions>"#;
+        compiler().validate_dmn(SourceDocument { name: "risk.dmn", bytes: valid.as_bytes() }).unwrap();
+
+        let invalid = valid.replace("<dmn:output id=\"tier\" name=\"tier\" typeRef=\"string\" />", "");
+        let diagnostics = compiler().validate_dmn(SourceDocument { name: "risk.dmn", bytes: invalid.as_bytes() }).unwrap_err();
+        assert!(diagnostics.iter().any(|diagnostic| diagnostic.kind.to_string().contains("at least one output")));
     }
 
     #[test]

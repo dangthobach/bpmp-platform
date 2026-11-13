@@ -550,6 +550,8 @@ type CompleteUserTask struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	NodeId        string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
 	Decision      string                 `protobuf:"bytes,2,opt,name=decision,proto3" json:"decision,omitempty"`
+	Outputs       []*WorkflowVariable    `protobuf:"bytes,3,rep,name=outputs,proto3" json:"outputs,omitempty"`
+	FormVersionId string                 `protobuf:"bytes,4,opt,name=form_version_id,json=formVersionId,proto3" json:"form_version_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -594,6 +596,20 @@ func (x *CompleteUserTask) GetNodeId() string {
 func (x *CompleteUserTask) GetDecision() string {
 	if x != nil {
 		return x.Decision
+	}
+	return ""
+}
+
+func (x *CompleteUserTask) GetOutputs() []*WorkflowVariable {
+	if x != nil {
+		return x.Outputs
+	}
+	return nil
+}
+
+func (x *CompleteUserTask) GetFormVersionId() string {
+	if x != nil {
+		return x.FormVersionId
 	}
 	return ""
 }
@@ -1773,6 +1789,8 @@ type UserTaskCompleted struct {
 	NodeId         string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
 	Decision       string                 `protobuf:"bytes,2,opt,name=decision,proto3" json:"decision,omitempty"`
 	ResultVariable string                 `protobuf:"bytes,3,opt,name=result_variable,json=resultVariable,proto3" json:"result_variable,omitempty"`
+	Outputs        []*WorkflowVariable    `protobuf:"bytes,4,rep,name=outputs,proto3" json:"outputs,omitempty"`
+	FormVersionId  string                 `protobuf:"bytes,5,opt,name=form_version_id,json=formVersionId,proto3" json:"form_version_id,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -1824,6 +1842,20 @@ func (x *UserTaskCompleted) GetDecision() string {
 func (x *UserTaskCompleted) GetResultVariable() string {
 	if x != nil {
 		return x.ResultVariable
+	}
+	return ""
+}
+
+func (x *UserTaskCompleted) GetOutputs() []*WorkflowVariable {
+	if x != nil {
+		return x.Outputs
+	}
+	return nil
+}
+
+func (x *UserTaskCompleted) GetFormVersionId() string {
+	if x != nil {
+		return x.FormVersionId
 	}
 	return ""
 }
@@ -4385,10 +4417,12 @@ const file_bpmp_engine_v1_engine_proto_rawDesc = "" +
 	"\x11initial_variables\x18\x01 \x03(\v2 .bpmp.engine.v1.WorkflowVariableR\x10initialVariables\"j\n" +
 	"\x13CompleteServiceTask\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12:\n" +
-	"\aoutputs\x18\x02 \x03(\v2 .bpmp.engine.v1.WorkflowVariableR\aoutputs\"G\n" +
+	"\aoutputs\x18\x02 \x03(\v2 .bpmp.engine.v1.WorkflowVariableR\aoutputs\"\xab\x01\n" +
 	"\x10CompleteUserTask\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x1a\n" +
-	"\bdecision\x18\x02 \x01(\tR\bdecision\"-\n" +
+	"\bdecision\x18\x02 \x01(\tR\bdecision\x12:\n" +
+	"\aoutputs\x18\x03 \x03(\v2 .bpmp.engine.v1.WorkflowVariableR\aoutputs\x12&\n" +
+	"\x0fform_version_id\x18\x04 \x01(\tR\rformVersionId\"-\n" +
 	"\x12CompleteScriptTask\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\"W\n" +
 	"\x1eCompleteMultiInstanceIteration\x12\x17\n" +
@@ -4470,11 +4504,13 @@ const file_bpmp_engine_v1_engine_proto_rawDesc = "" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x1b\n" +
 	"\ttask_type\x18\x02 \x01(\tR\btaskType\x122\n" +
 	"\x15assignment_policy_ref\x18\x03 \x01(\tR\x13assignmentPolicyRef\x12\x19\n" +
-	"\bform_key\x18\x04 \x01(\tR\aformKey\"q\n" +
+	"\bform_key\x18\x04 \x01(\tR\aformKey\"\xd5\x01\n" +
 	"\x11UserTaskCompleted\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x1a\n" +
 	"\bdecision\x18\x02 \x01(\tR\bdecision\x12'\n" +
-	"\x0fresult_variable\x18\x03 \x01(\tR\x0eresultVariable\"\x87\x01\n" +
+	"\x0fresult_variable\x18\x03 \x01(\tR\x0eresultVariable\x12:\n" +
+	"\aoutputs\x18\x04 \x03(\v2 .bpmp.engine.v1.WorkflowVariableR\aoutputs\x12&\n" +
+	"\x0fform_version_id\x18\x05 \x01(\tR\rformVersionId\"\x87\x01\n" +
 	"\rCaseActivated\x12\x17\n" +
 	"\acase_id\x18\x01 \x01(\tR\x06caseId\x12\x1b\n" +
 	"\tcase_type\x18\x02 \x01(\tR\bcaseType\x12\x1b\n" +
@@ -4781,66 +4817,68 @@ var file_bpmp_engine_v1_engine_proto_depIdxs = []int32{
 	55, // 8: bpmp.engine.v1.CommandEnvelope.authorization_context:type_name -> bpmp.authorization.v1.AuthorizationContext
 	33, // 9: bpmp.engine.v1.StartWorkflow.initial_variables:type_name -> bpmp.engine.v1.WorkflowVariable
 	33, // 10: bpmp.engine.v1.CompleteServiceTask.outputs:type_name -> bpmp.engine.v1.WorkflowVariable
-	33, // 11: bpmp.engine.v1.EvaluateCaseSentries.facts:type_name -> bpmp.engine.v1.WorkflowVariable
-	12, // 12: bpmp.engine.v1.EventEnvelope.metadata:type_name -> bpmp.engine.v1.EventMetadata
-	14, // 13: bpmp.engine.v1.EventEnvelope.workflow_started:type_name -> bpmp.engine.v1.WorkflowStarted
-	15, // 14: bpmp.engine.v1.EventEnvelope.service_task_activated:type_name -> bpmp.engine.v1.ServiceTaskActivated
-	16, // 15: bpmp.engine.v1.EventEnvelope.service_task_completed:type_name -> bpmp.engine.v1.ServiceTaskCompleted
-	27, // 16: bpmp.engine.v1.EventEnvelope.workflow_completed:type_name -> bpmp.engine.v1.WorkflowCompleted
-	29, // 17: bpmp.engine.v1.EventEnvelope.decision_task_evaluated:type_name -> bpmp.engine.v1.DecisionTaskEvaluated
-	30, // 18: bpmp.engine.v1.EventEnvelope.gateway_split_activated:type_name -> bpmp.engine.v1.GatewaySplitActivated
-	31, // 19: bpmp.engine.v1.EventEnvelope.gateway_token_arrived:type_name -> bpmp.engine.v1.GatewayTokenArrived
-	32, // 20: bpmp.engine.v1.EventEnvelope.gateway_joined:type_name -> bpmp.engine.v1.GatewayJoined
-	36, // 21: bpmp.engine.v1.EventEnvelope.multi_instance_started:type_name -> bpmp.engine.v1.MultiInstanceStarted
-	37, // 22: bpmp.engine.v1.EventEnvelope.multi_instance_iteration_activated:type_name -> bpmp.engine.v1.MultiInstanceIterationActivated
-	38, // 23: bpmp.engine.v1.EventEnvelope.multi_instance_iteration_completed:type_name -> bpmp.engine.v1.MultiInstanceIterationCompleted
-	39, // 24: bpmp.engine.v1.EventEnvelope.multi_instance_completed:type_name -> bpmp.engine.v1.MultiInstanceCompleted
-	40, // 25: bpmp.engine.v1.EventEnvelope.boundary_event_triggered:type_name -> bpmp.engine.v1.BoundaryEventTriggered
-	43, // 26: bpmp.engine.v1.EventEnvelope.workflow_branch_completed:type_name -> bpmp.engine.v1.WorkflowBranchCompleted
-	41, // 27: bpmp.engine.v1.EventEnvelope.boundary_event_armed:type_name -> bpmp.engine.v1.BoundaryEventArmed
-	42, // 28: bpmp.engine.v1.EventEnvelope.boundary_events_disarmed:type_name -> bpmp.engine.v1.BoundaryEventsDisarmed
-	44, // 29: bpmp.engine.v1.EventEnvelope.scope_entered:type_name -> bpmp.engine.v1.ScopeEntered
-	45, // 30: bpmp.engine.v1.EventEnvelope.scope_completed:type_name -> bpmp.engine.v1.ScopeCompleted
-	17, // 31: bpmp.engine.v1.EventEnvelope.user_task_activated:type_name -> bpmp.engine.v1.UserTaskActivated
-	18, // 32: bpmp.engine.v1.EventEnvelope.user_task_completed:type_name -> bpmp.engine.v1.UserTaskCompleted
-	25, // 33: bpmp.engine.v1.EventEnvelope.script_task_activated:type_name -> bpmp.engine.v1.ScriptTaskActivated
-	26, // 34: bpmp.engine.v1.EventEnvelope.script_task_completed:type_name -> bpmp.engine.v1.ScriptTaskCompleted
-	19, // 35: bpmp.engine.v1.EventEnvelope.case_activated:type_name -> bpmp.engine.v1.CaseActivated
-	20, // 36: bpmp.engine.v1.EventEnvelope.case_plan_item_transitioned:type_name -> bpmp.engine.v1.CasePlanItemTransitioned
-	23, // 37: bpmp.engine.v1.EventEnvelope.user_task_cancelled:type_name -> bpmp.engine.v1.UserTaskCancelled
-	21, // 38: bpmp.engine.v1.EventEnvelope.case_sentry_satisfied:type_name -> bpmp.engine.v1.CaseSentrySatisfied
-	22, // 39: bpmp.engine.v1.EventEnvelope.case_completed:type_name -> bpmp.engine.v1.CaseCompleted
-	28, // 40: bpmp.engine.v1.EventEnvelope.workflow_terminated_for_compliance:type_name -> bpmp.engine.v1.WorkflowTerminatedForCompliance
-	33, // 41: bpmp.engine.v1.WorkflowStarted.initial_variables:type_name -> bpmp.engine.v1.WorkflowVariable
-	33, // 42: bpmp.engine.v1.ServiceTaskCompleted.outputs:type_name -> bpmp.engine.v1.WorkflowVariable
-	33, // 43: bpmp.engine.v1.DecisionTaskEvaluated.outputs:type_name -> bpmp.engine.v1.WorkflowVariable
-	34, // 44: bpmp.engine.v1.WorkflowVariable.list_value:type_name -> bpmp.engine.v1.WorkflowValueList
-	35, // 45: bpmp.engine.v1.WorkflowValueList.items:type_name -> bpmp.engine.v1.WorkflowValueItem
-	34, // 46: bpmp.engine.v1.WorkflowValueItem.list_value:type_name -> bpmp.engine.v1.WorkflowValueList
-	0,  // 47: bpmp.engine.v1.MultiInstanceStarted.mode:type_name -> bpmp.engine.v1.MultiInstanceMode
-	35, // 48: bpmp.engine.v1.MultiInstanceStarted.items:type_name -> bpmp.engine.v1.WorkflowValueItem
-	35, // 49: bpmp.engine.v1.MultiInstanceIterationActivated.item:type_name -> bpmp.engine.v1.WorkflowValueItem
-	1,  // 50: bpmp.engine.v1.BoundaryEventArmed.trigger_kind:type_name -> bpmp.engine.v1.BoundaryTriggerKind
-	2,  // 51: bpmp.engine.v1.WorkflowSnapshot.lifecycle:type_name -> bpmp.engine.v1.WorkflowLifecycle
-	33, // 52: bpmp.engine.v1.WorkflowSnapshot.variables:type_name -> bpmp.engine.v1.WorkflowVariable
-	49, // 53: bpmp.engine.v1.WorkflowSnapshot.active_tokens:type_name -> bpmp.engine.v1.ActiveToken
-	50, // 54: bpmp.engine.v1.WorkflowSnapshot.pending_gateway_joins:type_name -> bpmp.engine.v1.PendingGatewayJoin
-	51, // 55: bpmp.engine.v1.WorkflowSnapshot.active_multi_instances:type_name -> bpmp.engine.v1.ActiveMultiInstance
-	52, // 56: bpmp.engine.v1.WorkflowSnapshot.active_boundary_subscriptions:type_name -> bpmp.engine.v1.ActiveBoundarySubscription
-	53, // 57: bpmp.engine.v1.WorkflowSnapshot.active_scopes:type_name -> bpmp.engine.v1.ActiveExecutionScope
-	54, // 58: bpmp.engine.v1.WorkflowSnapshot.scope_invocation_counters:type_name -> bpmp.engine.v1.ScopeInvocationCounter
-	47, // 59: bpmp.engine.v1.WorkflowSnapshot.active_cases:type_name -> bpmp.engine.v1.ActiveCase
-	48, // 60: bpmp.engine.v1.ActiveCase.plan_items:type_name -> bpmp.engine.v1.CasePlanItemState
-	0,  // 61: bpmp.engine.v1.ActiveMultiInstance.mode:type_name -> bpmp.engine.v1.MultiInstanceMode
-	35, // 62: bpmp.engine.v1.ActiveMultiInstance.items:type_name -> bpmp.engine.v1.WorkflowValueItem
-	1,  // 63: bpmp.engine.v1.ActiveBoundarySubscription.trigger_kind:type_name -> bpmp.engine.v1.BoundaryTriggerKind
-	3,  // 64: bpmp.engine.v1.EngineCommandService.HandleCommand:input_type -> bpmp.engine.v1.CommandEnvelope
-	24, // 65: bpmp.engine.v1.EngineCommandService.HandleCommand:output_type -> bpmp.engine.v1.CommandReceipt
-	65, // [65:66] is the sub-list for method output_type
-	64, // [64:65] is the sub-list for method input_type
-	64, // [64:64] is the sub-list for extension type_name
-	64, // [64:64] is the sub-list for extension extendee
-	0,  // [0:64] is the sub-list for field type_name
+	33, // 11: bpmp.engine.v1.CompleteUserTask.outputs:type_name -> bpmp.engine.v1.WorkflowVariable
+	33, // 12: bpmp.engine.v1.EvaluateCaseSentries.facts:type_name -> bpmp.engine.v1.WorkflowVariable
+	12, // 13: bpmp.engine.v1.EventEnvelope.metadata:type_name -> bpmp.engine.v1.EventMetadata
+	14, // 14: bpmp.engine.v1.EventEnvelope.workflow_started:type_name -> bpmp.engine.v1.WorkflowStarted
+	15, // 15: bpmp.engine.v1.EventEnvelope.service_task_activated:type_name -> bpmp.engine.v1.ServiceTaskActivated
+	16, // 16: bpmp.engine.v1.EventEnvelope.service_task_completed:type_name -> bpmp.engine.v1.ServiceTaskCompleted
+	27, // 17: bpmp.engine.v1.EventEnvelope.workflow_completed:type_name -> bpmp.engine.v1.WorkflowCompleted
+	29, // 18: bpmp.engine.v1.EventEnvelope.decision_task_evaluated:type_name -> bpmp.engine.v1.DecisionTaskEvaluated
+	30, // 19: bpmp.engine.v1.EventEnvelope.gateway_split_activated:type_name -> bpmp.engine.v1.GatewaySplitActivated
+	31, // 20: bpmp.engine.v1.EventEnvelope.gateway_token_arrived:type_name -> bpmp.engine.v1.GatewayTokenArrived
+	32, // 21: bpmp.engine.v1.EventEnvelope.gateway_joined:type_name -> bpmp.engine.v1.GatewayJoined
+	36, // 22: bpmp.engine.v1.EventEnvelope.multi_instance_started:type_name -> bpmp.engine.v1.MultiInstanceStarted
+	37, // 23: bpmp.engine.v1.EventEnvelope.multi_instance_iteration_activated:type_name -> bpmp.engine.v1.MultiInstanceIterationActivated
+	38, // 24: bpmp.engine.v1.EventEnvelope.multi_instance_iteration_completed:type_name -> bpmp.engine.v1.MultiInstanceIterationCompleted
+	39, // 25: bpmp.engine.v1.EventEnvelope.multi_instance_completed:type_name -> bpmp.engine.v1.MultiInstanceCompleted
+	40, // 26: bpmp.engine.v1.EventEnvelope.boundary_event_triggered:type_name -> bpmp.engine.v1.BoundaryEventTriggered
+	43, // 27: bpmp.engine.v1.EventEnvelope.workflow_branch_completed:type_name -> bpmp.engine.v1.WorkflowBranchCompleted
+	41, // 28: bpmp.engine.v1.EventEnvelope.boundary_event_armed:type_name -> bpmp.engine.v1.BoundaryEventArmed
+	42, // 29: bpmp.engine.v1.EventEnvelope.boundary_events_disarmed:type_name -> bpmp.engine.v1.BoundaryEventsDisarmed
+	44, // 30: bpmp.engine.v1.EventEnvelope.scope_entered:type_name -> bpmp.engine.v1.ScopeEntered
+	45, // 31: bpmp.engine.v1.EventEnvelope.scope_completed:type_name -> bpmp.engine.v1.ScopeCompleted
+	17, // 32: bpmp.engine.v1.EventEnvelope.user_task_activated:type_name -> bpmp.engine.v1.UserTaskActivated
+	18, // 33: bpmp.engine.v1.EventEnvelope.user_task_completed:type_name -> bpmp.engine.v1.UserTaskCompleted
+	25, // 34: bpmp.engine.v1.EventEnvelope.script_task_activated:type_name -> bpmp.engine.v1.ScriptTaskActivated
+	26, // 35: bpmp.engine.v1.EventEnvelope.script_task_completed:type_name -> bpmp.engine.v1.ScriptTaskCompleted
+	19, // 36: bpmp.engine.v1.EventEnvelope.case_activated:type_name -> bpmp.engine.v1.CaseActivated
+	20, // 37: bpmp.engine.v1.EventEnvelope.case_plan_item_transitioned:type_name -> bpmp.engine.v1.CasePlanItemTransitioned
+	23, // 38: bpmp.engine.v1.EventEnvelope.user_task_cancelled:type_name -> bpmp.engine.v1.UserTaskCancelled
+	21, // 39: bpmp.engine.v1.EventEnvelope.case_sentry_satisfied:type_name -> bpmp.engine.v1.CaseSentrySatisfied
+	22, // 40: bpmp.engine.v1.EventEnvelope.case_completed:type_name -> bpmp.engine.v1.CaseCompleted
+	28, // 41: bpmp.engine.v1.EventEnvelope.workflow_terminated_for_compliance:type_name -> bpmp.engine.v1.WorkflowTerminatedForCompliance
+	33, // 42: bpmp.engine.v1.WorkflowStarted.initial_variables:type_name -> bpmp.engine.v1.WorkflowVariable
+	33, // 43: bpmp.engine.v1.ServiceTaskCompleted.outputs:type_name -> bpmp.engine.v1.WorkflowVariable
+	33, // 44: bpmp.engine.v1.UserTaskCompleted.outputs:type_name -> bpmp.engine.v1.WorkflowVariable
+	33, // 45: bpmp.engine.v1.DecisionTaskEvaluated.outputs:type_name -> bpmp.engine.v1.WorkflowVariable
+	34, // 46: bpmp.engine.v1.WorkflowVariable.list_value:type_name -> bpmp.engine.v1.WorkflowValueList
+	35, // 47: bpmp.engine.v1.WorkflowValueList.items:type_name -> bpmp.engine.v1.WorkflowValueItem
+	34, // 48: bpmp.engine.v1.WorkflowValueItem.list_value:type_name -> bpmp.engine.v1.WorkflowValueList
+	0,  // 49: bpmp.engine.v1.MultiInstanceStarted.mode:type_name -> bpmp.engine.v1.MultiInstanceMode
+	35, // 50: bpmp.engine.v1.MultiInstanceStarted.items:type_name -> bpmp.engine.v1.WorkflowValueItem
+	35, // 51: bpmp.engine.v1.MultiInstanceIterationActivated.item:type_name -> bpmp.engine.v1.WorkflowValueItem
+	1,  // 52: bpmp.engine.v1.BoundaryEventArmed.trigger_kind:type_name -> bpmp.engine.v1.BoundaryTriggerKind
+	2,  // 53: bpmp.engine.v1.WorkflowSnapshot.lifecycle:type_name -> bpmp.engine.v1.WorkflowLifecycle
+	33, // 54: bpmp.engine.v1.WorkflowSnapshot.variables:type_name -> bpmp.engine.v1.WorkflowVariable
+	49, // 55: bpmp.engine.v1.WorkflowSnapshot.active_tokens:type_name -> bpmp.engine.v1.ActiveToken
+	50, // 56: bpmp.engine.v1.WorkflowSnapshot.pending_gateway_joins:type_name -> bpmp.engine.v1.PendingGatewayJoin
+	51, // 57: bpmp.engine.v1.WorkflowSnapshot.active_multi_instances:type_name -> bpmp.engine.v1.ActiveMultiInstance
+	52, // 58: bpmp.engine.v1.WorkflowSnapshot.active_boundary_subscriptions:type_name -> bpmp.engine.v1.ActiveBoundarySubscription
+	53, // 59: bpmp.engine.v1.WorkflowSnapshot.active_scopes:type_name -> bpmp.engine.v1.ActiveExecutionScope
+	54, // 60: bpmp.engine.v1.WorkflowSnapshot.scope_invocation_counters:type_name -> bpmp.engine.v1.ScopeInvocationCounter
+	47, // 61: bpmp.engine.v1.WorkflowSnapshot.active_cases:type_name -> bpmp.engine.v1.ActiveCase
+	48, // 62: bpmp.engine.v1.ActiveCase.plan_items:type_name -> bpmp.engine.v1.CasePlanItemState
+	0,  // 63: bpmp.engine.v1.ActiveMultiInstance.mode:type_name -> bpmp.engine.v1.MultiInstanceMode
+	35, // 64: bpmp.engine.v1.ActiveMultiInstance.items:type_name -> bpmp.engine.v1.WorkflowValueItem
+	1,  // 65: bpmp.engine.v1.ActiveBoundarySubscription.trigger_kind:type_name -> bpmp.engine.v1.BoundaryTriggerKind
+	3,  // 66: bpmp.engine.v1.EngineCommandService.HandleCommand:input_type -> bpmp.engine.v1.CommandEnvelope
+	24, // 67: bpmp.engine.v1.EngineCommandService.HandleCommand:output_type -> bpmp.engine.v1.CommandReceipt
+	67, // [67:68] is the sub-list for method output_type
+	66, // [66:67] is the sub-list for method input_type
+	66, // [66:66] is the sub-list for extension type_name
+	66, // [66:66] is the sub-list for extension extendee
+	0,  // [0:66] is the sub-list for field type_name
 }
 
 func init() { file_bpmp_engine_v1_engine_proto_init() }

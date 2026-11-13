@@ -50,6 +50,9 @@ func (h *Handler) authorizationCatalog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	requiredCapability := "authz.catalog.read"
+	if r.URL.Path == "/v1/access/users" {
+		requiredCapability = "identity.user.read"
+	}
 	if r.Method != http.MethodGet {
 		requiredCapability = "authz.catalog.write"
 		if strings.HasSuffix(r.URL.Path, "/publish") {

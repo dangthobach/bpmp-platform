@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"math"
 	"time"
 
 	"github.com/dangthobach/bpmp-platform/apps/go/human-runtime/internal/application"
@@ -13,24 +14,88 @@ func (s *Store) ListAssignmentGroups(ctx context.Context, tenantID string) ([]ap
 	rows, err := s.pool.Query(ctx, `SELECT candidate_group, count(*) FROM assignment_policies
 		WHERE tenant_id=$1 AND candidate_group IS NOT NULL AND NOT is_deleted
 		GROUP BY candidate_group ORDER BY candidate_group`, tenantID)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	defer rows.Close()
 	groups := make([]application.AssignmentGroup, 0)
 	for rows.Next() {
 		var group application.AssignmentGroup
 		var policyCount int64
-		if err = rows.Scan(&group.GroupID, &policyCount); err != nil { return nil, err }
-		if policyCount < 0 { return nil, errors.New("assignment policy count is invalid") }
+		if err = rows.Scan(&group.GroupID, &policyCount); err != nil {
+			return nil, err
+		}
+		if policyCount < 0 {
+			return nil, errors.New("assignment policy count is invalid")
+		}
 		group.PolicyCount = uint64(policyCount)
 		groups = append(groups, group)
 	}
-	if err = rows.Err(); err != nil { return nil, err }
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
 	return groups, nil
 }
 
-func (s *Store) ListWorkItems(ctx context.Context, tenantID, actorID string, groups []string, limit int, cursor *application.PageCursor) ([]domain.WorkItem, *application.PageCursor, error) {
+func (s *Store) ListAssignmentPolicies(ctx context.Context, tenantID, workflowType, workflowVersion string, limit int, cursor *application.AssignmentPolicyCursor) ([]domain.AssignmentPolicy, *application.AssignmentPolicyCursor, error) {
+	if limit <= 0 {
+		return nil, nil, errors.New("assignment policy query limit must be normalized")
+	}
+	var policyRef, cursorWorkflowType, cursorWorkflowVersion, cursorNodeID string
+	if cursor != nil {
+		policyRef, cursorWorkflowType, cursorWorkflowVersion, cursorNodeID = cursor.PolicyRef, cursor.WorkflowType, cursor.WorkflowVersion, cursor.NodeID
+	}
+	rows, err := s.pool.Query(ctx, `SELECT policy_ref,workflow_type,workflow_version,node_id,COALESCE(assignee_id,''),
+		COALESCE(candidate_group,''),sla_duration_ms,COALESCE(escalation_policy_ref,''),config_version,version
+		FROM assignment_policies WHERE tenant_id=$1 AND NOT is_deleted AND ($2='' OR workflow_type=$2)
+		AND ($3='' OR workflow_version=$3) AND ($4='' OR (policy_ref,workflow_type,workflow_version,node_id)>($4,$5,$6,$7))
+		ORDER BY policy_ref,workflow_type,workflow_version,node_id LIMIT $8`, tenantID, workflowType, workflowVersion,
+		policyRef, cursorWorkflowType, cursorWorkflowVersion, cursorNodeID, limit+1)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	policies := make([]domain.AssignmentPolicy, 0, limit+1)
+	for rows.Next() {
+		var policy domain.AssignmentPolicy
+		var slaMilliseconds int64
+		policy.TenantID = tenantID
+		if err = rows.Scan(&policy.Reference, &policy.WorkflowType, &policy.WorkflowVersion, &policy.NodeID,
+			&policy.Assignment.AssigneeID, &policy.Assignment.CandidateGroup, &slaMilliseconds,
+			&policy.EscalationPolicyRef, &policy.ConfigVersion, &policy.Version); err != nil {
+			return nil, nil, err
+		}
+		if slaMilliseconds < 0 || slaMilliseconds > math.MaxInt64/int64(time.Millisecond) {
+			return nil, nil, errors.New("assignment policy SLA duration is invalid")
+		}
+		policy.SLADuration = time.Duration(slaMilliseconds) * time.Millisecond
+		policies = append(policies, policy)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	var next *application.AssignmentPolicyCursor
+	if len(policies) > limit {
+		policies = policies[:limit]
+		last := policies[len(policies)-1]
+		next = &application.AssignmentPolicyCursor{PolicyRef: last.Reference, WorkflowType: last.WorkflowType, WorkflowVersion: last.WorkflowVersion, NodeID: last.NodeID}
+	}
+	return policies, next, nil
+}
+
+func (s *Store) ListWorkItems(ctx context.Context, tenantID, actorID string, groups []string, scope application.WorkItemListScope, limit int, cursor *application.PageCursor) ([]domain.WorkItem, *application.PageCursor, error) {
 	if limit <= 0 {
 		return nil, nil, errors.New("work-item query limit must be normalized")
+	}
+	assignmentFilter := "(assignee_id=$2 OR candidate_group=ANY($3))"
+	switch scope {
+	case application.WorkItemListScopeAll:
+	case application.WorkItemListScopeAssignedToMe:
+		assignmentFilter = "assignee_id=$2"
+	case application.WorkItemListScopeGroupQueue:
+		assignmentFilter = "candidate_group=ANY($3)"
+	default:
+		return nil, nil, errors.New("work-item list scope is invalid")
 	}
 	cursorTime := time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
 	cursorID := "~"
@@ -39,7 +104,7 @@ func (s *Store) ListWorkItems(ctx context.Context, tenantID, actorID string, gro
 		cursorID = cursor.WorkItemID
 	}
 	rows, err := s.pool.Query(ctx, workItemSelect+` WHERE tenant_id=$1 AND NOT is_deleted AND status IN ('ACTIVE','COMPLETION_REQUESTED')
-        AND (assignee_id=$2 OR candidate_group=ANY($3)) AND (updated_at,work_item_id)<($4,$5)
+	        AND `+assignmentFilter+` AND (updated_at,work_item_id)<($4,$5)
         ORDER BY updated_at DESC,work_item_id DESC LIMIT $6`, tenantID, actorID, groups, cursorTime, cursorID, limit+1)
 	if err != nil {
 		return nil, nil, err

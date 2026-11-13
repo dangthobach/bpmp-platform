@@ -29,26 +29,27 @@ func (a Assignment) Validate() error {
 }
 
 type WorkItem struct {
-	TenantID            string
-	ID                  string
-	ActivationEventID   string
-	InstanceID          string
-	WorkflowType        string
-	WorkflowVersion     string
-	NodeID              string
-	TaskType            string
-	AssignmentPolicyRef string
-	Assignment          Assignment
-	FormKey             string
-	Status              WorkItemStatus
-	Decision            string
-	CompletionCommandID string
-	DelegationDepth     uint32
-	SLADeadline         *time.Time
-	EscalationPolicyRef string
-	Version             int64
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
+	TenantID                string
+	ID                      string
+	ActivationEventID       string
+	InstanceID              string
+	WorkflowType            string
+	WorkflowVersion         string
+	NodeID                  string
+	TaskType                string
+	AssignmentPolicyRef     string
+	Assignment              Assignment
+	FormKey                 string
+	Status                  WorkItemStatus
+	Decision                string
+	CompletionCommandID     string
+	CompletionPayloadDigest string
+	DelegationDepth         uint32
+	SLADeadline             *time.Time
+	EscalationPolicyRef     string
+	Version                 int64
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
 }
 
 type Activation struct {

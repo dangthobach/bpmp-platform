@@ -28,15 +28,17 @@ def build():
                 continue
             owner = ('Authz' if '/access/catalog/' in path else
                      'Configuration' if '/configuration/' in path else
-                     'Projection' if any(s in path for s in ('process-', 'saved-queries', 'query-exports', 'ops/query-plan')) else
+                     'Authoring' if '/authoring/' in path else
+                     'Projection' if any(s in path for s in ('process-', 'saved-queries', 'saved-dashboards', 'query-exports', 'ops/query-plan')) else
                      'Engine' if '/workflows/' in path else
                      'Gateway' if '/runtime/' in path else 'Human')
             op['x-status'] = 'current-registration'
             op['x-owner'] = owner
             op['x-evidence'] = str(SOURCE.relative_to(ROOT))
             op['x-priority'] = 'P0'
+            capability = op.get('x-capability', 'Existing typed policy; inspect owner contract')
             rows.append({'method': method.upper(), 'path': path, 'operationId': op['operationId'], 'owner': owner,
-                         'priority': 'P0', 'status': 'current-registration', 'request': op.get('requestBody'), 'response': op['responses'], 'capability': 'Existing typed policy; inspect owner contract'})
+                         'priority': 'P0', 'status': 'current-registration', 'request': op.get('requestBody'), 'response': op['responses'], 'capability': capability})
 
     def ref(name):
         return {'$ref': '#/components/schemas/' + name}
@@ -90,7 +92,13 @@ def build():
     def add(method, path, operation, owner, fields='', output='TargetReceipt', priority='P1', capability=None,
             collection=False, cas=None, note='', command=None):
         method = method.lower()
-        assert method not in api['paths'].get(path, {}), (method, path)
+        existing = api['paths'].get(path, {}).get(method)
+        if existing is not None:
+            # A runtime-backed Gateway operation wins over an overlapping
+            # proposal; it was already included in the current-operation rows.
+            if existing.get('x-status') == 'current-registration':
+                return
+            raise AssertionError((method, path))
         mutation = method not in ('get',) and not operation.lower().startswith(('query', 'validate', 'preview', 'evaluate', 'resolve', 'compare', 'dryrun'))
         if command is not None:
             mutation = command
@@ -228,7 +236,6 @@ def build():
         ('/v1/admin/roles','Role','Authz','code:id name:s roleType:id'),
         ('/v1/admin/permissions','Permission','Authz','code:id resourceType:id action:id mandatoryAudit:b'),
         ('/v1/admin/queues','Queue','Human','key:id name:s processKey:id'),
-        ('/v1/admin/assignment-policies','AssignmentPolicy','Human','queueId:id strategy:id maxActive:i escalationSeconds:i targetGroupRef:id'),
         ('/v1/admin/service-accounts','ServiceAccount','Identity','name:s workloadRef:id'),
         ('/v1/admin/endpoints','Endpoint','Integration','key:id name:s url:uri httpMethod:id authType:id secretRef?:id'),
         ('/v1/admin/notification-templates','NotificationTemplate','Notification','key:id name:s channel:id locale:id body:s variableSchema:json')):
@@ -389,7 +396,7 @@ def build():
             fields=body.get('properties',{})
             lines.append('Request: `'+name+'`. Required: '+', '.join(body.get('required',[]))+'.')
             if fields:
-                lines.append('Fields: '+', '.join('`'+n+'`: '+(v.get('type') or v.get('$ref','object').split('/')[-1]) for n,v in fields.items())+'.')
+                lines.append('Fields: '+', '.join('`'+n+'`: '+(v.get('type') or v.get('$ref','object').split('/')[-1])+((' — '+v['description']) if v.get('description') else '') for n,v in fields.items())+'.')
         else:
             lines.append('Request: '+('no JSON body' if req is None else 'legacy generic object; consult owning Protobuf/handler before client generation')+'.')
         lines.append('Responses: '+', '.join(f'`{code}` '+response.get('description','') for code,response in r['response'].items())+'.')

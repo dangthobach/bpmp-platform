@@ -63,7 +63,7 @@ func (c *Client) CompleteUserTask(ctx context.Context, command application.Engin
 		WorkflowType: command.WorkflowType, WorkflowVersion: command.WorkflowVersion,
 		OccurredAtEpochMs: occurredAt, EncryptionKeyScope: snapshot.EncryptionKeyScope,
 		Command: &enginev1.CommandEnvelope_CompleteUserTask{CompleteUserTask: &enginev1.CompleteUserTask{
-			NodeId: command.NodeID, Decision: command.Decision,
+			NodeId: command.NodeID, Decision: command.Decision, Outputs: command.Outputs, FormVersionId: command.FormVersionID,
 		}},
 		AuthorizationContext: &authv1.AuthorizationContext{
 			TenantId: command.TenantID, CommandId: command.CommandID,
