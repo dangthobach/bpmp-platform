@@ -163,7 +163,7 @@ pub struct RocksDbAtomicStateStorage {
     max_snapshot_bytes: u64,
 }
 
-/// Raw ordered key/value record returned by bounded RocksDB scans.
+/// Raw ordered key/value record returned by bounded `RocksDB` scans.
 pub type RawKeyValueRecord = (Vec<u8>, Vec<u8>);
 
 impl RocksDbAtomicStateStorage {
@@ -172,7 +172,7 @@ impl RocksDbAtomicStateStorage {
     /// The column family must belong to the state-machine snapshot set.
     ///
     /// # Errors
-    /// Returns [`AtomicStorageError`] when the column family is outside the authoritative set or RocksDB fails.
+    /// Returns [`AtomicStorageError`] when the column family is outside the authoritative set or `RocksDB` fails.
     pub fn get(&self, key: &StorageKey) -> Result<Option<Vec<u8>>, AtomicStorageError> {
         if !self
             .snapshot_column_families
@@ -185,14 +185,13 @@ impl RocksDbAtomicStateStorage {
         }
         self.db
             .get_cf(raft_cf(&self.db, &key.column_family)?, &key.key)
-            .map(|value| value.map(|bytes| bytes.clone()))
             .map_err(raft_unavailable)
     }
 
     /// Reads a bounded, ordered set of authoritative records under a key prefix.
     ///
     /// # Errors
-    /// Returns [`AtomicStorageError`] for an invalid scope/bound, an unknown column family, or a RocksDB read failure.
+    /// Returns [`AtomicStorageError`] for an invalid scope/bound, an unknown column family, or a `RocksDB` read failure.
     pub fn scan_prefix(
         &self,
         column_family: &str,
