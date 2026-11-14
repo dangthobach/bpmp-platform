@@ -691,6 +691,41 @@ url = "https://localhost:$cockpitGatewayPort/realtime/v1/events?names=workflow.c
         Stop-Process -Id $realtimeProcess.Id
     }
 
+    $contenderToken = (Get-Content (Join-Path $runtime "task-contender.jwt") -Raw).Trim()
+    $claimInputs = @(
+        @{ Actor = "primary"; Token = $token },
+        @{ Actor = "contender"; Token = $contenderToken }
+    )
+    $claimResults = @($claimInputs | ForEach-Object -Parallel {
+        $claim = $_
+        $port = $using:gatewayPort
+        $tenant = $using:tenantId
+        $item = $using:workItem
+        $run = $using:suffix
+        $headers = @{
+            Authorization = "Bearer $($claim.Token)"
+            "X-BPMP-Tenant-ID" = $tenant
+            "X-Command-ID" = "claim-$($claim.Actor)-$run"
+            "Idempotency-Key" = "claim-idem-$($claim.Actor)-$run"
+            "X-Correlation-ID" = "claim-correlation-$($claim.Actor)-$run"
+        }
+        $response = Invoke-WebRequest -TimeoutSec 10 -SkipCertificateCheck -SkipHttpErrorCheck `
+            -Method Post -Uri "https://localhost:$port/v1/work-items/$item/claim" `
+            -Headers $headers -ContentType "application/json" `
+            -Body (@{ expected_version = 1 } | ConvertTo-Json -Compress)
+        [pscustomobject]@{ Actor = $claim.Actor; StatusCode = [int]$response.StatusCode }
+    } -ThrottleLimit 2)
+    $claimWinners = @($claimResults | Where-Object StatusCode -eq 200)
+    $claimConflicts = @($claimResults | Where-Object StatusCode -eq 409)
+    if ($claimResults.Count -ne 2 -or $claimWinners.Count -ne 1 -or $claimConflicts.Count -ne 1) {
+        throw "Two-actor concurrent claim did not produce one winner and one version conflict: $($claimResults | ConvertTo-Json -Compress)"
+    }
+    $claimWinnerID = (Invoke-Compose exec -T postgres psql -U $settings.POSTGRES_USER -d $settings.POSTGRES_DB -Atc "SELECT assignee_id FROM human_runtime.work_items WHERE tenant_id='$tenantId' AND work_item_id='$workItem'").Trim()
+    $claimWinnerToken = if ($claimWinnerID -eq "00000000-0000-4000-8000-000000000099") { $contenderToken } else { $token }
+    if (-not $claimWinnerID) {
+        throw "Concurrent claim winner was not persisted as the work-item assignee"
+    }
+
     # Force a real Raft leader-loss path. Engine 2 remains the configured API
     # endpoint and must forward to, or become, the new majority leader.
     Invoke-Compose stop engine1
@@ -702,10 +737,12 @@ url = "https://localhost:$cockpitGatewayPort/realtime/v1/events?names=workflow.c
         "Idempotency-Key" = "complete-idem-$suffix"
         "X-Correlation-ID" = "correlation-$suffix"
     }
+    $completionHeaders = $completeHeaders.Clone()
+    $completionHeaders.Authorization = "Bearer $claimWinnerToken"
     $null = Invoke-JsonRequestEventually `
         -Path "/v1/work-items/$workItem/complete" `
-        -Headers $completeHeaders `
-        -Body (@{ decision = "approved"; expected_version = 1 } | ConvertTo-Json -Compress)
+        -Headers $completionHeaders `
+        -Body (@{ decision = "approved"; expected_version = 2 } | ConvertTo-Json -Compress)
 
     $status = ""
     $deadline = (Get-Date).AddMinutes(2)

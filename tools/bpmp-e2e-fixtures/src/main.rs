@@ -30,6 +30,16 @@ use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
 const MIGRATION: &str = include_str!("../../../db/human-runtime/migrations/001_human_runtime.sql");
+const TASK_CONTENDER_ACTOR_ID: &str = "00000000-0000-4000-8000-000000000099";
+const HUMAN_RUNTIME_DELEGATION_MIGRATION: &str =
+    include_str!("../../../db/human-runtime/migrations/002_delegation_depth.sql");
+const HUMAN_RUNTIME_ADMIN_IDEMPOTENCY_MIGRATION: &str = include_str!(
+    "../../../db/human-runtime/migrations/003_assignment_policy_admin_idempotency.sql"
+);
+const HUMAN_RUNTIME_COMPLETION_DIGEST_MIGRATION: &str =
+    include_str!("../../../db/human-runtime/migrations/004_completion_payload_digest.sql");
+const HUMAN_RUNTIME_COMPLETION_COMMAND_MIGRATION: &str =
+    include_str!("../../../db/human-runtime/migrations/005_completion_command_null_uniqueness.sql");
 const CONFIGURATION_MIGRATION: &str =
     include_str!("../../../db/configuration-service/migrations/001_configuration.sql");
 const CONFIGURATION_HOT_RELOAD_MIGRATION: &str =
@@ -293,6 +303,32 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
         &EncodingKey::from_ed_der(jwt_private.as_bytes()),
     )?;
     write(&output.join("actor.jwt"), token.as_bytes())?;
+    let task_contender_token = encode(
+        &header,
+        &JwtClaims {
+            iss: &manifest.actor_issuer,
+            sub: TASK_CONTENDER_ACTOR_ID,
+            aud: &manifest.actor_audience,
+            tenant_id: &manifest.tenant_id,
+            roles: vec!["reviewer"],
+            capabilities: vec![
+                "workflow.start",
+                "workflow.complete",
+                "configuration.read",
+                "configuration.manage",
+                "workflow.query.all",
+                "authz.catalog.read",
+                "authz.catalog.write",
+                "authz.catalog.publish",
+            ],
+            revoke_epoch: 0,
+            iat: now.saturating_sub(5),
+            nbf: now.saturating_sub(5),
+            exp: now.saturating_add(7_200),
+        },
+        &EncodingKey::from_ed_der(jwt_private.as_bytes()),
+    )?;
+    write(&output.join("task-contender.jwt"), task_contender_token.as_bytes())?;
     for (file, actor, capability, epoch) in [
         (
             "query-own.jwt",
@@ -576,7 +612,7 @@ fn signed_policy(
     .into_iter()
     .map(|(grant_id, node, action)| AuthorizationPolicyGrant {
         grant_id: grant_id.into(),
-        actor_ids: vec![manifest.actor_id.clone()],
+        actor_ids: vec![manifest.actor_id.clone(), TASK_CONTENDER_ACTOR_ID.into()],
         roles: Vec::new(),
         required_capabilities: Vec::new(),
         workflow_type: manifest.workflow_type.clone(),
@@ -1797,8 +1833,7 @@ fn seeded_migration(manifest: &Manifest) -> String {
     let workflow = sql_literal(&manifest.workflow_type);
     let version = sql_literal(&manifest.workflow_version);
     format!(
-        "{MIGRATION}\nINSERT INTO assignment_policies(tenant_id,policy_ref,workflow_type,workflow_version,node_id,assignee_id,sla_duration_ms,escalation_policy_ref,config_version,created_at,created_by,updated_at,updated_by) VALUES('{tenant}','reviewers','{workflow}','{version}','review','{}',60000,'manager','config-e2e-v1',now(),'fixture',now(),'fixture');\nINSERT INTO human_tenant_security_profiles(tenant_id,encryption_key_scope,config_version) VALUES('{tenant}','{tenant}/operational','config-e2e-v1');\n",
-        sql_literal(&manifest.actor_id)
+        "{MIGRATION}\n{HUMAN_RUNTIME_DELEGATION_MIGRATION}\n{HUMAN_RUNTIME_ADMIN_IDEMPOTENCY_MIGRATION}\n{HUMAN_RUNTIME_COMPLETION_DIGEST_MIGRATION}\n{HUMAN_RUNTIME_COMPLETION_COMMAND_MIGRATION}\nINSERT INTO assignment_policies(tenant_id,policy_ref,workflow_type,workflow_version,node_id,candidate_group,sla_duration_ms,escalation_policy_ref,config_version,created_at,created_by,updated_at,updated_by) VALUES('{tenant}','reviewers','{workflow}','{version}','review','reviewer',60000,'manager','config-e2e-v1',now(),'fixture',now(),'fixture');\nINSERT INTO human_tenant_security_profiles(tenant_id,encryption_key_scope,config_version) VALUES('{tenant}','{tenant}/operational','config-e2e-v1');\n",
     )
 }
 
@@ -2013,6 +2048,19 @@ mod tests {
     #[test]
     fn canonical_manifest_is_valid() {
         validate_manifest(&manifest()).unwrap();
+    }
+    #[test]
+    fn human_runtime_fixture_includes_forward_migrations() {
+        let migration = seeded_migration(&manifest());
+        for required in [
+            "delegation_depth integer",
+            "human_admin_command_dedup",
+            "completion_payload_digest",
+            "UNIQUE (tenant_id, completion_command_id)",
+        ] {
+            assert!(migration.contains(required), "missing migration fragment: {required}");
+        }
+        assert!(!migration.contains("UNIQUE NULLS NOT DISTINCT (tenant_id, completion_command_id)"));
     }
     #[test]
     fn rejects_duplicate_topics_and_unsafe_shell_names() {

@@ -46,7 +46,7 @@ CREATE TABLE work_items (
     updated_at timestamptz NOT NULL,
     PRIMARY KEY (tenant_id, work_item_id),
     UNIQUE (tenant_id, activation_event_id),
-    UNIQUE NULLS NOT DISTINCT (tenant_id, completion_command_id),
+    UNIQUE (tenant_id, completion_command_id),
     CHECK ((assignee_id IS NULL) <> (candidate_group IS NULL))
 );
 

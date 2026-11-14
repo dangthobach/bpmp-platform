@@ -51,12 +51,15 @@ func TestPostgresProjectionAuditLockingAndLeaseRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	migration, err := os.ReadFile(findMigration(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = pool.Exec(ctx, string(migration)); err != nil {
-		t.Fatal(err)
+	migrations := findMigrations(t)
+	for _, migration := range migrations {
+		sql, readErr := os.ReadFile(migration)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if _, err = pool.Exec(ctx, string(sql)); err != nil {
+			t.Fatalf("apply %s: %v", filepath.Base(migration), err)
+		}
 	}
 	now := time.Unix(1000, 0).UTC()
 	_, err = pool.Exec(ctx, `INSERT INTO assignment_policies(tenant_id,policy_ref,workflow_type,workflow_version,node_id,assignee_id,sla_duration_ms,escalation_policy_ref,config_version,created_at,created_by,updated_at,updated_by) VALUES('tenant-a','reviewers','approval','1','review','alice',1000,'manager','cfg-1',$1,'admin',$1,'admin')`, now)
@@ -82,6 +85,54 @@ func TestPostgresProjectionAuditLockingAndLeaseRecovery(t *testing.T) {
 	}
 	if err = store.Delegate(ctx, delegated, "delegate-2", "correlation-2", "alice"); !errors.Is(err, application.ErrVersionConflict) {
 		t.Fatalf("expected version conflict, got %v", err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO assignment_policies(tenant_id,policy_ref,workflow_type,workflow_version,node_id,candidate_group,sla_duration_ms,config_version,created_at,created_by,updated_at,updated_by) VALUES('tenant-a','claimers','approval','1','review','reviewers',1000,'cfg-1',$1,'admin',$1,'admin')`, now); err != nil {
+		t.Fatal(err)
+	}
+	claimActivation := activation
+	claimActivation.EventID, claimActivation.InstanceID, claimActivation.AssignmentPolicyRef = "claim-activation", "claim-instance", "claimers"
+	claimActivation.Sequence = 1
+	claimItem, duplicate, err := store.ProjectActivation(ctx, claimActivation)
+	if err != nil || duplicate {
+		t.Fatalf("claim activation failed: duplicate=%v err=%v", duplicate, err)
+	}
+	eligibleGroups := map[string]struct{}{"reviewers": {}}
+	claimActors := []string{"alice", "charlie"}
+	for _, actor := range claimActors {
+		if !claimItem.CanAct(actor, eligibleGroups) {
+			t.Fatalf("candidate actor %s should be eligible to claim", actor)
+		}
+	}
+	start := make(chan struct{})
+	claimResults := make(chan error, len(claimActors))
+	for i, actor := range claimActors {
+		go func(i int, actor string) {
+			<-start
+			claimed, claimErr := domain.Delegate(claimItem, actor, domain.Assignment{AssigneeID: actor}, now.Add(time.Duration(i+2)*time.Millisecond))
+			if claimErr == nil {
+				claimErr = store.Delegate(ctx, claimed, "claim-command-"+actor, "claim-correlation-"+actor, actor)
+			}
+			claimResults <- claimErr
+		}(i, actor)
+	}
+	close(start)
+	claimErrors := []error{<-claimResults, <-claimResults}
+	successes, conflicts := 0, 0
+	for _, claimErr := range claimErrors {
+		if claimErr == nil {
+			successes++
+		} else if errors.Is(claimErr, application.ErrVersionConflict) {
+			conflicts++
+		} else {
+			t.Fatalf("unexpected concurrent claim result: %v", claimErr)
+		}
+	}
+	if successes != 1 || conflicts != 1 {
+		t.Fatalf("concurrent claim must have one winner and one stale-version conflict; successes=%d conflicts=%d errors=%v", successes, conflicts, claimErrors)
+	}
+	claimedItem, err := store.GetWorkItem(ctx, "tenant-a", claimItem.ID)
+	if err != nil || claimedItem.Version != 2 || (claimedItem.Assignment.AssigneeID != "alice" && claimedItem.Assignment.AssigneeID != "charlie") {
+		t.Fatalf("concurrent claim winner was not persisted: %#v err=%v", claimedItem, err)
 	}
 	if _, err = pool.Exec(ctx, `UPDATE human_audit_log SET actor_id='tampered' WHERE tenant_id='tenant-a'`); err == nil {
 		t.Fatal("immutable audit update succeeded")
@@ -252,16 +303,21 @@ func assertNormalLoadP95(t *testing.T, store *Store) {
 	}
 }
 
-func findMigration(t *testing.T) string {
+func findMigrations(t *testing.T) []string {
 	t.Helper()
 	dir, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
 	}
 	for {
-		candidate := filepath.Join(dir, "db", "human-runtime", "migrations", "001_human_runtime.sql")
-		if _, err = os.Stat(candidate); err == nil {
-			return candidate
+		migrationDir := filepath.Join(dir, "db", "human-runtime", "migrations")
+		if _, err = os.Stat(filepath.Join(migrationDir, "001_human_runtime.sql")); err == nil {
+			migrations, globErr := filepath.Glob(filepath.Join(migrationDir, "*.sql"))
+			if globErr != nil {
+				t.Fatal(globErr)
+			}
+			sort.Strings(migrations)
+			return migrations
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
