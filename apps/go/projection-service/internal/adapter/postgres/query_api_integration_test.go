@@ -46,7 +46,18 @@ func TestPostgresExtendedQueryAPIs(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	migrations := []string{"001_projection.sql", "002_completed_process_query.sql", "003_query_revoke_kafka.sql", "004_query_text_transforms.sql", "005_query_api.sql", "006_query_storage_hardening.sql", "010_saved_dashboards.sql"}
+	migrations := []string{
+		"001_projection.sql",
+		"002_completed_process_query.sql",
+		"003_query_revoke_kafka.sql",
+		"004_query_text_transforms.sql",
+		"005_query_api.sql",
+		"006_query_storage_hardening.sql",
+		"007_authorization_resource_branch.sql",
+		"008_authorization_branch_ancestry.sql",
+		"009_authorization_policy_bundle_state.sql",
+		"010_saved_dashboards.sql",
+	}
 	for pass := 1; pass <= 2; pass++ {
 		for _, file := range migrations {
 			data, readErr := os.ReadFile(filepath.Join("../../../../../../db/projection-service/migrations", file))

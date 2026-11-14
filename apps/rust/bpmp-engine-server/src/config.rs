@@ -460,23 +460,7 @@ impl RaftRuntimeConfig {
                 "Raft identities, timeouts, bounds, and peers must be valid",
             ));
         }
-        let mut node_ids = BTreeSet::new();
-        let mut addresses = BTreeSet::new();
-        let mut certificate_fingerprints = BTreeSet::new();
-        for peer in &self.peers {
-            if peer.node_id == 0
-                || peer.raft_address.trim().is_empty()
-                || peer.tls_domain.trim().is_empty()
-                || !valid_sha256_hex(&peer.certificate_sha256_hex)
-                || !node_ids.insert(peer.node_id)
-                || !addresses.insert(peer.raft_address.as_str())
-                || !certificate_fingerprints.insert(peer.certificate_sha256_hex.as_str())
-            {
-                return Err(RuntimeConfigError::Invalid(
-                    "Raft peer identities and addresses must be unique and non-empty",
-                ));
-            }
-        }
+        let node_ids = validate_peer_directory(&self.peers)?;
         let methods = self.authorized_methods.iter().collect::<BTreeSet<_>>();
         if methods.len() != self.authorized_methods.len()
             || self
@@ -514,6 +498,25 @@ impl RaftRuntimeConfig {
         }
         Ok(())
     }
+}
+
+fn validate_peer_directory(peers: &[RaftPeerConfig]) -> Result<BTreeSet<u64>, RuntimeConfigError> {
+    let mut node_ids = BTreeSet::new();
+    let mut addresses = BTreeSet::new();
+    for peer in peers {
+        if peer.node_id == 0
+            || peer.raft_address.trim().is_empty()
+            || peer.tls_domain.trim().is_empty()
+            || !valid_sha256_hex(&peer.certificate_sha256_hex)
+            || !node_ids.insert(peer.node_id)
+            || !addresses.insert(peer.raft_address.as_str())
+        {
+            return Err(RuntimeConfigError::Invalid(
+                "Raft peer identities and addresses must be valid and unique",
+            ));
+        }
+    }
+    Ok(node_ids)
 }
 
 fn raft_payload_fits(bytes: u64, message_limit: usize) -> bool {
@@ -734,6 +737,20 @@ mod tests {
         assert!(!raft_payload_fits(3 * 1024 * 1024, 1_048_576));
         assert!(raft_payload_fits(4_194_304, 33_554_432));
         assert!(!raft_payload_fits(u64::MAX, usize::MAX));
+    }
+
+    #[test]
+    fn raft_peers_may_share_a_pinned_certificate() {
+        let peers = (1..=3)
+            .map(|node_id| RaftPeerConfig {
+                node_id,
+                raft_address: format!("engine{node_id}:7101"),
+                tls_domain: format!("engine{node_id}"),
+                certificate_sha256_hex: "ab".repeat(32),
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(validate_peer_directory(&peers).unwrap().len(), 3);
     }
 
     #[test]

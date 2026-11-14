@@ -63,6 +63,13 @@ const PROJECTION_QUERY_API_MIGRATION: &str =
     include_str!("../../../db/projection-service/migrations/005_query_api.sql");
 const PROJECTION_STORAGE_HARDENING_MIGRATION: &str =
     include_str!("../../../db/projection-service/migrations/006_query_storage_hardening.sql");
+const PROJECTION_RESOURCE_BRANCH_MIGRATION: &str =
+    include_str!("../../../db/projection-service/migrations/007_authorization_resource_branch.sql");
+const PROJECTION_BRANCH_ANCESTRY_MIGRATION: &str =
+    include_str!("../../../db/projection-service/migrations/008_authorization_branch_ancestry.sql");
+const PROJECTION_POLICY_BUNDLE_STATE_MIGRATION: &str = include_str!(
+    "../../../db/projection-service/migrations/009_authorization_policy_bundle_state.sql"
+);
 const PROJECTION_SAVED_DASHBOARDS_MIGRATION: &str =
     include_str!("../../../db/projection-service/migrations/010_saved_dashboards.sql");
 const GOVERNANCE_MIGRATION: &str =
@@ -203,6 +210,7 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
     write(&secrets.join("ca.pem"), tls.ca)?;
     write(&secrets.join("tls.pem"), tls.certificate)?;
     write(&secrets.join("tls-key.pem"), tls.private_key)?;
+    write(&secrets.join("vault-token"), b"e2e-vault-token")?;
 
     let wir_key = derive_key(manifest, "wir");
     let wir_signer = WirSigner::from_bytes(&wir_key);
@@ -328,7 +336,10 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
         },
         &EncodingKey::from_ed_der(jwt_private.as_bytes()),
     )?;
-    write(&output.join("task-contender.jwt"), task_contender_token.as_bytes())?;
+    write(
+        &output.join("task-contender.jwt"),
+        task_contender_token.as_bytes(),
+    )?;
     for (file, actor, capability, epoch) in [
         (
             "query-own.jwt",
@@ -506,7 +517,26 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
             projection_migration_dir.display()
         )
     })?;
-    for (name, migration) in [
+    for (name, migration) in projection_migrations() {
+        write(&projection_migration_dir.join(name), migration.as_bytes())?;
+    }
+    write(
+        &output.join("governance-service.sql"),
+        schema_migration("governance", GOVERNANCE_MIGRATION),
+    )?;
+    write(
+        &output.join("key-lifecycle-nginx.conf"),
+        b"events {}\nhttp { server { listen 8080; location = / { return 200 'ok'; } location = /jwks.json { alias /runtime/jwks.json; default_type application/json; } location = /barrier { return 204; } location = /shred { return 204; } } }\n",
+    )?;
+    write(
+        &output.join("kafka-topics.sh"),
+        kafka_topics_script(manifest).as_bytes(),
+    )?;
+    Ok(())
+}
+
+fn projection_migrations() -> [(&'static str, &'static str); 10] {
+    [
         ("001_projection.sql", PROJECTION_MIGRATION),
         (
             "002_completed_process_query.sql",
@@ -523,25 +553,22 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
             PROJECTION_STORAGE_HARDENING_MIGRATION,
         ),
         (
+            "007_authorization_resource_branch.sql",
+            PROJECTION_RESOURCE_BRANCH_MIGRATION,
+        ),
+        (
+            "008_authorization_branch_ancestry.sql",
+            PROJECTION_BRANCH_ANCESTRY_MIGRATION,
+        ),
+        (
+            "009_authorization_policy_bundle_state.sql",
+            PROJECTION_POLICY_BUNDLE_STATE_MIGRATION,
+        ),
+        (
             "010_saved_dashboards.sql",
             PROJECTION_SAVED_DASHBOARDS_MIGRATION,
         ),
-    ] {
-        write(&projection_migration_dir.join(name), migration.as_bytes())?;
-    }
-    write(
-        &output.join("governance-service.sql"),
-        schema_migration("governance", GOVERNANCE_MIGRATION),
-    )?;
-    write(
-        &output.join("key-lifecycle-nginx.conf"),
-        b"events {}\nhttp { server { listen 8080; location = / { return 200 'ok'; } location = /jwks.json { alias /runtime/jwks.json; default_type application/json; } location = /barrier { return 204; } location = /shred { return 204; } } }\n",
-    )?;
-    write(
-        &output.join("kafka-topics.sh"),
-        kafka_topics_script(manifest).as_bytes(),
-    )?;
-    Ok(())
+    ]
 }
 
 struct TlsMaterial {
@@ -847,7 +874,9 @@ fn engine_config(
                 "assignment_signing_key": path(&keys[3].private_path),
                 "assignment_signing_key_id": keys[3].id,
                 "max_registration_proof_ttl_ms": 60_000
-            }
+            },
+            "governance_client_certificate_sha256": [tls_certificate_sha256_hex],
+            "deployment_client_certificate_sha256": [tls_certificate_sha256_hex]
         },
         "branch_scope_resolver": {
             "endpoint":"https://authz-app:9443",
@@ -857,6 +886,7 @@ fn engine_config(
             {"key_scope": format!("{}/operational", manifest.tenant_id), "key_version": "e2e-v1", "key_epoch": 1, "path": path("secrets/payload-operational.key")},
             {"key_scope": format!("{}/audit", manifest.tenant_id), "key_version": "e2e-v1", "key_epoch": 1, "path": path("secrets/payload-audit.key")}
         ],
+        "allow_development_file_keys": true,
         "rocksdb": {"max_open_files": 128, "write_buffer_size_bytes": 8_388_608, "max_background_jobs": 2, "max_replay_events": 10_000},
         "raft": {
             "cluster_name": "bpmp-e2e", "node_id": index + 1,
@@ -877,7 +907,7 @@ fn engine_config(
             "snapshot_directory": format!("/data/engine-{}-snapshots", index + 1),
             "max_snapshot_transfer_bytes": 268_500_992,
             "snapshot_chunk_bytes": 131_072, "peer_max_message_bytes": 33_554_432,
-            "append_only_column_families": ["events","dedup","outbox","idempotency","authorization_audit","compensation_ledger","governance_audit","raft_applied_commands"]
+            "append_only_column_families": ["events","dedup","outbox","idempotency","authorization_audit","compensation_ledger","governance_audit","runtime_deployment_events","raft_applied_commands"]
         },
         "grpc": {"max_decoding_bytes": 1_048_576, "max_encoding_bytes": 1_048_576, "request_timeout_ms": 5000, "admission_rate_rps": 5000, "admission_burst": 500, "reflection_enabled": true},
         "workers": {"poll_interval_ms": 100, "outbox_batch_size": 64, "outbox_max_attempts": 10, "outbox_initial_retry_ms": 50, "outbox_max_retry_ms": 1000, "outbox_retry_multiplier_millis": 2000, "boundary": boundary_config(&format!("engine-{}-boundary", index + 1)), "local_task_batch_size": 32, "local_task_max_attempts": 3, "local_task_initial_retry_ms": 25, "local_task_max_retry_ms": 250, "local_task_retry_multiplier_millis": 2000},
@@ -1454,8 +1484,17 @@ fn governance_config(manifest: &Manifest, mount: &str, tls_fingerprint: &str) ->
             "max_message_bytes": 1_048_576
         },
         "key_lifecycle": {
-            "revocation_barrier_endpoint": "http://key-lifecycle:8080/barrier",
-            "kms_endpoint": "http://key-lifecycle:8080/shred"
+            "kms": {
+                "address": "https://vault.invalid:8200",
+                "token_path": path("secrets/vault-token"),
+                "namespace": null,
+                "transit_mount": "transit",
+                "kv_mount": "bpmp-wrapped-deks",
+                "master_key_name": "bpmp-e2e-root",
+                "request_timeout_ms": 1000,
+                "cache_capacity": 16,
+                "cache_ttl_ms": 1000
+            }
         },
         "worker": {
             "worker_id": "governance-e2e-1",
@@ -2058,9 +2097,103 @@ mod tests {
             "completion_payload_digest",
             "UNIQUE (tenant_id, completion_command_id)",
         ] {
-            assert!(migration.contains(required), "missing migration fragment: {required}");
+            assert!(
+                migration.contains(required),
+                "missing migration fragment: {required}"
+            );
         }
-        assert!(!migration.contains("UNIQUE NULLS NOT DISTINCT (tenant_id, completion_command_id)"));
+        assert!(
+            !migration.contains("UNIQUE NULLS NOT DISTINCT (tenant_id, completion_command_id)")
+        );
+    }
+    #[test]
+    fn projection_fixture_includes_contiguous_forward_migrations() {
+        let migrations = projection_migrations();
+        assert_eq!(migrations.len(), 10);
+        for (index, (name, _)) in migrations.iter().enumerate() {
+            assert_eq!(
+                name.get(..3),
+                Some(format!("{:03}", index + 1).as_str()),
+                "Projection fixture migration sequence has a gap at {name}"
+            );
+        }
+    }
+    #[test]
+    fn engine_fixture_authorizes_governance_mtls_client() {
+        let value = engine_config(
+            &manifest(),
+            "/runtime",
+            0,
+            &[
+                &AuthKey {
+                    id: "gateway".into(),
+                    private_path: "gateway-private.key".into(),
+                    public_path: "gateway-public.key".into(),
+                },
+                &AuthKey {
+                    id: "human".into(),
+                    private_path: "human-private.key".into(),
+                    public_path: "human-public.key".into(),
+                },
+                &AuthKey {
+                    id: "actor".into(),
+                    private_path: "actor-private.key".into(),
+                    public_path: "actor-public.key".into(),
+                },
+                &AuthKey {
+                    id: "internal".into(),
+                    private_path: "internal-private.key".into(),
+                    public_path: "internal-public.key".into(),
+                },
+            ],
+            "certificate-fingerprint",
+        );
+        assert_eq!(
+            value
+                .pointer("/authorization/governance_client_certificate_sha256/0")
+                .and_then(Value::as_str),
+            Some("certificate-fingerprint")
+        );
+        assert_eq!(
+            value
+                .pointer("/authorization/deployment_client_certificate_sha256/0")
+                .and_then(Value::as_str),
+            Some("certificate-fingerprint")
+        );
+        assert!(
+            value
+                .pointer("/raft/append_only_column_families")
+                .and_then(Value::as_array)
+                .is_some_and(|families| families
+                    .iter()
+                    .any(|family| { family.as_str() == Some("runtime_deployment_events") }))
+        );
+        assert_eq!(
+            value
+                .get("allow_development_file_keys")
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+    }
+    #[test]
+    fn governance_fixture_matches_vault_transit_runtime_contract() {
+        let value = governance_config(&manifest(), "/runtime", "00");
+        let kms = value
+            .pointer("/key_lifecycle/kms")
+            .expect("governance fixture must include Vault KMS configuration");
+        for field in [
+            "address",
+            "token_path",
+            "transit_mount",
+            "kv_mount",
+            "master_key_name",
+            "request_timeout_ms",
+            "cache_capacity",
+            "cache_ttl_ms",
+        ] {
+            assert!(kms.get(field).is_some(), "missing Vault KMS field: {field}");
+        }
+        assert!(value.pointer("/key_lifecycle/kms_endpoint").is_none());
     }
     #[test]
     fn rejects_duplicate_topics_and_unsafe_shell_names() {
