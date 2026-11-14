@@ -10,10 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	humanv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/human/v1"
+	"github.com/golang-jwt/jwt/v5"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 type mockHumanTaskService struct {
@@ -21,6 +23,7 @@ type mockHumanTaskService struct {
 	lastDelegateReq *humanv1.DelegateWorkItemRequest
 	lastCompleteReq *humanv1.CompleteWorkItemRequest
 	metadata        metadata.MD
+	delegateErr     error
 }
 
 func (m *mockHumanTaskService) GetWorkItem(_ context.Context, req *humanv1.GetWorkItemRequest, _ ...grpc.CallOption) (*humanv1.GetWorkItemResponse, error) {
@@ -30,10 +33,36 @@ func (m *mockHumanTaskService) GetWorkItem(_ context.Context, req *humanv1.GetWo
 func (m *mockHumanTaskService) DelegateWorkItem(ctx context.Context, req *humanv1.DelegateWorkItemRequest, _ ...grpc.CallOption) (*humanv1.DelegateWorkItemResponse, error) {
 	m.lastDelegateReq = req
 	m.metadata, _ = metadata.FromOutgoingContext(ctx)
+	if m.delegateErr != nil {
+		return nil, m.delegateErr
+	}
 	return &humanv1.DelegateWorkItemResponse{
 		CommandId:       req.CommandId,
 		WorkItemVersion: req.ExpectedVersion + 1,
 	}, nil
+}
+
+func TestClaimWorkItemMapsVersionConflictToConflict(t *testing.T) {
+	now := time.Unix(10_000, 0).UTC()
+	mockHuman := &mockHumanTaskService{delegateErr: status.Error(codes.Aborted, "work item version changed")}
+	handler, privateKey := setupTaskHandler(t, mockHuman, now)
+	token := testAuthToken(t, privateKey, "alice-officer", "tenant-alpha", now)
+	payload, _ := json.Marshal(map[string]any{"expected_version": 2})
+	request := httptest.NewRequest(http.MethodPost, "/v1/work-items/task-99/claim", bytes.NewReader(payload))
+	request.SetPathValue("workItemID", "task-99")
+	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("X-BPMP-Tenant-ID", "tenant-alpha")
+	request.Header.Set("X-Correlation-ID", "corr-claim-conflict")
+	request.Header.Set("X-Command-ID", "cmd-claim-conflict")
+	request.Header.Set("Idempotency-Key", "idem-claim-conflict")
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	handler.claimWorkItem(response, request)
+
+	if response.Code != http.StatusConflict || !bytes.Contains(response.Body.Bytes(), []byte(`"code":"version_conflict"`)) {
+		t.Fatalf("expected version conflict problem response, got %d: %s", response.Code, response.Body.String())
+	}
 }
 
 func (m *mockHumanTaskService) CompleteWorkItem(ctx context.Context, req *humanv1.CompleteWorkItemRequest, _ ...grpc.CallOption) (*humanv1.CompleteWorkItemResponse, error) {

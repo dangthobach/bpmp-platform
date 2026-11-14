@@ -200,7 +200,7 @@ func (s *upstreamState) recordFailure(now time.Time, threshold uint32) {
 
 func retryableUpstreamError(err error) bool {
 	switch status.Code(err) {
-	case codes.Unavailable, codes.ResourceExhausted, codes.DeadlineExceeded, codes.Aborted:
+	case codes.Unavailable, codes.ResourceExhausted, codes.DeadlineExceeded:
 		return true
 	default:
 		return false

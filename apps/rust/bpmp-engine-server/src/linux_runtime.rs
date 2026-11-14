@@ -2,7 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::mpsc::{self, SyncSender, TrySendError};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -85,8 +86,18 @@ struct BranchScopeDto {
 
 #[derive(Clone)]
 struct HttpBranchScopeResolver {
-    client: reqwest::blocking::Client,
+    sender: SyncSender<BranchScopeRequest>,
     endpoint: reqwest::Url,
+    timeout: Duration,
+}
+
+struct BranchScopeRequest {
+    url: reqwest::Url,
+    tenant_id: String,
+    branch_id: String,
+    command_id: String,
+    workload_proof_hex: String,
+    response: SyncSender<Result<ResolvedBranchScope, String>>,
 }
 
 impl BranchScopeResolverPort for HttpBranchScopeResolver {
@@ -105,11 +116,118 @@ impl BranchScopeResolverPort for HttpBranchScopeResolver {
         for byte in workload_proof {
             write!(&mut proof_hex, "{byte:02x}").map_err(|error| error.to_string())?;
         }
-        let envelope = self
-            .client
-            .get(url)
-            .header("x-bpmp-workload-proof", proof_hex)
-            .header("x-bpmp-command-id", command_id.as_str())
+        let (response, receiver) = mpsc::sync_channel(1);
+        let request = BranchScopeRequest {
+            url,
+            tenant_id: tenant_id.to_string(),
+            branch_id: branch_id.to_owned(),
+            command_id: command_id.to_string(),
+            workload_proof_hex: proof_hex,
+            response,
+        };
+        self.sender.try_send(request).map_err(|error| match error {
+            TrySendError::Full(_) => "organization branch resolver is at capacity".to_owned(),
+            TrySendError::Disconnected(_) => {
+                "organization branch resolver is unavailable".to_owned()
+            }
+        })?;
+        receiver.recv_timeout(self.timeout).map_err(|error| {
+            format!("organization branch resolver timed out or stopped: {error}")
+        })?
+    }
+}
+
+impl HttpBranchScopeResolver {
+    fn start(
+        config: &crate::config::BranchScopeResolverConfig,
+        ca_pem: Vec<u8>,
+        identity_pem: Vec<u8>,
+    ) -> Result<Self> {
+        const QUEUE_CAPACITY_PER_WORKER: usize = 8;
+        let endpoint = reqwest::Url::parse(&config.endpoint)
+            .context("parse branch-scope resolver endpoint")?;
+        let queue_capacity = config
+            .max_concurrent_requests
+            .checked_mul(QUEUE_CAPACITY_PER_WORKER)
+            .context("branch-scope resolver queue capacity overflow")?;
+        let (sender, receiver) = mpsc::sync_channel(queue_capacity);
+        let receiver = Arc::new(Mutex::new(receiver));
+        let (ready_sender, ready_receiver) = mpsc::sync_channel(config.max_concurrent_requests);
+        let timeout = Duration::from_millis(config.timeout_ms);
+
+        for worker_id in 0..config.max_concurrent_requests {
+            let receiver = Arc::clone(&receiver);
+            let ready_sender = ready_sender.clone();
+            let ca_pem = ca_pem.clone();
+            let identity_pem = identity_pem.clone();
+            let worker_timeout = timeout;
+            std::thread::Builder::new()
+                .name(format!("branch-scope-resolver-{worker_id}"))
+                .spawn(move || {
+                    let client =
+                        build_branch_scope_http_client(&ca_pem, &identity_pem, worker_timeout);
+                    let startup_result = client.as_ref().map(|_| ()).map_err(ToString::to_string);
+                    if ready_sender.send(startup_result).is_err() {
+                        return;
+                    }
+                    let Ok(client) = client else {
+                        return;
+                    };
+                    loop {
+                        let request = receiver
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .recv();
+                        let Ok(request) = request else {
+                            return;
+                        };
+                        let result = execute_branch_scope_request(&client, request);
+                        // A caller can time out while the bounded worker finishes its request.
+                        let _ = result;
+                    }
+                })
+                .context("start branch-scope resolver worker")?;
+        }
+        drop(ready_sender);
+        for _ in 0..config.max_concurrent_requests {
+            ready_receiver
+                .recv_timeout(timeout)
+                .context("branch-scope resolver worker did not initialize")?
+                .map_err(anyhow::Error::msg)
+                .context("initialize branch-scope resolver worker")?;
+        }
+
+        Ok(Self {
+            sender,
+            endpoint,
+            timeout,
+        })
+    }
+}
+
+fn build_branch_scope_http_client(
+    ca_pem: &[u8],
+    identity_pem: &[u8],
+    timeout: Duration,
+) -> std::result::Result<reqwest::blocking::Client, reqwest::Error> {
+    let ca = reqwest::Certificate::from_pem(ca_pem)?;
+    let identity = reqwest::Identity::from_pem(identity_pem)?;
+    reqwest::blocking::Client::builder()
+        .timeout(timeout)
+        .add_root_certificate(ca)
+        .identity(identity)
+        .build()
+}
+
+fn execute_branch_scope_request(
+    client: &reqwest::blocking::Client,
+    request: BranchScopeRequest,
+) -> Result<(), String> {
+    let result = (|| {
+        let envelope = client
+            .get(request.url)
+            .header("x-bpmp-workload-proof", request.workload_proof_hex)
+            .header("x-bpmp-command-id", request.command_id)
             .send()
             .and_then(reqwest::blocking::Response::error_for_status)
             .map_err(|error| format!("organization branch resolver request failed: {error}"))?
@@ -125,10 +243,10 @@ impl BranchScopeResolverPort for HttpBranchScopeResolver {
         })?;
         let organization_version = u64::try_from(scope.organization_version)
             .map_err(|_| "organization branch resolver returned an invalid revision".to_owned())?;
-        if scope.tenant_id != tenant_id.as_str()
-            || scope.branch_id != branch_id
+        if scope.tenant_id != request.tenant_id
+            || scope.branch_id != request.branch_id
             || scope.ancestry.is_empty()
-            || scope.ancestry.last().map(String::as_str) != Some(branch_id)
+            || scope.ancestry.last().map(String::as_str) != Some(request.branch_id.as_str())
             || scope.ancestry.iter().any(|id| id.trim().is_empty())
             || organization_version == 0
         {
@@ -141,7 +259,11 @@ impl BranchScopeResolverPort for HttpBranchScopeResolver {
             ancestry: scope.ancestry,
             organization_version,
         })
-    }
+    })();
+    request
+        .response
+        .send(result)
+        .map_err(|_| "branch-scope resolver caller stopped waiting".to_owned())
 }
 
 fn open_workflow_store(
@@ -298,8 +420,6 @@ pub async fn run(path: PathBuf) -> Result<()> {
 
     let branch_scope_resolver = if let Some(resolver_config) = &config.branch_scope_resolver {
         let ca_pem = fs::read(&config.tls.client_ca).context("read branch-scope resolver CA")?;
-        let ca =
-            reqwest::Certificate::from_pem(&ca_pem).context("parse branch-scope resolver CA")?;
         let mut identity_pem = fs::read(&config.tls.server_certificate)
             .context("read Engine client certificate for branch-scope resolver")?;
         identity_pem.push(b'\n');
@@ -307,17 +427,11 @@ pub async fn run(path: PathBuf) -> Result<()> {
             &fs::read(&config.tls.server_private_key)
                 .context("read Engine client key for branch-scope resolver")?,
         );
-        let identity = reqwest::Identity::from_pem(&identity_pem)
-            .context("parse Engine client identity for branch-scope resolver")?;
-        let client = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_millis(resolver_config.timeout_ms))
-            .add_root_certificate(ca)
-            .identity(identity)
-            .build()
-            .context("build branch-scope resolver HTTP client")?;
-        let endpoint = reqwest::Url::parse(&resolver_config.endpoint)
-            .context("parse branch-scope resolver endpoint")?;
-        Some(Arc::new(HttpBranchScopeResolver { client, endpoint }))
+        Some(Arc::new(HttpBranchScopeResolver::start(
+            resolver_config,
+            ca_pem,
+            identity_pem,
+        )?))
     } else {
         None
     };

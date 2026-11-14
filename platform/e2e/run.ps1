@@ -321,8 +321,23 @@ try {
         -SkipCertificateCheck `
         -Method Get `
         -Uri "https://localhost:$gatewayPort/openapi/v1.json"
-    if ($openAPI.openapi -ne "3.1.0" -or
-        @($openAPI.paths.PSObject.Properties).Count -ne 17) {
+    $requiredOpenAPIPaths = @(
+        "/v1/work-items",
+        "/v1/work-items/{workItemID}",
+        "/v1/work-items/{workItemID}/claim",
+        "/v1/work-items/{workItemID}/unclaim",
+        "/v1/work-items/{workItemID}/complete",
+        "/v1/work-items/{workItemID}/delegate",
+        "/v1/authoring/process-models",
+        "/v1/authoring/process-models/{processModelID}/draft/validate",
+        "/v1/authoring/decision-models",
+        "/v1/authoring/forms",
+        "/v1/authoring/deployments/{deploymentID}",
+        "/v1/authoring/deployments/{deploymentID}/rollback"
+    )
+    $openAPIPaths = @($openAPI.paths.PSObject.Properties.Name)
+    $missingOpenAPIPaths = @($requiredOpenAPIPaths | Where-Object { $_ -notin $openAPIPaths })
+    if ($openAPI.openapi -ne "3.1.0" -or $missingOpenAPIPaths.Count -gt 0) {
         throw "API Gateway OpenAPI contract is unavailable or incomplete"
     }
     $apiReference = Invoke-WebRequest `
@@ -836,6 +851,10 @@ url = "https://localhost:$cockpitGatewayPort/realtime/v1/events?names=workflow.c
         if ($returnedProcesses.Count -ne $probe.Count) {
             throw "query authorization failed for $($probe.File): expected=$($probe.Count) actual=$($returnedProcesses.Count)"
         }
+        if ($probe.File -eq "query-own.jwt" -and $returnedProcesses.Count -eq 1 -and
+            $returnedProcesses[0].instance.initiator_actor_id) {
+            throw "PDP field mask leaked initiator actor to own-scope query"
+        }
     }
     $deniedHeaders = $completeHeaders.Clone()
     $deniedHeaders.Authorization = "Bearer " + (Get-Content (Join-Path $runtime "query-denied.jwt") -Raw).Trim()
@@ -844,11 +863,10 @@ url = "https://localhost:$cockpitGatewayPort/realtime/v1/events?names=workflow.c
         -Headers $deniedHeaders -ContentType "application/json" -Body $completedQuery
     if ($denied.StatusCode -ne 403) { throw "missing query capability did not produce HTTP 403" }
 
-    if ($completedPage.processes[0].instance.initiator_actor_id) {
-        throw "PDP field mask leaked initiator actor"
-    }
     $hiddenFieldQuery = @{filter=@{predicate=@{field="PROCESS_FIELD_INITIATOR_ACTOR_ID";operator="COMPARISON_OPERATOR_EQUAL";values=@(@{string_value=$bootstrapManifest.actor_id})}};page_size=10}|ConvertTo-Json -Depth 8 -Compress
-    $hiddenFieldResponse = Invoke-WebRequest -SkipCertificateCheck -SkipHttpErrorCheck -Method Post -Uri "https://localhost:$gatewayPort/v1/process-instances/completed/query" -Headers $completeHeaders -ContentType "application/json" -Body $hiddenFieldQuery
+    $maskedHeaders = $completeHeaders.Clone()
+    $maskedHeaders.Authorization = "Bearer " + (Get-Content (Join-Path $runtime "query-own.jwt") -Raw).Trim()
+    $hiddenFieldResponse = Invoke-WebRequest -SkipCertificateCheck -SkipHttpErrorCheck -Method Post -Uri "https://localhost:$gatewayPort/v1/process-instances/completed/query" -Headers $maskedHeaders -ContentType "application/json" -Body $hiddenFieldQuery
     if ($hiddenFieldResponse.StatusCode -ne 403) {throw "query inferred hidden initiator actor"}
     function Invoke-AuthzJson {
         param([string]$Path, [string]$Body)

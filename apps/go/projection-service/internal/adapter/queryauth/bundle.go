@@ -196,7 +196,9 @@ func RunBundleConsumer(ctx context.Context, client publicationClient, producer a
 			if ctx.Err() != nil {
 				return nil
 			}
-			return fmt.Errorf("authorization bundle Kafka fetch: %v", faults[0])
+			if err := kafkaconfig.CheckFetchErrors(ctx, faults); err != nil {
+				return fmt.Errorf("authorization bundle Kafka fetch: %w", err)
+			}
 		}
 		for _, record := range fetches.Records() {
 			if record.Topic != config.Topic || len(record.Value) == 0 || len(record.Value) > config.MaxMessageBytes {
@@ -439,6 +441,8 @@ func (s *BundleStore) Evaluate(ctx context.Context, request application.QueryAut
 	filterGroups := make([]application.ProcessExpression, 0, len(allows))
 	allowAll := false
 	readable := map[string]bool{}
+	masked := map[string]bool{}
+	fieldVocabulary := stringSet(application.FieldNames)
 	for _, grant := range allows {
 		children := make([]application.ProcessExpression, 0, 2)
 		if len(grant.BranchScopeIds) > 0 {
@@ -470,6 +474,12 @@ func (s *BundleStore) Evaluate(ctx context.Context, request application.QueryAut
 				return application.QueryAuthorization{}, application.ErrQueryForbidden
 			}
 			readable[field] = true
+		}
+		for _, field := range grant.MaskedFields {
+			if !fieldVocabulary[field] {
+				return application.QueryAuthorization{}, application.ErrQueryForbidden
+			}
+			masked[field] = true
 		}
 	}
 	denyGroups := make([]application.ProcessExpression, 0, len(denies))
@@ -515,7 +525,7 @@ func (s *BundleStore) Evaluate(ctx context.Context, request application.QueryAut
 	}
 	fields := &application.FieldAuthorization{ReadFields: []string{}, QueryFields: []string{}}
 	for _, field := range application.FieldNames {
-		if readable[field] {
+		if readable[field] && !masked[field] {
 			fields.ReadFields = append(fields.ReadFields, field)
 			fields.QueryFields = append(fields.QueryFields, field)
 		}

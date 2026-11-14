@@ -4,12 +4,15 @@ target
 target-linux
 **/target
 **/target-linux
+**/target-authz
 **/node_modules
 **/dist
 **/.angular
 artifacts
 secrets
 platform/e2e/runtime
+bpmp-prototype/
+.tmp-codex-fixtures/
 **/*.log
 .env
 .env.*

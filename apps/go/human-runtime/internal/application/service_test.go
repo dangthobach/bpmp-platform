@@ -10,11 +10,17 @@ import (
 )
 
 type fakeStore struct {
-	item      domain.WorkItem
-	requested bool
+	item             domain.WorkItem
+	latestReadItem   *domain.WorkItem
+	getWorkItemCalls int
+	requested        bool
 }
 
 func (f *fakeStore) GetWorkItem(context.Context, string, string) (domain.WorkItem, error) {
+	f.getWorkItemCalls++
+	if f.getWorkItemCalls > 1 && f.latestReadItem != nil {
+		return *f.latestReadItem, nil
+	}
 	return f.item, nil
 }
 func (f *fakeStore) ProjectActivation(context.Context, domain.Activation) (domain.WorkItem, bool, error) {
@@ -167,6 +173,26 @@ func TestDynamicPolicyBoundsAssignmentClaimsAndDelegationDepth(t *testing.T) {
 	request.Assignment = domain.Assignment{AssigneeID: "carol"}
 	if err = service.Delegate(context.Background(), request); !errors.Is(err, ErrPolicyLimit) {
 		t.Fatalf("delegation depth limit was not enforced: %v", err)
+	}
+}
+
+func TestDelegateReportsConflictWhenAssignmentChangesDuringAuthorization(t *testing.T) {
+	item := assignedItem()
+	item.Version = 1
+	item.Assignment = domain.Assignment{AssigneeID: "winner"}
+	latest := item
+	latest.Version = 2
+	store := &fakeStore{item: item, latestReadItem: &latest}
+	service, err := NewService(store, &recordingEngine{}, testPolicyProvider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = service.Delegate(context.Background(), DelegateRequest{
+		TenantID: "tenant-a", WorkItemID: item.ID, CommandID: "delegate-loser",
+		ExpectedVersion: 1, Actor: ActorCredential{ActorID: "loser", OriginalSignedToken: []byte("signed")},
+	})
+	if !errors.Is(err, ErrVersionConflict) {
+		t.Fatalf("expected a stale assignment conflict, got %v", err)
 	}
 }
 

@@ -610,7 +610,7 @@ fn generate_tls(dns_names: &[String]) -> Result<TlsMaterial> {
 
 fn compile_wir(manifest: &Manifest, signer: &WirSigner) -> Result<Vec<u8>> {
     let bpmn = format!(
-        r#"<b:definitions xmlns:b="http://www.omg.org/spec/BPMN/20100524/MODEL"><b:process id="{}"><b:startEvent id="start"/><b:userTask id="review" name="approval-review" assignmentPolicyRef="reviewers" formKey="approval-form" resultVariable="decision"/><b:endEvent id="end"/><b:sequenceFlow id="f1" sourceRef="start" targetRef="review"/><b:sequenceFlow id="f2" sourceRef="review" targetRef="end"/></b:process></b:definitions>"#,
+        r#"<b:definitions xmlns:b="http://www.omg.org/spec/BPMN/20100524/MODEL"><b:process id="{}"><b:startEvent id="start"/><b:userTask id="review" name="approval-review" assignmentPolicyRef="reviewers" resultVariable="decision"/><b:endEvent id="end"/><b:sequenceFlow id="f1" sourceRef="start" targetRef="review"/><b:sequenceFlow id="f2" sourceRef="review" targetRef="end"/></b:process></b:definitions>"#,
         manifest.workflow_type
     );
     let compiler = BpmnCompiler::new(CompilerLimits::new(128 * 1024, 64)?);
@@ -687,7 +687,10 @@ fn signed_policy(
     .map(
         |(grant_id, capability, own_scope)| AuthorizationResourceGrant {
             grant_id: grant_id.into(),
-            actor_ids: vec![manifest.actor_id.clone()],
+            actor_ids: vec![
+                manifest.actor_id.clone(),
+                "00000000-0000-4000-8000-000000000099".into(),
+            ],
             roles: Vec::new(),
             required_capabilities: vec![capability.into()],
             resource_type: "workflow_instance".into(),
@@ -699,6 +702,11 @@ fn signed_policy(
             queue_scope_ids: Vec::new(),
             readable_fields: readable_fields.clone(),
             writable_fields: Vec::new(),
+            masked_fields: if own_scope {
+                vec!["initiator_actor_id".into(), "event_actor_id".into()]
+            } else {
+                Vec::new()
+            },
             own_scope,
             resource_scope_ids: Vec::new(),
             owner_id: "projection-service".into(),
@@ -880,7 +888,8 @@ fn engine_config(
         },
         "branch_scope_resolver": {
             "endpoint":"https://authz-app:9443",
-            "timeout_ms":1500
+            "timeout_ms":1500,
+            "max_concurrent_requests":4
         },
         "payload_keys": [
             {"key_scope": format!("{}/operational", manifest.tenant_id), "key_version": "e2e-v1", "key_epoch": 1, "path": path("secrets/payload-operational.key")},

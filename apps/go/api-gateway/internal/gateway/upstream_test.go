@@ -32,6 +32,25 @@ func TestUpstreamRetriesTransientFailureWithinDynamicPolicy(t *testing.T) {
 	}
 }
 
+func TestUpstreamDoesNotRetryVersionConflict(t *testing.T) {
+	controller := newUpstreamController()
+	var calls atomic.Uint32
+	_, err := doUpstream(
+		context.Background(),
+		controller,
+		"tenant-a",
+		humanDependency,
+		upstreamTestPolicy(),
+		func(context.Context) (string, error) {
+			calls.Add(1)
+			return "", status.Error(codes.Aborted, "work item version changed")
+		},
+	)
+	if status.Code(err) != codes.Aborted || calls.Load() != 1 {
+		t.Fatalf("version conflict must surface without retry: calls=%d err=%v", calls.Load(), err)
+	}
+}
+
 func TestUpstreamCircuitUsesDynamicThresholdAndOpenDuration(t *testing.T) {
 	controller := newUpstreamController()
 	now := time.Unix(100, 0)

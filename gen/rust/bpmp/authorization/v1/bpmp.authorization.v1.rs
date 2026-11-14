@@ -335,6 +335,9 @@ pub struct AuthorizationResourceGrant {
     /// with narrower branch, queue, owner, or resource scopes.
     #[prost(bool, tag="17")]
     pub tenant_scope: bool,
+    /// Fields hidden from query responses for this grant.
+    #[prost(string, repeated, tag="18")]
+    pub masked_fields: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct AuthorizationRevokeEpochUpdate {

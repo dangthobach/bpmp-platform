@@ -129,6 +129,8 @@ struct ResourcePolicyGrant {
     readable_fields: Vec<String>,
     #[serde(default)]
     writable_fields: Vec<String>,
+    #[serde(default)]
+    masked_fields: Vec<String>,
 }
 
 pub async fn list_versions(
@@ -1114,6 +1116,7 @@ fn resource_grants(snapshot: &Value) -> Result<Vec<AuthorizationResourceGrant>, 
                 tenant_scope: grant.tenant_scope,
                 readable_fields: grant.readable_fields,
                 writable_fields: grant.writable_fields,
+                masked_fields: grant.masked_fields,
             })
         })
         .collect()

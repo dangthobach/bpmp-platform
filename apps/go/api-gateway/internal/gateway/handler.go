@@ -966,7 +966,7 @@ func (h *Handler) completeWorkItem(w http.ResponseWriter, r *http.Request) {
 			return h.human.CompleteWorkItem(ctx, &humanv1.CompleteWorkItemRequest{TenantId: scope.tenantID, WorkItemId: id, CommandId: scope.commandID, IdempotencyKey: scope.idempotencyKey, CorrelationId: scope.correlationID, Decision: body.Decision, ExpectedVersion: body.ExpectedVersion, ActorProof: actorProof(scope), Outputs: outputs, FormVersionId: formVersionID})
 		})
 	if err != nil {
-		writeError(w, errUpstream)
+		writeHumanRuntimeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, response)
@@ -996,7 +996,7 @@ func (h *Handler) delegateWorkItem(w http.ResponseWriter, r *http.Request) {
 			return h.human.DelegateWorkItem(ctx, &humanv1.DelegateWorkItemRequest{TenantId: scope.tenantID, WorkItemId: id, CommandId: scope.commandID, IdempotencyKey: scope.idempotencyKey, CorrelationId: scope.correlationID, ExpectedVersion: body.ExpectedVersion, AssigneeId: body.AssigneeID, CandidateGroup: body.CandidateGroup, ActorProof: actorProof(scope)})
 		})
 	if err != nil {
-		writeError(w, errUpstream)
+		writeHumanRuntimeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -1030,7 +1030,7 @@ func (h *Handler) claimWorkItem(w http.ResponseWriter, r *http.Request) {
 			})
 		})
 	if err != nil {
-		writeError(w, errUpstream)
+		writeHumanRuntimeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -1065,7 +1065,7 @@ func (h *Handler) unclaimWorkItem(w http.ResponseWriter, r *http.Request) {
 			})
 		})
 	if err != nil {
-		writeError(w, errUpstream)
+		writeHumanRuntimeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)

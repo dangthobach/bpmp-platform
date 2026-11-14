@@ -363,6 +363,13 @@ func (s *Service) Delegate(ctx context.Context, request DelegateRequest) error {
 		return ErrVersionConflict
 	}
 	if !item.CanAct(request.Actor.ActorID, request.ActorGroups) {
+		// A concurrent claimant may have changed the assignment after this
+		// request loaded its expected version. Report that as a stale write,
+		// not an authorization denial, so clients can resolve the race.
+		latest, latestErr := s.store.GetWorkItem(ctx, request.TenantID, request.WorkItemID)
+		if latestErr == nil && latest.Version != item.Version {
+			return ErrVersionConflict
+		}
 		return ErrForbidden
 	}
 	if item.DelegationDepth >= policy.MaxDelegationDepth {

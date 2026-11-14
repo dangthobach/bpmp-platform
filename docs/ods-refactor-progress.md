@@ -1,6 +1,6 @@
 # ODS Refactor Progress
 
-Last updated: 2026-11-14 (Asia/Saigon)
+Last updated: 2026-11-15 (Asia/Saigon)
 
 This ledger is the source of truth for execution status. Percentages are weighted by evidenced deliverables; phase completion is controlled by exit criteria, not the percentage.
 
@@ -10,7 +10,7 @@ This ledger is the source of truth for execution status. Percentages are weighte
 |---|---|---:|---|---|
 | 0 - Discovery and decisions | complete | 100% | Discovery baseline plus ADR-009/010/011 | Start Phase 1 vertical foundation |
 | 1 - Platform foundations | in_progress | 98% | Foundation code, browser-to-gateway trace context, hosted ODS CI/image builds, resilient digest-only Helm chart, signed-catalog promotion verifier and rollback runbook, compatibility/failure isolation matrix, Kafka consumer trace continuity and isolated metrics endpoint | Authorized staging signed-promotion/readiness-failure/rollback rehearsal |
-| 2 - Task vertical slice | blocked | 65% | Task BFF plus Task MFE personal/group worklists, bounded pagination, claim/unclaim/complete/delegate, stable idempotent retry, command/projection reconciliation and browser command E2E | Phase 1 environment exit gate; then unit worklist contract, SSE hints, concurrent-claim/integration load evidence |
+| 2 - Task vertical slice | blocked | 80% | Prior Task UI/BFF evidence plus full broker-backed E2E for concurrent one-winner/one-409 claim, completion, projection, leader failover, revoke and restart; stale-version conflict mapping fixed | Phase 1 staging exit gate; then Unit Worklist contract, SSE hints and representative latency/freshness evidence |
 | 3 - Case domain | not_started | 0% | Existing Human Runtime case projection is not the target Case aggregate | Separate Case owner/database/outbox |
 | 4 - Documents and integrations | not_started | 0% | Requirements only | Streaming/quarantine and idempotent callback paths |
 | 5 - ODS Common and operations | not_started | 0% | Existing observability/configuration plumbing is reusable | Versioned master data, notification and audit projection |
@@ -35,11 +35,11 @@ Overall gate-counted progress: **29%**. This is 100% of Phase 0 plus the evidenc
 
 | Deliverable | Weight | Status | Evidence |
 |---|---:|---|---|
-| Task MFE worklists and actions | 30% | in_progress | Personal/group worklists, current-page search/status filter, bounded keyset navigation, claim/unclaim/complete/delegate and task detail; unit worklist contract is not yet available |
+| Task MFE worklists and actions | 30% | in_progress | Personal/group worklists, current-page search/status filter, bounded keyset navigation, claim/unclaim/complete/delegate and task detail; Unit Worklist contract is not yet available |
 | Task BFF facade | 25% | complete | Gateway list/detail/audit plus claim/unclaim/complete/delegate facade; authenticated actor proof, tenant, correlation and idempotency are forwarded to Human Runtime |
 | SLA/history/idempotent UX | 15% | complete | SLA badge, typed audit failure/retry, stable command/idempotency identities retaining the same key and payload across retry, and no fabricated candidate group fallback |
 | Realtime and convergence UX | 10% | in_progress | Command acceptance is separate from projection convergence; manual reconcile and last-reconciled time are explicit; SSE hint/cursor integration remains |
-| Conflict/duplicate/concurrency safety | 10% | in_progress | UI retry/409 reconciliation and PostgreSQL two-actor claim race now pass; API-to-Engine command/replay and production-scale contention evidence remain |
+| Conflict/duplicate/concurrency safety | 10% | in_progress | Full broker-backed E2E verifies one concurrent claim winner and one HTTP 409, stale-version conflicts are not retried, and completion survives Engine leader loss; production-scale contention evidence remains |
 | Representative latency/error budget | 10% | not_started | Existing Human Runtime microbenchmarks are not accepted as end-to-end representative Task vertical evidence |
 
 ## Phase 0 evidence
@@ -105,10 +105,17 @@ Overall gate-counted progress: **29%**. This is 100% of Phase 0 plus the evidenc
 | 2026-10-30 | Phase 2 Task MFE local quality gates | `npm run verify:ods` | Passed: dependency boundaries, all workspace typechecks, 38 unit/component tests and production builds; Task MFE contributes 10 interaction/edge tests |
 | 2026-10-30 | Task command browser path | `npm run test:ods-e2e` | Passed: 2 browser tests; independently served remote completed a task with expected version, command ID and idempotency key, then reconciled committed projection version |
 | 2026-10-30 | Task owner/backend safety baseline | `go test -race ./apps/go/api-gateway/... ./apps/go/human-runtime/...` | Passed; Gateway/Human Runtime packages are race-clean, including existing actor proof, idempotency and projection tests |
+| 2026-11-15 | Full ODS broker-backed integration | `pwsh -NoProfile -File platform/e2e/run.ps1 -KeepRunning` | Passed: concurrent Task claim, completion and Engine leader failover; query row/field authorization; durable revoke during broker outage; PDP restart, signed restore, ACK/replay, poison DLQ, Projection restart and fail-closed recovery |
+| 2026-11-15 | Task/API conflict handling | `go test ./apps/go/api-gateway/internal/gateway/... ./apps/go/human-runtime/internal/application/...` | Passed; Aborted→HTTP 409 and no retry, concurrent assignment conflict regression |
+| 2026-11-15 | Projection query authorization | `go test ./apps/go/projection-service/internal/adapter/queryauth/... ./apps/go/projection-service/internal/adapter/grpcapi/...` | Passed; signed bundle preserves field masks and query restrictions |
+| 2026-11-15 | Changed Go modules and shared Kafka fetch policy | `go test ./apps/go/authoring-service/... ./apps/go/projection-service/... ./apps/go/api-gateway/... ./apps/go/human-runtime/... ./go/platform/kafkaconfig/...` | Passed; also fixed query predicate range validation rejecting supported `BETWEEN`/`NOT BETWEEN` operators |
+| 2026-11-15 | Protobuf lint and repository diff hygiene | `buf lint`; `git diff --check` | Passed |
+| 2026-11-15 | Protocol generation and Rust formatting | `buf generate`; `cargo fmt --all -- --check` | Passed |
+| 2026-11-15 | Authz engine/server tests | `cargo test --manifest-path apps/rust/authz-control-plane/Cargo.toml -p authz-engine -p authz-server` | Unit tests passed; four SQLx integration tests were not runnable because `DATABASE_URL` is not set in this workstation shell. Broker-backed authz E2E passed via Docker |
 
 ## Active slice
 
-Current status: **Phase 1 is 98% and Phase 2 pre-entry implementation evidence is 65%; Phase 2 remains blocked because the Phase 1 environment gate has not passed. Authoring worker behavior has application unit coverage and hosted PostgreSQL queue/lease/outbox integration coverage; Engine restart/recovery/leader-change and partial-ack integration acceptance remains open.**
+Current status: **Phase 1 is 98% and Phase 2 implementation evidence is 80%; Phase 2 remains formally blocked only on the authorized Phase 1 staging gate. Full local broker-backed E2E now passes Task concurrent claim/completion, projection authorization and masking, revoke recovery, broker DLQ, Projection restart and Engine leader failover. Authoring worker behavior has application unit coverage and hosted PostgreSQL queue/lease/outbox integration coverage; worker restart/lease expiry, Engine restart/recovery/leader-change and partial-ack integration acceptance remains open.**
 
 Active Phase 2 slice contract:
 - Owning deployables: `task-mfe` for UI composition, Portal Gateway for the Task BFF facade, Human Runtime for work-item projection/assignment, and `bpmp-engine` for final transition authorization and write-side idempotency.
@@ -121,11 +128,14 @@ Completed in the current slice:
 - Claim/unclaim/complete/delegate using expected version and stable command/idempotency intent.
 - SLA state, task details/history, explicit audit failure and command receipt/projection synchronization UX.
 - Component coverage for happy path, retry with the same key/payload, 409 reconciliation and pagination; Playwright remote-to-command contract coverage.
+- Broker-backed integration confirms concurrent claim produces exactly one winner and one 409, command completion is accepted/reconciled after Engine leader loss, and revoked query actors remain denied through broker outage, PDP restart and Projection restart.
+- Version conflict is mapped from gRPC Aborted to HTTP 409 and is excluded from gateway retries.
+- Authorization bundle contract now carries grant-level `masked_fields`; own-scope query masks initiator/event actor fields while forbidden filters on those fields remain denied.
 
 Remaining gate to close Phase 1 and formally enter Phase 2:
 - **Authorized staging rehearsal**: Hosted ODS quality gates and image builds pass. An isolated `docker-desktop` Helm rehearsal also passes using OCI manifest digests, including a deliberately failed revision and rollback. No staging target, registry publishing credentials, signed catalog, or staging signing keys were provided. Run signed promotion + readiness failure + rollback in authorized staging and capture evidence. The previous Docker secrets-engine blocker is no longer current.
 
-Exact next Phase 2 slice after that gate: define the unit-worklist query contract without client-side policy, wire bounded SSE hints/cursor reconciliation, then exercise two-actor concurrent claim and representative p95/projection-lag measurement against PostgreSQL + engine integration infrastructure. In parallel, complete Authoring worker/Engine restart, leader-change and partial-ack integration acceptance.
+Exact next Phase 2 slice after that gate: define the Unit Worklist query contract without client-side policy, wire bounded SSE hints/cursor reconciliation, and measure representative p95/projection lag. Concurrent two-actor claim and Engine leader failover now have broker-backed E2E evidence. In parallel, complete Authoring worker/lease restart, Engine restart and partial-ack integration acceptance.
 
 Mandatory edge cases verified in Phase 1:
 - Missing CI gate or mutable artifact reference (blocked by Helm template & verifier).
@@ -134,6 +144,8 @@ Mandatory edge cases verified in Phase 1:
 - Trace/correlation loss across browser, Portal Gateway, downstream gRPC and Kafka consumer boundaries (verified by browser E2E, gateway context propagation, and Kafka consumer in-memory tracer tests).
 - Telemetry initialization/export failure must not block, duplicate or retry a business request (verified in browser & Go test suites).
 - Session / CSRF attacks and expired / malformed credentials (rejected by gateway session suite).
+- Authorization masks propagate through signed bundle publication and are enforced in Projection output; masked fields cannot be used in filters (broker-backed E2E).
+- Transient Kafka fetch/group recovery during broker pause no longer terminates Projection or Authoring authorization bundle consumers (shared fetch classification gate).
 
 Owner boundaries:
 - CI owns deterministic boundary/type/test/build/audit gates.
@@ -147,6 +159,7 @@ Owner boundaries:
 - Production CCU, request distribution, domain cardinality, document throughput and retention figures are not yet supplied. Phase 0 records conservative design assumptions; performance acceptance cannot be claimed until sanitized production-like data is available.
 - Unified Portal OIDC endpoints, cookie/session policy and signing keys are external dependencies. Phase 1 uses explicit ports/configuration and test doubles; production activation remains gated on those inputs.
 - CSP upload/callback and external-system contracts are required before Phase 4 implementation.
+- Domain decisions DOM-01 through DOM-08 and per-control `ownerReview` remain proposals for domain/product/security owners; no proposal is treated as approved. Case, Document, Integration and MDM implementation remains gated on those approvals plus slice-specific acceptance/contract review.
 
 ## Update format
 

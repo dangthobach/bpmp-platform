@@ -787,7 +787,7 @@ func validateValues(kind ValueKind, operator Comparison, values []QueryValue, te
 	if operator == CompareBetween || operator == CompareNotBetween {
 		wanted = 2
 	}
-	if operator < CompareEqual || operator > CompareArrayContains ||
+	if operator < CompareEqual || operator > CompareNotBetween ||
 		(wanted >= 0 && len(values) != wanted) ||
 		(wanted == -1 && (len(values) == 0 || uint32(len(values)) > policy.QueryMaxInValues)) {
 		return invalidQuery("predicate.values", "value_cardinality", "operator value cardinality is invalid")

@@ -310,13 +310,22 @@ impl ConfigurationResolverConfig {
 pub struct BranchScopeResolverConfig {
     pub endpoint: String,
     pub timeout_ms: u64,
+    #[serde(default = "default_branch_scope_resolver_concurrency")]
+    pub max_concurrent_requests: usize,
+}
+
+const fn default_branch_scope_resolver_concurrency() -> usize {
+    4
 }
 
 impl BranchScopeResolverConfig {
     fn validate(&self) -> Result<(), RuntimeConfigError> {
-        if !self.endpoint.starts_with("https://") || self.timeout_ms == 0 {
+        if !self.endpoint.starts_with("https://")
+            || self.timeout_ms == 0
+            || !(1..=64).contains(&self.max_concurrent_requests)
+        {
             return Err(RuntimeConfigError::Invalid(
-                "branch scope resolver requires an HTTPS endpoint and positive timeout",
+                "branch scope resolver requires HTTPS, a positive timeout, and 1..=64 workers",
             ));
         }
         Ok(())
@@ -765,6 +774,28 @@ mod tests {
         assert!(valid_sha256_hex(&"ab".repeat(32)));
         assert!(!valid_sha256_hex("sha256:abc"));
         assert!(!valid_sha256_hex(&"z1".repeat(32)));
+    }
+
+    #[test]
+    fn branch_scope_resolver_concurrency_is_bounded() {
+        assert!(
+            BranchScopeResolverConfig {
+                endpoint: "https://authz.example".into(),
+                timeout_ms: 500,
+                max_concurrent_requests: 1,
+            }
+            .validate()
+            .is_ok()
+        );
+        assert!(
+            BranchScopeResolverConfig {
+                endpoint: "https://authz.example".into(),
+                timeout_ms: 500,
+                max_concurrent_requests: 65,
+            }
+            .validate()
+            .is_err()
+        );
     }
 
     #[test]

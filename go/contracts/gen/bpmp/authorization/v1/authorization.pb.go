@@ -1685,7 +1685,9 @@ type AuthorizationResourceGrant struct {
 	OwnerId          string   `protobuf:"bytes,16,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
 	// Tenant-wide access must be an explicit scope choice. It cannot be combined
 	// with narrower branch, queue, owner, or resource scopes.
-	TenantScope   bool `protobuf:"varint,17,opt,name=tenant_scope,json=tenantScope,proto3" json:"tenant_scope,omitempty"`
+	TenantScope bool `protobuf:"varint,17,opt,name=tenant_scope,json=tenantScope,proto3" json:"tenant_scope,omitempty"`
+	// Fields hidden from query responses for this grant.
+	MaskedFields  []string `protobuf:"bytes,18,rep,name=masked_fields,json=maskedFields,proto3" json:"masked_fields,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1837,6 +1839,13 @@ func (x *AuthorizationResourceGrant) GetTenantScope() bool {
 		return x.TenantScope
 	}
 	return false
+}
+
+func (x *AuthorizationResourceGrant) GetMaskedFields() []string {
+	if x != nil {
+		return x.MaskedFields
+	}
+	return nil
 }
 
 type AuthorizationRevokeEpochUpdate struct {
@@ -2348,7 +2357,7 @@ const file_bpmp_authorization_v1_authorization_proto_rawDesc = "" +
 	"\x0fbundle_sequence\x18\x06 \x01(\x04R\x0ebundleSequence\x12'\n" +
 	"\x0fcatalog_version\x18\a \x01(\x04R\x0ecatalogVersion\x12.\n" +
 	"\x13bundle_content_hash\x18\b \x01(\fR\x11bundleContentHash\x127\n" +
-	"\x18acknowledged_at_epoch_ms\x18\t \x01(\x04R\x15acknowledgedAtEpochMs\"\xaf\x05\n" +
+	"\x18acknowledged_at_epoch_ms\x18\t \x01(\x04R\x15acknowledgedAtEpochMs\"\xd4\x05\n" +
 	"\x1aAuthorizationResourceGrant\x12\x19\n" +
 	"\bgrant_id\x18\x01 \x01(\tR\agrantId\x12\x1b\n" +
 	"\tactor_ids\x18\x02 \x03(\tR\bactorIds\x12\x14\n" +
@@ -2367,7 +2376,8 @@ const file_bpmp_authorization_v1_authorization_proto_rawDesc = "" +
 	"\town_scope\x18\x0e \x01(\bR\bownScope\x12,\n" +
 	"\x12resource_scope_ids\x18\x0f \x03(\tR\x10resourceScopeIds\x12\x19\n" +
 	"\bowner_id\x18\x10 \x01(\tR\aownerId\x12!\n" +
-	"\ftenant_scope\x18\x11 \x01(\bR\vtenantScope\"\xdf\x02\n" +
+	"\ftenant_scope\x18\x11 \x01(\bR\vtenantScope\x12#\n" +
+	"\rmasked_fields\x18\x12 \x03(\tR\fmaskedFields\"\xdf\x02\n" +
 	"\x1eAuthorizationRevokeEpochUpdate\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x1b\n" +
 	"\ttenant_id\x18\x02 \x01(\tR\btenantId\x12\x19\n" +

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/dangthobach/bpmp-platform/go/platform/kafkaconfig"
 	authv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/authorization/v1"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"google.golang.org/protobuf/proto"
@@ -33,7 +34,9 @@ func RunBundleConsumer(ctx context.Context, client publicationClient, producer a
 			if ctx.Err() != nil {
 				return nil
 			}
-			return fmt.Errorf("authorization bundle fetch failed: %w", faults[0].Err)
+			if err := kafkaconfig.CheckFetchErrors(ctx, faults); err != nil {
+				return fmt.Errorf("authorization bundle fetch failed: %w", err)
+			}
 		}
 		for _, record := range fetches.Records() {
 			if record.Topic != topic || len(record.Value) == 0 || len(record.Value) > maxMessageBytes {
