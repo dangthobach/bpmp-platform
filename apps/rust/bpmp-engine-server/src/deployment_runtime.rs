@@ -286,7 +286,19 @@ impl EngineDeploymentService for RuntimeDeploymentService {
                     && existing.rollback_of_deployment_id == request.rollback_of_deployment_id
                     && existing.artifact_sha256 == digest_hex(&digest) =>
             {
-                return self.deployment_status(&existing).map(Response::new);
+                let status = self.deployment_status(&existing)?;
+                return Ok(Response::new(CommitRuntimeDeploymentResponse {
+                    deployment_id: status.deployment_id,
+                    status: status.status,
+                    artifact_id: status.artifact_id,
+                    applied_node_ids: status.applied_node_ids,
+                    pending_node_ids: status.pending_node_ids,
+                    engine_config_version: status.engine_config_version,
+                    engine_policy_version: status.engine_policy_version,
+                    engine_config_sha256: status.engine_config_sha256,
+                    governance_config_version: status.governance_config_version,
+                    governance_policy_version: status.governance_policy_version,
+                }));
             }
             Ok(_) => {
                 return Err(Status::already_exists(

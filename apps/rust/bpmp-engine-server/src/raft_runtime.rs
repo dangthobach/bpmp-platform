@@ -861,7 +861,10 @@ impl<C> RaftWorkflowStore<C> {
         command_id: &str,
         key: Vec<u8>,
         value: Vec<u8>,
-    ) -> Result<Option<ApplyResponse>, StoreError> {
+    ) -> Result<Option<ApplyResponse>, StoreError>
+    where
+        C: PayloadCryptoPort,
+    {
         for _ in 0..3 {
             let Some(batch) = self.local.prepare_runtime_deployment_record(
                 command_id,

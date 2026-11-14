@@ -1667,6 +1667,8 @@ async fn reconcile_configuration_event(
                 environment_reference: resolver.environment_reference.clone(),
                 instance_id: String::new(),
                 owner: owner as i32,
+                config_version: String::new(),
+                policy_version: String::new(),
             })
             .await
             .context("resolve hot configuration snapshot")?
@@ -1778,6 +1780,8 @@ async fn load_runtime_registry(config: &RuntimeConfig) -> Result<RuntimeRegistry
                     environment_reference: resolver.environment_reference.clone(),
                     instance_id: String::new(),
                     owner: configurationv1::ConfigurationOwner::Engine as i32,
+                    config_version: String::new(),
+                    policy_version: String::new(),
                 })
                 .await
                 .context("resolve published runtime configuration")?
@@ -1799,6 +1803,8 @@ async fn load_runtime_registry(config: &RuntimeConfig) -> Result<RuntimeRegistry
                     environment_reference: resolver.environment_reference.clone(),
                     instance_id: String::new(),
                     owner: configurationv1::ConfigurationOwner::Governance as i32,
+                    config_version: String::new(),
+                    policy_version: String::new(),
                 })
                 .await
                 .context("resolve published governance policy")?
