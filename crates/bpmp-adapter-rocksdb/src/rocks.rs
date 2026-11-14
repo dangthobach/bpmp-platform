@@ -163,10 +163,16 @@ pub struct RocksDbAtomicStateStorage {
     max_snapshot_bytes: u64,
 }
 
+/// Raw ordered key/value record returned by bounded RocksDB scans.
+pub type RawKeyValueRecord = (Vec<u8>, Vec<u8>);
+
 impl RocksDbAtomicStateStorage {
     /// Reads one record from the replicated authoritative state on this node.
     ///
     /// The column family must belong to the state-machine snapshot set.
+    ///
+    /// # Errors
+    /// Returns [`AtomicStorageError`] when the column family is outside the authoritative set or RocksDB fails.
     pub fn get(&self, key: &StorageKey) -> Result<Option<Vec<u8>>, AtomicStorageError> {
         if !self
             .snapshot_column_families
@@ -179,17 +185,20 @@ impl RocksDbAtomicStateStorage {
         }
         self.db
             .get_cf(raft_cf(&self.db, &key.column_family)?, &key.key)
-            .map(|value| value.map(|bytes| bytes.to_vec()))
+            .map(|value| value.map(|bytes| bytes.clone()))
             .map_err(raft_unavailable)
     }
 
     /// Reads a bounded, ordered set of authoritative records under a key prefix.
+    ///
+    /// # Errors
+    /// Returns [`AtomicStorageError`] for an invalid scope/bound, an unknown column family, or a RocksDB read failure.
     pub fn scan_prefix(
         &self,
         column_family: &str,
         prefix: &[u8],
         limit: usize,
-    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>, AtomicStorageError> {
+    ) -> Result<Vec<RawKeyValueRecord>, AtomicStorageError> {
         if limit == 0
             || limit > 100_000
             || !self
@@ -231,6 +240,9 @@ pub enum WorkflowCommitPreparation {
 impl<C: PayloadCryptoPort> RocksDbWorkflowStore<C> {
     /// Persists the latest signature-verified authorization bundle for a tenant.
     /// The synchronous local write completes before the Kafka consumer ACKs the publication.
+    ///
+    /// # Errors
+    /// Returns [`StoreError`] when the bundle is invalid, regresses a version, conflicts with an existing sequence, or storage fails.
     pub fn persist_verified_authorization_bundle(
         &self,
         bundle: &bpmp_authz_contracts::authorization::v1::AuthorizationPolicyBundle,
@@ -270,11 +282,11 @@ impl<C: PayloadCryptoPort> RocksDbWorkflowStore<C> {
                 ));
             }
             if current.bundle_sequence > bundle.bundle_sequence {
-                return Ok(current_raw.to_vec());
+                return Ok(current_raw.clone());
             }
             if current.bundle_sequence == bundle.bundle_sequence {
                 return if current.content_hash == bundle.content_hash {
-                    Ok(current_raw.to_vec())
+                    Ok(current_raw.clone())
                 } else {
                     Err(StoreError::CorruptData(
                         "authorization bundle sequence was reused with different content".into(),
@@ -298,6 +310,9 @@ impl<C: PayloadCryptoPort> RocksDbWorkflowStore<C> {
     }
 
     /// Visits persisted policy bundles before the Engine begins serving commands.
+    ///
+    /// # Errors
+    /// Returns [`StoreError`] when storage is unavailable, persisted bytes are corrupt, the restore bound is exceeded, or the visitor fails.
     pub fn visit_authorization_policy_bundles(
         &self,
         mut visit: impl FnMut(&[u8]) -> Result<(), StoreError>,
@@ -478,11 +493,14 @@ impl<C: PayloadCryptoPort> RocksDbWorkflowStore<C> {
     }
 
     /// Reads immutable deployment records replicated through Engine Raft.
+    ///
+    /// # Errors
+    /// Returns [`StoreError`] when the bounded scan fails or its scope/bound is invalid.
     pub fn read_runtime_deployment_records(
         &self,
         prefix: &[u8],
         limit: usize,
-    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>, StoreError> {
+    ) -> Result<Vec<RawKeyValueRecord>, StoreError> {
         self.authoritative_state_storage(u64::MAX)
             .and_then(|storage| storage.scan_prefix(RUNTIME_DEPLOYMENT_EVENTS_CF, prefix, limit))
             .map_err(|error| StoreError::Unavailable(error.to_string()))
@@ -490,6 +508,9 @@ impl<C: PayloadCryptoPort> RocksDbWorkflowStore<C> {
 
     /// Prepares an append-only deployment intent or acknowledgement for Raft.
     /// Returns `None` when an identical record has already been applied locally.
+    ///
+    /// # Errors
+    /// Returns [`StoreError`] when identity is invalid, the key is already bound to different bytes, or storage fails.
     pub fn prepare_runtime_deployment_record(
         &self,
         command_id: &str,
@@ -4208,6 +4229,10 @@ mod tests {
                 workflow_type: WorkflowType::new("order").unwrap(),
                 workflow_version: WorkflowVersion::new("1").unwrap(),
                 start_node_id: NodeId::new("start").unwrap(),
+                initial_variables: BTreeMap::default(),
+                resource_branch_id: None,
+                resource_branch_ancestry: Vec::new(),
+                organization_version: 0,
                 occurred_at_epoch_ms: 42,
             },
         }
@@ -4350,6 +4375,8 @@ mod tests {
                     },
                     sequence: 1,
                     resource_branch_id: None,
+                    resource_branch_ancestry: Vec::new(),
+                    organization_version: 0,
                     variables: BTreeMap::default(),
                     active_tokens: BTreeMap::default(),
                     pending_gateway_joins: BTreeMap::default(),
