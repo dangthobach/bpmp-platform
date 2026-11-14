@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -61,10 +62,26 @@ type deploymentTestEngine struct {
 	commitCommand EngineDeploymentCommand
 	commitState   EngineDeploymentState
 	currentState  EngineDeploymentState
+	committed     *EngineDeploymentCommand
+	commitCalls   int
+	commitErrOnce error
 }
 
 func (e *deploymentTestEngine) CommitRuntimeDeployment(_ context.Context, command EngineDeploymentCommand) (EngineDeploymentState, error) {
+	e.commitCalls++
+	if e.committed == nil {
+		copy := command
+		copy.SignedWIRArtifact = append([]byte(nil), command.SignedWIRArtifact...)
+		e.committed = &copy
+	} else if !reflect.DeepEqual(*e.committed, command) {
+		return EngineDeploymentState{}, errors.New("deployment retry changed the durable Engine intent")
+	}
 	e.commitCommand = command
+	if e.commitErrOnce != nil {
+		err := e.commitErrOnce
+		e.commitErrOnce = nil
+		return EngineDeploymentState{}, err
+	}
 	return e.commitState, nil
 }
 func (e *deploymentTestEngine) GetRuntimeDeployment(context.Context, string) (EngineDeploymentState, error) {
@@ -112,6 +129,86 @@ func TestDeploymentWorkerStagesAndReconcilesEngineReceipt(t *testing.T) {
 	service.processRuntimeDeployment(context.Background(), repository, "worker-1", deployment)
 	if repository.savedState.Status != deploymentStatusActive {
 		t.Fatalf("Engine state was not reconciled after commit: %+v", repository.savedState)
+	}
+}
+
+func TestDeploymentWorkerRecoversWhenEngineCommitReceiptIsLost(t *testing.T) {
+	digest := make([]byte, 32)
+	digest[0] = 9
+	repository := &deploymentTestRepository{}
+	compiler := &deploymentTestCompiler{storedResult: RuntimeArtifact{ArtifactID: "artifact-9", SHA256: digest, SignedWIR: []byte("signed-wir-9")}}
+	engine := &deploymentTestEngine{
+		commitState:   EngineDeploymentState{DeploymentID: "deployment-recovery", Status: "ACTIVATING", PendingNodeIDs: []uint64{2}},
+		currentState:  EngineDeploymentState{DeploymentID: "deployment-recovery", Status: deploymentStatusActive, AppliedNodeIDs: []uint64{1, 2}},
+		commitErrOnce: errors.New("Engine committed intent but response was lost"),
+	}
+	service, now := newDeploymentTestService(t, repository, compiler, engine)
+	deployment := RuntimeDeployment{
+		ID: "deployment-recovery", TenantID: "tenant-1", ProcessModelID: "model-1",
+		ProcessModelVersionID: "version-9", TargetEnvironment: "prod", DeploymentSequence: 9,
+		ArtifactID: "artifact-9", ArtifactSHA256: digest, WorkflowType: "workflow-1", WorkflowVersion: "version-9",
+		AttemptCount: 1,
+	}
+
+	service.processRuntimeDeployment(context.Background(), repository, "worker-1", deployment)
+	if engine.commitCalls != 1 || engine.committed == nil || repository.savedState.Status != "" {
+		t.Fatalf("lost Engine response should release the job without persisting a receipt: calls=%d saved=%+v", engine.commitCalls, repository.savedState)
+	}
+	if !repository.releasedUntil.Equal(now.Add(500 * time.Millisecond)) {
+		t.Fatalf("lost Engine response did not schedule bounded recovery: %s", repository.releasedUntil)
+	}
+
+	deployment.AttemptCount++
+	service.processRuntimeDeployment(context.Background(), repository, "worker-2", deployment)
+	if engine.commitCalls != 2 || repository.savedState.Status != "ACTIVATING" || len(repository.savedState.PendingNodeIDs) != 1 {
+		t.Fatalf("retry did not recover the same Engine intent or preserve partial ACK state: calls=%d state=%+v", engine.commitCalls, repository.savedState)
+	}
+
+	deployment.EngineAccepted = true
+	service.processRuntimeDeployment(context.Background(), repository, "worker-2", deployment)
+	if repository.savedState.Status != deploymentStatusActive || len(repository.savedState.AppliedNodeIDs) != 2 {
+		t.Fatalf("deployment did not reconcile to ACTIVE after all Raft members applied it: %+v", repository.savedState)
+	}
+}
+
+func TestDeploymentWorkerNeverMarksPartialEngineAcknowledgementActive(t *testing.T) {
+	repository := &deploymentTestRepository{}
+	engine := &deploymentTestEngine{currentState: EngineDeploymentState{
+		DeploymentID: "deployment-partial", Status: "ACTIVATING",
+		AppliedNodeIDs: []uint64{1}, PendingNodeIDs: []uint64{2},
+	}}
+	service, _ := newDeploymentTestService(t, repository, &deploymentTestCompiler{}, engine)
+	service.processRuntimeDeployment(context.Background(), repository, "worker-1", RuntimeDeployment{
+		ID: "deployment-partial", TenantID: "tenant-1", ArtifactID: "artifact-partial", EngineAccepted: true,
+	})
+	if repository.savedState.Status != "ACTIVATING" || len(repository.savedState.PendingNodeIDs) != 1 {
+		t.Fatalf("partial Raft acknowledgement was incorrectly treated as active: %+v", repository.savedState)
+	}
+}
+
+func TestDeploymentWorkerReconcilesRollbackAfterEngineCommit(t *testing.T) {
+	digest := make([]byte, 32)
+	digest[0] = 11
+	repository := &deploymentTestRepository{}
+	compiler := &deploymentTestCompiler{storedResult: RuntimeArtifact{ArtifactID: "artifact-target", SHA256: digest, SignedWIR: []byte("signed-target")}}
+	engine := &deploymentTestEngine{commitState: EngineDeploymentState{DeploymentID: "rollback-job", Status: "ROLLING_BACK"}}
+	service, _ := newDeploymentTestService(t, repository, compiler, engine)
+	deployment := RuntimeDeployment{
+		ID: "rollback-job", TenantID: "tenant-1", ActionType: deploymentActionRollback,
+		PreviousDeploymentID: "deployment-target", DeploymentSequence: 12,
+		TargetEnvironment: "prod", ArtifactID: "artifact-target", ArtifactSHA256: digest,
+		WorkflowType: "workflow-1", WorkflowVersion: "version-target",
+	}
+
+	service.processRuntimeDeployment(context.Background(), repository, "worker-1", deployment)
+	if engine.commitCommand.RollbackOfDeploymentID != "deployment-target" || repository.savedState.Status != "ROLLING_BACK" {
+		t.Fatalf("rollback intent or pending status was not persisted: command=%+v state=%+v", engine.commitCommand, repository.savedState)
+	}
+	deployment.EngineAccepted = true
+	engine.currentState = EngineDeploymentState{DeploymentID: "rollback-job", Status: deploymentStatusActive}
+	service.processRuntimeDeployment(context.Background(), repository, "worker-1", deployment)
+	if repository.savedState.Status != deploymentStatusRolledBack {
+		t.Fatalf("Engine-confirmed rollback was not recorded as rolled back: %+v", repository.savedState)
 	}
 }
 
