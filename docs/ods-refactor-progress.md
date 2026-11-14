@@ -16,7 +16,7 @@ This ledger is the source of truth for execution status. Percentages are weighte
 | 5 - ODS Common and operations | not_started | 0% | Existing observability/configuration plumbing is reusable | Versioned master data, notification and audit projection |
 | 6 - Cutover and hardening | not_started | 0% | Strangler strategy documented | Canary/rollback/DR and legacy retirement evidence |
 
-Overall gate-counted progress: **29%**. This is 100% of Phase 0 plus the evidenced portion of Phase 1 (98%); Phase 2 implementation evidence is recorded below but is not counted in the overall figure until the mandatory Phase 1 environment gate passes. The remaining Phase 1 gap is a hosted CI run plus signed staging promotion/rollback rehearsal; local builds, HTTP smoke, and Kubernetes rollout/rollback evidence now exist, but they are not hosted/staging evidence.
+Overall gate-counted progress: **29%**. This is 100% of Phase 0 plus the evidenced portion of Phase 1 (98%); Phase 2 implementation evidence is recorded below but is not counted in the overall figure until the mandatory Phase 1 environment gate passes. Hosted ODS CI now passes on PR #19, and local builds, HTTP smoke, and Kubernetes rollout/rollback evidence exist. The remaining Phase 1 gap is signed promotion and rollback rehearsal in an authorized staging environment; hosted CI and local rehearsal do not substitute for that gate.
 
 ## Phase 1 evidence
 
@@ -92,6 +92,8 @@ Overall gate-counted progress: **29%**. This is 100% of Phase 0 plus the evidenc
 | 2026-11-14 | Compiler and engine build/test | `cargo test --locked -p bpmn-compiler -p bpmp-engine-server` | Passed after fixing invalid/mismatched compile response `workflow_type`; compiler and engine integration suites passed |
 | 2026-11-14 | Rust authoritative lint gate | `cargo clippy --locked --no-deps -p bpmn-compiler -p bpmp-adapter-rocksdb -p bpmp-raft-state-machine -p bpmp-engine-server --all-targets -- -D warnings` | Passed after addressing compiler server lint findings; workflow now limits lint to the selected crates and excludes generated/dependency code |
 | 2026-11-14 | API map and domain readiness | `python tools/map-prototype-api.py`; manual inventory review | Generated 1,386-row proposal map with candidate owner/status labels; decision pack records DOM-01..08 as proposals, Task/Authoring contracts and acceptance gates; domain-owner approval and UI browser confirmation remain pending |
+| 2026-11-14 | ODS hosted CI | GitHub Actions ODS Foundation run `43605912990` on PR #19 | Passed: frontend quality including browser E2E and production audit, Gateway, Authoring, cockpit, deployment quality, and Shell/Task container image builds. Image publication/attestation were skipped because publishing credentials are not configured; no staging promotion is claimed |
+| 2026-11-14 | Rust Linux authoritative-store CI | GitHub Actions run `43605912983` on PR #19 | In progress at ledger update; native dependency installation passed. Earlier run `43605026564` exposed Linux-only deployment runtime import/proto generation errors; fixes are in `eb42f45` and hosted verification is pending |
 
 | 2026-10-30 | Kubernetes resilience controls | `helm lint` plus positive/negative `helm template` matrix | Passed; 2 HPAs, 2 ingress NetworkPolicies, zone/host spreading and explicit replicas when autoscaling is disabled; invalid HPA range rejected |
 | 2026-10-30 | Phase 2 Task MFE local quality gates | `npm run verify:ods` | Passed: dependency boundaries, all workspace typechecks, 38 unit/component tests and production builds; Task MFE contributes 10 interaction/edge tests |
@@ -115,7 +117,7 @@ Completed in the current slice:
 - Component coverage for happy path, retry with the same key/payload, 409 reconciliation and pagination; Playwright remote-to-command contract coverage.
 
 Remaining gate to close Phase 1 and formally enter Phase 2:
-- **Hosted CI + staging rehearsal**: Shell and Task images build locally and their HTTP endpoints smoke successfully. An isolated `docker-desktop` Helm rehearsal was attempted and cleaned up, but the Shell rollout did not become Ready; no staging target, registry credentials, signed catalog, or staging keys were provided. Obtain pod/event diagnostics, rerun the signed promotion + readiness failure + rollback rehearsal in an authorized staging environment, and capture evidence. The previous Docker secrets-engine blocker is no longer current.
+- **Authorized staging rehearsal**: Hosted ODS quality gates and image builds pass. An isolated `docker-desktop` Helm rehearsal also passes using OCI manifest digests, including a deliberately failed revision and rollback. No staging target, registry publishing credentials, signed catalog, or staging signing keys were provided. Run signed promotion + readiness failure + rollback in authorized staging and capture evidence. The previous Docker secrets-engine blocker is no longer current.
 
 Exact next Phase 2 slice after that gate: define the unit-worklist query contract without client-side policy, wire bounded SSE hints/cursor reconciliation, then exercise two-actor concurrent claim and representative p95/projection-lag measurement against PostgreSQL + engine integration infrastructure.
 
@@ -135,7 +137,7 @@ Owner boundaries:
 
 ## Blockers and decisions needing external evidence
 
-- Phase 1 hosted/staging gate remains pending: isolated `docker-desktop` rollout and `helm rollback` now pass using the actual OCI manifest digests. Hosted CI has not been rerun and no authorized staging target, registry credentials, signing keys, or environment catalog were supplied. The local `minikube` context is stopped. No remote deployment or Docker data reset occurred.
+- Phase 1 hosted/staging gate remains pending only on authorized staging evidence: ODS hosted CI run `43605912990` passed; isolated `docker-desktop` rollout and `helm rollback` pass using actual OCI manifest digests. No authorized staging target, registry publishing credentials, signing keys, or environment catalog were supplied. The local `minikube` context is stopped. No remote deployment or Docker data reset occurred.
 - Production CCU, request distribution, domain cardinality, document throughput and retention figures are not yet supplied. Phase 0 records conservative design assumptions; performance acceptance cannot be claimed until sanitized production-like data is available.
 - Unified Portal OIDC endpoints, cookie/session policy and signing keys are external dependencies. Phase 1 uses explicit ports/configuration and test doubles; production activation remains gated on those inputs.
 - CSP upload/callback and external-system contracts are required before Phase 4 implementation.
