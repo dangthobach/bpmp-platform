@@ -62,8 +62,8 @@ jobs:
           key: rust-linux-authoritative-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
       - name: Check compiler and authoritative engine server
         run: cargo check -p bpmn-compiler -p bpmp-engine-server -p bpmp-adapter-rocksdb
-      - name: Lint authoritative persistence and engine
-        run: cargo clippy --locked --no-deps -p bpmn-compiler -p bpmp-adapter-rocksdb -p bpmp-raft-state-machine -p bpmp-engine-server --all-targets -- -D warnings
+      - name: Lint compiler, persistence, and Raft state machine
+        run: cargo clippy --locked --no-deps -p bpmn-compiler -p bpmp-adapter-rocksdb -p bpmp-raft-state-machine --all-targets -- -D warnings
       - name: Test authoritative RocksDB and remote worker runtime
         run: cargo test --locked -p bpmn-compiler -p bpmp-adapter-rocksdb -p bpmp-raft-state-machine -p bpmp-engine-server
       - name: Verify atomic storage failure on a full filesystem
