@@ -6,6 +6,7 @@ on:
       - ".github/workflows/ods-foundation.yml"
       - "apps/go/api-gateway/**"
       - "apps/go/authoring-service/**"
+      - "apps/go/human-runtime/**"
       - "apps/rust/bpmn-compiler/**"
       - "apps/rust/bpmp-engine-server/**"
       - "apps/web/cockpit-web/**"
@@ -13,6 +14,7 @@ on:
       - "apps/web/task-mfe/**"
       - "contracts/proto/**"
       - "db/authoring-service/**"
+      - "db/human-runtime/**"
       - "packages/frontend/**"
       - "platform/ods/**"
       - "tools/check-ods-frontend-boundaries.mjs"
@@ -100,6 +102,34 @@ jobs:
           cache-dependency-path: go.work.sum
       - run: go vet ./apps/go/authoring-service/...
       - run: go test -race ./apps/go/authoring-service/...
+
+  task-runtime-quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_USER: bpmp
+          POSTGRES_PASSWORD: bpmp-test
+          POSTGRES_DB: human_runtime_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U bpmp -d human_runtime_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      HUMAN_RUNTIME_POSTGRES_DSN: postgres://bpmp:bpmp-test@localhost:5432/human_runtime_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.25.12
+          cache-dependency-path: go.work.sum
+      - run: go vet ./apps/go/human-runtime/...
+      - run: go test -race ./apps/go/human-runtime/...
 
   cockpit-quality:
     runs-on: ubuntu-24.04
