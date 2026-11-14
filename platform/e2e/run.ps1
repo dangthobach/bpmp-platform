@@ -941,6 +941,7 @@ url = "https://localhost:$cockpitGatewayPort/realtime/v1/events?names=workflow.c
         Stop-Process -Id $realtimeProcess.Id
     }
     if (-not $KeepRunning) {
+        Ensure-ComposeEnvironmentFilePlaceholders
         Invoke-Compose down --volumes --remove-orphans
     }
 }

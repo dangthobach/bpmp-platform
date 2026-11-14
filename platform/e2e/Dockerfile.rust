@@ -4,9 +4,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /workspace
 COPY . .
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/workspace/target \
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/workspace/target,sharing=locked \
     cargo build -p bpmp-engine-server -p bpmp-e2e-fixtures \
     && cp /workspace/target/debug/bpmp-engine /tmp/bpmp-engine \
     && cp /workspace/target/debug/bpmp-e2e-fixtures /tmp/bpmp-e2e-fixtures
