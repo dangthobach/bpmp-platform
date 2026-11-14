@@ -54,6 +54,18 @@ function Invoke-Compose {
     }
 }
 
+function Ensure-ComposeEnvironmentFilePlaceholders {
+    if (-not (Test-Path $runtime)) {
+        New-Item -ItemType Directory -Path $runtime | Out-Null
+    }
+    foreach ($name in @("authz-server.env", "authz-app.env")) {
+        $path = Join-Path $runtime $name
+        if (-not (Test-Path $path)) {
+            New-Item -ItemType File -Path $path | Out-Null
+        }
+    }
+}
+
 function Invoke-TimedPhase {
     param(
         [Parameter(Mandatory)][string]$Name,
@@ -184,6 +196,7 @@ if (-not $resolvedRuntime.StartsWith($resolvedE2E, [StringComparison]::OrdinalIg
 
 try {
     Invoke-TimedPhase -Name "Clean previous E2E state" -Action {
+        Ensure-ComposeEnvironmentFilePlaceholders
         Invoke-Compose down --volumes --remove-orphans
         if (Test-Path $runtime) {
             try {
@@ -192,6 +205,7 @@ try {
                 # Files written through the bind mount can be owned by the
                 # container's remapped root user on Linux. Let that same image
                 # clear its output before removing the host directory.
+                Ensure-ComposeEnvironmentFilePlaceholders
                 Invoke-Compose --profile setup run --rm --no-deps `
                     --entrypoint /bin/sh fixture-generator `
                     -c "rm -rf /runtime/*"
@@ -214,6 +228,7 @@ try {
             & $FixtureGeneratorPath --manifest (Join-Path $PSScriptRoot "manifest.json") --output $runtime
             if ($LASTEXITCODE -ne 0) { throw "local fixture generator failed" }
         } else {
+            Ensure-ComposeEnvironmentFilePlaceholders
             Invoke-Compose --profile setup run --rm fixture-generator
         }
     }
