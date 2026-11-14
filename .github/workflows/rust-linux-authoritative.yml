@@ -10,6 +10,8 @@ on:
       - "apps/rust/bpmp-engine/**"
       - "apps/rust/bpmp-engine-server/**"
       - "contracts/proto/**"
+      - "db/human-runtime/**"
+      - "db/human-runtime/**"
       - "crates/bpmp-adapter-rocksdb/**"
       - "crates/bpmp-authz-contracts/**"
       - "crates/bpmp-contracts/**"
@@ -17,6 +19,10 @@ on:
       - "crates/bpmp-payload-crypto/**"
       - "crates/bpmp-raft-state-machine/**"
       - "rust-toolchain.toml"
+      - "tools/bpmp-e2e-fixtures/**"
+      - "platform/e2e/**"
+      - "tools/bpmp-e2e-fixtures/**"
+      - "platform/e2e/**"
   push:
     branches: ["main"]
     paths:
@@ -66,6 +72,8 @@ jobs:
         run: cargo clippy --locked --no-deps -p bpmn-compiler -p bpmp-adapter-rocksdb -p bpmp-raft-state-machine --all-targets -- -D warnings
       - name: Test authoritative RocksDB and remote worker runtime
         run: cargo test --locked -p bpmn-compiler -p bpmp-adapter-rocksdb -p bpmp-raft-state-machine -p bpmp-engine-server
+      - name: Test broker E2E fixture generation
+        run: cargo test --locked -p bpmp-e2e-fixtures
       - name: Verify atomic storage failure on a full filesystem
         shell: bash
         run: |
