@@ -76,6 +76,22 @@ jobs:
   authoring-quality:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_USER: bpmp
+          POSTGRES_PASSWORD: bpmp-test
+          POSTGRES_DB: authoring_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U bpmp -d authoring_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      AUTHORING_POSTGRES_DSN: postgres://bpmp:bpmp-test@localhost:5432/authoring_test?sslmode=disable
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
