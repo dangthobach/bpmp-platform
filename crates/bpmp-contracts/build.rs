@@ -11,6 +11,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         format!("{root}/bpmp/storage/v1/storage.proto"),
         format!("{root}/bpmp/wir/v1/wir.proto"),
         format!("{root}/bpmp/engine/v1/worker.proto"),
+        format!("{root}/bpmp/engine/v1/deployment.proto"),
     ];
     let public_protos = [
         &proto_files[1],
@@ -19,6 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &proto_files[5],
         &proto_files[6],
         &proto_files[7],
+        &proto_files[8],
     ];
     let mut descriptor_command = std::process::Command::new(&protoc_path);
     descriptor_command

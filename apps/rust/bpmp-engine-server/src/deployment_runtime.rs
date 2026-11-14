@@ -3,7 +3,6 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use bpmp_adapter_kms::{AesGcmPayloadCrypto, DataKeyResolverPort};
 use bpmp_adapter_rocksdb::RocksDbWorkflowStore;
 use bpmp_contracts::Ed25519Verifier;
 use bpmp_contracts::configuration::v1 as configurationv1;
@@ -16,6 +15,7 @@ use bpmp_engine::{
     RuntimeConfigurationUpdate, RuntimeGovernancePolicyUpdate, RuntimeRegistry,
     RuntimeSafePointGate,
 };
+use bpmp_payload_crypto::{AesGcmPayloadCrypto, DataKeyResolverPort};
 use bpmp_raft_state_machine::ApplyOutcome;
 use bpmp_raft_state_machine::TypeConfig;
 use bpmp_transport_observability::WorkloadAuthorization;
@@ -26,9 +26,9 @@ use tonic::{Request, Response, Status};
 
 use crate::config::RuntimeConfig;
 use crate::linux_runtime::{
-    ConfigurationResolverClient, RuntimeWorkerPolicyHandles,
-    common_runtime_worker_policy_after_updates, configuration_snapshot_from_proto,
-    connect_configuration_resolver, governance_policy_from_proto,
+    RuntimeWorkerPolicyHandles, common_runtime_worker_policy_after_updates,
+    configuration_snapshot_from_proto, connect_configuration_resolver,
+    governance_policy_from_proto,
 };
 use crate::raft_runtime::PeerDirectory;
 use crate::raft_runtime::RaftWorkflowStore;
