@@ -77,6 +77,8 @@ impl PolicyCache {
             environment_reference: self.resolver.environment_reference.clone(),
             instance_id: String::new(),
             owner: configurationv1::ConfigurationOwner::Governance as i32,
+            config_version: String::new(),
+            policy_version: String::new(),
         });
         inject_tonic_metadata(&mut outbound);
         let response = self
