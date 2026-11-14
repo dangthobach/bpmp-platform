@@ -134,6 +134,7 @@ jobs:
       - run: go test -race ./apps/go/human-runtime/...
 
   platform-e2e:
+    needs: [container-images]
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
