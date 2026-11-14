@@ -63,6 +63,42 @@ pub struct ForwardCommandResponse {
     pub receipt: ::core::option::Option<super::super::engine::v1::CommandReceipt>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ForwardDeploymentAckRequest {
+    #[prost(uint32, tag="1")]
+    pub schema_version: u32,
+    #[prost(uint64, tag="2")]
+    pub source_node_id: u64,
+    #[prost(string, tag="3")]
+    pub command_id: ::prost::alloc::string::String,
+    #[prost(bytes="vec", tag="4")]
+    pub storage_key: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes="vec", tag="5")]
+    pub value: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ForwardDeploymentAckResponse {
+    #[prost(bool, tag="1")]
+    pub committed: bool,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ForwardDeploymentIntentRequest {
+    #[prost(uint32, tag="1")]
+    pub schema_version: u32,
+    #[prost(uint64, tag="2")]
+    pub source_node_id: u64,
+    #[prost(string, tag="3")]
+    pub command_id: ::prost::alloc::string::String,
+    #[prost(bytes="vec", tag="4")]
+    pub storage_key: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes="vec", tag="5")]
+    pub value: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ForwardDeploymentIntentResponse {
+    #[prost(bool, tag="1")]
+    pub committed: bool,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct AddLearnerRequest {
     #[prost(uint32, tag="1")]
     pub schema_version: u32,

@@ -63,6 +63,7 @@ const REMOTE_TASK_LEASE_INDEX_CF: &str = "remote_task_lease_index";
 const COMPENSATION_LEDGER_CF: &str = "compensation_ledger";
 const RECONCILIATION_WORK_ITEMS_CF: &str = "reconciliation_work_items";
 const GOVERNANCE_AUDIT_CF: &str = "governance_audit";
+const RUNTIME_DEPLOYMENT_EVENTS_CF: &str = "runtime_deployment_events";
 const RAFT_APPLIED_COMMANDS_CF: &str = "raft_applied_commands";
 const RAFT_STATE_META_CF: &str = "raft_state_meta";
 pub(crate) const RAFT_LOG_CF: &str = "raft_log";
@@ -96,6 +97,7 @@ const fn authoritative_column_families() -> &'static [&'static str] {
         COMPENSATION_LEDGER_CF,
         RECONCILIATION_WORK_ITEMS_CF,
         GOVERNANCE_AUDIT_CF,
+        RUNTIME_DEPLOYMENT_EVENTS_CF,
         RAFT_APPLIED_COMMANDS_CF,
     ]
 }
@@ -159,6 +161,65 @@ pub struct RocksDbAtomicStateStorage {
     write_lock: Arc<Mutex<()>>,
     snapshot_column_families: Arc<[String]>,
     max_snapshot_bytes: u64,
+}
+
+impl RocksDbAtomicStateStorage {
+    /// Reads one record from the replicated authoritative state on this node.
+    ///
+    /// The column family must belong to the state-machine snapshot set.
+    pub fn get(&self, key: &StorageKey) -> Result<Option<Vec<u8>>, AtomicStorageError> {
+        if !self
+            .snapshot_column_families
+            .iter()
+            .any(|name| name == &key.column_family)
+        {
+            return Err(AtomicStorageError(
+                "column family is outside authoritative state".into(),
+            ));
+        }
+        self.db
+            .get_cf(raft_cf(&self.db, &key.column_family)?, &key.key)
+            .map(|value| value.map(|bytes| bytes.to_vec()))
+            .map_err(raft_unavailable)
+    }
+
+    /// Reads a bounded, ordered set of authoritative records under a key prefix.
+    pub fn scan_prefix(
+        &self,
+        column_family: &str,
+        prefix: &[u8],
+        limit: usize,
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>, AtomicStorageError> {
+        if limit == 0
+            || limit > 100_000
+            || !self
+                .snapshot_column_families
+                .iter()
+                .any(|name| name == column_family)
+        {
+            return Err(AtomicStorageError(
+                "authoritative scan scope or limit is invalid".into(),
+            ));
+        }
+        let family = raft_cf(&self.db, column_family)?;
+        let mut records = Vec::with_capacity(limit.min(1024));
+        for item in self
+            .db
+            .iterator_cf(family, IteratorMode::From(prefix, Direction::Forward))
+        {
+            let (key, value) = item.map_err(raft_unavailable)?;
+            if !key.starts_with(prefix) {
+                break;
+            }
+            if records.len() == limit {
+                return Err(AtomicStorageError(
+                    "authoritative scan exceeded its record bound".into(),
+                ));
+            }
+            records.push((key.to_vec(), value.to_vec()));
+        }
+        Ok(records)
+    }
 }
 
 #[derive(Debug)]
@@ -362,6 +423,7 @@ impl<C: PayloadCryptoPort> RocksDbWorkflowStore<C> {
             COMPENSATION_LEDGER_CF,
             RECONCILIATION_WORK_ITEMS_CF,
             GOVERNANCE_AUDIT_CF,
+            RUNTIME_DEPLOYMENT_EVENTS_CF,
             RAFT_APPLIED_COMMANDS_CF,
             RAFT_STATE_META_CF,
             RAFT_LOG_CF,
@@ -413,6 +475,56 @@ impl<C: PayloadCryptoPort> RocksDbWorkflowStore<C> {
             ),
             max_snapshot_bytes,
         })
+    }
+
+    /// Reads immutable deployment records replicated through Engine Raft.
+    pub fn read_runtime_deployment_records(
+        &self,
+        prefix: &[u8],
+        limit: usize,
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>, StoreError> {
+        self.authoritative_state_storage(u64::MAX)
+            .and_then(|storage| storage.scan_prefix(RUNTIME_DEPLOYMENT_EVENTS_CF, prefix, limit))
+            .map_err(|error| StoreError::Unavailable(error.to_string()))
+    }
+
+    /// Prepares an append-only deployment intent or acknowledgement for Raft.
+    /// Returns `None` when an identical record has already been applied locally.
+    pub fn prepare_runtime_deployment_record(
+        &self,
+        command_id: &str,
+        key: Vec<u8>,
+        value: Vec<u8>,
+    ) -> Result<Option<PreparedAtomicBatch>, StoreError> {
+        if command_id.trim().is_empty() || key.is_empty() || value.is_empty() {
+            return Err(StoreError::Unavailable(
+                "runtime deployment record identity is invalid".into(),
+            ));
+        }
+        let family = cf(&self.db, RUNTIME_DEPLOYMENT_EVENTS_CF)?;
+        if let Some(existing) = self.db.get_cf(family, &key).map_err(unavailable)? {
+            if existing.as_ref() == value {
+                return Ok(None);
+            }
+            return Err(StoreError::CorruptData(
+                "runtime deployment record key is already bound to different content".into(),
+            ));
+        }
+        let mut scope = b"runtime-deployment/".to_vec();
+        scope.extend_from_slice(command_id.as_bytes());
+        let mut preconditions = Vec::with_capacity(1);
+        add_missing_precondition(
+            &mut preconditions,
+            RUNTIME_DEPLOYMENT_EVENTS_CF,
+            key.clone(),
+        );
+        Ok(Some(PreparedAtomicBatch::new(
+            command_id.to_owned(),
+            scope,
+            preconditions,
+            vec![put_mutation(RUNTIME_DEPLOYMENT_EVENTS_CF, key, value)],
+            Vec::new(),
+        )))
     }
 
     /// Creates the persistent `OpenRaft` log half backed by this node's `RocksDB`.

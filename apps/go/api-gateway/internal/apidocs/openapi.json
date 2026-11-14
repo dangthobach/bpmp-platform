@@ -199,7 +199,11 @@
             "required": false,
             "schema": {
               "type": "string",
-              "enum": ["all", "mine", "group"],
+              "enum": [
+                "all",
+                "mine",
+                "group"
+              ],
               "default": "all"
             }
           }
@@ -896,13 +900,19 @@
     },
     "/v1/saved-dashboards": {
       "parameters": [
-        { "$ref": "#/components/parameters/TenantID" },
-        { "$ref": "#/components/parameters/CorrelationID" }
+        {
+          "$ref": "#/components/parameters/TenantID"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationID"
+        }
       ],
       "post": {
         "summary": "Create or update an actor-owned saved dashboard",
         "operationId": "saveDashboard",
-        "tags": ["Process Query"],
+        "tags": [
+          "Process Query"
+        ],
         "x-capability": "Projection current query authorization; owner bound to verified actor",
         "requestBody": {
           "required": true,
@@ -910,61 +920,132 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["id", "name", "config_json"],
+                "required": [
+                  "id",
+                  "name",
+                  "config_json"
+                ],
                 "properties": {
-                  "id": { "$ref": "#/components/schemas/Identifier" },
-                  "name": { "type": "string", "minLength": 1, "maxLength": 256 },
-                  "expected_version": { "type": "integer", "minimum": 0 },
-                  "config_json": { "type": "string", "minLength": 1, "maxLength": 65536, "description": "JSON object with schema_version 1 and 1–24 typed widget entries. Stores configuration only; query results are not persisted." }
+                  "id": {
+                    "$ref": "#/components/schemas/Identifier"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "expected_version": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "config_json": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 65536,
+                    "description": "JSON object with schema_version 1 and 1–24 typed widget entries. Stores configuration only; query results are not persisted."
+                  }
                 }
               }
             }
           }
         },
         "responses": {
-          "200": { "description": "Saved dashboard configuration" },
-          "400": { "$ref": "#/components/responses/BadRequest" },
-          "403": { "$ref": "#/components/responses/Forbidden" },
-          "409": { "$ref": "#/components/responses/Conflict" },
-          "502": { "$ref": "#/components/responses/UpstreamUnavailable" }
+          "200": {
+            "description": "Saved dashboard configuration"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
         }
       },
       "get": {
         "summary": "List actor-owned saved dashboards",
         "operationId": "listDashboards",
-        "tags": ["Process Query"],
+        "tags": [
+          "Process Query"
+        ],
         "x-capability": "Projection current query authorization; list bound to verified actor",
         "parameters": [
-          { "$ref": "#/components/parameters/PageSize" },
-          { "$ref": "#/components/parameters/PageToken" }
+          {
+            "$ref": "#/components/parameters/PageSize"
+          },
+          {
+            "$ref": "#/components/parameters/PageToken"
+          }
         ],
         "responses": {
-          "200": { "description": "Saved dashboard page" },
-          "403": { "$ref": "#/components/responses/Forbidden" },
-          "502": { "$ref": "#/components/responses/UpstreamUnavailable" }
+          "200": {
+            "description": "Saved dashboard page"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
         }
       }
     },
     "/v1/saved-dashboards/{dashboardID}": {
       "parameters": [
-        { "$ref": "#/components/parameters/TenantID" },
-        { "$ref": "#/components/parameters/CorrelationID" },
-        { "name": "dashboardID", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Identifier" } }
+        {
+          "$ref": "#/components/parameters/TenantID"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationID"
+        },
+        {
+          "name": "dashboardID",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
       ],
       "delete": {
         "summary": "Delete an actor-owned saved dashboard with optimistic concurrency",
         "operationId": "deleteDashboard",
-        "tags": ["Process Query"],
+        "tags": [
+          "Process Query"
+        ],
         "x-capability": "Projection current query authorization; delete bound to verified actor",
         "parameters": [
-          { "name": "expected_version", "in": "query", "required": true, "schema": { "type": "integer", "minimum": 1 } }
+          {
+            "name": "expected_version",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
         ],
         "responses": {
-          "204": { "description": "Deleted" },
-          "400": { "$ref": "#/components/responses/BadRequest" },
-          "403": { "$ref": "#/components/responses/Forbidden" },
-          "409": { "$ref": "#/components/responses/Conflict" },
-          "502": { "$ref": "#/components/responses/UpstreamUnavailable" }
+          "204": {
+            "description": "Deleted"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
         }
       }
     },
@@ -3555,6 +3636,195 @@
             }
           }
         ]
+      }
+    },
+    "/v1/authoring/process-models/{processModelID}/deployments": {
+      "post": {
+        "summary": "Queue deployment of an immutable process-model version",
+        "operationId": "deployProcessModel",
+        "tags": [
+          "Authoring"
+        ],
+        "x-capability": "authoring.deployProcessModel",
+        "responses": {
+          "200": {
+            "description": "Operation completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "503": {
+            "description": "Authoring dependency unavailable"
+          },
+          "202": {
+            "description": "Durable deployment job accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "process_model_version_id": {
+                    "type": "string"
+                  },
+                  "target_environment": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "process_model_version_id",
+                  "target_environment"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "List deployment history for a process model",
+        "operationId": "listRuntimeDeployments",
+        "tags": [
+          "Authoring"
+        ],
+        "x-capability": "authoring.listRuntimeDeployments",
+        "responses": {
+          "200": {
+            "description": "Operation completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "503": {
+            "description": "Authoring dependency unavailable"
+          }
+        }
+      }
+    },
+    "/v1/authoring/deployments/{deploymentID}": {
+      "get": {
+        "summary": "Read durable deployment and Engine reconciliation status",
+        "operationId": "getRuntimeDeployment",
+        "tags": [
+          "Authoring"
+        ],
+        "x-capability": "authoring.getRuntimeDeployment",
+        "responses": {
+          "200": {
+            "description": "Operation completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "503": {
+            "description": "Authoring dependency unavailable"
+          }
+        }
+      }
+    },
+    "/v1/authoring/deployments/{deploymentID}/rollback": {
+      "post": {
+        "summary": "Queue rollback to a previously deployed runtime artifact",
+        "operationId": "rollbackRuntimeDeployment",
+        "tags": [
+          "Authoring"
+        ],
+        "x-capability": "authoring.rollbackRuntimeDeployment",
+        "responses": {
+          "200": {
+            "description": "Operation completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "503": {
+            "description": "Authoring dependency unavailable"
+          },
+          "202": {
+            "description": "Durable deployment job accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
       }
     }
   },

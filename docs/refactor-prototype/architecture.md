@@ -54,12 +54,12 @@ flowchart TB
 | Engine | Rust engine/server, compiler, RocksDB/Raft | Transition, tokens, idempotency, signed artifacts; không biến runtime events thành SQL source of truth |
 | Human | `apps/go/human-runtime`, work_items/assignment_policies | Worklist/assignment/SLA; projection và command orchestration theo contract hiện tại |
 | Authz / Identity | Rust authz-control-plane + external identity lifecycle | Typed policy publication/revocation; directory facade cho IdP, không tự triển khai password/MFA provider |
-| Authoring | Authoring Service hiện sở hữu BPMN/DMN drafts, compiler validation, immutable BPMN/DMN source check-in và history/read source; production deployment chưa được xác nhận | Hoàn thiện forms, compare/revert, signed runtime artifact và deployment jobs; tách editor khỏi runtime |
+| Authoring | Authoring Service hiện sở hữu BPMN/DMN drafts, compiler validation, immutable BPMN/DMN source check-in và history/read source; Compiler có `CompileBpmn` trả WIR đã ký qua mTLS | Hoàn thiện durable artifact registry, deployment jobs/outbox và Engine activation; Compiler tiếp tục sở hữu WIR generation/signing, Engine sở hữu activation/runtime |
 | Case | Planned trong ADR-011 | Customer/request/business lifecycle, comments, document references, workflow-start saga; không sở hữu task decision |
 | Document | Planned | Upload/object storage, scan, version, access/retention; Case giữ reference, không blob |
 | Integration | Planned | Endpoint/credential refs, probes, callbacks, delivery retries; outbound worker không được quyết định transition |
 | Notification | Planned | Template/subscription/delivery; lỗi gửi không rollback workflow đã commit |
-| MDM | Planned Master Data context trong ADR-011 | Model/dataset admin, immutable publications; consumer-local replicas + batched resolve; [thiết kế MDM](mdm-service.md). Không network lookup trong deterministic core. |
+| MDM | Planned Master Data context trong ADR-011 | Model/dataset admin, immutable publications; consumer-local replicas + batched resolve; [thiết kế MDM](appendix/mdm-service.md). Không network lookup trong deterministic core. |
 | Configuration | Go service có | Config version/scope/publication; không chứa mọi aggregate nghiệp vụ |
 | Projection / Analytics | Go projection có | Query, saved views/export; thêm read models facts/metrics. Không triển khai analytics microservice mới nếu chưa có nhu cầu tải riêng |
 | Audit search | Planned | Search từ evidence events; evidence vẫn ở owner. Không dùng search index làm audit authority |
@@ -122,18 +122,16 @@ Camunda/Flowable trong prototype chỉ là lựa chọn UI. Mặc định thiế
 
 ## MDM và business data path
 
-Theo [thiết kế MDM](mdm-service.md), central authority quản lý master schemas/records/publication nhưng không buộc mọi command gọi service. Warm path resolve local pinned bundle; cache miss gom batch; consumer sync bằng versioned publications và snapshot recovery. Strict-current validation là contract riêng, không thể suy ra từ TTL. Engine chỉ nhận resolved evidence tường minh, lưu cùng durable decision để replay không phụ thuộc MDM online.
+MDM là proposal; xem [phụ lục MDM](appendix/mdm-service.md) khi triển khai capability này. Engine chỉ nhận resolved evidence tường minh để replay không phụ thuộc MDM online.
 
 ## Database ownership và Reporting
 
-[Ma trận service–database và Reporting](databases-and-reporting.md) xác định đầy đủ owner, relational/object/ephemeral stores, nguồn dữ liệu report và concrete sync/async contract. Tên DB trong ma trận là logical deployment names đề xuất, không khẳng định DSN hiện tại.
-
-Projection tiếp tục phục vụ operational typed queries/aggregates/exports hiện có. Report là proposed analytical boundary, chỉ tách deployable/OLAP sau workload gate và authorization parity. Report ingest committed domain events qua Kafka, join facts/dimensions cục bộ và không query database nghiệp vụ. Reporting failure không nằm trên business commit path. Cross-source reporting có freshness/source cuts và không tự tạo global transaction snapshot.
+[Ma trận database/reporting](appendix/databases-and-reporting.md) giữ các proposal storage và analytical flow chi tiết. Projection tiếp tục phục vụ operational queries; Report chỉ tách sau workload và authorization gates.
 
 ## Entity và API contracts bắt buộc
 
-Mọi business entity mới/refactor tuân [audit/soft-delete/version contract](entity-conventions.md); CAS kiểm tại authority, không chỉ ở UI. Immutable history và technical dedup/checkpoint có safety mapping riêng. [API Spec](api-spec.md) là target planning catalog ưu tiên BPMP core, có exact existing Gateway contract snapshot và operations proposed. Namespace target chuẩn hóa `/v1`; các `/api/v1` ví dụ trước đó chỉ là logical route, không phải namespace deployed thứ hai. UI control/event map theo operationId để tránh endpoint có mà chưa có workflow semantics.
+Entity invariant nằm ở [data model](data-model.md) và [convention reference](appendix/entity-conventions.md). API source/status nằm ở [API contract](api-spec.md); UI mapping không được coi là parity đã nghiệm thu.
 
 ## Backend operations contract
 
-Mọi backend long-running deployable tuân [UUID, healthz/metrics và periodic cleanup](backend-operations.md). New entity IDs là UUID; management endpoints là per-service surface, không business Gateway routes; cleanup owner-local phải có schedule/retention/lease/safe checkpoint và bảo toàn immutable evidence. Đây là yêu cầu đích, không xác nhận runtime hiện tại đã wire đầy đủ.
+Quy ước health, metrics và cleanup nằm trong [backend operations reference](appendix/backend-operations.md); đây là target, không xác nhận runtime đã wire đầy đủ.

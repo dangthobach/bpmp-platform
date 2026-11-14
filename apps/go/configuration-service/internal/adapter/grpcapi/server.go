@@ -39,6 +39,8 @@ func (s *Server) ResolveConfiguration(
 		PlatformReference:    request.GetPlatformReference(),
 		EnvironmentReference: request.GetEnvironmentReference(),
 		InstanceID:           request.GetInstanceId(),
+		ConfigVersion:        request.GetConfigVersion(),
+		PolicyVersion:        request.GetPolicyVersion(),
 	})
 	if err != nil {
 		return nil, mapError(err)

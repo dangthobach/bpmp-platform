@@ -41,7 +41,7 @@ def main():
     args.output.mkdir(parents=True, exist_ok=True)
     rows, files = [], []
     for path in sorted(args.source.rglob('*.tsx')):
-        source = path.read_text()
+        source = path.read_text(encoding='utf-8')
         name = path.relative_to(args.source).as_posix()
         files.append({'file': name, 'sha256': hashlib.sha256(source.encode()).hexdigest()})
         # Lexical evidence only: custom component callback props are also included.
@@ -73,11 +73,11 @@ def main():
     rows.sort(key=lambda r: (r['file'], r['line'], r['kind']))
     for number, row in enumerate(rows, 1):
         row['id'] = f'UI-{number:04d}'
-    (args.output / 'interaction-inventory.json').write_text(json.dumps({'method': 'lexical-v1', 'files': files, 'entries': rows}, ensure_ascii=False, indent=2) + '\n')
-    with (args.output / 'interaction-inventory.csv').open('w', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=['id', 'file', 'line', 'kind', 'name', 'expression'])
+    (args.output / 'interaction-inventory.json').write_text(json.dumps({'method': 'lexical-v1', 'files': files, 'entries': rows}, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    with (args.output / 'interaction-inventory.csv').open('w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=['id', 'file', 'line', 'kind', 'name', 'expression'], lineterminator='\n')
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows([{key: re.sub(r'[ \t]+(?=\n|$)', '', value) if isinstance(value, str) else value for key, value in row.items()} for row in rows])
     lines = ['# Prototype control/event inventory', '',
              'Generated lexical evidence. Includes native controls, non-button events, and custom callback props.',
              'IDs are snapshot-local; regeneration can renumber them. File hashes are in JSON.',
@@ -89,13 +89,8 @@ def main():
     for file in files:
         entries = [r for r in rows if r['file'] == file['file']]
         lines.append(f"| {file['file']} | {sum(r['kind'] == 'control' for r in entries)} | {sum(r['kind'] == 'event-prop' for r in entries)} |")
-    for file in files:
-        lines += ['', '## ' + file['file'], '', '| ID | Line | Kind | Name | Source excerpt |', '|---|---:|---|---|---|']
-        for row in rows:
-            if row['file'] == file['file']:
-                excerpt = re.sub(r'\s+', ' ', row['expression']).replace('|', '&#124;').replace('`', '&#96;')
-                lines.append(f"| {row['id']} | {row['line']} | {row['kind']} | {row['name']} | {excerpt[:240]} |")
-    (args.output / 'interaction-inventory.md').write_text('\n'.join(lines) + '\n')
+    lines += ['', 'Full row-level evidence and source expressions are in [CSV](interaction-inventory.csv) and [JSON](interaction-inventory.json). This Markdown file intentionally stays a short summary to avoid duplicating generated data.']
+    (args.output / 'interaction-inventory.md').write_text('\n'.join(lines) + '\n', encoding='utf-8')
     print(f"{len(files)} TSX files; {sum(r['kind'] == 'control' for r in rows)} controls; {sum(r['kind'] == 'event-prop' for r in rows)} event props")
 
 

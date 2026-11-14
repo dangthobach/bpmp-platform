@@ -19,12 +19,14 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	RaftPeerService_AppendEntries_FullMethodName    = "/bpmp.raft.v1.RaftPeerService/AppendEntries"
-	RaftPeerService_Vote_FullMethodName             = "/bpmp.raft.v1.RaftPeerService/Vote"
-	RaftPeerService_InstallSnapshot_FullMethodName  = "/bpmp.raft.v1.RaftPeerService/InstallSnapshot"
-	RaftPeerService_ForwardCommand_FullMethodName   = "/bpmp.raft.v1.RaftPeerService/ForwardCommand"
-	RaftPeerService_AddLearner_FullMethodName       = "/bpmp.raft.v1.RaftPeerService/AddLearner"
-	RaftPeerService_ChangeMembership_FullMethodName = "/bpmp.raft.v1.RaftPeerService/ChangeMembership"
+	RaftPeerService_AppendEntries_FullMethodName           = "/bpmp.raft.v1.RaftPeerService/AppendEntries"
+	RaftPeerService_Vote_FullMethodName                    = "/bpmp.raft.v1.RaftPeerService/Vote"
+	RaftPeerService_InstallSnapshot_FullMethodName         = "/bpmp.raft.v1.RaftPeerService/InstallSnapshot"
+	RaftPeerService_ForwardCommand_FullMethodName          = "/bpmp.raft.v1.RaftPeerService/ForwardCommand"
+	RaftPeerService_ForwardDeploymentAck_FullMethodName    = "/bpmp.raft.v1.RaftPeerService/ForwardDeploymentAck"
+	RaftPeerService_ForwardDeploymentIntent_FullMethodName = "/bpmp.raft.v1.RaftPeerService/ForwardDeploymentIntent"
+	RaftPeerService_AddLearner_FullMethodName              = "/bpmp.raft.v1.RaftPeerService/AddLearner"
+	RaftPeerService_ChangeMembership_FullMethodName        = "/bpmp.raft.v1.RaftPeerService/ChangeMembership"
 )
 
 // RaftPeerServiceClient is the client API for RaftPeerService service.
@@ -35,6 +37,8 @@ type RaftPeerServiceClient interface {
 	Vote(ctx context.Context, in *VoteRequest, opts ...grpc.CallOption) (*VoteResponse, error)
 	InstallSnapshot(ctx context.Context, in *InstallSnapshotRequest, opts ...grpc.CallOption) (*InstallSnapshotResponse, error)
 	ForwardCommand(ctx context.Context, in *ForwardCommandRequest, opts ...grpc.CallOption) (*ForwardCommandResponse, error)
+	ForwardDeploymentAck(ctx context.Context, in *ForwardDeploymentAckRequest, opts ...grpc.CallOption) (*ForwardDeploymentAckResponse, error)
+	ForwardDeploymentIntent(ctx context.Context, in *ForwardDeploymentIntentRequest, opts ...grpc.CallOption) (*ForwardDeploymentIntentResponse, error)
 	AddLearner(ctx context.Context, in *AddLearnerRequest, opts ...grpc.CallOption) (*AddLearnerResponse, error)
 	ChangeMembership(ctx context.Context, in *ChangeMembershipRequest, opts ...grpc.CallOption) (*ChangeMembershipResponse, error)
 }
@@ -87,6 +91,26 @@ func (c *raftPeerServiceClient) ForwardCommand(ctx context.Context, in *ForwardC
 	return out, nil
 }
 
+func (c *raftPeerServiceClient) ForwardDeploymentAck(ctx context.Context, in *ForwardDeploymentAckRequest, opts ...grpc.CallOption) (*ForwardDeploymentAckResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ForwardDeploymentAckResponse)
+	err := c.cc.Invoke(ctx, RaftPeerService_ForwardDeploymentAck_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *raftPeerServiceClient) ForwardDeploymentIntent(ctx context.Context, in *ForwardDeploymentIntentRequest, opts ...grpc.CallOption) (*ForwardDeploymentIntentResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ForwardDeploymentIntentResponse)
+	err := c.cc.Invoke(ctx, RaftPeerService_ForwardDeploymentIntent_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *raftPeerServiceClient) AddLearner(ctx context.Context, in *AddLearnerRequest, opts ...grpc.CallOption) (*AddLearnerResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(AddLearnerResponse)
@@ -115,6 +139,8 @@ type RaftPeerServiceServer interface {
 	Vote(context.Context, *VoteRequest) (*VoteResponse, error)
 	InstallSnapshot(context.Context, *InstallSnapshotRequest) (*InstallSnapshotResponse, error)
 	ForwardCommand(context.Context, *ForwardCommandRequest) (*ForwardCommandResponse, error)
+	ForwardDeploymentAck(context.Context, *ForwardDeploymentAckRequest) (*ForwardDeploymentAckResponse, error)
+	ForwardDeploymentIntent(context.Context, *ForwardDeploymentIntentRequest) (*ForwardDeploymentIntentResponse, error)
 	AddLearner(context.Context, *AddLearnerRequest) (*AddLearnerResponse, error)
 	ChangeMembership(context.Context, *ChangeMembershipRequest) (*ChangeMembershipResponse, error)
 	mustEmbedUnimplementedRaftPeerServiceServer()
@@ -138,6 +164,12 @@ func (UnimplementedRaftPeerServiceServer) InstallSnapshot(context.Context, *Inst
 }
 func (UnimplementedRaftPeerServiceServer) ForwardCommand(context.Context, *ForwardCommandRequest) (*ForwardCommandResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ForwardCommand not implemented")
+}
+func (UnimplementedRaftPeerServiceServer) ForwardDeploymentAck(context.Context, *ForwardDeploymentAckRequest) (*ForwardDeploymentAckResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ForwardDeploymentAck not implemented")
+}
+func (UnimplementedRaftPeerServiceServer) ForwardDeploymentIntent(context.Context, *ForwardDeploymentIntentRequest) (*ForwardDeploymentIntentResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ForwardDeploymentIntent not implemented")
 }
 func (UnimplementedRaftPeerServiceServer) AddLearner(context.Context, *AddLearnerRequest) (*AddLearnerResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method AddLearner not implemented")
@@ -238,6 +270,42 @@ func _RaftPeerService_ForwardCommand_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RaftPeerService_ForwardDeploymentAck_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ForwardDeploymentAckRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RaftPeerServiceServer).ForwardDeploymentAck(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RaftPeerService_ForwardDeploymentAck_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RaftPeerServiceServer).ForwardDeploymentAck(ctx, req.(*ForwardDeploymentAckRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RaftPeerService_ForwardDeploymentIntent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ForwardDeploymentIntentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RaftPeerServiceServer).ForwardDeploymentIntent(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RaftPeerService_ForwardDeploymentIntent_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RaftPeerServiceServer).ForwardDeploymentIntent(ctx, req.(*ForwardDeploymentIntentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _RaftPeerService_AddLearner_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(AddLearnerRequest)
 	if err := dec(in); err != nil {
@@ -296,6 +364,14 @@ var RaftPeerService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ForwardCommand",
 			Handler:    _RaftPeerService_ForwardCommand_Handler,
+		},
+		{
+			MethodName: "ForwardDeploymentAck",
+			Handler:    _RaftPeerService_ForwardDeploymentAck_Handler,
+		},
+		{
+			MethodName: "ForwardDeploymentIntent",
+			Handler:    _RaftPeerService_ForwardDeploymentIntent_Handler,
 		},
 		{
 			MethodName: "AddLearner",

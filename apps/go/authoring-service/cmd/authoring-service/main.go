@@ -26,12 +26,14 @@ import (
 
 	"github.com/dangthobach/bpmp-platform/apps/go/authoring-service/internal/adapter/authz"
 	"github.com/dangthobach/bpmp-platform/apps/go/authoring-service/internal/adapter/compiler"
+	engineadapter "github.com/dangthobach/bpmp-platform/apps/go/authoring-service/internal/adapter/engine"
 	"github.com/dangthobach/bpmp-platform/apps/go/authoring-service/internal/adapter/grpcserver"
 	"github.com/dangthobach/bpmp-platform/apps/go/authoring-service/internal/adapter/identity"
 	postgresadapter "github.com/dangthobach/bpmp-platform/apps/go/authoring-service/internal/adapter/postgres"
 	"github.com/dangthobach/bpmp-platform/apps/go/authoring-service/internal/application"
 	authoringv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/authoring/v1"
 	compilerv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/compiler/v1"
+	enginev1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/engine/v1"
 	"github.com/dangthobach/bpmp-platform/go/platform/kafkaconfig"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -59,6 +61,11 @@ type config struct {
 		CompilerCA                string   `json:"compiler_ca"`
 		CompilerClientCertificate string   `json:"compiler_client_certificate"`
 		CompilerClientPrivateKey  string   `json:"compiler_client_private_key"`
+		EngineAddress             string   `json:"engine_address"`
+		EngineServerName          string   `json:"engine_server_name"`
+		EngineCA                  string   `json:"engine_ca"`
+		EngineClientCertificate   string   `json:"engine_client_certificate"`
+		EngineClientPrivateKey    string   `json:"engine_client_private_key"`
 	} `json:"tls"`
 	JWT struct {
 		JWKSPath          string            `json:"jwks_path"`
@@ -189,9 +196,26 @@ func run(path string) error {
 	if err != nil {
 		return err
 	}
+	engineTLS, err := loadClientTLS(config.TLS.EngineCA, config.TLS.EngineClientCertificate, config.TLS.EngineClientPrivateKey, config.TLS.EngineServerName)
+	if err != nil {
+		return fmt.Errorf("configure Engine TLS: %w", err)
+	}
+	engineConn, err := grpc.NewClient(config.TLS.EngineAddress, grpc.WithTransportCredentials(credentials.NewTLS(engineTLS)))
+	if err != nil {
+		return fmt.Errorf("configure Engine connection: %w", err)
+	}
+	defer engineConn.Close()
+	engineConn.Connect()
+	engineClient, err := engineadapter.New(enginev1.NewEngineDeploymentServiceClient(engineConn))
+	if err != nil {
+		return err
+	}
 
 	service, err := application.New(store, actorVerifier, pep, compilerClient, time.Now)
 	if err != nil {
+		return err
+	}
+	if err = service.SetRuntimeDeploymentEngine(engineClient); err != nil {
 		return err
 	}
 	grpcAdapter, err := grpcserver.New(service)
@@ -216,7 +240,7 @@ func run(path string) error {
 			http.NotFound(writer, request)
 			return
 		}
-		if pool.Ping(checkCtx) != nil || kafkaClient.Ping(checkCtx) != nil || compilerConn.GetState() != connectivity.Ready {
+		if pool.Ping(checkCtx) != nil || kafkaClient.Ping(checkCtx) != nil || compilerConn.GetState() != connectivity.Ready || engineConn.GetState() != connectivity.Ready {
 			http.Error(writer, "dependency unavailable", http.StatusServiceUnavailable)
 			return
 		}
@@ -224,7 +248,7 @@ func run(path string) error {
 		_, _ = writer.Write([]byte("ready"))
 	})
 	healthServer := &http.Server{Addr: config.HealthAddress, Handler: health, ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 3 * time.Second, WriteTimeout: 3 * time.Second, IdleTimeout: 30 * time.Second}
-	errorsCh := make(chan error, 3)
+	errorsCh := make(chan error, 4)
 	go func() {
 		if serveErr := grpcServer.Serve(listener); serveErr != nil {
 			errorsCh <- serveErr
@@ -237,6 +261,9 @@ func run(path string) error {
 	}()
 	go func() {
 		errorsCh <- authz.RunBundleConsumer(ctx, kafkaClient, kafkaClient, bundles, config.Authz.BundleTopic, config.Authz.AcknowledgementTopic, "authoring-"+instanceID, 100, 16<<20)
+	}()
+	go func() {
+		errorsCh <- service.RunRuntimeDeploymentWorker(ctx, instanceID, 500*time.Millisecond, 30*time.Second)
 	}()
 	slog.Info("Authoring service started", "instance_id", instanceID, "listen", config.ListenAddress)
 	select {
@@ -272,7 +299,7 @@ func loadConfig(path string) (config, error) {
 	} else if err == nil {
 		return value, errors.New("Authoring config must contain exactly one JSON value")
 	}
-	if value.ListenAddress == "" || value.HealthAddress == "" || value.PostgresDSN == "" || value.ManifestPath == "" || value.OwnerID == "" || value.TLS.CompilerAddress == "" || value.TLS.CompilerServerName == "" || len(value.TLS.AuthorizedClientSHA256) == 0 || len(value.Authz.KafkaBrokers) == 0 || value.Authz.BundleTopic == "" || value.Authz.AcknowledgementTopic == "" || value.Authz.ConsumerGroupPrefix == "" {
+	if value.ListenAddress == "" || value.HealthAddress == "" || value.PostgresDSN == "" || value.ManifestPath == "" || value.OwnerID == "" || value.TLS.CompilerAddress == "" || value.TLS.CompilerServerName == "" || value.TLS.EngineAddress == "" || value.TLS.EngineServerName == "" || len(value.TLS.AuthorizedClientSHA256) == 0 || len(value.Authz.KafkaBrokers) == 0 || value.Authz.BundleTopic == "" || value.Authz.AcknowledgementTopic == "" || value.Authz.ConsumerGroupPrefix == "" {
 		return value, errors.New("authoring service configuration is incomplete")
 	}
 	if _, _, err = net.SplitHostPort(value.ListenAddress); err != nil {
@@ -381,6 +408,9 @@ func applyMigration(ctx context.Context, pool *pgxpool.Pool, path string) error 
 		{"002_decision_model_drafts", "002_decision_model_drafts.sql"},
 		{"003_process_model_versions", "003_process_model_versions.sql"},
 		{"004_decision_model_versions", "004_decision_model_versions.sql"},
+		{"005_forms", "005_forms.sql"},
+		{"006_runtime_deployments", "006_runtime_deployments.sql"},
+		{"007_runtime_deployment_worker", "007_runtime_deployment_worker.sql"},
 	}
 	for _, migration := range migrations {
 		var applied bool

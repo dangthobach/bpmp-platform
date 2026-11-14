@@ -262,6 +262,10 @@ message ResolveConfigurationRequest {
   string environment_reference = 5;
   string instance_id = 6;
   ConfigurationOwner owner = 7;
+  // Both fields must be provided together to resolve an immutable published
+  // snapshot; leave both empty to resolve the current effective version.
+  string config_version = 8;
+  string policy_version = 9;
 }
 
 message ResolveConfigurationResponse {

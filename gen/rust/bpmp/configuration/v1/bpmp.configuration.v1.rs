@@ -407,6 +407,12 @@ pub struct ResolveConfigurationRequest {
     pub instance_id: ::prost::alloc::string::String,
     #[prost(enumeration="ConfigurationOwner", tag="7")]
     pub owner: i32,
+    /// Both fields must be provided together to resolve an immutable published
+    /// snapshot; leave both empty to resolve the current effective version.
+    #[prost(string, tag="8")]
+    pub config_version: ::prost::alloc::string::String,
+    #[prost(string, tag="9")]
+    pub policy_version: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ResolveConfigurationResponse {

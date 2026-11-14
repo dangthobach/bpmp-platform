@@ -281,10 +281,7 @@ impl BpmnCompiler {
     ///
     /// Returns source diagnostics when the document is malformed, oversized,
     /// contains no decision tables, or repeats decision IDs.
-    pub fn validate_dmn(
-        &self,
-        source: SourceDocument<'_>,
-    ) -> Result<(), Vec<CompileDiagnostic>> {
+    pub fn validate_dmn(&self, source: SourceDocument<'_>) -> Result<(), Vec<CompileDiagnostic>> {
         let locations = SourceLocations::new(source.name, source.bytes);
         if source.bytes.len() > self.limits.max_input_bytes {
             return Err(vec![locations.diagnostic(
@@ -4635,11 +4632,28 @@ mod tests {
     <dmn:rule id="low"><dmn:inputEntry text="&lt; 100" /><dmn:outputEntry text="&quot;low&quot;" /></dmn:rule>
   </dmn:decisionTable></dmn:decision>
 </dmn:definitions>"#;
-        compiler().validate_dmn(SourceDocument { name: "risk.dmn", bytes: valid.as_bytes() }).unwrap();
+        compiler()
+            .validate_dmn(SourceDocument {
+                name: "risk.dmn",
+                bytes: valid.as_bytes(),
+            })
+            .unwrap();
 
-        let invalid = valid.replace("<dmn:output id=\"tier\" name=\"tier\" typeRef=\"string\" />", "");
-        let diagnostics = compiler().validate_dmn(SourceDocument { name: "risk.dmn", bytes: invalid.as_bytes() }).unwrap_err();
-        assert!(diagnostics.iter().any(|diagnostic| diagnostic.kind.to_string().contains("at least one output")));
+        let invalid = valid.replace(
+            "<dmn:output id=\"tier\" name=\"tier\" typeRef=\"string\" />",
+            "",
+        );
+        let diagnostics = compiler()
+            .validate_dmn(SourceDocument {
+                name: "risk.dmn",
+                bytes: invalid.as_bytes(),
+            })
+            .unwrap_err();
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.kind.to_string().contains("at least one output"))
+        );
     }
 
     #[test]

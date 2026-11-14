@@ -102,6 +102,8 @@ type ResolutionLookup struct {
 	PlatformReference    string
 	EnvironmentReference string
 	InstanceID           string
+	ConfigVersion        string
+	PolicyVersion        string
 }
 
 type ResolvedConfiguration struct {

@@ -162,15 +162,26 @@ fn to_wire(envelope: &EventEnvelope) -> wire::EventEnvelope {
             decision: decision.clone(),
             result_variable: result_variable.clone(),
             form_version_id: form_version_id.clone(),
-            outputs: outputs.iter().map(|(name, value)| wire::WorkflowVariable {
-                name: name.clone(),
-                value: Some(match value {
-                    WorkflowValue::Boolean(value) => wire::workflow_variable::Value::BooleanValue(*value),
-                    WorkflowValue::Integer(value) => wire::workflow_variable::Value::IntegerValue(*value),
-                    WorkflowValue::String(value) => wire::workflow_variable::Value::StringValue(value.clone()),
-                    WorkflowValue::List(items) => wire::workflow_variable::Value::ListValue(workflow_value_list_to_wire(items)),
-                }),
-            }).collect(),
+            outputs: outputs
+                .iter()
+                .map(|(name, value)| wire::WorkflowVariable {
+                    name: name.clone(),
+                    value: Some(match value {
+                        WorkflowValue::Boolean(value) => {
+                            wire::workflow_variable::Value::BooleanValue(*value)
+                        }
+                        WorkflowValue::Integer(value) => {
+                            wire::workflow_variable::Value::IntegerValue(*value)
+                        }
+                        WorkflowValue::String(value) => {
+                            wire::workflow_variable::Value::StringValue(value.clone())
+                        }
+                        WorkflowValue::List(items) => wire::workflow_variable::Value::ListValue(
+                            workflow_value_list_to_wire(items),
+                        ),
+                    }),
+                })
+                .collect(),
         }),
         DomainEvent::UserTaskCancelled {
             node_id, reason, ..

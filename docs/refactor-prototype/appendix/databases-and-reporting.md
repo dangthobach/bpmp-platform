@@ -36,7 +36,7 @@ Các tên `*_db` dưới đây là **logical deployment names đề xuất**, kh
 
 **Hiện tại:** Projection đã có typed query, aggregate, saved queries và async CSV exports. Dùng API đó cho operational lists, Case/Task/instance drill-down và báo cáo nhỏ trong capability/limit hiện có. Không tạo Report Service để nhân bản cùng API/schema hoặc bypass query PDP.
 
-**Đích khi tải yêu cầu:** Report Service phục vụ cross-domain analytics, lịch sử dài, join nhiều nguồn, scheduled reports và export lớn. Tách ingest/aggregation workers và query/export workers để tải đọc không chặn ingest. Khi tách, Report sở hữu model phân tích riêng và phải áp dụng authorization tương đương Projection theo [đặc tả phân quyền và truy cập dữ liệu](authorization-and-data-access.md); rollout bị chặn nếu chưa có policy contract tương đương.
+**Đích khi tải yêu cầu:** Report Service phục vụ cross-domain analytics, lịch sử dài, join nhiều nguồn, scheduled reports và export lớn. Tách ingest/aggregation workers và query/export workers để tải đọc không chặn ingest. Khi tách, Report sở hữu model phân tích riêng và phải áp dụng authorization tương đương Projection theo [đặc tả phân quyền và truy cập dữ liệu](../authorization-and-data-access.md); rollout bị chặn nếu chưa có policy contract tương đương.
 
 Chưa bắt buộc ClickHouse ngay: bắt đầu bằng Projection PostgreSQL + indexed/partitioned read models và pre-aggregates khi workload còn phù hợp. OLAP columnar như ClickHouse là ứng viên cho scan/aggregation lớn; quyết định sau benchmark, ADR/dependency pin và operations qualification. Không đưa query phân tích nặng vào transaction database của Case/Human/Engine.
 

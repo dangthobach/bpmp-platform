@@ -17,23 +17,23 @@ use bpmp_authz_contracts::authorization::v1::{
 };
 use bpmp_authz_contracts::authorization::v1::{SignedActorContext, SignedWorkloadContext};
 use bpmp_authz_contracts::{
-    ActorProofCodec, AuthorizationArtifactLimits, AuthorizationKeyring, AuthorizationProofLimits,
-    Ed25519Signer as AuthorizationSigner, WorkloadProofCodec, AUTHORIZATION_PROOF_SCHEMA_VERSION,
+    AUTHORIZATION_PROOF_SCHEMA_VERSION, ActorProofCodec, AuthorizationArtifactLimits,
+    AuthorizationKeyring, AuthorizationProofLimits, Ed25519Signer as AuthorizationSigner,
+    WorkloadProofCodec,
 };
-use bpmp_contracts::configuration::v1 as configurationv1;
 use bpmp_contracts::Ed25519Verifier;
+use bpmp_contracts::configuration::v1 as configurationv1;
 use bpmp_domain_core::{
-    rehydrate, BoundaryRuntimePolicy, Command, CommandId, ConfigId, ConfigVersion,
-    ConfigurationScope, CorrelationId, EnginePolicy, EngineWorkerPolicy, IdempotencyKey,
-    InstanceId, KeyScope, LocalWasmPolicy, PolicyVersion, RemoteWorkerPolicy,
-    ResolvedConfigSnapshot, RetryPolicy, ScopeKind, TenantId, WorkflowType, WorkflowVersion,
+    BoundaryRuntimePolicy, Command, CommandId, ConfigId, ConfigVersion, ConfigurationScope,
+    CorrelationId, EnginePolicy, EngineWorkerPolicy, IdempotencyKey, InstanceId, KeyScope,
+    LocalWasmPolicy, PolicyVersion, RemoteWorkerPolicy, ResolvedConfigSnapshot, RetryPolicy,
+    ScopeKind, TenantId, WorkflowType, WorkflowVersion, rehydrate,
 };
 use bpmp_engine::{
-    configuration_publication_matches_scope, ActorProofKind, AuthoritativeCommandHandler,
-    AuthorizationProviderPort, AuthorizedCommand, BoundaryDispatchCredentials,
-    BoundaryDispatchCredentialsPort, BoundaryDispatchRequest, BoundaryPolicyHandle,
-    BoundaryRuntime, BoundaryRuntimeError, BranchScopeResolverPort, ConfigurationLookup,
-    ConfigurationProviderPort, EmbeddedAuthorizationProvider, Engine,
+    ActorProofKind, AuthoritativeCommandHandler, AuthorizationProviderPort, AuthorizedCommand,
+    BoundaryDispatchCredentials, BoundaryDispatchCredentialsPort, BoundaryDispatchRequest,
+    BoundaryPolicyHandle, BoundaryRuntime, BoundaryRuntimeError, BranchScopeResolverPort,
+    ConfigurationLookup, ConfigurationProviderPort, EmbeddedAuthorizationProvider, Engine,
     EngineBoundaryCommandDispatcher, GrpcEngineCommandService, GrpcEngineGovernanceService,
     GrpcRemoteWorkerDispatchService, GrpcTransportConfig, LocalTaskActivation,
     LocalTaskCompletionDispatcherPort, LocalTaskExecutionOutcome, LocalTaskExecutorPort,
@@ -45,6 +45,7 @@ use bpmp_engine::{
     RetryDelayPort, RetryingLocalTaskExecutor, RuntimeConfigurationUpdate,
     RuntimeGovernancePolicyUpdate, RuntimeRegistry, RuntimeSafePointGate, SafePointCommandHandler,
     StoreError, SystemClock, WirLoader, WorkflowDefinitionProviderPort, WorkflowStorePort,
+    configuration_publication_matches_scope,
 };
 use bpmp_governance_domain::GovernancePolicy;
 use bpmp_payload_crypto::{AesGcmPayloadCrypto, CryptoError, DataKeyResolverPort, ResolvedDataKey};
@@ -53,11 +54,11 @@ use bpmp_transport_observability::{AdmissionLimiter, RequestMetadataLayer, Workl
 use jsonwebtoken::Algorithm;
 use openraft::Raft;
 use prost::Message as ProstMessage;
+use rdkafka::ClientConfig;
+use rdkafka::Message as KafkaMessage;
 use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
-use rdkafka::ClientConfig;
-use rdkafka::Message as KafkaMessage;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tokio::signal;
@@ -210,6 +211,7 @@ use crate::config::{
     BoundaryWorkerConfig, ConfigurationResolverConfig, KafkaConfig, PayloadKeyConfig,
     RuntimeConfig, VerificationKeyConfig, WasmModuleConfig,
 };
+use crate::deployment_runtime::{RuntimeDeploymentService, run_runtime_deployment_worker};
 use crate::governance_runtime::AuthoritativeGovernanceHandler;
 use crate::raft_runtime::{
     ForwardingCommandHandler, PeerDirectory, RaftPeer, RaftWorkflowStore, TonicRaftNetworkFactory,
@@ -243,6 +245,7 @@ pub async fn run(path: PathBuf) -> Result<()> {
             node_id: peer.node_id,
             address: peer.raft_address.clone(),
             tls_domain: peer.tls_domain.clone(),
+            certificate_sha256_hex: peer.certificate_sha256_hex.clone(),
         }),
         client_ca.clone(),
         server_certificate.clone(),
@@ -359,6 +362,7 @@ pub async fn run(path: PathBuf) -> Result<()> {
         config.grpc.max_encoding_bytes,
     );
     let peer_grpc = TonicRaftPeerService::new(raft.clone(), local_handler, peer_directory.clone())
+        .with_deployment_ack_committer(raft_store.clone())
         .into_server(
             config.raft.peer_max_message_bytes,
             config.raft.peer_max_message_bytes,
@@ -383,9 +387,17 @@ pub async fn run(path: PathBuf) -> Result<()> {
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect::<Vec<_>>();
+    let mut peer_authorized_methods = config
+        .raft
+        .authorized_methods
+        .iter()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    peer_authorized_methods.insert("/bpmp.raft.v1.RaftPeerService/ForwardDeploymentAck".into());
+    peer_authorized_methods.insert("/bpmp.raft.v1.RaftPeerService/ForwardDeploymentIntent".into());
     let peer_workload_authorization = WorkloadAuthorization::try_new(
         &peer_certificate_fingerprints,
-        &config.raft.authorized_methods,
+        &peer_authorized_methods.into_iter().collect::<Vec<_>>(),
     )
     .map_err(anyhow::Error::msg)
     .context("build Raft peer workload authorization")?;
@@ -674,18 +686,19 @@ pub async fn run(path: PathBuf) -> Result<()> {
         }
     });
 
+    let shared_worker_handles = RuntimeWorkerPolicyHandles {
+        workers: worker_policy.clone(),
+        boundary: boundary_policy.clone(),
+        local_task_retry: local_task_retry_policy.clone(),
+        remote: remote_workers.clone(),
+    };
     let mut configuration_worker = if let Some(resolver) = config.configuration_resolver.clone() {
         let consumer = configuration_consumer(&config.kafka)?;
         consumer.subscribe(&[&config.kafka.topics.configuration_publications])?;
         let client = connect_configuration_resolver(&config, &resolver).await?;
         let registry = registry.clone();
         let gate = safe_point_gate.clone();
-        let handles = RuntimeWorkerPolicyHandles {
-            workers: worker_policy,
-            boundary: boundary_policy,
-            local_task_retry: local_task_retry_policy,
-            remote: remote_workers,
-        };
+        let handles = shared_worker_handles.clone();
         Some(tokio::spawn(async move {
             run_configuration_reloader(consumer, client, resolver, registry, gate, handles).await
         }))
@@ -704,15 +717,57 @@ pub async fn run(path: PathBuf) -> Result<()> {
         .clone();
     let policy_consumer_id = format!("{}-node-{}", config.kafka.client_id, config.raft.node_id);
     let policy_message_timeout_ms = config.kafka.message_timeout_ms;
+    let policy_store = store.clone();
     let policy_bundle_worker = tokio::spawn(async move {
         run_authorization_policy_consumer(
             policy_consumer,
             policy_acknowledgement_producer,
             policy_authorization,
-            store.clone(),
+            policy_store,
             acknowledgement_topic,
             policy_consumer_id,
             policy_message_timeout_ms,
+        )
+        .await
+    });
+
+    let deployment_verifier = Arc::new(Ed25519Verifier::from_bytes(&read_exact_32(
+        &config.wir.verification_key,
+    )?)?);
+    let deployment_authorization = RuntimeDeploymentService::authorization(&config)?;
+    let deployment_service = RuntimeDeploymentService::new(
+        Arc::new(config.clone()),
+        store.clone(),
+        raft_store.clone(),
+        deployment_verifier.clone(),
+        registry.clone(),
+        safe_point_gate.clone(),
+        deployment_authorization,
+        peer_directory.clone(),
+        raft.clone(),
+    );
+    let deployment_grpc = deployment_service.into_server(
+        config.grpc.max_decoding_bytes,
+        config.grpc.max_encoding_bytes,
+    );
+    let deployment_config = Arc::new(config.clone());
+    let deployment_store = store.clone();
+    let deployment_raft_store = raft_store.clone();
+    let deployment_registry = registry.clone();
+    let deployment_gate = safe_point_gate.clone();
+    let deployment_worker_handles = shared_worker_handles;
+    let deployment_peer_directory = peer_directory.clone();
+    let deployment_worker = tokio::spawn(async move {
+        run_runtime_deployment_worker(
+            deployment_config,
+            deployment_store,
+            deployment_raft_store,
+            deployment_registry,
+            deployment_gate,
+            deployment_worker_handles,
+            deployment_verifier,
+            deployment_peer_directory,
+            raft.clone(),
         )
         .await
     });
@@ -730,6 +785,7 @@ pub async fn run(path: PathBuf) -> Result<()> {
                 .with_service_name("bpmp.engine.v1.EngineCommandService")
                 .with_service_name("bpmp.engine.v1.RemoteWorkerDispatchService")
                 .with_service_name("bpmp.governance.v1.EngineGovernanceService")
+                .with_service_name("bpmp.engine.v1.EngineDeploymentService")
                 .build_v1()
         })
         .transpose()
@@ -748,6 +804,7 @@ pub async fn run(path: PathBuf) -> Result<()> {
         .add_service(grpc)
         .add_service(remote_grpc)
         .add_service(governance_grpc)
+        .add_service(deployment_grpc)
         .add_optional_service(reflection)
         .serve_with_shutdown(config.listen_addr, shutdown());
     tokio::pin!(server);
@@ -758,6 +815,11 @@ pub async fn run(path: PathBuf) -> Result<()> {
                 Ok(Ok(())) => Err(anyhow::anyhow!("authorization policy consumer stopped unexpectedly")),
                 Ok(Err(error)) => Err(error.context("authorization policy consumer failed")),
                 Err(error) => Err(anyhow::Error::from(error).context("authorization policy consumer join failed")),
+            },
+            deployment_result = deployment_worker => match deployment_result {
+                Ok(Ok(())) => Err(anyhow::anyhow!("runtime deployment worker stopped unexpectedly")),
+                Ok(Err(error)) => Err(error.context("runtime deployment worker failed")),
+                Err(error) => Err(anyhow::Error::from(error).context("runtime deployment worker join failed")),
             },
             worker_result = worker => match worker_result {
                 Ok(Ok(())) => Err(anyhow::anyhow!(
@@ -775,6 +837,11 @@ pub async fn run(path: PathBuf) -> Result<()> {
                 Ok(Ok(())) => Err(anyhow::anyhow!("authorization policy consumer stopped unexpectedly")),
                 Ok(Err(error)) => Err(error.context("authorization policy consumer failed")),
                 Err(error) => Err(anyhow::Error::from(error).context("authorization policy consumer join failed")),
+            },
+            deployment_result = deployment_worker => match deployment_result {
+                Ok(Ok(())) => Err(anyhow::anyhow!("runtime deployment worker stopped unexpectedly")),
+                Ok(Err(error)) => Err(error.context("runtime deployment worker failed")),
+                Err(error) => Err(anyhow::Error::from(error).context("runtime deployment worker join failed")),
             },
         }
     };
@@ -949,7 +1016,7 @@ impl EngineWorkerPolicyHandle {
 }
 
 #[derive(Clone)]
-struct RuntimeWorkerPolicyHandles {
+pub(crate) struct RuntimeWorkerPolicyHandles {
     workers: EngineWorkerPolicyHandle,
     boundary: BoundaryPolicyHandle,
     local_task_retry: LocalTaskRetryPolicyHandle,
@@ -957,7 +1024,11 @@ struct RuntimeWorkerPolicyHandles {
 }
 
 impl RuntimeWorkerPolicyHandles {
-    fn replace(&self, boundary: BoundaryRuntimePolicy, workers: EngineWorkerPolicy) -> Result<()> {
+    pub(crate) fn replace(
+        &self,
+        boundary: BoundaryRuntimePolicy,
+        workers: EngineWorkerPolicy,
+    ) -> Result<()> {
         let retry = local_task_retry_policy(&workers);
         validate_worker_policy(&workers)?;
         retry.validate().map_err(anyhow::Error::from)?;
@@ -1004,7 +1075,7 @@ fn common_runtime_worker_policy(
     selected.context("engine has no installed workflow configuration")
 }
 
-fn common_runtime_worker_policy_after_updates(
+pub(crate) fn common_runtime_worker_policy_after_updates(
     registry: &RuntimeRegistry,
     updates: &[RuntimeConfigurationUpdate],
 ) -> Result<Option<(BoundaryRuntimePolicy, EngineWorkerPolicy)>> {
@@ -1417,12 +1488,12 @@ fn init_tracing() {
     let _ = tracing::subscriber::set_global_default(subscriber);
 }
 
-type ConfigurationResolverClient =
+pub(crate) type ConfigurationResolverClient =
     configurationv1::configuration_resolver_service_client::ConfigurationResolverServiceClient<
         Channel,
     >;
 
-async fn connect_configuration_resolver(
+pub(crate) async fn connect_configuration_resolver(
     config: &RuntimeConfig,
     resolver: &ConfigurationResolverConfig,
 ) -> Result<ConfigurationResolverClient> {
@@ -1680,20 +1751,23 @@ async fn load_runtime_registry(config: &RuntimeConfig) -> Result<RuntimeRegistry
             fs::read(path).with_context(|| format!("read WIR artifact {}", path.display()))?;
         let definition = WirLoader::load(&bytes, &verifier)
             .with_context(|| format!("load WIR artifact {}", path.display()))?;
+        let artifact_sha256: [u8; 32] = Sha256::digest(&bytes).into();
         definitions.insert(
             (
                 definition.tenant_id.clone(),
                 definition.workflow_type.clone(),
                 definition.workflow_version.clone(),
             ),
-            definition,
+            (definition, artifact_sha256),
         );
     }
     let registry = RuntimeRegistry::default();
     if let Some(resolver) = &config.configuration_resolver {
         let mut client = connect_configuration_resolver(config, resolver).await?;
-        while let Some(((tenant_id, workflow_type, workflow_version), definition)) =
-            definitions.pop_first()
+        while let Some((
+            (tenant_id, workflow_type, workflow_version),
+            (definition, artifact_sha256),
+        )) = definitions.pop_first()
         {
             let response = client
                 .resolve_configuration(configurationv1::ResolveConfigurationRequest {
@@ -1711,7 +1785,11 @@ async fn load_runtime_registry(config: &RuntimeConfig) -> Result<RuntimeRegistry
             let snapshot = response
                 .snapshot
                 .context("configuration resolver returned no snapshot")?;
-            registry.install(definition, configuration_snapshot_from_proto(snapshot)?)?;
+            registry.install_verified(
+                definition,
+                configuration_snapshot_from_proto(snapshot)?,
+                artifact_sha256,
+            )?;
             let response = client
                 .resolve_configuration(configurationv1::ResolveConfigurationRequest {
                     tenant_id: tenant_id.as_str().to_owned(),
@@ -1747,10 +1825,14 @@ async fn load_runtime_registry(config: &RuntimeConfig) -> Result<RuntimeRegistry
                 WorkflowType::new(published.workflow_type)?,
                 WorkflowVersion::new(published.workflow_version)?,
             );
-            let definition = definitions
+            let (definition, artifact_sha256) = definitions
                 .remove(&scope)
                 .with_context(|| format!("configuration {} has no matching WIR", path.display()))?;
-            registry.install(definition, published.snapshot.into_domain()?)?;
+            registry.install_verified(
+                definition,
+                published.snapshot.into_domain()?,
+                artifact_sha256,
+            )?;
         }
     }
     if !definitions.is_empty() {
@@ -1760,7 +1842,7 @@ async fn load_runtime_registry(config: &RuntimeConfig) -> Result<RuntimeRegistry
 }
 
 #[allow(clippy::too_many_lines)]
-fn configuration_snapshot_from_proto(
+pub(crate) fn configuration_snapshot_from_proto(
     snapshot: configurationv1::ResolvedConfigurationSnapshot,
 ) -> Result<ResolvedConfigSnapshot> {
     if configurationv1::ConfigurationOwner::try_from(snapshot.owner)?
@@ -1908,7 +1990,7 @@ const fn remote_worker_policy_from_proto(
     }
 }
 
-fn governance_policy_from_proto(
+pub(crate) fn governance_policy_from_proto(
     snapshot: configurationv1::ResolvedConfigurationSnapshot,
 ) -> Result<(GovernancePolicy, ConfigVersion, PolicyVersion)> {
     if configurationv1::ConfigurationOwner::try_from(snapshot.owner)?

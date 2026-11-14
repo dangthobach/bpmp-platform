@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package bpmp.engine.v1;
+
+// Runtime deployment requests are committed to the Engine Raft state machine.
+// The Engine reports ACTIVE only after every configured member has applied it.
+service EngineDeploymentService {
+  rpc CommitRuntimeDeployment(CommitRuntimeDeploymentRequest) returns (CommitRuntimeDeploymentResponse);
+  rpc GetRuntimeDeployment(GetRuntimeDeploymentRequest) returns (GetRuntimeDeploymentResponse);
+}
+
+message CommitRuntimeDeploymentRequest {
+  string deployment_id = 1;
+  string tenant_id = 2;
+  string workflow_type = 3;
+  string workflow_version = 4;
+  string environment_reference = 5;
+  bytes signed_wir_artifact = 6;
+  bytes artifact_sha256 = 7;
+  string rollback_of_deployment_id = 8;
+  uint64 deployment_sequence = 9;
+}
+
+message CommitRuntimeDeploymentResponse {
+  string deployment_id = 1;
+  string status = 2;
+  string artifact_id = 3;
+  repeated uint64 applied_node_ids = 4;
+  repeated uint64 pending_node_ids = 5;
+  string engine_config_version = 6;
+  string engine_policy_version = 7;
+  string engine_config_sha256 = 8;
+  string governance_config_version = 9;
+  string governance_policy_version = 10;
+}
+
+message GetRuntimeDeploymentRequest { string deployment_id = 1; }
+message GetRuntimeDeploymentResponse {
+  string deployment_id = 1;
+  string status = 2;
+  string artifact_id = 3;
+  repeated uint64 applied_node_ids = 4;
+  repeated uint64 pending_node_ids = 5;
+  string failure_code = 6;
+  string engine_config_version = 7;
+  string engine_policy_version = 8;
+  string engine_config_sha256 = 9;
+  string governance_config_version = 10;
+  string governance_policy_version = 11;
+}

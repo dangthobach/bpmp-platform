@@ -21,6 +21,346 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type CompileSource struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SourceName    string                 `protobuf:"bytes,1,opt,name=source_name,json=sourceName,proto3" json:"source_name,omitempty"`
+	Content       []byte                 `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CompileSource) Reset() {
+	*x = CompileSource{}
+	mi := &file_bpmp_compiler_v1_compiler_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CompileSource) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CompileSource) ProtoMessage() {}
+
+func (x *CompileSource) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_compiler_v1_compiler_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CompileSource.ProtoReflect.Descriptor instead.
+func (*CompileSource) Descriptor() ([]byte, []int) {
+	return file_bpmp_compiler_v1_compiler_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *CompileSource) GetSourceName() string {
+	if x != nil {
+		return x.SourceName
+	}
+	return ""
+}
+
+func (x *CompileSource) GetContent() []byte {
+	if x != nil {
+		return x.Content
+	}
+	return nil
+}
+
+type CompileBpmnRequest struct {
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	TenantId             string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	ProcessModelId       string                 `protobuf:"bytes,2,opt,name=process_model_id,json=processModelId,proto3" json:"process_model_id,omitempty"`
+	SourceRevision       int64                  `protobuf:"varint,3,opt,name=source_revision,json=sourceRevision,proto3" json:"source_revision,omitempty"`
+	ExpectedWorkflowType string                 `protobuf:"bytes,4,opt,name=expected_workflow_type,json=expectedWorkflowType,proto3" json:"expected_workflow_type,omitempty"`
+	WorkflowVersion      string                 `protobuf:"bytes,5,opt,name=workflow_version,json=workflowVersion,proto3" json:"workflow_version,omitempty"`
+	BpmnSourceName       string                 `protobuf:"bytes,6,opt,name=bpmn_source_name,json=bpmnSourceName,proto3" json:"bpmn_source_name,omitempty"`
+	BpmnXml              []byte                 `protobuf:"bytes,7,opt,name=bpmn_xml,json=bpmnXml,proto3" json:"bpmn_xml,omitempty"`
+	DecisionModels       []*CompileSource       `protobuf:"bytes,8,rep,name=decision_models,json=decisionModels,proto3" json:"decision_models,omitempty"`
+	CaseModels           []*CompileSource       `protobuf:"bytes,9,rep,name=case_models,json=caseModels,proto3" json:"case_models,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *CompileBpmnRequest) Reset() {
+	*x = CompileBpmnRequest{}
+	mi := &file_bpmp_compiler_v1_compiler_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CompileBpmnRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CompileBpmnRequest) ProtoMessage() {}
+
+func (x *CompileBpmnRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_compiler_v1_compiler_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CompileBpmnRequest.ProtoReflect.Descriptor instead.
+func (*CompileBpmnRequest) Descriptor() ([]byte, []int) {
+	return file_bpmp_compiler_v1_compiler_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *CompileBpmnRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *CompileBpmnRequest) GetProcessModelId() string {
+	if x != nil {
+		return x.ProcessModelId
+	}
+	return ""
+}
+
+func (x *CompileBpmnRequest) GetSourceRevision() int64 {
+	if x != nil {
+		return x.SourceRevision
+	}
+	return 0
+}
+
+func (x *CompileBpmnRequest) GetExpectedWorkflowType() string {
+	if x != nil {
+		return x.ExpectedWorkflowType
+	}
+	return ""
+}
+
+func (x *CompileBpmnRequest) GetWorkflowVersion() string {
+	if x != nil {
+		return x.WorkflowVersion
+	}
+	return ""
+}
+
+func (x *CompileBpmnRequest) GetBpmnSourceName() string {
+	if x != nil {
+		return x.BpmnSourceName
+	}
+	return ""
+}
+
+func (x *CompileBpmnRequest) GetBpmnXml() []byte {
+	if x != nil {
+		return x.BpmnXml
+	}
+	return nil
+}
+
+func (x *CompileBpmnRequest) GetDecisionModels() []*CompileSource {
+	if x != nil {
+		return x.DecisionModels
+	}
+	return nil
+}
+
+func (x *CompileBpmnRequest) GetCaseModels() []*CompileSource {
+	if x != nil {
+		return x.CaseModels
+	}
+	return nil
+}
+
+type CompileBpmnResponse struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Valid             bool                   `protobuf:"varint,1,opt,name=valid,proto3" json:"valid,omitempty"`
+	SignedWirArtifact []byte                 `protobuf:"bytes,2,opt,name=signed_wir_artifact,json=signedWirArtifact,proto3" json:"signed_wir_artifact,omitempty"`
+	ArtifactSha256    []byte                 `protobuf:"bytes,3,opt,name=artifact_sha256,json=artifactSha256,proto3" json:"artifact_sha256,omitempty"`
+	Diagnostics       []*Diagnostic          `protobuf:"bytes,4,rep,name=diagnostics,proto3" json:"diagnostics,omitempty"`
+	ArtifactId        string                 `protobuf:"bytes,5,opt,name=artifact_id,json=artifactId,proto3" json:"artifact_id,omitempty"`
+	WorkflowType      string                 `protobuf:"bytes,6,opt,name=workflow_type,json=workflowType,proto3" json:"workflow_type,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *CompileBpmnResponse) Reset() {
+	*x = CompileBpmnResponse{}
+	mi := &file_bpmp_compiler_v1_compiler_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CompileBpmnResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CompileBpmnResponse) ProtoMessage() {}
+
+func (x *CompileBpmnResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_compiler_v1_compiler_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CompileBpmnResponse.ProtoReflect.Descriptor instead.
+func (*CompileBpmnResponse) Descriptor() ([]byte, []int) {
+	return file_bpmp_compiler_v1_compiler_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *CompileBpmnResponse) GetValid() bool {
+	if x != nil {
+		return x.Valid
+	}
+	return false
+}
+
+func (x *CompileBpmnResponse) GetSignedWirArtifact() []byte {
+	if x != nil {
+		return x.SignedWirArtifact
+	}
+	return nil
+}
+
+func (x *CompileBpmnResponse) GetArtifactSha256() []byte {
+	if x != nil {
+		return x.ArtifactSha256
+	}
+	return nil
+}
+
+func (x *CompileBpmnResponse) GetDiagnostics() []*Diagnostic {
+	if x != nil {
+		return x.Diagnostics
+	}
+	return nil
+}
+
+func (x *CompileBpmnResponse) GetArtifactId() string {
+	if x != nil {
+		return x.ArtifactId
+	}
+	return ""
+}
+
+func (x *CompileBpmnResponse) GetWorkflowType() string {
+	if x != nil {
+		return x.WorkflowType
+	}
+	return ""
+}
+
+type GetWIRArtifactRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ArtifactId    string                 `protobuf:"bytes,1,opt,name=artifact_id,json=artifactId,proto3" json:"artifact_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetWIRArtifactRequest) Reset() {
+	*x = GetWIRArtifactRequest{}
+	mi := &file_bpmp_compiler_v1_compiler_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetWIRArtifactRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetWIRArtifactRequest) ProtoMessage() {}
+
+func (x *GetWIRArtifactRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_compiler_v1_compiler_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetWIRArtifactRequest.ProtoReflect.Descriptor instead.
+func (*GetWIRArtifactRequest) Descriptor() ([]byte, []int) {
+	return file_bpmp_compiler_v1_compiler_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *GetWIRArtifactRequest) GetArtifactId() string {
+	if x != nil {
+		return x.ArtifactId
+	}
+	return ""
+}
+
+type GetWIRArtifactResponse struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	SignedWirArtifact []byte                 `protobuf:"bytes,1,opt,name=signed_wir_artifact,json=signedWirArtifact,proto3" json:"signed_wir_artifact,omitempty"`
+	ArtifactSha256    []byte                 `protobuf:"bytes,2,opt,name=artifact_sha256,json=artifactSha256,proto3" json:"artifact_sha256,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *GetWIRArtifactResponse) Reset() {
+	*x = GetWIRArtifactResponse{}
+	mi := &file_bpmp_compiler_v1_compiler_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetWIRArtifactResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetWIRArtifactResponse) ProtoMessage() {}
+
+func (x *GetWIRArtifactResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_compiler_v1_compiler_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetWIRArtifactResponse.ProtoReflect.Descriptor instead.
+func (*GetWIRArtifactResponse) Descriptor() ([]byte, []int) {
+	return file_bpmp_compiler_v1_compiler_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *GetWIRArtifactResponse) GetSignedWirArtifact() []byte {
+	if x != nil {
+		return x.SignedWirArtifact
+	}
+	return nil
+}
+
+func (x *GetWIRArtifactResponse) GetArtifactSha256() []byte {
+	if x != nil {
+		return x.ArtifactSha256
+	}
+	return nil
+}
+
 type ValidateBpmnRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	TenantId       string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
@@ -34,7 +374,7 @@ type ValidateBpmnRequest struct {
 
 func (x *ValidateBpmnRequest) Reset() {
 	*x = ValidateBpmnRequest{}
-	mi := &file_bpmp_compiler_v1_compiler_proto_msgTypes[0]
+	mi := &file_bpmp_compiler_v1_compiler_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -46,7 +386,7 @@ func (x *ValidateBpmnRequest) String() string {
 func (*ValidateBpmnRequest) ProtoMessage() {}
 
 func (x *ValidateBpmnRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_compiler_v1_compiler_proto_msgTypes[0]
+	mi := &file_bpmp_compiler_v1_compiler_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -59,7 +399,7 @@ func (x *ValidateBpmnRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidateBpmnRequest.ProtoReflect.Descriptor instead.
 func (*ValidateBpmnRequest) Descriptor() ([]byte, []int) {
-	return file_bpmp_compiler_v1_compiler_proto_rawDescGZIP(), []int{0}
+	return file_bpmp_compiler_v1_compiler_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ValidateBpmnRequest) GetTenantId() string {
@@ -107,7 +447,7 @@ type ValidateBpmnResponse struct {
 
 func (x *ValidateBpmnResponse) Reset() {
 	*x = ValidateBpmnResponse{}
-	mi := &file_bpmp_compiler_v1_compiler_proto_msgTypes[1]
+	mi := &file_bpmp_compiler_v1_compiler_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -119,7 +459,7 @@ func (x *ValidateBpmnResponse) String() string {
 func (*ValidateBpmnResponse) ProtoMessage() {}
 
 func (x *ValidateBpmnResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_compiler_v1_compiler_proto_msgTypes[1]
+	mi := &file_bpmp_compiler_v1_compiler_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -132,7 +472,7 @@ func (x *ValidateBpmnResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidateBpmnResponse.ProtoReflect.Descriptor instead.
 func (*ValidateBpmnResponse) Descriptor() ([]byte, []int) {
-	return file_bpmp_compiler_v1_compiler_proto_rawDescGZIP(), []int{1}
+	return file_bpmp_compiler_v1_compiler_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ValidateBpmnResponse) GetValid() bool {
@@ -162,7 +502,7 @@ type ValidateDmnRequest struct {
 
 func (x *ValidateDmnRequest) Reset() {
 	*x = ValidateDmnRequest{}
-	mi := &file_bpmp_compiler_v1_compiler_proto_msgTypes[2]
+	mi := &file_bpmp_compiler_v1_compiler_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -174,7 +514,7 @@ func (x *ValidateDmnRequest) String() string {
 func (*ValidateDmnRequest) ProtoMessage() {}
 
 func (x *ValidateDmnRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_compiler_v1_compiler_proto_msgTypes[2]
+	mi := &file_bpmp_compiler_v1_compiler_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -187,7 +527,7 @@ func (x *ValidateDmnRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidateDmnRequest.ProtoReflect.Descriptor instead.
 func (*ValidateDmnRequest) Descriptor() ([]byte, []int) {
-	return file_bpmp_compiler_v1_compiler_proto_rawDescGZIP(), []int{2}
+	return file_bpmp_compiler_v1_compiler_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ValidateDmnRequest) GetTenantId() string {
@@ -235,7 +575,7 @@ type ValidateDmnResponse struct {
 
 func (x *ValidateDmnResponse) Reset() {
 	*x = ValidateDmnResponse{}
-	mi := &file_bpmp_compiler_v1_compiler_proto_msgTypes[3]
+	mi := &file_bpmp_compiler_v1_compiler_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -247,7 +587,7 @@ func (x *ValidateDmnResponse) String() string {
 func (*ValidateDmnResponse) ProtoMessage() {}
 
 func (x *ValidateDmnResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_compiler_v1_compiler_proto_msgTypes[3]
+	mi := &file_bpmp_compiler_v1_compiler_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -260,7 +600,7 @@ func (x *ValidateDmnResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidateDmnResponse.ProtoReflect.Descriptor instead.
 func (*ValidateDmnResponse) Descriptor() ([]byte, []int) {
-	return file_bpmp_compiler_v1_compiler_proto_rawDescGZIP(), []int{3}
+	return file_bpmp_compiler_v1_compiler_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ValidateDmnResponse) GetValid() bool {
@@ -291,7 +631,7 @@ type Diagnostic struct {
 
 func (x *Diagnostic) Reset() {
 	*x = Diagnostic{}
-	mi := &file_bpmp_compiler_v1_compiler_proto_msgTypes[4]
+	mi := &file_bpmp_compiler_v1_compiler_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -303,7 +643,7 @@ func (x *Diagnostic) String() string {
 func (*Diagnostic) ProtoMessage() {}
 
 func (x *Diagnostic) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_compiler_v1_compiler_proto_msgTypes[4]
+	mi := &file_bpmp_compiler_v1_compiler_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -316,7 +656,7 @@ func (x *Diagnostic) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Diagnostic.ProtoReflect.Descriptor instead.
 func (*Diagnostic) Descriptor() ([]byte, []int) {
-	return file_bpmp_compiler_v1_compiler_proto_rawDescGZIP(), []int{4}
+	return file_bpmp_compiler_v1_compiler_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *Diagnostic) GetCode() string {
@@ -365,7 +705,36 @@ var File_bpmp_compiler_v1_compiler_proto protoreflect.FileDescriptor
 
 const file_bpmp_compiler_v1_compiler_proto_rawDesc = "" +
 	"\n" +
-	"\x1fbpmp/compiler/v1/compiler.proto\x12\x10bpmp.compiler.v1\"\xbf\x01\n" +
+	"\x1fbpmp/compiler/v1/compiler.proto\x12\x10bpmp.compiler.v1\"J\n" +
+	"\rCompileSource\x12\x1f\n" +
+	"\vsource_name\x18\x01 \x01(\tR\n" +
+	"sourceName\x12\x18\n" +
+	"\acontent\x18\x02 \x01(\fR\acontent\"\xb6\x03\n" +
+	"\x12CompileBpmnRequest\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12(\n" +
+	"\x10process_model_id\x18\x02 \x01(\tR\x0eprocessModelId\x12'\n" +
+	"\x0fsource_revision\x18\x03 \x01(\x03R\x0esourceRevision\x124\n" +
+	"\x16expected_workflow_type\x18\x04 \x01(\tR\x14expectedWorkflowType\x12)\n" +
+	"\x10workflow_version\x18\x05 \x01(\tR\x0fworkflowVersion\x12(\n" +
+	"\x10bpmn_source_name\x18\x06 \x01(\tR\x0ebpmnSourceName\x12\x19\n" +
+	"\bbpmn_xml\x18\a \x01(\fR\abpmnXml\x12H\n" +
+	"\x0fdecision_models\x18\b \x03(\v2\x1f.bpmp.compiler.v1.CompileSourceR\x0edecisionModels\x12@\n" +
+	"\vcase_models\x18\t \x03(\v2\x1f.bpmp.compiler.v1.CompileSourceR\n" +
+	"caseModels\"\x8a\x02\n" +
+	"\x13CompileBpmnResponse\x12\x14\n" +
+	"\x05valid\x18\x01 \x01(\bR\x05valid\x12.\n" +
+	"\x13signed_wir_artifact\x18\x02 \x01(\fR\x11signedWirArtifact\x12'\n" +
+	"\x0fartifact_sha256\x18\x03 \x01(\fR\x0eartifactSha256\x12>\n" +
+	"\vdiagnostics\x18\x04 \x03(\v2\x1c.bpmp.compiler.v1.DiagnosticR\vdiagnostics\x12\x1f\n" +
+	"\vartifact_id\x18\x05 \x01(\tR\n" +
+	"artifactId\x12#\n" +
+	"\rworkflow_type\x18\x06 \x01(\tR\fworkflowType\"8\n" +
+	"\x15GetWIRArtifactRequest\x12\x1f\n" +
+	"\vartifact_id\x18\x01 \x01(\tR\n" +
+	"artifactId\"q\n" +
+	"\x16GetWIRArtifactResponse\x12.\n" +
+	"\x13signed_wir_artifact\x18\x01 \x01(\fR\x11signedWirArtifact\x12'\n" +
+	"\x0fartifact_sha256\x18\x02 \x01(\fR\x0eartifactSha256\"\xbf\x01\n" +
 	"\x13ValidateBpmnRequest\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12(\n" +
 	"\x10process_model_id\x18\x02 \x01(\tR\x0eprocessModelId\x12%\n" +
@@ -394,10 +763,12 @@ const file_bpmp_compiler_v1_compiler_proto_rawDesc = "" +
 	"\n" +
 	"element_id\x18\x04 \x01(\tR\telementId\x12\x12\n" +
 	"\x04line\x18\x05 \x01(\x04R\x04line\x12\x16\n" +
-	"\x06column\x18\x06 \x01(\x04R\x06column2\xd0\x01\n" +
+	"\x06column\x18\x06 \x01(\x04R\x06column2\x91\x03\n" +
 	"\x13BpmnCompilerService\x12]\n" +
 	"\fValidateBpmn\x12%.bpmp.compiler.v1.ValidateBpmnRequest\x1a&.bpmp.compiler.v1.ValidateBpmnResponse\x12Z\n" +
-	"\vValidateDmn\x12$.bpmp.compiler.v1.ValidateDmnRequest\x1a%.bpmp.compiler.v1.ValidateDmnResponseB\xda\x01\n" +
+	"\vValidateDmn\x12$.bpmp.compiler.v1.ValidateDmnRequest\x1a%.bpmp.compiler.v1.ValidateDmnResponse\x12Z\n" +
+	"\vCompileBpmn\x12$.bpmp.compiler.v1.CompileBpmnRequest\x1a%.bpmp.compiler.v1.CompileBpmnResponse\x12c\n" +
+	"\x0eGetWIRArtifact\x12'.bpmp.compiler.v1.GetWIRArtifactRequest\x1a(.bpmp.compiler.v1.GetWIRArtifactResponseB\xda\x01\n" +
 	"\x14com.bpmp.compiler.v1B\rCompilerProtoP\x01ZQgithub.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/compiler/v1;compilerv1\xa2\x02\x03BCX\xaa\x02\x10Bpmp.Compiler.V1\xca\x02\x10Bpmp\\Compiler\\V1\xe2\x02\x1cBpmp\\Compiler\\V1\\GPBMetadata\xea\x02\x12Bpmp::Compiler::V1b\x06proto3"
 
 var (
@@ -412,26 +783,38 @@ func file_bpmp_compiler_v1_compiler_proto_rawDescGZIP() []byte {
 	return file_bpmp_compiler_v1_compiler_proto_rawDescData
 }
 
-var file_bpmp_compiler_v1_compiler_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_bpmp_compiler_v1_compiler_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_bpmp_compiler_v1_compiler_proto_goTypes = []any{
-	(*ValidateBpmnRequest)(nil),  // 0: bpmp.compiler.v1.ValidateBpmnRequest
-	(*ValidateBpmnResponse)(nil), // 1: bpmp.compiler.v1.ValidateBpmnResponse
-	(*ValidateDmnRequest)(nil),   // 2: bpmp.compiler.v1.ValidateDmnRequest
-	(*ValidateDmnResponse)(nil),  // 3: bpmp.compiler.v1.ValidateDmnResponse
-	(*Diagnostic)(nil),           // 4: bpmp.compiler.v1.Diagnostic
+	(*CompileSource)(nil),          // 0: bpmp.compiler.v1.CompileSource
+	(*CompileBpmnRequest)(nil),     // 1: bpmp.compiler.v1.CompileBpmnRequest
+	(*CompileBpmnResponse)(nil),    // 2: bpmp.compiler.v1.CompileBpmnResponse
+	(*GetWIRArtifactRequest)(nil),  // 3: bpmp.compiler.v1.GetWIRArtifactRequest
+	(*GetWIRArtifactResponse)(nil), // 4: bpmp.compiler.v1.GetWIRArtifactResponse
+	(*ValidateBpmnRequest)(nil),    // 5: bpmp.compiler.v1.ValidateBpmnRequest
+	(*ValidateBpmnResponse)(nil),   // 6: bpmp.compiler.v1.ValidateBpmnResponse
+	(*ValidateDmnRequest)(nil),     // 7: bpmp.compiler.v1.ValidateDmnRequest
+	(*ValidateDmnResponse)(nil),    // 8: bpmp.compiler.v1.ValidateDmnResponse
+	(*Diagnostic)(nil),             // 9: bpmp.compiler.v1.Diagnostic
 }
 var file_bpmp_compiler_v1_compiler_proto_depIdxs = []int32{
-	4, // 0: bpmp.compiler.v1.ValidateBpmnResponse.diagnostics:type_name -> bpmp.compiler.v1.Diagnostic
-	4, // 1: bpmp.compiler.v1.ValidateDmnResponse.diagnostics:type_name -> bpmp.compiler.v1.Diagnostic
-	0, // 2: bpmp.compiler.v1.BpmnCompilerService.ValidateBpmn:input_type -> bpmp.compiler.v1.ValidateBpmnRequest
-	2, // 3: bpmp.compiler.v1.BpmnCompilerService.ValidateDmn:input_type -> bpmp.compiler.v1.ValidateDmnRequest
-	1, // 4: bpmp.compiler.v1.BpmnCompilerService.ValidateBpmn:output_type -> bpmp.compiler.v1.ValidateBpmnResponse
-	3, // 5: bpmp.compiler.v1.BpmnCompilerService.ValidateDmn:output_type -> bpmp.compiler.v1.ValidateDmnResponse
-	4, // [4:6] is the sub-list for method output_type
-	2, // [2:4] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	0, // 0: bpmp.compiler.v1.CompileBpmnRequest.decision_models:type_name -> bpmp.compiler.v1.CompileSource
+	0, // 1: bpmp.compiler.v1.CompileBpmnRequest.case_models:type_name -> bpmp.compiler.v1.CompileSource
+	9, // 2: bpmp.compiler.v1.CompileBpmnResponse.diagnostics:type_name -> bpmp.compiler.v1.Diagnostic
+	9, // 3: bpmp.compiler.v1.ValidateBpmnResponse.diagnostics:type_name -> bpmp.compiler.v1.Diagnostic
+	9, // 4: bpmp.compiler.v1.ValidateDmnResponse.diagnostics:type_name -> bpmp.compiler.v1.Diagnostic
+	5, // 5: bpmp.compiler.v1.BpmnCompilerService.ValidateBpmn:input_type -> bpmp.compiler.v1.ValidateBpmnRequest
+	7, // 6: bpmp.compiler.v1.BpmnCompilerService.ValidateDmn:input_type -> bpmp.compiler.v1.ValidateDmnRequest
+	1, // 7: bpmp.compiler.v1.BpmnCompilerService.CompileBpmn:input_type -> bpmp.compiler.v1.CompileBpmnRequest
+	3, // 8: bpmp.compiler.v1.BpmnCompilerService.GetWIRArtifact:input_type -> bpmp.compiler.v1.GetWIRArtifactRequest
+	6, // 9: bpmp.compiler.v1.BpmnCompilerService.ValidateBpmn:output_type -> bpmp.compiler.v1.ValidateBpmnResponse
+	8, // 10: bpmp.compiler.v1.BpmnCompilerService.ValidateDmn:output_type -> bpmp.compiler.v1.ValidateDmnResponse
+	2, // 11: bpmp.compiler.v1.BpmnCompilerService.CompileBpmn:output_type -> bpmp.compiler.v1.CompileBpmnResponse
+	4, // 12: bpmp.compiler.v1.BpmnCompilerService.GetWIRArtifact:output_type -> bpmp.compiler.v1.GetWIRArtifactResponse
+	9, // [9:13] is the sub-list for method output_type
+	5, // [5:9] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_bpmp_compiler_v1_compiler_proto_init() }
@@ -445,7 +828,7 @@ func file_bpmp_compiler_v1_compiler_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bpmp_compiler_v1_compiler_proto_rawDesc), len(file_bpmp_compiler_v1_compiler_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   5,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -186,6 +186,15 @@ impl RuntimeConfig {
                 .governance_client_certificate_sha256
                 .iter()
                 .any(|fingerprint| !valid_sha256_hex(fingerprint))
+            || self
+                .authorization
+                .deployment_client_certificate_sha256
+                .is_empty()
+            || self
+                .authorization
+                .deployment_client_certificate_sha256
+                .iter()
+                .any(|fingerprint| !valid_sha256_hex(fingerprint))
             || remote.allowed_protocol_versions.is_empty()
             || remote
                 .allowed_protocol_versions
@@ -335,6 +344,8 @@ pub struct AuthorizationConfig {
     pub internal_dispatch: InternalDispatchConfig,
     pub remote_workers: RemoteWorkerAuthorizationConfig,
     pub governance_client_certificate_sha256: Vec<String>,
+    #[serde(default)]
+    pub deployment_client_certificate_sha256: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -451,6 +462,7 @@ impl RaftRuntimeConfig {
         }
         let mut node_ids = BTreeSet::new();
         let mut addresses = BTreeSet::new();
+        let mut certificate_fingerprints = BTreeSet::new();
         for peer in &self.peers {
             if peer.node_id == 0
                 || peer.raft_address.trim().is_empty()
@@ -458,6 +470,7 @@ impl RaftRuntimeConfig {
                 || !valid_sha256_hex(&peer.certificate_sha256_hex)
                 || !node_ids.insert(peer.node_id)
                 || !addresses.insert(peer.raft_address.as_str())
+                || !certificate_fingerprints.insert(peer.certificate_sha256_hex.as_str())
             {
                 return Err(RuntimeConfigError::Invalid(
                     "Raft peer identities and addresses must be unique and non-empty",
@@ -488,6 +501,7 @@ impl RaftRuntimeConfig {
             "authorization_audit",
             "compensation_ledger",
             "governance_audit",
+            "runtime_deployment_events",
             "raft_applied_commands",
         ];
         if required_append_only

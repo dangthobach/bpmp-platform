@@ -7,7 +7,38 @@ package bpmp.compiler.v1;
 service BpmnCompilerService {
   rpc ValidateBpmn(ValidateBpmnRequest) returns (ValidateBpmnResponse);
   rpc ValidateDmn(ValidateDmnRequest) returns (ValidateDmnResponse);
+  rpc CompileBpmn(CompileBpmnRequest) returns (CompileBpmnResponse);
+  rpc GetWIRArtifact(GetWIRArtifactRequest) returns (GetWIRArtifactResponse);
 }
+
+message CompileSource {
+  string source_name = 1;
+  bytes content = 2;
+}
+
+message CompileBpmnRequest {
+  string tenant_id = 1;
+  string process_model_id = 2;
+  int64 source_revision = 3;
+  string expected_workflow_type = 4;
+  string workflow_version = 5;
+  string bpmn_source_name = 6;
+  bytes bpmn_xml = 7;
+  repeated CompileSource decision_models = 8;
+  repeated CompileSource case_models = 9;
+}
+
+message CompileBpmnResponse {
+  bool valid = 1;
+  bytes signed_wir_artifact = 2;
+  bytes artifact_sha256 = 3;
+  repeated Diagnostic diagnostics = 4;
+  string artifact_id = 5;
+  string workflow_type = 6;
+}
+
+message GetWIRArtifactRequest { string artifact_id = 1; }
+message GetWIRArtifactResponse { bytes signed_wir_artifact = 1; bytes artifact_sha256 = 2; }
 
 message ValidateBpmnRequest {
   string tenant_id = 1;

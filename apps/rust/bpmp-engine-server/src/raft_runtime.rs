@@ -11,7 +11,8 @@ use bpmp_contracts::raft::v1::{
     AddLearnerRequest, AddLearnerResponse, AppendEntriesRequest as WireAppendEntriesRequest,
     AppendEntriesResponse as WireAppendEntriesResponse, ChangeMembershipRequest,
     ChangeMembershipResponse, ForwardCommandRequest, ForwardCommandResponse,
-    InstallSnapshotRequest as WireInstallSnapshotRequest,
+    ForwardDeploymentAckRequest, ForwardDeploymentAckResponse, ForwardDeploymentIntentRequest,
+    ForwardDeploymentIntentResponse, InstallSnapshotRequest as WireInstallSnapshotRequest,
     InstallSnapshotResponse as WireInstallSnapshotResponse, VoteRequest as WireVoteRequest,
     VoteResponse as WireVoteResponse,
 };
@@ -24,7 +25,7 @@ use bpmp_engine::{
 };
 use bpmp_payload_crypto::PayloadCryptoPort;
 use bpmp_raft_state_machine::{ApplyOutcome, ApplyResponse, PreparedAtomicBatch, TypeConfig};
-use bpmp_transport_observability::inject_tonic_metadata;
+use bpmp_transport_observability::{WorkloadAuthorization, inject_tonic_metadata};
 use openraft::error::{NetworkError, RPCError, RaftError, RemoteError};
 use openraft::network::RPCOption;
 use openraft::raft::{
@@ -56,6 +57,13 @@ pub struct RaftWorkflowStore<C> {
 const RAFT_RPC_SCHEMA_VERSION: u32 = 1;
 const MAX_FORWARD_HOPS: u32 = 1;
 
+#[derive(serde::Deserialize)]
+struct ForwardedDeploymentAck {
+    deployment_id: String,
+    node_id: u64,
+    artifact_sha256: String,
+}
+
 type RaftRpcError<E = RaftInfallible> = RPCError<u64, BasicNode, RaftError<u64, E>>;
 
 #[derive(Debug, Clone)]
@@ -63,6 +71,7 @@ pub struct RaftPeer {
     pub node_id: u64,
     pub address: String,
     pub tls_domain: String,
+    pub certificate_sha256_hex: String,
 }
 
 #[derive(Clone)]
@@ -207,6 +216,75 @@ impl PeerDirectory {
         response
             .receipt
             .ok_or_else(|| unavailable_transport("leader returned no command receipt".into()))
+    }
+
+    pub async fn forward_deployment_ack(
+        &self,
+        leader_id: u64,
+        source_node_id: u64,
+        command_id: String,
+        storage_key: Vec<u8>,
+        value: Vec<u8>,
+    ) -> Result<(), StoreError> {
+        let mut client = self.client(leader_id).await.map_err(|error| {
+            StoreError::Unavailable(format!("connect to Engine Raft leader: {error}"))
+        })?;
+        let mut request = tonic::Request::new(ForwardDeploymentAckRequest {
+            schema_version: RAFT_RPC_SCHEMA_VERSION,
+            source_node_id,
+            command_id,
+            storage_key,
+            value,
+        });
+        inject_tonic_metadata(&mut request);
+        client
+            .forward_deployment_ack(request)
+            .await
+            .map_err(|error| {
+                StoreError::Unavailable(format!("forward Engine deployment ACK: {error}"))
+            })?;
+        Ok(())
+    }
+
+    pub async fn forward_deployment_intent(
+        &self,
+        leader_id: u64,
+        source_node_id: u64,
+        command_id: String,
+        storage_key: Vec<u8>,
+        value: Vec<u8>,
+    ) -> Result<(), StoreError> {
+        let mut client = self.client(leader_id).await.map_err(|error| {
+            StoreError::Unavailable(format!("connect to Engine Raft leader: {error}"))
+        })?;
+        let mut request = tonic::Request::new(ForwardDeploymentIntentRequest {
+            schema_version: RAFT_RPC_SCHEMA_VERSION,
+            source_node_id,
+            command_id,
+            storage_key,
+            value,
+        });
+        inject_tonic_metadata(&mut request);
+        client
+            .forward_deployment_intent(request)
+            .await
+            .map_err(|error| {
+                StoreError::Unavailable(format!("forward Engine deployment intent: {error}"))
+            })?;
+        Ok(())
+    }
+
+    fn authorizes_node<B>(&self, request: &Request<B>, node_id: u64, method: &str) -> bool {
+        let Some(peer) = self.peers.get(&node_id) else {
+            return false;
+        };
+        let Ok(authorization) = WorkloadAuthorization::try_new(
+            std::slice::from_ref(&peer.certificate_sha256_hex),
+            &[method.to_owned()],
+        ) else {
+            return false;
+        };
+        authorization.is_tonic_request_authorized(request, method)
     }
 }
 
@@ -363,6 +441,31 @@ pub struct TonicRaftPeerService<H> {
     raft: Raft<TypeConfig>,
     local_handler: Arc<H>,
     peers: PeerDirectory,
+    deployment_ack_committer: Option<Arc<dyn RuntimeDeploymentAckCommitter>>,
+}
+
+pub trait RuntimeDeploymentAckCommitter: Send + Sync {
+    fn commit_runtime_deployment_record(
+        &self,
+        command_id: &str,
+        key: Vec<u8>,
+        value: Vec<u8>,
+    ) -> Result<(), StoreError>;
+}
+
+impl<C> RuntimeDeploymentAckCommitter for RaftWorkflowStore<C>
+where
+    C: PayloadCryptoPort + 'static,
+{
+    fn commit_runtime_deployment_record(
+        &self,
+        command_id: &str,
+        key: Vec<u8>,
+        value: Vec<u8>,
+    ) -> Result<(), StoreError> {
+        self.commit_runtime_deployment_record(command_id, key, value)
+            .map(|_| ())
+    }
 }
 
 impl<H> TonicRaftPeerService<H> {
@@ -371,7 +474,16 @@ impl<H> TonicRaftPeerService<H> {
             raft,
             local_handler,
             peers,
+            deployment_ack_committer: None,
         }
+    }
+
+    pub fn with_deployment_ack_committer(
+        mut self,
+        committer: Arc<dyn RuntimeDeploymentAckCommitter>,
+    ) -> Self {
+        self.deployment_ack_committer = Some(committer);
+        self
     }
 
     pub fn into_server(
@@ -471,6 +583,110 @@ where
             .map_err(Status::from)?;
         Ok(Response::new(ForwardCommandResponse {
             receipt: Some(receipt),
+        }))
+    }
+
+    async fn forward_deployment_ack(
+        &self,
+        request: Request<ForwardDeploymentAckRequest>,
+    ) -> Result<Response<ForwardDeploymentAckResponse>, Status> {
+        let payload = request.get_ref();
+        if payload.schema_version != RAFT_RPC_SCHEMA_VERSION
+            || !self.peers.authorizes_node(
+                &request,
+                payload.source_node_id,
+                "/bpmp.raft.v1.RaftPeerService/ForwardDeploymentAck",
+            )
+        {
+            return Err(Status::permission_denied(
+                "deployment ACK source node identity is invalid",
+            ));
+        }
+        let key = String::from_utf8_lossy(&payload.storage_key);
+        let parts = key.split('/').collect::<Vec<_>>();
+        let ack = serde_json::from_slice::<ForwardedDeploymentAck>(&payload.value)
+            .map_err(|_| Status::invalid_argument("deployment ACK payload is malformed"))?;
+        if parts.len() != 3
+            || parts[0] != "ack"
+            || parts[1].is_empty()
+            || parts[2] != format!("{:020}", payload.source_node_id)
+            || payload.command_id
+                != format!(
+                    "runtime-deployment-ack/{}/{:020}",
+                    parts[1], payload.source_node_id
+                )
+            || ack.deployment_id != parts[1]
+            || ack.node_id != payload.source_node_id
+            || ack.artifact_sha256.len() != 64
+            || !ack
+                .artifact_sha256
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+            || payload.value.len() > 4096
+        {
+            return Err(Status::invalid_argument(
+                "deployment ACK record is malformed",
+            ));
+        }
+        let committer = self.deployment_ack_committer.as_ref().ok_or_else(|| {
+            Status::failed_precondition("deployment ACK forwarding is not configured")
+        })?;
+        committer
+            .commit_runtime_deployment_record(
+                &payload.command_id,
+                payload.storage_key.clone(),
+                payload.value.clone(),
+            )
+            .map_err(|error| Status::unavailable(error.to_string()))?;
+        Ok(Response::new(ForwardDeploymentAckResponse {
+            committed: true,
+        }))
+    }
+
+    async fn forward_deployment_intent(
+        &self,
+        request: Request<ForwardDeploymentIntentRequest>,
+    ) -> Result<Response<ForwardDeploymentIntentResponse>, Status> {
+        let payload = request.get_ref();
+        if payload.schema_version != RAFT_RPC_SCHEMA_VERSION
+            || !self.peers.authorizes_node(
+                &request,
+                payload.source_node_id,
+                "/bpmp.raft.v1.RaftPeerService/ForwardDeploymentIntent",
+            )
+        {
+            return Err(Status::permission_denied(
+                "deployment intent source node identity is invalid",
+            ));
+        }
+        let key = String::from_utf8_lossy(&payload.storage_key);
+        let value: serde_json::Value = serde_json::from_slice(&payload.value)
+            .map_err(|_| Status::invalid_argument("deployment intent payload is malformed"))?;
+        let deployment_id = key.strip_prefix("intent/").unwrap_or_default();
+        if deployment_id.is_empty()
+            || value
+                .get("deployment_id")
+                .and_then(serde_json::Value::as_str)
+                != Some(deployment_id)
+            || payload.command_id != format!("runtime-deployment/{deployment_id}")
+            || payload.value.len() > 256 * 1024
+        {
+            return Err(Status::invalid_argument(
+                "deployment intent record is malformed",
+            ));
+        }
+        let committer = self.deployment_ack_committer.as_ref().ok_or_else(|| {
+            Status::failed_precondition("deployment record forwarding is not configured")
+        })?;
+        committer
+            .commit_runtime_deployment_record(
+                &payload.command_id,
+                payload.storage_key.clone(),
+                payload.value.clone(),
+            )
+            .map_err(|error| Status::unavailable(error.to_string()))?;
+        Ok(Response::new(ForwardDeploymentIntentResponse {
+            committed: true,
         }))
     }
 
@@ -634,6 +850,42 @@ impl<C> RaftWorkflowStore<C> {
         batch: PreparedAtomicBatch,
     ) -> Result<ApplyResponse, StoreError> {
         self.submit(batch, tokio::time::Instant::now() + self.proposal_timeout)
+    }
+
+    /// Commits an immutable deployment intent or node acknowledgement via Raft.
+    ///
+    /// A precondition race is retried by re-reading the local committed state;
+    /// identical retries are idempotent, while key reuse with different bytes fails.
+    pub fn commit_runtime_deployment_record(
+        &self,
+        command_id: &str,
+        key: Vec<u8>,
+        value: Vec<u8>,
+    ) -> Result<Option<ApplyResponse>, StoreError> {
+        for _ in 0..3 {
+            let Some(batch) = self.local.prepare_runtime_deployment_record(
+                command_id,
+                key.clone(),
+                value.clone(),
+            )?
+            else {
+                return Ok(None);
+            };
+            let response =
+                self.submit(batch, tokio::time::Instant::now() + self.proposal_timeout)?;
+            match response.outcome {
+                ApplyOutcome::Applied | ApplyOutcome::Duplicate => return Ok(Some(response)),
+                ApplyOutcome::PreconditionFailed { .. } => continue,
+                ApplyOutcome::Rejected { reason } => {
+                    return Err(StoreError::Unavailable(format!(
+                        "Raft rejected deployment record: {reason}"
+                    )));
+                }
+            }
+        }
+        Err(StoreError::Unavailable(
+            "deployment record compare-and-set retry budget exhausted".into(),
+        ))
     }
 
     fn submit(
@@ -1083,6 +1335,7 @@ mod tests {
                 node_id,
                 address: listener.local_addr().unwrap().to_string(),
                 tls_domain: "localhost".into(),
+                certificate_sha256_hex: "00".repeat(32),
             });
             listeners.push(listener);
         }
@@ -1359,11 +1612,13 @@ mod tests {
                 node_id: 1,
                 address: "127.0.0.1:1".into(),
                 tls_domain: "localhost".into(),
+                certificate_sha256_hex: "00".repeat(32),
             },
             RaftPeer {
                 node_id: 2,
                 address: listener.local_addr().unwrap().to_string(),
                 tls_domain: "localhost".into(),
+                certificate_sha256_hex: "00".repeat(32),
             },
         ]);
         directory.max_message_bytes = 512 * 1024;
@@ -1482,6 +1737,7 @@ mod tests {
             node_id: 1,
             address: listener.local_addr().unwrap().to_string(),
             tls_domain: "localhost".into(),
+            certificate_sha256_hex: "00".repeat(32),
         }]);
         let data_directory = tempfile::tempdir().unwrap();
         let workflow_store = Arc::new(

@@ -98,6 +98,8 @@ impl RuntimeScope {
 #[derive(Default)]
 struct RegistryState {
     definitions: BTreeMap<RuntimeScope, WorkflowDefinition>,
+    artifact_hashes: BTreeMap<RuntimeScope, [u8; 32]>,
+    active_versions: BTreeMap<(TenantId, WorkflowType), WorkflowVersion>,
     configurations: BTreeMap<RuntimeScope, ResolvedConfigSnapshot>,
     governance_policies: BTreeMap<RuntimeScope, ResolvedGovernancePolicy>,
     references: BTreeMap<RuntimeScope, BTreeMap<RuntimeReferenceKind, u64>>,
@@ -180,6 +182,56 @@ pub struct RuntimeRegistry {
 }
 
 impl RuntimeRegistry {
+    /// Returns the active immutable workflow version for one tenant/type pair.
+    pub fn active_version(
+        &self,
+        tenant_id: &TenantId,
+        workflow_type: &WorkflowType,
+    ) -> Result<Option<WorkflowVersion>, RuntimeRegistryError> {
+        self.state
+            .read()
+            .map(|state| {
+                state
+                    .active_versions
+                    .get(&(tenant_id.clone(), workflow_type.clone()))
+                    .cloned()
+            })
+            .map_err(|_| RuntimeRegistryError::LockPoisoned)
+    }
+
+    /// Changes the default version for new instances after cluster deployment ACK.
+    pub fn set_active_version(
+        &self,
+        tenant_id: &TenantId,
+        workflow_type: &WorkflowType,
+        workflow_version: &WorkflowVersion,
+    ) -> Result<(), RuntimeRegistryError> {
+        let scope = RuntimeScope::new(tenant_id, workflow_type, workflow_version);
+        let mut state = self
+            .state
+            .write()
+            .map_err(|_| RuntimeRegistryError::LockPoisoned)?;
+        if !state.definitions.contains_key(&scope) {
+            return Err(RuntimeRegistryError::MissingDefinition);
+        }
+        state.active_versions.insert(
+            (tenant_id.clone(), workflow_type.clone()),
+            workflow_version.clone(),
+        );
+        Ok(())
+    }
+
+    /// Checks whether an explicit version is currently selected for new instances.
+    pub fn is_active_version(
+        &self,
+        tenant_id: &TenantId,
+        workflow_type: &WorkflowType,
+        workflow_version: &WorkflowVersion,
+    ) -> Result<Option<bool>, RuntimeRegistryError> {
+        self.active_version(tenant_id, workflow_type)
+            .map(|active| active.map(|active| active == *workflow_version))
+    }
+
     /// Installs one verified definition and its matching immutable configuration.
     ///
     /// # Errors
@@ -206,6 +258,44 @@ impl RuntimeRegistry {
             .write()
             .map_err(|_| RuntimeRegistryError::LockPoisoned)?;
         state.definitions.insert(scope.clone(), definition);
+        state.artifact_hashes.remove(&scope);
+        state.configurations.insert(scope, configuration);
+        Ok(())
+    }
+
+    /// Installs one signature-verified immutable WIR version.
+    pub fn install_verified(
+        &self,
+        definition: WorkflowDefinition,
+        configuration: ResolvedConfigSnapshot,
+        artifact_sha256: [u8; 32],
+    ) -> Result<(), RuntimeRegistryError> {
+        if definition.tenant_id.as_str().is_empty()
+            || definition.workflow_type.as_str().is_empty()
+            || definition.workflow_version.as_str().is_empty()
+        {
+            return Err(RuntimeRegistryError::InvalidScope);
+        }
+        let scope = RuntimeScope::new(
+            &definition.tenant_id,
+            &definition.workflow_type,
+            &definition.workflow_version,
+        );
+        let mut state = self
+            .state
+            .write()
+            .map_err(|_| RuntimeRegistryError::LockPoisoned)?;
+        if let Some(existing_hash) = state.artifact_hashes.get(&scope) {
+            if existing_hash != &artifact_sha256
+                || state.definitions.get(&scope) != Some(&definition)
+            {
+                return Err(RuntimeRegistryError::ArtifactVersionConflict);
+            }
+        } else if state.definitions.contains_key(&scope) {
+            return Err(RuntimeRegistryError::ArtifactVersionConflict);
+        }
+        state.definitions.insert(scope.clone(), definition);
+        state.artifact_hashes.insert(scope.clone(), artifact_sha256);
         state.configurations.insert(scope, configuration);
         Ok(())
     }
@@ -224,7 +314,35 @@ impl RuntimeRegistry {
         if !safe_point.permits_migration() {
             return Err(RuntimeRegistryError::UnsafeMigrationPoint);
         }
-        self.install(definition, configuration)
+        let scope = RuntimeScope::new(
+            &definition.tenant_id,
+            &definition.workflow_type,
+            &definition.workflow_version,
+        );
+        let mut state = self
+            .state
+            .write()
+            .map_err(|_| RuntimeRegistryError::LockPoisoned)?;
+        if state.definitions.contains_key(&scope) {
+            return Err(RuntimeRegistryError::ArtifactVersionConflict);
+        }
+        state.definitions.insert(scope.clone(), definition);
+        state.configurations.insert(scope, configuration);
+        Ok(())
+    }
+
+    /// Installs one new immutable WIR version only at an Engine safe point.
+    pub fn migrate_verified(
+        &self,
+        definition: WorkflowDefinition,
+        configuration: ResolvedConfigSnapshot,
+        artifact_sha256: [u8; 32],
+        safe_point: MigrationSafePoint,
+    ) -> Result<(), RuntimeRegistryError> {
+        if !safe_point.permits_migration() {
+            return Err(RuntimeRegistryError::UnsafeMigrationPoint);
+        }
+        self.install_verified(definition, configuration, artifact_sha256)
     }
 
     /// Atomically replaces validated configuration snapshots at one safe point.
@@ -558,9 +676,17 @@ impl RuntimeRegistry {
         {
             return Err(RuntimeRegistryError::ArtifactInUse);
         }
+        if state
+            .active_versions
+            .get(&(tenant_id.clone(), workflow_type.clone()))
+            == Some(workflow_version)
+        {
+            return Err(RuntimeRegistryError::ArtifactInUse);
+        }
         if state.definitions.remove(&scope).is_none() {
             return Err(RuntimeRegistryError::MissingDefinition);
         }
+        state.artifact_hashes.remove(&scope);
         state.configurations.remove(&scope);
         state.governance_policies.remove(&scope);
         state.references.remove(&scope);
@@ -615,6 +741,16 @@ impl CommandDefinitionProviderPort for RuntimeRegistry {
         self.definition(tenant_id, workflow_type, workflow_version)
             .map_err(|error| error.to_string())
     }
+
+    fn is_active_version(
+        &self,
+        tenant_id: &TenantId,
+        workflow_type: &WorkflowType,
+        workflow_version: &WorkflowVersion,
+    ) -> Result<Option<bool>, String> {
+        RuntimeRegistry::is_active_version(self, tenant_id, workflow_type, workflow_version)
+            .map_err(|error| error.to_string())
+    }
 }
 
 impl WorkflowDefinitionProviderPort for RuntimeRegistry {
@@ -662,6 +798,8 @@ pub enum RuntimeRegistryError {
     UnbalancedReference,
     #[error("runtime artifact is still referenced")]
     ArtifactInUse,
+    #[error("workflow version is already bound to different immutable WIR content")]
+    ArtifactVersionConflict,
     #[error("runtime configuration update contains a duplicate scope")]
     DuplicateScope,
     #[error("governance policy is invalid")]

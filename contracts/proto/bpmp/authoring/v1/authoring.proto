@@ -32,6 +32,64 @@ service AuthoringService {
   rpc PublishForm(PublishFormRequest) returns (PublishFormResponse);
   rpc ListFormVersions(ListFormVersionsRequest) returns (ListFormVersionsResponse);
   rpc GetFormVersion(GetFormVersionRequest) returns (GetFormVersionResponse);
+  rpc DeployProcessModel(DeployProcessModelRequest) returns (DeployProcessModelResponse);
+  rpc RollbackRuntimeDeployment(RollbackRuntimeDeploymentRequest) returns (RollbackRuntimeDeploymentResponse);
+  rpc GetRuntimeDeployment(GetRuntimeDeploymentRequest) returns (GetRuntimeDeploymentResponse);
+  rpc ListRuntimeDeployments(ListRuntimeDeploymentsRequest) returns (ListRuntimeDeploymentsResponse);
+}
+
+message DeployProcessModelRequest {
+  string tenant_id = 1;
+  string process_model_id = 2;
+  string process_model_version_id = 3;
+  string target_environment = 4;
+  string command_id = 5;
+  string idempotency_key = 6;
+  string correlation_id = 7;
+  bpmp.authorization.v1.ActorProof actor_proof = 8;
+}
+message DeployProcessModelResponse { RuntimeDeployment deployment = 1; bool replayed = 2; }
+message RollbackRuntimeDeploymentRequest {
+  string tenant_id = 1;
+  string target_deployment_id = 2;
+  string command_id = 3;
+  string idempotency_key = 4;
+  string correlation_id = 5;
+  bpmp.authorization.v1.ActorProof actor_proof = 6;
+}
+message RollbackRuntimeDeploymentResponse { RuntimeDeployment deployment = 1; bool replayed = 2; }
+message GetRuntimeDeploymentRequest { string tenant_id = 1; string deployment_id = 2; bpmp.authorization.v1.ActorProof actor_proof = 3; }
+message GetRuntimeDeploymentResponse { RuntimeDeployment deployment = 1; }
+message ListRuntimeDeploymentsRequest {
+  string tenant_id = 1;
+  string process_model_id = 2;
+  string target_environment = 3;
+  string page_token = 4;
+  uint32 page_size = 5;
+  bpmp.authorization.v1.ActorProof actor_proof = 6;
+}
+message ListRuntimeDeploymentsResponse { repeated RuntimeDeployment deployments = 1; string next_page_token = 2; }
+message RuntimeDeployment {
+  string id = 1;
+  string tenant_id = 2;
+  string process_model_id = 3;
+  string process_model_version_id = 4;
+  string target_environment = 5;
+  uint64 deployment_sequence = 6;
+  string action_type = 7;
+  string status = 8;
+  string artifact_id = 9;
+  bytes artifact_sha256 = 10;
+  string workflow_type = 11;
+  string workflow_version = 12;
+  string previous_deployment_id = 13;
+  string failure_code = 14;
+  string failure_message = 15;
+  uint64 created_at_epoch_ms = 16;
+  uint64 updated_at_epoch_ms = 17;
+  uint64 activated_at_epoch_ms = 18;
+  uint64 rolled_back_at_epoch_ms = 19;
+  uint32 attempt_count = 20;
 }
 
 message ListFormsRequest { string tenant_id = 1; bpmp.authorization.v1.ActorProof actor_proof = 2; string page_token = 3; uint32 page_size = 4; string search = 5; }

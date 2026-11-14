@@ -44,6 +44,10 @@ const (
 	AuthoringService_PublishForm_FullMethodName                = "/bpmp.authoring.v1.AuthoringService/PublishForm"
 	AuthoringService_ListFormVersions_FullMethodName           = "/bpmp.authoring.v1.AuthoringService/ListFormVersions"
 	AuthoringService_GetFormVersion_FullMethodName             = "/bpmp.authoring.v1.AuthoringService/GetFormVersion"
+	AuthoringService_DeployProcessModel_FullMethodName         = "/bpmp.authoring.v1.AuthoringService/DeployProcessModel"
+	AuthoringService_RollbackRuntimeDeployment_FullMethodName  = "/bpmp.authoring.v1.AuthoringService/RollbackRuntimeDeployment"
+	AuthoringService_GetRuntimeDeployment_FullMethodName       = "/bpmp.authoring.v1.AuthoringService/GetRuntimeDeployment"
+	AuthoringService_ListRuntimeDeployments_FullMethodName     = "/bpmp.authoring.v1.AuthoringService/ListRuntimeDeployments"
 )
 
 // AuthoringServiceClient is the client API for AuthoringService service.
@@ -78,6 +82,10 @@ type AuthoringServiceClient interface {
 	PublishForm(ctx context.Context, in *PublishFormRequest, opts ...grpc.CallOption) (*PublishFormResponse, error)
 	ListFormVersions(ctx context.Context, in *ListFormVersionsRequest, opts ...grpc.CallOption) (*ListFormVersionsResponse, error)
 	GetFormVersion(ctx context.Context, in *GetFormVersionRequest, opts ...grpc.CallOption) (*GetFormVersionResponse, error)
+	DeployProcessModel(ctx context.Context, in *DeployProcessModelRequest, opts ...grpc.CallOption) (*DeployProcessModelResponse, error)
+	RollbackRuntimeDeployment(ctx context.Context, in *RollbackRuntimeDeploymentRequest, opts ...grpc.CallOption) (*RollbackRuntimeDeploymentResponse, error)
+	GetRuntimeDeployment(ctx context.Context, in *GetRuntimeDeploymentRequest, opts ...grpc.CallOption) (*GetRuntimeDeploymentResponse, error)
+	ListRuntimeDeployments(ctx context.Context, in *ListRuntimeDeploymentsRequest, opts ...grpc.CallOption) (*ListRuntimeDeploymentsResponse, error)
 }
 
 type authoringServiceClient struct {
@@ -338,6 +346,46 @@ func (c *authoringServiceClient) GetFormVersion(ctx context.Context, in *GetForm
 	return out, nil
 }
 
+func (c *authoringServiceClient) DeployProcessModel(ctx context.Context, in *DeployProcessModelRequest, opts ...grpc.CallOption) (*DeployProcessModelResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeployProcessModelResponse)
+	err := c.cc.Invoke(ctx, AuthoringService_DeployProcessModel_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authoringServiceClient) RollbackRuntimeDeployment(ctx context.Context, in *RollbackRuntimeDeploymentRequest, opts ...grpc.CallOption) (*RollbackRuntimeDeploymentResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RollbackRuntimeDeploymentResponse)
+	err := c.cc.Invoke(ctx, AuthoringService_RollbackRuntimeDeployment_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authoringServiceClient) GetRuntimeDeployment(ctx context.Context, in *GetRuntimeDeploymentRequest, opts ...grpc.CallOption) (*GetRuntimeDeploymentResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetRuntimeDeploymentResponse)
+	err := c.cc.Invoke(ctx, AuthoringService_GetRuntimeDeployment_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authoringServiceClient) ListRuntimeDeployments(ctx context.Context, in *ListRuntimeDeploymentsRequest, opts ...grpc.CallOption) (*ListRuntimeDeploymentsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListRuntimeDeploymentsResponse)
+	err := c.cc.Invoke(ctx, AuthoringService_ListRuntimeDeployments_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AuthoringServiceServer is the server API for AuthoringService service.
 // All implementations must embed UnimplementedAuthoringServiceServer
 // for forward compatibility.
@@ -370,6 +418,10 @@ type AuthoringServiceServer interface {
 	PublishForm(context.Context, *PublishFormRequest) (*PublishFormResponse, error)
 	ListFormVersions(context.Context, *ListFormVersionsRequest) (*ListFormVersionsResponse, error)
 	GetFormVersion(context.Context, *GetFormVersionRequest) (*GetFormVersionResponse, error)
+	DeployProcessModel(context.Context, *DeployProcessModelRequest) (*DeployProcessModelResponse, error)
+	RollbackRuntimeDeployment(context.Context, *RollbackRuntimeDeploymentRequest) (*RollbackRuntimeDeploymentResponse, error)
+	GetRuntimeDeployment(context.Context, *GetRuntimeDeploymentRequest) (*GetRuntimeDeploymentResponse, error)
+	ListRuntimeDeployments(context.Context, *ListRuntimeDeploymentsRequest) (*ListRuntimeDeploymentsResponse, error)
 	mustEmbedUnimplementedAuthoringServiceServer()
 }
 
@@ -454,6 +506,18 @@ func (UnimplementedAuthoringServiceServer) ListFormVersions(context.Context, *Li
 }
 func (UnimplementedAuthoringServiceServer) GetFormVersion(context.Context, *GetFormVersionRequest) (*GetFormVersionResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetFormVersion not implemented")
+}
+func (UnimplementedAuthoringServiceServer) DeployProcessModel(context.Context, *DeployProcessModelRequest) (*DeployProcessModelResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeployProcessModel not implemented")
+}
+func (UnimplementedAuthoringServiceServer) RollbackRuntimeDeployment(context.Context, *RollbackRuntimeDeploymentRequest) (*RollbackRuntimeDeploymentResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RollbackRuntimeDeployment not implemented")
+}
+func (UnimplementedAuthoringServiceServer) GetRuntimeDeployment(context.Context, *GetRuntimeDeploymentRequest) (*GetRuntimeDeploymentResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetRuntimeDeployment not implemented")
+}
+func (UnimplementedAuthoringServiceServer) ListRuntimeDeployments(context.Context, *ListRuntimeDeploymentsRequest) (*ListRuntimeDeploymentsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListRuntimeDeployments not implemented")
 }
 func (UnimplementedAuthoringServiceServer) mustEmbedUnimplementedAuthoringServiceServer() {}
 func (UnimplementedAuthoringServiceServer) testEmbeddedByValue()                          {}
@@ -926,6 +990,78 @@ func _AuthoringService_GetFormVersion_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AuthoringService_DeployProcessModel_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeployProcessModelRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthoringServiceServer).DeployProcessModel(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthoringService_DeployProcessModel_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthoringServiceServer).DeployProcessModel(ctx, req.(*DeployProcessModelRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthoringService_RollbackRuntimeDeployment_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RollbackRuntimeDeploymentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthoringServiceServer).RollbackRuntimeDeployment(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthoringService_RollbackRuntimeDeployment_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthoringServiceServer).RollbackRuntimeDeployment(ctx, req.(*RollbackRuntimeDeploymentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthoringService_GetRuntimeDeployment_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRuntimeDeploymentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthoringServiceServer).GetRuntimeDeployment(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthoringService_GetRuntimeDeployment_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthoringServiceServer).GetRuntimeDeployment(ctx, req.(*GetRuntimeDeploymentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthoringService_ListRuntimeDeployments_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListRuntimeDeploymentsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthoringServiceServer).ListRuntimeDeployments(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthoringService_ListRuntimeDeployments_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthoringServiceServer).ListRuntimeDeployments(ctx, req.(*ListRuntimeDeploymentsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AuthoringService_ServiceDesc is the grpc.ServiceDesc for AuthoringService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1032,6 +1168,22 @@ var AuthoringService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetFormVersion",
 			Handler:    _AuthoringService_GetFormVersion_Handler,
+		},
+		{
+			MethodName: "DeployProcessModel",
+			Handler:    _AuthoringService_DeployProcessModel_Handler,
+		},
+		{
+			MethodName: "RollbackRuntimeDeployment",
+			Handler:    _AuthoringService_RollbackRuntimeDeployment_Handler,
+		},
+		{
+			MethodName: "GetRuntimeDeployment",
+			Handler:    _AuthoringService_GetRuntimeDeployment_Handler,
+		},
+		{
+			MethodName: "ListRuntimeDeployments",
+			Handler:    _AuthoringService_ListRuntimeDeployments_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

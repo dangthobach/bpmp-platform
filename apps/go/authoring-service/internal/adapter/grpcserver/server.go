@@ -3,6 +3,8 @@ package grpcserver
 import (
 	"context"
 	"errors"
+	"strconv"
+	"time"
 
 	"github.com/dangthobach/bpmp-platform/apps/go/authoring-service/internal/application"
 	authoringv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/authoring/v1"
@@ -13,6 +15,77 @@ import (
 type Server struct {
 	authoringv1.UnimplementedAuthoringServiceServer
 	service *application.Service
+}
+
+func (s *Server) DeployProcessModel(ctx context.Context, request *authoringv1.DeployProcessModelRequest) (*authoringv1.DeployProcessModelResponse, error) {
+	deployment, replayed, err := s.service.CreateRuntimeDeployment(ctx, application.CreateDeploymentRequest{
+		TenantID: request.GetTenantId(), ProcessModelID: request.GetProcessModelId(), ProcessModelVersionID: request.GetProcessModelVersionId(), TargetEnvironment: request.GetTargetEnvironment(),
+		CommandID: request.GetCommandId(), IdempotencyKey: request.GetIdempotencyKey(), CorrelationID: request.GetCorrelationId(), ActorProof: request.GetActorProof(),
+	})
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return &authoringv1.DeployProcessModelResponse{Deployment: toProtoDeployment(deployment), Replayed: replayed}, nil
+}
+
+func (s *Server) RollbackRuntimeDeployment(ctx context.Context, request *authoringv1.RollbackRuntimeDeploymentRequest) (*authoringv1.RollbackRuntimeDeploymentResponse, error) {
+	deployment, replayed, err := s.service.RollbackRuntimeDeployment(ctx, application.RollbackDeploymentRequest{TenantID: request.GetTenantId(), TargetDeploymentID: request.GetTargetDeploymentId(), CommandID: request.GetCommandId(), IdempotencyKey: request.GetIdempotencyKey(), CorrelationID: request.GetCorrelationId(), ActorProof: request.GetActorProof()})
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return &authoringv1.RollbackRuntimeDeploymentResponse{Deployment: toProtoDeployment(deployment), Replayed: replayed}, nil
+}
+
+func (s *Server) GetRuntimeDeployment(ctx context.Context, request *authoringv1.GetRuntimeDeploymentRequest) (*authoringv1.GetRuntimeDeploymentResponse, error) {
+	deployment, err := s.service.GetRuntimeDeployment(ctx, request.GetTenantId(), request.GetDeploymentId(), request.GetActorProof())
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return &authoringv1.GetRuntimeDeploymentResponse{Deployment: toProtoDeployment(deployment)}, nil
+}
+
+func (s *Server) ListRuntimeDeployments(ctx context.Context, request *authoringv1.ListRuntimeDeploymentsRequest) (*authoringv1.ListRuntimeDeploymentsResponse, error) {
+	limit := int(request.GetPageSize())
+	if limit == 0 {
+		limit = 50
+	}
+	before := int64(0)
+	if request.GetPageToken() != "" {
+		parsed, err := strconv.ParseInt(request.GetPageToken(), 10, 64)
+		if err != nil || parsed <= 0 {
+			return nil, mapError(application.ErrInvalidArgument)
+		}
+		before = parsed
+	}
+	items, err := s.service.ListRuntimeDeployments(ctx, request.GetTenantId(), request.GetProcessModelId(), request.GetTargetEnvironment(), before, limit, request.GetActorProof())
+	if err != nil {
+		return nil, mapError(err)
+	}
+	response := &authoringv1.ListRuntimeDeploymentsResponse{Deployments: make([]*authoringv1.RuntimeDeployment, 0, len(items))}
+	for _, item := range items {
+		response.Deployments = append(response.Deployments, toProtoDeployment(item))
+	}
+	if len(items) == limit {
+		response.NextPageToken = strconv.FormatInt(items[len(items)-1].DeploymentSequence, 10)
+	}
+	return response, nil
+}
+
+func toProtoDeployment(item application.RuntimeDeployment) *authoringv1.RuntimeDeployment {
+	toEpoch := func(value time.Time) uint64 {
+		if value.IsZero() || value.UnixMilli() < 0 {
+			return 0
+		}
+		return uint64(value.UnixMilli())
+	}
+	created, updated, activated, rolledBack := toEpoch(item.CreatedAt), toEpoch(item.UpdatedAt), uint64(0), uint64(0)
+	if item.ActivatedAt != nil {
+		activated = toEpoch(*item.ActivatedAt)
+	}
+	if item.RolledBackAt != nil {
+		rolledBack = toEpoch(*item.RolledBackAt)
+	}
+	return &authoringv1.RuntimeDeployment{Id: item.ID, TenantId: item.TenantID, ProcessModelId: item.ProcessModelID, ProcessModelVersionId: item.ProcessModelVersionID, TargetEnvironment: item.TargetEnvironment, DeploymentSequence: uint64(item.DeploymentSequence), ActionType: item.ActionType, Status: item.Status, ArtifactId: item.ArtifactID, ArtifactSha256: item.ArtifactSHA256, WorkflowType: item.WorkflowType, WorkflowVersion: item.WorkflowVersion, PreviousDeploymentId: item.PreviousDeploymentID, FailureCode: item.FailureCode, FailureMessage: item.FailureMessage, CreatedAtEpochMs: created, UpdatedAtEpochMs: updated, ActivatedAtEpochMs: activated, RolledBackAtEpochMs: rolledBack, AttemptCount: uint32(item.AttemptCount)}
 }
 
 func New(service *application.Service) (*Server, error) {
@@ -263,7 +336,7 @@ func mapError(err error) error {
 		return status.Error(codes.Aborted, err.Error())
 	case errors.Is(err, application.ErrDraftNotValidated):
 		return status.Error(codes.FailedPrecondition, err.Error())
-	case errors.Is(err, application.ErrUnavailable):
+	case errors.Is(err, application.ErrUnavailable), errors.Is(err, application.ErrDeploymentUnavailable):
 		return status.Error(codes.Unavailable, err.Error())
 	default:
 		return status.Error(codes.Internal, "authoring operation failed")

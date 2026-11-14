@@ -5721,6 +5721,211 @@
         "x-priority": "P0"
       }
     },
+    "/v1/authoring/process-models/{processModelID}/deployments": {
+      "post": {
+        "summary": "Queue deployment of an immutable process-model version",
+        "operationId": "deployProcessModel",
+        "tags": [
+          "Authoring"
+        ],
+        "x-capability": "authoring.deployProcessModel",
+        "responses": {
+          "200": {
+            "description": "Operation completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "503": {
+            "description": "Authoring dependency unavailable"
+          },
+          "202": {
+            "description": "Durable deployment job accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "process_model_version_id": {
+                    "type": "string"
+                  },
+                  "target_environment": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "process_model_version_id",
+                  "target_environment"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-status": "current-registration",
+        "x-owner": "Authoring",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
+        "x-priority": "P0"
+      },
+      "get": {
+        "summary": "List deployment history for a process model",
+        "operationId": "listRuntimeDeployments",
+        "tags": [
+          "Authoring"
+        ],
+        "x-capability": "authoring.listRuntimeDeployments",
+        "responses": {
+          "200": {
+            "description": "Operation completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "503": {
+            "description": "Authoring dependency unavailable"
+          }
+        },
+        "x-status": "current-registration",
+        "x-owner": "Authoring",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
+        "x-priority": "P0"
+      }
+    },
+    "/v1/authoring/deployments/{deploymentID}": {
+      "get": {
+        "summary": "Read durable deployment and Engine reconciliation status",
+        "operationId": "getRuntimeDeployment",
+        "tags": [
+          "Authoring"
+        ],
+        "x-capability": "authoring.getRuntimeDeployment",
+        "responses": {
+          "200": {
+            "description": "Operation completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "503": {
+            "description": "Authoring dependency unavailable"
+          }
+        },
+        "x-status": "current-registration",
+        "x-owner": "Authoring",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
+        "x-priority": "P0"
+      }
+    },
+    "/v1/authoring/deployments/{deploymentID}/rollback": {
+      "post": {
+        "summary": "Queue rollback to a previously deployed runtime artifact",
+        "operationId": "rollbackRuntimeDeployment",
+        "tags": [
+          "Authoring"
+        ],
+        "x-capability": "authoring.rollbackRuntimeDeployment",
+        "responses": {
+          "200": {
+            "description": "Operation completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "503": {
+            "description": "Authoring dependency unavailable"
+          },
+          "202": {
+            "description": "Durable deployment job accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "x-status": "current-registration",
+        "x-owner": "Authoring",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
+        "x-priority": "P0"
+      }
+    },
     "/v1/runtime/capabilities": {
       "get": {
         "operationId": "targetGetRuntimeCapabilities",
@@ -19450,195 +19655,6 @@
             }
           }
         }
-      }
-    },
-    "/v1/authoring/deployments/{deploymentID}": {
-      "get": {
-        "operationId": "targetGetDeployment",
-        "tags": [
-          "Authoring"
-        ],
-        "summary": "getDeployment",
-        "description": "PROPOSED; not implemented.  Entity/audit/precondition conventions apply. Scope/auth enforced by owner.",
-        "parameters": [
-          {
-            "name": "deploymentID",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 256,
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "X-BPMP-Tenant-ID",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 256
-            },
-            "description": "Must match trusted authenticated tenant scope."
-          },
-          {
-            "name": "X-Correlation-ID",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 256
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Authorized result; 202 is acceptance, not projection convergence.",
-            "headers": {
-              "ETag": {
-                "schema": {
-                  "type": "string"
-                },
-                "description": "When response represents a versioned mutable entity."
-              }
-            },
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TargetJob"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Malformed input",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthenticated",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found or not visible",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "State/version conflict or idempotency payload mismatch",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "412": {
-            "description": "ETag mismatch",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "413": {
-            "description": "Payload or upload too large",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "410": {
-            "description": "Cursor or artifact expired",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Domain validation failed",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "428": {
-            "description": "Missing concurrency precondition",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Rate/cost limit",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Required owner/snapshot unavailable",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          }
-        },
-        "x-status": "proposed",
-        "x-owner": "Authoring",
-        "x-priority": "P0",
-        "x-capability": "authoring.getDeployment",
-        "x-entity-precondition": false
       }
     },
     "/v1/authoring/decisions/{decisionVersionID}/evaluations": {
@@ -72116,5 +72132,5 @@
       }
     }
   },
-  "x-baseline-sha256": "07068c348eeec96715770e6fb0dc49044c7b194b85238bda5d642bd0e2646586"
+  "x-baseline-sha256": "e28b3243714cde2026483095a7dfc78ce3a4abe452ac0c940b959795ff6294e8"
 }

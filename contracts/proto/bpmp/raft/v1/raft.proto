@@ -47,6 +47,23 @@ message ForwardCommandResponse {
   bpmp.engine.v1.CommandReceipt receipt = 1;
 }
 
+message ForwardDeploymentAckRequest {
+  uint32 schema_version = 1;
+  uint64 source_node_id = 2;
+  string command_id = 3;
+  bytes storage_key = 4;
+  bytes value = 5;
+}
+message ForwardDeploymentAckResponse { bool committed = 1; }
+message ForwardDeploymentIntentRequest {
+  uint32 schema_version = 1;
+  uint64 source_node_id = 2;
+  string command_id = 3;
+  bytes storage_key = 4;
+  bytes value = 5;
+}
+message ForwardDeploymentIntentResponse { bool committed = 1; }
+
 message AddLearnerRequest {
   uint32 schema_version = 1;
   uint64 node_id = 2;
@@ -79,6 +96,8 @@ service RaftPeerService {
   rpc Vote(VoteRequest) returns (VoteResponse);
   rpc InstallSnapshot(InstallSnapshotRequest) returns (InstallSnapshotResponse);
   rpc ForwardCommand(ForwardCommandRequest) returns (ForwardCommandResponse);
+  rpc ForwardDeploymentAck(ForwardDeploymentAckRequest) returns (ForwardDeploymentAckResponse);
+  rpc ForwardDeploymentIntent(ForwardDeploymentIntentRequest) returns (ForwardDeploymentIntentResponse);
   rpc AddLearner(AddLearnerRequest) returns (AddLearnerResponse);
   rpc ChangeMembership(ChangeMembershipRequest) returns (ChangeMembershipResponse);
 }

@@ -15,14 +15,15 @@ import (
 const MaxBPMNBytes = 1 << 20
 
 var (
-	ErrInvalidArgument     = errors.New("invalid authoring request")
-	ErrUnauthenticated     = errors.New("actor proof rejected")
-	ErrForbidden           = errors.New("authoring action denied")
-	ErrNotFound            = errors.New("authoring resource not found")
-	ErrConflict            = errors.New("authoring state conflict")
-	ErrDraftNotValidated   = errors.New("model draft must be valid before check-in")
-	ErrIdempotencyConflict = errors.New("idempotency key reused with different intent")
-	ErrUnavailable         = errors.New("authoring dependency unavailable")
+	ErrInvalidArgument       = errors.New("invalid authoring request")
+	ErrUnauthenticated       = errors.New("actor proof rejected")
+	ErrForbidden             = errors.New("authoring action denied")
+	ErrNotFound              = errors.New("authoring resource not found")
+	ErrConflict              = errors.New("authoring state conflict")
+	ErrDraftNotValidated     = errors.New("model draft must be valid before check-in")
+	ErrIdempotencyConflict   = errors.New("idempotency key reused with different intent")
+	ErrUnavailable           = errors.New("authoring dependency unavailable")
+	ErrDeploymentUnavailable = errors.New("runtime deployment dependencies are unavailable")
 )
 
 type Model struct {
@@ -122,6 +123,83 @@ type Compiler interface {
 	ValidateDMN(context.Context, string, string, int64, string) ([]Diagnostic, error)
 }
 
+type CompileSource struct{ Name, Content string }
+
+type RuntimeArtifactRequest struct {
+	TenantID, ProcessModelID                               string
+	SourceRevision                                         int64
+	WorkflowType, WorkflowVersion, BPMNSourceName, BPMNXML string
+	DecisionModels, CaseModels                             []CompileSource
+}
+
+type RuntimeArtifact struct {
+	Valid             bool
+	ArtifactID        string
+	WorkflowType      string
+	SignedWIR, SHA256 []byte
+	Diagnostics       []Diagnostic
+}
+
+type RuntimeDeployment struct {
+	ID, TenantID, ProcessModelID, ProcessModelVersionID string
+	TargetEnvironment, ActionType, Status               string
+	ArtifactID, WorkflowType, WorkflowVersion           string
+	PreviousDeploymentID, FailureCode, FailureMessage   string
+	EngineConfigVersion, EnginePolicyVersion            string
+	EngineConfigSHA256, GovernanceConfigVersion         string
+	GovernancePolicyVersion                             string
+	ArtifactSHA256                                      []byte
+	DeploymentSequence                                  int64
+	AttemptCount                                        int32
+	EngineAccepted                                      bool
+	CreatedAt, UpdatedAt                                time.Time
+	ActivatedAt, RolledBackAt                           *time.Time
+}
+
+type EngineDeploymentCommand struct {
+	DeploymentID, TenantID, WorkflowType, WorkflowVersion string
+	EnvironmentReference, RollbackOfDeploymentID          string
+	DeploymentSequence                                    uint64
+	SignedWIRArtifact, ArtifactSHA256                     []byte
+}
+
+type EngineDeploymentState struct {
+	DeploymentID, Status, ArtifactID, FailureCode string
+	AppliedNodeIDs, PendingNodeIDs                []uint64
+	EngineConfigVersion, EnginePolicyVersion      string
+	EngineConfigSHA256, GovernanceConfigVersion   string
+	GovernancePolicyVersion                       string
+}
+
+// RuntimeArtifactCompiler is implemented by the mTLS Compiler adapter. It is
+// separate from the validation port so validation-only deployments remain valid.
+type RuntimeArtifactCompiler interface {
+	CompileRuntimeArtifact(context.Context, RuntimeArtifactRequest) (RuntimeArtifact, error)
+}
+
+type RuntimeDeploymentCompiler interface {
+	RuntimeArtifactCompiler
+	GetRuntimeArtifact(context.Context, string) (RuntimeArtifact, error)
+}
+
+type RuntimeDeploymentEngine interface {
+	CommitRuntimeDeployment(context.Context, EngineDeploymentCommand) (EngineDeploymentState, error)
+	GetRuntimeDeployment(context.Context, string) (EngineDeploymentState, error)
+}
+
+type RuntimeDeploymentRepository interface {
+	CreateRuntimeDeployment(context.Context, string, string, string, string, string, []byte, RuntimeDeployment, time.Time) (RuntimeDeployment, bool, error)
+	CreateRollbackDeployment(context.Context, string, string, string, string, string, []byte, string, string, time.Time) (RuntimeDeployment, bool, error)
+	GetRuntimeDeployment(context.Context, string, string) (RuntimeDeployment, error)
+	ListRuntimeDeployments(context.Context, string, string, string, int64, int) ([]RuntimeDeployment, error)
+	ClaimRuntimeDeployments(context.Context, string, int, time.Duration, time.Time) ([]RuntimeDeployment, error)
+	GetDeploymentVersion(context.Context, RuntimeDeployment) (ProcessModelVersion, error)
+	SaveDeploymentArtifact(context.Context, string, string, string, string, []byte, string, string, time.Time) error
+	SaveEngineDeploymentState(context.Context, string, string, string, EngineDeploymentState, []byte, time.Time) error
+	ReleaseDeploymentLease(context.Context, string, string, string, time.Time, string) error
+	FailRuntimeDeployment(context.Context, string, string, string, string, string, time.Time) error
+}
+
 type Repository interface {
 	ListModels(context.Context, string, string, string, int) ([]Model, string, error)
 	GetModel(context.Context, string, string) (Model, Draft, error)
@@ -142,18 +220,22 @@ type Repository interface {
 }
 
 type Service struct {
-	repository Repository
-	actors     ActorVerifier
-	authorizer Authorizer
-	compiler   Compiler
-	now        func() time.Time
+	repository         Repository
+	actors             ActorVerifier
+	authorizer         Authorizer
+	compiler           Compiler
+	deploymentCompiler RuntimeDeploymentCompiler
+	deploymentEngine   RuntimeDeploymentEngine
+	now                func() time.Time
 }
 
 func New(repository Repository, actors ActorVerifier, authorizer Authorizer, compiler Compiler, now func() time.Time) (*Service, error) {
 	if repository == nil || actors == nil || authorizer == nil || compiler == nil || now == nil {
 		return nil, errors.New("authoring service requires repository, actor verifier, authorizer, compiler and clock")
 	}
-	return &Service{repository: repository, actors: actors, authorizer: authorizer, compiler: compiler, now: now}, nil
+	service := &Service{repository: repository, actors: actors, authorizer: authorizer, compiler: compiler, now: now}
+	service.deploymentCompiler, _ = compiler.(RuntimeDeploymentCompiler)
+	return service, nil
 }
 
 func (s *Service) ListModels(ctx context.Context, tenantID string, proof *authv1.ActorProof, search, pageToken string, pageSize int) ([]Model, string, error) {

@@ -11,16 +11,16 @@ OUT = ROOT / 'docs/refactor-prototype'
 
 
 def main():
-    inventory=json.loads((OUT/'interaction-inventory.json').read_text())
-    catalog=json.loads((OUT/'api-catalog.json').read_text())
+    inventory=json.loads((OUT/'interaction-inventory.json').read_text(encoding='utf-8'))
+    catalog=json.loads((OUT/'api-catalog.json').read_text(encoding='utf-8'))
     operations={op['operationId'] for op in catalog['operations']}
     mappings={}
     def bind(names, *ids):
         for name in names.split():
             mappings[name]=list(ids)
     bind('handleDeployToEngine','targetCreateDeployment')
-    bind('handleUpdateProcess','targetSaveProcessModelDraft')
-    bind('handleRegisterCustomWorkflow handleCreateCustomWorkflow','targetInstantiateTemplate','targetCreateProcessModel')
+    bind('handleUpdateProcess','saveProcessModelDraft')
+    bind('handleRegisterCustomWorkflow handleCreateCustomWorkflow','targetInstantiateTemplate','createProcessModel')
     bind('handleTaskCompleted handleSubmitTask handleOfficerDecisionSubmit','completeWorkItem','targetSubmitWorkItemForm')
     bind('handleClaimTask','claimWorkItem');bind('handleUnclaimTask','unclaimWorkItem')
     bind('handleBulkAction','targetBatchWorkItemActions')
@@ -98,7 +98,7 @@ def main():
             if entry['name'] == 'onSelectTenant':
                 ids=['targetSwitchSessionTenant']; kind='API_CANDIDATE'
             elif 'setAllocationRules(' in expression:
-                ids=['targetUpdateAssignmentPolicy']; kind='API_CANDIDATE'
+                ids=['upsertAssignmentPolicy']; kind='API_CANDIDATE'
             elif 'setActiveEditingItem(' in expression or 'setNewQueueRoles(' in expression:
                 kind='LOCAL_DRAFT'
             elif 'setUploadedFiles(' in expression or 'onUploadAdditionalDoc' in expression:
@@ -157,7 +157,7 @@ def main():
             reason='No direct JSX callback in captured native control. Inspect enclosing form, wrapper/delegation, read-only/disabled state or placeholder before assigning an API.'
         if kind=='LOCAL_DRAFT':
             if '/modeler/' in file:
-                ids=['targetSaveDecisionModelDraft' if 'Dmn' in file else 'targetSaveProcessModelDraft']
+                ids=['saveDecisionModelDraft' if 'Dmn' in file else 'saveProcessModelDraft']
             elif 'TaskManagement' in file:
                 ids=['targetUpdatePolicy','targetPublishPolicy']
         ids=sorted(set(ids));assert set(ids)<=operations,(entry['id'],ids)
@@ -183,21 +183,16 @@ def main():
                 row['classification']=nearest['classification']
                 row['operationIds']=nearest['operationIds']
                 row['reason']='Lexically paired with '+nearest['uiId']+' callback; verify runtime propagation and actual action.'
-    with (OUT/'ui-api-mapping.csv').open('w',newline='') as f:
-        writer=csv.DictWriter(f,fieldnames=list(rows[0]));writer.writeheader();writer.writerows(rows)
+    with (OUT/'ui-api-mapping.csv').open('w',newline='',encoding='utf-8') as f:
+        writer=csv.DictWriter(f,fieldnames=list(rows[0]),lineterminator='\n');writer.writeheader();writer.writerows([{key: re.sub(r'[ \t]+(?=\n|$)', '', value) if isinstance(value,str) else value for key,value in row.items()} for row in rows])
     counts=Counter(r['classification'] for r in rows)
-    lines=['# UI control/event → API traceability', '',
-           'Generated lexical candidates, not verified semantic coverage. Every inventory row is included once; a control and its callback can represent the same interaction. All rows remain pending source/browser review. Do not count API_CANDIDATE as implemented or accepted parity.', '',
-           'Full source hash/expression: [inventory JSON](interaction-inventory.json). Machine mapping: [CSV](ui-api-mapping.csv). Operation IDs: [API reference](api-operation-reference.md).', '',
+    lines=['# UI to API traceability', '',
+           'Generated lexical inventory summary; this is not accepted behavioral parity. A control and callback can describe one interaction. `API_CANDIDATE` does not mean the API is implemented.', '',
+           'Detailed source lines and classifications are in [CSV](ui-api-mapping.csv); source expressions and file hashes are in [inventory JSON](interaction-inventory.json). Review each candidate against its handler and browser behavior before calling the workflow complete.', '',
            '| Classification | Rows |','|---|---:|']
     lines.extend(f'| {kind} | {count} |' for kind,count in sorted(counts.items()))
-    lines += ['', '## Mapping', '', '| UI ID | File:line | Event/control | Classification | Operation IDs |', '|---|---|---|---|---|']
-    for row in rows:
-        lines.append(f"| {row['uiId']} | {row['file']}:{row['line']} | {row['eventOrControl']} | {row['classification']} | {row['operationIds']} |")
-    lines += ['', '## Review rule', '',
-              'REVIEW_REQUIRED blocks parity completion. Native controls without a direct handler can be form submitters, wrapped/delegated controls, disabled placeholders or unimplemented UI. Inspect the nearest form/component and handler body. Inline mutations and dynamic labels require manual mapping; do not add a guessed endpoint to inflate coverage.',
-              'LOCAL_UI/LOCAL_DRAFT are lexical candidates too: changing a permission toggle might require immediate owner mutation while another toggle is staged until Save. Verify persistence boundary. Demo persona/sample conflicts stay development-only. Permanent delete requires Governance/retention design, not ordinary entity DELETE.']
-    (OUT/'ui-api-mapping.md').write_text('\n'.join(lines)+'\n')
+    lines += ['', 'The source inventory is lexical evidence. Dynamic labels, delegated handlers, disabled controls, submit behavior, and persistence boundaries require manual review. `REVIEW_REQUIRED` rows remain open until that review is recorded.']
+    (OUT/'ui-api-mapping.md').write_text('\n'.join(lines)+'\n',encoding='utf-8')
     print(f'{len(rows)} inventory rows: {dict(counts)}; all pending review')
 
 

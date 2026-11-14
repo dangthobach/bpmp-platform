@@ -124,11 +124,11 @@ Không sửa core semantics hoặc Protobuf durable payload trong đợt thiết
 | ReadChanges/ReconcileManifest | scope-bound resume token, generation chain, token-expired response |
 | ConsumerSubscriptions/Status | workload capability, allowed datasets/fields/scope, schema support và lag |
 
-UI gọi MDM qua BFF; services gRPC/mTLS và actor/workload proof theo use case. APIs không chấp nhận tenant hoặc field visibility như dữ liệu client tự cấp. Áp dụng [đặc tả phân quyền và truy cập dữ liệu](authorization-and-data-access.md) cho tenant/scope/field filtering và revocation. ETag cho immutable queries theo release + authorized view; không key cache chỉ bằng URL/modelKey. Query search cache cần cả tenant, scope, policy epoch, schema, release và query digest. HTTP/Protobuf names chưa chốt; reuse conventions repo khi implementation.
+UI gọi MDM qua BFF; services gRPC/mTLS và actor/workload proof theo use case. APIs không chấp nhận tenant hoặc field visibility như dữ liệu client tự cấp. Áp dụng [đặc tả phân quyền và truy cập dữ liệu](../authorization-and-data-access.md) cho tenant/scope/field filtering và revocation. ETag cho immutable queries theo release + authorized view; không key cache chỉ bằng URL/modelKey. Query search cache cần cả tenant, scope, policy epoch, schema, release và query digest. HTTP/Protobuf names chưa chốt; reuse conventions repo khi implementation.
 
 ## Data model, ownership và index
 
-Xem ERD `mdm` trong [data model](data-model.md) và schema trong [DBML](schema.dbml). MDM PostgreSQL riêng; local consumer replicas không FK vào MDM và không được nhận write từ ứng dụng.
+Xem ERD `mdm` trong [data model](../data-model.md) và schema trong [DBML](../schema.dbml). MDM PostgreSQL riêng; local consumer replicas không FK vào MDM và không được nhận write từ ứng dụng.
 
 Bốn nhóm: model/schema versions; dataset drafts và records/references/mappings; immutable releases và publication bundles; subscription/sync jobs + owner-local audit/outbox/receipts. Shared platform catalog phát hành dưới scope publisher rõ ràng; tenant phải subscribe explicit. Không dùng `tenant_id = NULL` để mở dữ liệu chung hoặc tự fallback sang global khi lookup không thấy. Tenant override chỉ qua explicit publication precedence và provenance trong bundle; không merge động không xác định tại thời điểm đọc.
 
@@ -148,3 +148,4 @@ Bắt đầu với branch/currency/document-type reference, Admin MFE và một 
 - Expand migrations và contract trước consumer; canary theo tenant; rollback publication tạo generation mới; giữ artifact/schema compatible trong cửa sổ rollback. Không rollback bằng ghi đè immutable release.
 
 Chưa lựa chọn cache TTL, size cap, retention hoặc SLO bằng số tùy ý. Các giá trị là config được kiểm bounds, cần quyết định theo freshness policy, dataset size và benchmark của consumer thật.
+

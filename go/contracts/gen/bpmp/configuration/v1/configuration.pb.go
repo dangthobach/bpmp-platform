@@ -2186,8 +2186,12 @@ type ResolveConfigurationRequest struct {
 	EnvironmentReference string                 `protobuf:"bytes,5,opt,name=environment_reference,json=environmentReference,proto3" json:"environment_reference,omitempty"`
 	InstanceId           string                 `protobuf:"bytes,6,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
 	Owner                ConfigurationOwner     `protobuf:"varint,7,opt,name=owner,proto3,enum=bpmp.configuration.v1.ConfigurationOwner" json:"owner,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// Both fields must be provided together to resolve an immutable published
+	// snapshot; leave both empty to resolve the current effective version.
+	ConfigVersion string `protobuf:"bytes,8,opt,name=config_version,json=configVersion,proto3" json:"config_version,omitempty"`
+	PolicyVersion string `protobuf:"bytes,9,opt,name=policy_version,json=policyVersion,proto3" json:"policy_version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ResolveConfigurationRequest) Reset() {
@@ -2267,6 +2271,20 @@ func (x *ResolveConfigurationRequest) GetOwner() ConfigurationOwner {
 		return x.Owner
 	}
 	return ConfigurationOwner_CONFIGURATION_OWNER_UNSPECIFIED
+}
+
+func (x *ResolveConfigurationRequest) GetConfigVersion() string {
+	if x != nil {
+		return x.ConfigVersion
+	}
+	return ""
+}
+
+func (x *ResolveConfigurationRequest) GetPolicyVersion() string {
+	if x != nil {
+		return x.PolicyVersion
+	}
+	return ""
 }
 
 type ResolveConfigurationResponse struct {
@@ -2695,7 +2713,7 @@ const file_bpmp_configuration_v1_configuration_proto_rawDesc = "" +
 	"\aordinal\x18\r \x01(\x04R\aordinal\x12f\n" +
 	"\x15configuration_service\x18\x0e \x01(\v21.bpmp.configuration.v1.ConfigurationServicePolicyR\x14configurationService\x12T\n" +
 	"\x0fcockpit_gateway\x18\x0f \x01(\v2+.bpmp.configuration.v1.CockpitGatewayPolicyR\x0ecockpitGateway\x12^\n" +
-	"\x13authz_control_plane\x18\x10 \x01(\v2..bpmp.configuration.v1.AuthzControlPlanePolicyR\x11authzControlPlane\"\xd0\x02\n" +
+	"\x13authz_control_plane\x18\x10 \x01(\v2..bpmp.configuration.v1.AuthzControlPlanePolicyR\x11authzControlPlane\"\x9e\x03\n" +
 	"\x1bResolveConfigurationRequest\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12#\n" +
 	"\rworkflow_type\x18\x02 \x01(\tR\fworkflowType\x12)\n" +
@@ -2704,7 +2722,9 @@ const file_bpmp_configuration_v1_configuration_proto_rawDesc = "" +
 	"\x15environment_reference\x18\x05 \x01(\tR\x14environmentReference\x12\x1f\n" +
 	"\vinstance_id\x18\x06 \x01(\tR\n" +
 	"instanceId\x12?\n" +
-	"\x05owner\x18\a \x01(\x0e2).bpmp.configuration.v1.ConfigurationOwnerR\x05owner\"p\n" +
+	"\x05owner\x18\a \x01(\x0e2).bpmp.configuration.v1.ConfigurationOwnerR\x05owner\x12%\n" +
+	"\x0econfig_version\x18\b \x01(\tR\rconfigVersion\x12%\n" +
+	"\x0epolicy_version\x18\t \x01(\tR\rpolicyVersion\"p\n" +
 	"\x1cResolveConfigurationResponse\x12P\n" +
 	"\bsnapshot\x18\x01 \x01(\v24.bpmp.configuration.v1.ResolvedConfigurationSnapshotR\bsnapshot\"\xdb\x05\n" +
 	"\x1dConfigurationPublicationEvent\x12%\n" +

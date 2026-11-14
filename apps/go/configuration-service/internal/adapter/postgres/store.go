@@ -130,7 +130,7 @@ func (s *Store) Resolve(
 	ctx context.Context,
 	lookup domain.ResolutionLookup,
 ) (domain.ResolvedConfiguration, error) {
-	row := s.pool.QueryRow(ctx, `SELECT
+	query := `SELECT
 		p.id::text,p.tenant_id,p.owner,p.name,p.scope_type,p.scope_reference,p.aggregate_version,
 		COALESCE(p.current_published_version_id::text,''),p.is_deleted,p.created_at,p.updated_at,
 		v.id::text,v.profile_id::text,v.tenant_id,v.ordinal,v.config_version,v.policy_version,
@@ -155,9 +155,41 @@ func (s *Store) Resolve(
 			WHEN 'ENVIRONMENT' THEN 2
 			WHEN 'PLATFORM' THEN 1
 			ELSE 0 END DESC
-		LIMIT 1`,
+		LIMIT 1`
+	args := []any{
 		lookup.TenantID, lookup.Owner, lookup.WorkflowType, lookup.WorkflowVersion,
-		lookup.PlatformReference, lookup.EnvironmentReference, lookup.InstanceID)
+		lookup.PlatformReference, lookup.EnvironmentReference, lookup.InstanceID,
+	}
+	if lookup.ConfigVersion != "" {
+		query = `SELECT
+			p.id::text,p.tenant_id,p.owner,p.name,p.scope_type,p.scope_reference,p.aggregate_version,
+			COALESCE(p.current_published_version_id::text,''),p.is_deleted,p.created_at,p.updated_at,
+			v.id::text,v.profile_id::text,v.tenant_id,v.ordinal,v.config_version,v.policy_version,
+			v.schema_version,v.status,v.values_json::text,v.content_hash,v.reason,v.created_at,v.created_by,
+			v.published_at,COALESCE(v.published_by,'')
+			FROM configuration_profiles p
+			JOIN configuration_versions v ON v.profile_id=p.id AND v.tenant_id=p.tenant_id
+			WHERE p.tenant_id=$1 AND p.owner=$2 AND v.config_version=$8 AND v.policy_version=$9
+				AND v.status IN ('PUBLISHED','RETIRED') AND (
+					(p.scope_type='APPROVED_INSTANCE_OVERRIDE' AND $7<>'' AND p.scope_reference=$7) OR
+					(p.scope_type='WORKFLOW_VERSION' AND p.scope_reference=$3 || ':' || $4) OR
+					(p.scope_type='WORKFLOW_TYPE' AND p.scope_reference=$3) OR
+					(p.scope_type='TENANT' AND p.scope_reference=$1) OR
+					(p.scope_type='ENVIRONMENT' AND p.scope_reference=$6) OR
+					(p.scope_type='PLATFORM' AND p.scope_reference=$5)
+				)
+			ORDER BY CASE p.scope_type
+				WHEN 'APPROVED_INSTANCE_OVERRIDE' THEN 6
+				WHEN 'WORKFLOW_VERSION' THEN 5
+				WHEN 'WORKFLOW_TYPE' THEN 4
+				WHEN 'TENANT' THEN 3
+				WHEN 'ENVIRONMENT' THEN 2
+				WHEN 'PLATFORM' THEN 1
+				ELSE 0 END DESC
+			LIMIT 1`
+		args = append(args, lookup.ConfigVersion, lookup.PolicyVersion)
+	}
+	row := s.pool.QueryRow(ctx, query, args...)
 	var resolved domain.ResolvedConfiguration
 	var scopeType, status, values string
 	var hash []byte

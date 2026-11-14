@@ -41,11 +41,14 @@ func (s *Service) Resolve(
 	lookup.PlatformReference = strings.TrimSpace(lookup.PlatformReference)
 	lookup.EnvironmentReference = strings.TrimSpace(lookup.EnvironmentReference)
 	lookup.InstanceID = strings.TrimSpace(lookup.InstanceID)
+	lookup.ConfigVersion = strings.TrimSpace(lookup.ConfigVersion)
+	lookup.PolicyVersion = strings.TrimSpace(lookup.PolicyVersion)
 	if lookup.TenantID == "" || domain.ValidateOwner(lookup.Owner) != nil ||
 		(lookup.Owner == domain.OwnerEngine && (lookup.WorkflowType == "" ||
 			lookup.WorkflowVersion == "")) ||
 		lookup.PlatformReference == "" ||
-		lookup.EnvironmentReference == "" {
+		lookup.EnvironmentReference == "" ||
+		((lookup.ConfigVersion == "") != (lookup.PolicyVersion == "")) {
 		return domain.ResolvedConfiguration{}, domain.ErrInvalid
 	}
 	return s.repository.Resolve(ctx, lookup)

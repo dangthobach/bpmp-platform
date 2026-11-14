@@ -32,6 +32,17 @@ pub trait CommandDefinitionProviderPort: Send + Sync {
         workflow_type: &WorkflowType,
         workflow_version: &WorkflowVersion,
     ) -> Result<WorkflowDefinition, String>;
+
+    /// Returns whether a workflow version is active for new instances.
+    /// `None` preserves legacy static deployments without an activation record.
+    fn is_active_version(
+        &self,
+        _tenant_id: &TenantId,
+        _workflow_type: &WorkflowType,
+        _workflow_version: &WorkflowVersion,
+    ) -> Result<Option<bool>, String> {
+        Ok(None)
+    }
 }
 
 pub trait EngineCommandHandlerPort: Send + Sync + 'static {
@@ -123,6 +134,15 @@ impl<T: CommandDefinitionProviderPort + ?Sized> CommandDefinitionProviderPort fo
     ) -> Result<WorkflowDefinition, String> {
         (**self).resolve(tenant_id, workflow_type, workflow_version)
     }
+
+    fn is_active_version(
+        &self,
+        tenant_id: &TenantId,
+        workflow_type: &WorkflowType,
+        workflow_version: &WorkflowVersion,
+    ) -> Result<Option<bool>, String> {
+        (**self).is_active_version(tenant_id, workflow_type, workflow_version)
+    }
 }
 
 impl<C, S, A, D> EngineCommandHandlerPort for AuthoritativeCommandHandler<C, S, A, D>
@@ -147,6 +167,19 @@ where
             || definition.workflow_version != scope.workflow_version
         {
             return Err(TransportError::DefinitionScopeMismatch);
+        }
+        if matches!(&envelope.command, Some(WireCommand::StartWorkflow(_)))
+            && self
+                .definitions
+                .is_active_version(
+                    &scope.tenant_id,
+                    &scope.workflow_type,
+                    &scope.workflow_version,
+                )
+                .map_err(TransportError::Definition)?
+                == Some(false)
+        {
+            return Err(TransportError::InactiveWorkflowVersion);
         }
         let command_id = envelope.command_id.clone();
         let mut request = map_authorized_command(&envelope, &definition, scope)?;
@@ -554,6 +587,8 @@ pub enum TransportError {
     Definition(String),
     #[error("resolved workflow definition scope does not match the command")]
     DefinitionScopeMismatch,
+    #[error("workflow version is not active for new instances")]
+    InactiveWorkflowVersion,
     #[error("branch scope resolver is required for branch-bound workflows")]
     BranchScopeResolverUnavailable,
     #[error("branch scope could not be resolved: {0}")]
@@ -581,6 +616,7 @@ impl From<TransportError> for Status {
             | TransportError::BranchScope(_) => Self::unavailable(error.to_string()),
             TransportError::Engine(_)
             | TransportError::DefinitionScopeMismatch
+            | TransportError::InactiveWorkflowVersion
             | TransportError::BranchScopeResolverUnavailable => {
                 Self::failed_precondition(error.to_string())
             }

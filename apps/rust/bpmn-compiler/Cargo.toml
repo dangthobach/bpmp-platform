@@ -7,10 +7,12 @@ rust-version.workspace = true
 
 [dependencies]
 bpmp-contracts.workspace = true
+bpmp-transport-observability.workspace = true
 clap.workspace = true
 quick-xml.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
+sha2.workspace = true
 tokio.workspace = true
 tonic.workspace = true
 tonic-prost.workspace = true

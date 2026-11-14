@@ -462,6 +462,246 @@ func (x *ForwardCommandResponse) GetReceipt() *v1.CommandReceipt {
 	return nil
 }
 
+type ForwardDeploymentAckRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SchemaVersion uint32                 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
+	SourceNodeId  uint64                 `protobuf:"varint,2,opt,name=source_node_id,json=sourceNodeId,proto3" json:"source_node_id,omitempty"`
+	CommandId     string                 `protobuf:"bytes,3,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
+	StorageKey    []byte                 `protobuf:"bytes,4,opt,name=storage_key,json=storageKey,proto3" json:"storage_key,omitempty"`
+	Value         []byte                 `protobuf:"bytes,5,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ForwardDeploymentAckRequest) Reset() {
+	*x = ForwardDeploymentAckRequest{}
+	mi := &file_bpmp_raft_v1_raft_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ForwardDeploymentAckRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ForwardDeploymentAckRequest) ProtoMessage() {}
+
+func (x *ForwardDeploymentAckRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_raft_v1_raft_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ForwardDeploymentAckRequest.ProtoReflect.Descriptor instead.
+func (*ForwardDeploymentAckRequest) Descriptor() ([]byte, []int) {
+	return file_bpmp_raft_v1_raft_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *ForwardDeploymentAckRequest) GetSchemaVersion() uint32 {
+	if x != nil {
+		return x.SchemaVersion
+	}
+	return 0
+}
+
+func (x *ForwardDeploymentAckRequest) GetSourceNodeId() uint64 {
+	if x != nil {
+		return x.SourceNodeId
+	}
+	return 0
+}
+
+func (x *ForwardDeploymentAckRequest) GetCommandId() string {
+	if x != nil {
+		return x.CommandId
+	}
+	return ""
+}
+
+func (x *ForwardDeploymentAckRequest) GetStorageKey() []byte {
+	if x != nil {
+		return x.StorageKey
+	}
+	return nil
+}
+
+func (x *ForwardDeploymentAckRequest) GetValue() []byte {
+	if x != nil {
+		return x.Value
+	}
+	return nil
+}
+
+type ForwardDeploymentAckResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Committed     bool                   `protobuf:"varint,1,opt,name=committed,proto3" json:"committed,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ForwardDeploymentAckResponse) Reset() {
+	*x = ForwardDeploymentAckResponse{}
+	mi := &file_bpmp_raft_v1_raft_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ForwardDeploymentAckResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ForwardDeploymentAckResponse) ProtoMessage() {}
+
+func (x *ForwardDeploymentAckResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_raft_v1_raft_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ForwardDeploymentAckResponse.ProtoReflect.Descriptor instead.
+func (*ForwardDeploymentAckResponse) Descriptor() ([]byte, []int) {
+	return file_bpmp_raft_v1_raft_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *ForwardDeploymentAckResponse) GetCommitted() bool {
+	if x != nil {
+		return x.Committed
+	}
+	return false
+}
+
+type ForwardDeploymentIntentRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SchemaVersion uint32                 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
+	SourceNodeId  uint64                 `protobuf:"varint,2,opt,name=source_node_id,json=sourceNodeId,proto3" json:"source_node_id,omitempty"`
+	CommandId     string                 `protobuf:"bytes,3,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
+	StorageKey    []byte                 `protobuf:"bytes,4,opt,name=storage_key,json=storageKey,proto3" json:"storage_key,omitempty"`
+	Value         []byte                 `protobuf:"bytes,5,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ForwardDeploymentIntentRequest) Reset() {
+	*x = ForwardDeploymentIntentRequest{}
+	mi := &file_bpmp_raft_v1_raft_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ForwardDeploymentIntentRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ForwardDeploymentIntentRequest) ProtoMessage() {}
+
+func (x *ForwardDeploymentIntentRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_raft_v1_raft_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ForwardDeploymentIntentRequest.ProtoReflect.Descriptor instead.
+func (*ForwardDeploymentIntentRequest) Descriptor() ([]byte, []int) {
+	return file_bpmp_raft_v1_raft_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *ForwardDeploymentIntentRequest) GetSchemaVersion() uint32 {
+	if x != nil {
+		return x.SchemaVersion
+	}
+	return 0
+}
+
+func (x *ForwardDeploymentIntentRequest) GetSourceNodeId() uint64 {
+	if x != nil {
+		return x.SourceNodeId
+	}
+	return 0
+}
+
+func (x *ForwardDeploymentIntentRequest) GetCommandId() string {
+	if x != nil {
+		return x.CommandId
+	}
+	return ""
+}
+
+func (x *ForwardDeploymentIntentRequest) GetStorageKey() []byte {
+	if x != nil {
+		return x.StorageKey
+	}
+	return nil
+}
+
+func (x *ForwardDeploymentIntentRequest) GetValue() []byte {
+	if x != nil {
+		return x.Value
+	}
+	return nil
+}
+
+type ForwardDeploymentIntentResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Committed     bool                   `protobuf:"varint,1,opt,name=committed,proto3" json:"committed,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ForwardDeploymentIntentResponse) Reset() {
+	*x = ForwardDeploymentIntentResponse{}
+	mi := &file_bpmp_raft_v1_raft_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ForwardDeploymentIntentResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ForwardDeploymentIntentResponse) ProtoMessage() {}
+
+func (x *ForwardDeploymentIntentResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_raft_v1_raft_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ForwardDeploymentIntentResponse.ProtoReflect.Descriptor instead.
+func (*ForwardDeploymentIntentResponse) Descriptor() ([]byte, []int) {
+	return file_bpmp_raft_v1_raft_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *ForwardDeploymentIntentResponse) GetCommitted() bool {
+	if x != nil {
+		return x.Committed
+	}
+	return false
+}
+
 type AddLearnerRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	SchemaVersion uint32                 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
@@ -474,7 +714,7 @@ type AddLearnerRequest struct {
 
 func (x *AddLearnerRequest) Reset() {
 	*x = AddLearnerRequest{}
-	mi := &file_bpmp_raft_v1_raft_proto_msgTypes[8]
+	mi := &file_bpmp_raft_v1_raft_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -486,7 +726,7 @@ func (x *AddLearnerRequest) String() string {
 func (*AddLearnerRequest) ProtoMessage() {}
 
 func (x *AddLearnerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_raft_v1_raft_proto_msgTypes[8]
+	mi := &file_bpmp_raft_v1_raft_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -499,7 +739,7 @@ func (x *AddLearnerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddLearnerRequest.ProtoReflect.Descriptor instead.
 func (*AddLearnerRequest) Descriptor() ([]byte, []int) {
-	return file_bpmp_raft_v1_raft_proto_rawDescGZIP(), []int{8}
+	return file_bpmp_raft_v1_raft_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *AddLearnerRequest) GetSchemaVersion() uint32 {
@@ -541,7 +781,7 @@ type ChangeMembershipRequest struct {
 
 func (x *ChangeMembershipRequest) Reset() {
 	*x = ChangeMembershipRequest{}
-	mi := &file_bpmp_raft_v1_raft_proto_msgTypes[9]
+	mi := &file_bpmp_raft_v1_raft_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -553,7 +793,7 @@ func (x *ChangeMembershipRequest) String() string {
 func (*ChangeMembershipRequest) ProtoMessage() {}
 
 func (x *ChangeMembershipRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_raft_v1_raft_proto_msgTypes[9]
+	mi := &file_bpmp_raft_v1_raft_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -566,7 +806,7 @@ func (x *ChangeMembershipRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChangeMembershipRequest.ProtoReflect.Descriptor instead.
 func (*ChangeMembershipRequest) Descriptor() ([]byte, []int) {
-	return file_bpmp_raft_v1_raft_proto_rawDescGZIP(), []int{9}
+	return file_bpmp_raft_v1_raft_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ChangeMembershipRequest) GetSchemaVersion() uint32 {
@@ -602,7 +842,7 @@ type AddLearnerResponse struct {
 
 func (x *AddLearnerResponse) Reset() {
 	*x = AddLearnerResponse{}
-	mi := &file_bpmp_raft_v1_raft_proto_msgTypes[10]
+	mi := &file_bpmp_raft_v1_raft_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -614,7 +854,7 @@ func (x *AddLearnerResponse) String() string {
 func (*AddLearnerResponse) ProtoMessage() {}
 
 func (x *AddLearnerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_raft_v1_raft_proto_msgTypes[10]
+	mi := &file_bpmp_raft_v1_raft_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -627,7 +867,7 @@ func (x *AddLearnerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddLearnerResponse.ProtoReflect.Descriptor instead.
 func (*AddLearnerResponse) Descriptor() ([]byte, []int) {
-	return file_bpmp_raft_v1_raft_proto_rawDescGZIP(), []int{10}
+	return file_bpmp_raft_v1_raft_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *AddLearnerResponse) GetSchemaVersion() uint32 {
@@ -670,7 +910,7 @@ type ChangeMembershipResponse struct {
 
 func (x *ChangeMembershipResponse) Reset() {
 	*x = ChangeMembershipResponse{}
-	mi := &file_bpmp_raft_v1_raft_proto_msgTypes[11]
+	mi := &file_bpmp_raft_v1_raft_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -682,7 +922,7 @@ func (x *ChangeMembershipResponse) String() string {
 func (*ChangeMembershipResponse) ProtoMessage() {}
 
 func (x *ChangeMembershipResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_bpmp_raft_v1_raft_proto_msgTypes[11]
+	mi := &file_bpmp_raft_v1_raft_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -695,7 +935,7 @@ func (x *ChangeMembershipResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChangeMembershipResponse.ProtoReflect.Descriptor instead.
 func (*ChangeMembershipResponse) Descriptor() ([]byte, []int) {
-	return file_bpmp_raft_v1_raft_proto_rawDescGZIP(), []int{11}
+	return file_bpmp_raft_v1_raft_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ChangeMembershipResponse) GetSchemaVersion() uint32 {
@@ -757,7 +997,27 @@ const file_bpmp_raft_v1_raft_proto_rawDesc = "" +
 	"\thop_count\x18\x02 \x01(\rR\bhopCount\x129\n" +
 	"\acommand\x18\x03 \x01(\v2\x1f.bpmp.engine.v1.CommandEnvelopeR\acommand\"R\n" +
 	"\x16ForwardCommandResponse\x128\n" +
-	"\areceipt\x18\x01 \x01(\v2\x1e.bpmp.engine.v1.CommandReceiptR\areceipt\"\x92\x01\n" +
+	"\areceipt\x18\x01 \x01(\v2\x1e.bpmp.engine.v1.CommandReceiptR\areceipt\"\xc0\x01\n" +
+	"\x1bForwardDeploymentAckRequest\x12%\n" +
+	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12$\n" +
+	"\x0esource_node_id\x18\x02 \x01(\x04R\fsourceNodeId\x12\x1d\n" +
+	"\n" +
+	"command_id\x18\x03 \x01(\tR\tcommandId\x12\x1f\n" +
+	"\vstorage_key\x18\x04 \x01(\fR\n" +
+	"storageKey\x12\x14\n" +
+	"\x05value\x18\x05 \x01(\fR\x05value\"<\n" +
+	"\x1cForwardDeploymentAckResponse\x12\x1c\n" +
+	"\tcommitted\x18\x01 \x01(\bR\tcommitted\"\xc3\x01\n" +
+	"\x1eForwardDeploymentIntentRequest\x12%\n" +
+	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12$\n" +
+	"\x0esource_node_id\x18\x02 \x01(\x04R\fsourceNodeId\x12\x1d\n" +
+	"\n" +
+	"command_id\x18\x03 \x01(\tR\tcommandId\x12\x1f\n" +
+	"\vstorage_key\x18\x04 \x01(\fR\n" +
+	"storageKey\x12\x14\n" +
+	"\x05value\x18\x05 \x01(\fR\x05value\"?\n" +
+	"\x1fForwardDeploymentIntentResponse\x12\x1c\n" +
+	"\tcommitted\x18\x01 \x01(\bR\tcommitted\"\x92\x01\n" +
 	"\x11AddLearnerRequest\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x17\n" +
 	"\anode_id\x18\x02 \x01(\x04R\x06nodeId\x12!\n" +
@@ -782,12 +1042,14 @@ const file_bpmp_raft_v1_raft_proto_rawDesc = "" +
 	"\x0eleader_address\x18\x04 \x01(\tH\x01R\rleaderAddress\x88\x01\x01B\f\n" +
 	"\n" +
 	"_leader_idB\x11\n" +
-	"\x0f_leader_address2\x9b\x04\n" +
+	"\x0f_leader_address2\x82\x06\n" +
 	"\x0fRaftPeerService\x12X\n" +
 	"\rAppendEntries\x12\".bpmp.raft.v1.AppendEntriesRequest\x1a#.bpmp.raft.v1.AppendEntriesResponse\x12=\n" +
 	"\x04Vote\x12\x19.bpmp.raft.v1.VoteRequest\x1a\x1a.bpmp.raft.v1.VoteResponse\x12^\n" +
 	"\x0fInstallSnapshot\x12$.bpmp.raft.v1.InstallSnapshotRequest\x1a%.bpmp.raft.v1.InstallSnapshotResponse\x12[\n" +
-	"\x0eForwardCommand\x12#.bpmp.raft.v1.ForwardCommandRequest\x1a$.bpmp.raft.v1.ForwardCommandResponse\x12O\n" +
+	"\x0eForwardCommand\x12#.bpmp.raft.v1.ForwardCommandRequest\x1a$.bpmp.raft.v1.ForwardCommandResponse\x12m\n" +
+	"\x14ForwardDeploymentAck\x12).bpmp.raft.v1.ForwardDeploymentAckRequest\x1a*.bpmp.raft.v1.ForwardDeploymentAckResponse\x12v\n" +
+	"\x17ForwardDeploymentIntent\x12,.bpmp.raft.v1.ForwardDeploymentIntentRequest\x1a-.bpmp.raft.v1.ForwardDeploymentIntentResponse\x12O\n" +
 	"\n" +
 	"AddLearner\x12\x1f.bpmp.raft.v1.AddLearnerRequest\x1a .bpmp.raft.v1.AddLearnerResponse\x12a\n" +
 	"\x10ChangeMembership\x12%.bpmp.raft.v1.ChangeMembershipRequest\x1a&.bpmp.raft.v1.ChangeMembershipResponseB\xba\x01\n" +
@@ -805,40 +1067,48 @@ func file_bpmp_raft_v1_raft_proto_rawDescGZIP() []byte {
 	return file_bpmp_raft_v1_raft_proto_rawDescData
 }
 
-var file_bpmp_raft_v1_raft_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_bpmp_raft_v1_raft_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_bpmp_raft_v1_raft_proto_goTypes = []any{
-	(*AppendEntriesRequest)(nil),     // 0: bpmp.raft.v1.AppendEntriesRequest
-	(*AppendEntriesResponse)(nil),    // 1: bpmp.raft.v1.AppendEntriesResponse
-	(*VoteRequest)(nil),              // 2: bpmp.raft.v1.VoteRequest
-	(*VoteResponse)(nil),             // 3: bpmp.raft.v1.VoteResponse
-	(*InstallSnapshotRequest)(nil),   // 4: bpmp.raft.v1.InstallSnapshotRequest
-	(*InstallSnapshotResponse)(nil),  // 5: bpmp.raft.v1.InstallSnapshotResponse
-	(*ForwardCommandRequest)(nil),    // 6: bpmp.raft.v1.ForwardCommandRequest
-	(*ForwardCommandResponse)(nil),   // 7: bpmp.raft.v1.ForwardCommandResponse
-	(*AddLearnerRequest)(nil),        // 8: bpmp.raft.v1.AddLearnerRequest
-	(*ChangeMembershipRequest)(nil),  // 9: bpmp.raft.v1.ChangeMembershipRequest
-	(*AddLearnerResponse)(nil),       // 10: bpmp.raft.v1.AddLearnerResponse
-	(*ChangeMembershipResponse)(nil), // 11: bpmp.raft.v1.ChangeMembershipResponse
-	(*v1.CommandEnvelope)(nil),       // 12: bpmp.engine.v1.CommandEnvelope
-	(*v1.CommandReceipt)(nil),        // 13: bpmp.engine.v1.CommandReceipt
+	(*AppendEntriesRequest)(nil),            // 0: bpmp.raft.v1.AppendEntriesRequest
+	(*AppendEntriesResponse)(nil),           // 1: bpmp.raft.v1.AppendEntriesResponse
+	(*VoteRequest)(nil),                     // 2: bpmp.raft.v1.VoteRequest
+	(*VoteResponse)(nil),                    // 3: bpmp.raft.v1.VoteResponse
+	(*InstallSnapshotRequest)(nil),          // 4: bpmp.raft.v1.InstallSnapshotRequest
+	(*InstallSnapshotResponse)(nil),         // 5: bpmp.raft.v1.InstallSnapshotResponse
+	(*ForwardCommandRequest)(nil),           // 6: bpmp.raft.v1.ForwardCommandRequest
+	(*ForwardCommandResponse)(nil),          // 7: bpmp.raft.v1.ForwardCommandResponse
+	(*ForwardDeploymentAckRequest)(nil),     // 8: bpmp.raft.v1.ForwardDeploymentAckRequest
+	(*ForwardDeploymentAckResponse)(nil),    // 9: bpmp.raft.v1.ForwardDeploymentAckResponse
+	(*ForwardDeploymentIntentRequest)(nil),  // 10: bpmp.raft.v1.ForwardDeploymentIntentRequest
+	(*ForwardDeploymentIntentResponse)(nil), // 11: bpmp.raft.v1.ForwardDeploymentIntentResponse
+	(*AddLearnerRequest)(nil),               // 12: bpmp.raft.v1.AddLearnerRequest
+	(*ChangeMembershipRequest)(nil),         // 13: bpmp.raft.v1.ChangeMembershipRequest
+	(*AddLearnerResponse)(nil),              // 14: bpmp.raft.v1.AddLearnerResponse
+	(*ChangeMembershipResponse)(nil),        // 15: bpmp.raft.v1.ChangeMembershipResponse
+	(*v1.CommandEnvelope)(nil),              // 16: bpmp.engine.v1.CommandEnvelope
+	(*v1.CommandReceipt)(nil),               // 17: bpmp.engine.v1.CommandReceipt
 }
 var file_bpmp_raft_v1_raft_proto_depIdxs = []int32{
-	12, // 0: bpmp.raft.v1.ForwardCommandRequest.command:type_name -> bpmp.engine.v1.CommandEnvelope
-	13, // 1: bpmp.raft.v1.ForwardCommandResponse.receipt:type_name -> bpmp.engine.v1.CommandReceipt
+	16, // 0: bpmp.raft.v1.ForwardCommandRequest.command:type_name -> bpmp.engine.v1.CommandEnvelope
+	17, // 1: bpmp.raft.v1.ForwardCommandResponse.receipt:type_name -> bpmp.engine.v1.CommandReceipt
 	0,  // 2: bpmp.raft.v1.RaftPeerService.AppendEntries:input_type -> bpmp.raft.v1.AppendEntriesRequest
 	2,  // 3: bpmp.raft.v1.RaftPeerService.Vote:input_type -> bpmp.raft.v1.VoteRequest
 	4,  // 4: bpmp.raft.v1.RaftPeerService.InstallSnapshot:input_type -> bpmp.raft.v1.InstallSnapshotRequest
 	6,  // 5: bpmp.raft.v1.RaftPeerService.ForwardCommand:input_type -> bpmp.raft.v1.ForwardCommandRequest
-	8,  // 6: bpmp.raft.v1.RaftPeerService.AddLearner:input_type -> bpmp.raft.v1.AddLearnerRequest
-	9,  // 7: bpmp.raft.v1.RaftPeerService.ChangeMembership:input_type -> bpmp.raft.v1.ChangeMembershipRequest
-	1,  // 8: bpmp.raft.v1.RaftPeerService.AppendEntries:output_type -> bpmp.raft.v1.AppendEntriesResponse
-	3,  // 9: bpmp.raft.v1.RaftPeerService.Vote:output_type -> bpmp.raft.v1.VoteResponse
-	5,  // 10: bpmp.raft.v1.RaftPeerService.InstallSnapshot:output_type -> bpmp.raft.v1.InstallSnapshotResponse
-	7,  // 11: bpmp.raft.v1.RaftPeerService.ForwardCommand:output_type -> bpmp.raft.v1.ForwardCommandResponse
-	10, // 12: bpmp.raft.v1.RaftPeerService.AddLearner:output_type -> bpmp.raft.v1.AddLearnerResponse
-	11, // 13: bpmp.raft.v1.RaftPeerService.ChangeMembership:output_type -> bpmp.raft.v1.ChangeMembershipResponse
-	8,  // [8:14] is the sub-list for method output_type
-	2,  // [2:8] is the sub-list for method input_type
+	8,  // 6: bpmp.raft.v1.RaftPeerService.ForwardDeploymentAck:input_type -> bpmp.raft.v1.ForwardDeploymentAckRequest
+	10, // 7: bpmp.raft.v1.RaftPeerService.ForwardDeploymentIntent:input_type -> bpmp.raft.v1.ForwardDeploymentIntentRequest
+	12, // 8: bpmp.raft.v1.RaftPeerService.AddLearner:input_type -> bpmp.raft.v1.AddLearnerRequest
+	13, // 9: bpmp.raft.v1.RaftPeerService.ChangeMembership:input_type -> bpmp.raft.v1.ChangeMembershipRequest
+	1,  // 10: bpmp.raft.v1.RaftPeerService.AppendEntries:output_type -> bpmp.raft.v1.AppendEntriesResponse
+	3,  // 11: bpmp.raft.v1.RaftPeerService.Vote:output_type -> bpmp.raft.v1.VoteResponse
+	5,  // 12: bpmp.raft.v1.RaftPeerService.InstallSnapshot:output_type -> bpmp.raft.v1.InstallSnapshotResponse
+	7,  // 13: bpmp.raft.v1.RaftPeerService.ForwardCommand:output_type -> bpmp.raft.v1.ForwardCommandResponse
+	9,  // 14: bpmp.raft.v1.RaftPeerService.ForwardDeploymentAck:output_type -> bpmp.raft.v1.ForwardDeploymentAckResponse
+	11, // 15: bpmp.raft.v1.RaftPeerService.ForwardDeploymentIntent:output_type -> bpmp.raft.v1.ForwardDeploymentIntentResponse
+	14, // 16: bpmp.raft.v1.RaftPeerService.AddLearner:output_type -> bpmp.raft.v1.AddLearnerResponse
+	15, // 17: bpmp.raft.v1.RaftPeerService.ChangeMembership:output_type -> bpmp.raft.v1.ChangeMembershipResponse
+	10, // [10:18] is the sub-list for method output_type
+	2,  // [2:10] is the sub-list for method input_type
 	2,  // [2:2] is the sub-list for extension type_name
 	2,  // [2:2] is the sub-list for extension extendee
 	0,  // [0:2] is the sub-list for field type_name
@@ -849,15 +1119,15 @@ func file_bpmp_raft_v1_raft_proto_init() {
 	if File_bpmp_raft_v1_raft_proto != nil {
 		return
 	}
-	file_bpmp_raft_v1_raft_proto_msgTypes[10].OneofWrappers = []any{}
-	file_bpmp_raft_v1_raft_proto_msgTypes[11].OneofWrappers = []any{}
+	file_bpmp_raft_v1_raft_proto_msgTypes[14].OneofWrappers = []any{}
+	file_bpmp_raft_v1_raft_proto_msgTypes[15].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bpmp_raft_v1_raft_proto_rawDesc), len(file_bpmp_raft_v1_raft_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   12,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -50,6 +50,10 @@ type Authoring interface {
 	PublishForm(context.Context, *authoringv1.PublishFormRequest, ...grpc.CallOption) (*authoringv1.PublishFormResponse, error)
 	ListFormVersions(context.Context, *authoringv1.ListFormVersionsRequest, ...grpc.CallOption) (*authoringv1.ListFormVersionsResponse, error)
 	GetFormVersion(context.Context, *authoringv1.GetFormVersionRequest, ...grpc.CallOption) (*authoringv1.GetFormVersionResponse, error)
+	DeployProcessModel(context.Context, *authoringv1.DeployProcessModelRequest, ...grpc.CallOption) (*authoringv1.DeployProcessModelResponse, error)
+	RollbackRuntimeDeployment(context.Context, *authoringv1.RollbackRuntimeDeploymentRequest, ...grpc.CallOption) (*authoringv1.RollbackRuntimeDeploymentResponse, error)
+	GetRuntimeDeployment(context.Context, *authoringv1.GetRuntimeDeploymentRequest, ...grpc.CallOption) (*authoringv1.GetRuntimeDeploymentResponse, error)
+	ListRuntimeDeployments(context.Context, *authoringv1.ListRuntimeDeploymentsRequest, ...grpc.CallOption) (*authoringv1.ListRuntimeDeploymentsResponse, error)
 }
 
 type Projection interface {

@@ -1,6 +1,6 @@
 {
   "owner_id": "authoring-service",
-  "manifest_version": "1.5.0",
+  "manifest_version": "1.6.0",
   "entries": [
     {
       "resource_type": "process_model",
@@ -495,6 +495,38 @@
         "version_tag",
         "summary"
       ],
+      "writable_fields": []
+    },
+    {
+      "resource_type": "runtime_deployment",
+      "action": "deploy",
+      "capability": "authoring.deployProcessModel",
+      "supported_scope_types": ["resource", "tenant"],
+      "readable_fields": ["id", "version_num", "source_revision", "bpmn_xml"],
+      "writable_fields": ["runtime_deployment"]
+    },
+    {
+      "resource_type": "runtime_deployment",
+      "action": "rollback",
+      "capability": "authoring.rollbackRuntimeDeployment",
+      "supported_scope_types": ["resource", "tenant"],
+      "readable_fields": ["id", "status", "artifact_id"],
+      "writable_fields": ["runtime_deployment"]
+    },
+    {
+      "resource_type": "runtime_deployment",
+      "action": "read",
+      "capability": "authoring.getRuntimeDeployment",
+      "supported_scope_types": ["resource", "tenant"],
+      "readable_fields": ["id", "status", "artifact_id", "failure_code", "failure_message", "deployment_sequence"],
+      "writable_fields": []
+    },
+    {
+      "resource_type": "runtime_deployment",
+      "action": "query",
+      "capability": "authoring.listRuntimeDeployments",
+      "supported_scope_types": ["resource", "tenant"],
+      "readable_fields": ["id", "status", "deployment_sequence", "created_at"],
       "writable_fields": []
     }
   ]

@@ -19,8 +19,10 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	BpmnCompilerService_ValidateBpmn_FullMethodName = "/bpmp.compiler.v1.BpmnCompilerService/ValidateBpmn"
-	BpmnCompilerService_ValidateDmn_FullMethodName  = "/bpmp.compiler.v1.BpmnCompilerService/ValidateDmn"
+	BpmnCompilerService_ValidateBpmn_FullMethodName   = "/bpmp.compiler.v1.BpmnCompilerService/ValidateBpmn"
+	BpmnCompilerService_ValidateDmn_FullMethodName    = "/bpmp.compiler.v1.BpmnCompilerService/ValidateDmn"
+	BpmnCompilerService_CompileBpmn_FullMethodName    = "/bpmp.compiler.v1.BpmnCompilerService/CompileBpmn"
+	BpmnCompilerService_GetWIRArtifact_FullMethodName = "/bpmp.compiler.v1.BpmnCompilerService/GetWIRArtifact"
 )
 
 // BpmnCompilerServiceClient is the client API for BpmnCompilerService service.
@@ -32,6 +34,8 @@ const (
 type BpmnCompilerServiceClient interface {
 	ValidateBpmn(ctx context.Context, in *ValidateBpmnRequest, opts ...grpc.CallOption) (*ValidateBpmnResponse, error)
 	ValidateDmn(ctx context.Context, in *ValidateDmnRequest, opts ...grpc.CallOption) (*ValidateDmnResponse, error)
+	CompileBpmn(ctx context.Context, in *CompileBpmnRequest, opts ...grpc.CallOption) (*CompileBpmnResponse, error)
+	GetWIRArtifact(ctx context.Context, in *GetWIRArtifactRequest, opts ...grpc.CallOption) (*GetWIRArtifactResponse, error)
 }
 
 type bpmnCompilerServiceClient struct {
@@ -62,6 +66,26 @@ func (c *bpmnCompilerServiceClient) ValidateDmn(ctx context.Context, in *Validat
 	return out, nil
 }
 
+func (c *bpmnCompilerServiceClient) CompileBpmn(ctx context.Context, in *CompileBpmnRequest, opts ...grpc.CallOption) (*CompileBpmnResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CompileBpmnResponse)
+	err := c.cc.Invoke(ctx, BpmnCompilerService_CompileBpmn_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *bpmnCompilerServiceClient) GetWIRArtifact(ctx context.Context, in *GetWIRArtifactRequest, opts ...grpc.CallOption) (*GetWIRArtifactResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetWIRArtifactResponse)
+	err := c.cc.Invoke(ctx, BpmnCompilerService_GetWIRArtifact_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // BpmnCompilerServiceServer is the server API for BpmnCompilerService service.
 // All implementations must embed UnimplementedBpmnCompilerServiceServer
 // for forward compatibility.
@@ -71,6 +95,8 @@ func (c *bpmnCompilerServiceClient) ValidateDmn(ctx context.Context, in *Validat
 type BpmnCompilerServiceServer interface {
 	ValidateBpmn(context.Context, *ValidateBpmnRequest) (*ValidateBpmnResponse, error)
 	ValidateDmn(context.Context, *ValidateDmnRequest) (*ValidateDmnResponse, error)
+	CompileBpmn(context.Context, *CompileBpmnRequest) (*CompileBpmnResponse, error)
+	GetWIRArtifact(context.Context, *GetWIRArtifactRequest) (*GetWIRArtifactResponse, error)
 	mustEmbedUnimplementedBpmnCompilerServiceServer()
 }
 
@@ -86,6 +112,12 @@ func (UnimplementedBpmnCompilerServiceServer) ValidateBpmn(context.Context, *Val
 }
 func (UnimplementedBpmnCompilerServiceServer) ValidateDmn(context.Context, *ValidateDmnRequest) (*ValidateDmnResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ValidateDmn not implemented")
+}
+func (UnimplementedBpmnCompilerServiceServer) CompileBpmn(context.Context, *CompileBpmnRequest) (*CompileBpmnResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CompileBpmn not implemented")
+}
+func (UnimplementedBpmnCompilerServiceServer) GetWIRArtifact(context.Context, *GetWIRArtifactRequest) (*GetWIRArtifactResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetWIRArtifact not implemented")
 }
 func (UnimplementedBpmnCompilerServiceServer) mustEmbedUnimplementedBpmnCompilerServiceServer() {}
 func (UnimplementedBpmnCompilerServiceServer) testEmbeddedByValue()                             {}
@@ -144,6 +176,42 @@ func _BpmnCompilerService_ValidateDmn_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _BpmnCompilerService_CompileBpmn_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CompileBpmnRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BpmnCompilerServiceServer).CompileBpmn(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BpmnCompilerService_CompileBpmn_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BpmnCompilerServiceServer).CompileBpmn(ctx, req.(*CompileBpmnRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _BpmnCompilerService_GetWIRArtifact_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetWIRArtifactRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BpmnCompilerServiceServer).GetWIRArtifact(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BpmnCompilerService_GetWIRArtifact_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BpmnCompilerServiceServer).GetWIRArtifact(ctx, req.(*GetWIRArtifactRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // BpmnCompilerService_ServiceDesc is the grpc.ServiceDesc for BpmnCompilerService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -158,6 +226,14 @@ var BpmnCompilerService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ValidateDmn",
 			Handler:    _BpmnCompilerService_ValidateDmn_Handler,
+		},
+		{
+			MethodName: "CompileBpmn",
+			Handler:    _BpmnCompilerService_CompileBpmn_Handler,
+		},
+		{
+			MethodName: "GetWIRArtifact",
+			Handler:    _BpmnCompilerService_GetWIRArtifact_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
