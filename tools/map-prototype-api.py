@@ -13,7 +13,8 @@ OUT = ROOT / 'docs/refactor-prototype'
 def main():
     inventory=json.loads((OUT/'interaction-inventory.json').read_text(encoding='utf-8'))
     catalog=json.loads((OUT/'api-catalog.json').read_text(encoding='utf-8'))
-    operations={op['operationId'] for op in catalog['operations']}
+    operation_catalog={op['operationId']:op for op in catalog['operations']}
+    operations=set(operation_catalog)
     mappings={}
     def bind(names, *ids):
         for name in names.split():
@@ -29,7 +30,7 @@ def main():
     bind('handleMigrateInstances','targetDryRunMigration','targetExecuteMigration')
     bind('handleMoveTokens','targetDryRunTokenMove','targetExecuteTokenMove')
     bind('handleManualRetry','targetRetryIncident')
-    bind('handleSaveSnapshot handleSubmitSnapshot','targetCheckinDecisionModel')
+    bind('handleSaveSnapshot handleSubmitSnapshot','checkinDecisionModel')
     bind('handleRevertVersion','targetRevertDecisionModel')
     bind('handleRunEvaluation','targetEvaluateDecision')
     bind('handleExportDmn','targetExportDecisionModel')
@@ -110,7 +111,7 @@ def main():
             elif entry['name'] in ('onCompareVersions','onInspectVersion','onToggleExpand'):
                 kind='LOCAL_UI'
             elif 'onCreateSnapshot' in entry['name'] or 'onSaveSnapshot' in entry['name']:
-                ids=['targetCheckinDecisionModel']; kind='API_CANDIDATE'
+                ids=['checkinDecisionModel']; kind='API_CANDIDATE'
             elif 'onRevert' in entry['name']:
                 ids=['targetRevertDecisionModel']; kind='API_CANDIDATE'
             elif entry['name'] in ('onNotify','onClose') or 'copyToClipboard(' in expression:
@@ -183,15 +184,45 @@ def main():
                 row['classification']=nearest['classification']
                 row['operationIds']=nearest['operationIds']
                 row['reason']='Lexically paired with '+nearest['uiId']+' callback; verify runtime propagation and actual action.'
+    def prototype_area(file):
+        if file.startswith('components/modeler/'):
+            return 'Prototype Authoring UI'
+        if file.startswith('components/tasklist/'):
+            return 'Prototype Task UI'
+        if file.startswith('components/task-management/'):
+            return 'Prototype Task/Access UI'
+        if file.startswith(('components/identity/','components/access/')):
+            return 'Prototype Identity/Access UI'
+        if file.startswith('components/portal/'):
+            return 'Prototype Portal UI'
+        if file.startswith(('components/operation/','components/optimize/')):
+            return 'Prototype Operations/Analytics UI'
+        if file.startswith('components/foundation/'):
+            return 'Prototype Foundation UI'
+        return 'Prototype Shell/UI'
+    for row in rows:
+        linked=[operation_catalog[op_id] for op_id in row['operationIds'].split(';') if op_id in operation_catalog]
+        row['prototypeArea']=prototype_area(row['file'])
+        row['contractOwner']=';'.join(sorted({op['owner'] for op in linked}))
+        row['contractStatus']=';'.join(sorted({op['status'] for op in linked}))
+        if row['classification']=='API_CANDIDATE' and linked:
+            row['ownerReview']='Owner mapped from API catalog; behavior and authorization review pending.'
+        elif row['classification'] in ('LOCAL_UI','LOCAL_DRAFT'):
+            row['ownerReview']='Prototype UI state only; backend ownership applies at the owning save/query/command boundary.'
+        else:
+            row['ownerReview']='Unconfirmed; manual source and browser review required before implementation.'
     with (OUT/'ui-api-mapping.csv').open('w',newline='',encoding='utf-8') as f:
         writer=csv.DictWriter(f,fieldnames=list(rows[0]),lineterminator='\n');writer.writeheader();writer.writerows([{key: re.sub(r'[ \t]+(?=\n|$)', '', value) if isinstance(value,str) else value for key,value in row.items()} for row in rows])
     counts=Counter(r['classification'] for r in rows)
     lines=['# UI to API traceability', '',
            'Generated lexical inventory summary; this is not accepted behavioral parity. A control and callback can describe one interaction. `API_CANDIDATE` does not mean the API is implemented.', '',
-           'Detailed source lines and classifications are in [CSV](ui-api-mapping.csv); source expressions and file hashes are in [inventory JSON](interaction-inventory.json). Review each candidate against its handler and browser behavior before calling the workflow complete.', '',
+           'Detailed source lines, prototype area, API contract owner/status and open owner review are in [CSV](ui-api-mapping.csv); source expressions and file hashes are in [inventory JSON](interaction-inventory.json). These are ownership candidates derived from lexical source and the API catalog, not domain-owner approval or behavioral parity.', '',
            '| Classification | Rows |','|---|---:|']
     lines.extend(f'| {kind} | {count} |' for kind,count in sorted(counts.items()))
-    lines += ['', 'The source inventory is lexical evidence. Dynamic labels, delegated handlers, disabled controls, submit behavior, and persistence boundaries require manual review. `REVIEW_REQUIRED` rows remain open until that review is recorded.']
+    by_owner=Counter(row['contractOwner'] or 'no backend operation inferred' for row in rows)
+    lines += ['', '| Contract owner candidate | Rows |','|---|---:|']
+    lines.extend(f'| {owner} | {count} |' for owner,count in sorted(by_owner.items()))
+    lines += ['', 'The source inventory is lexical evidence. Dynamic labels, delegated handlers, disabled controls, submit behavior, and persistence boundaries require manual review. All rows remain pending source/browser review; an API catalog owner is a routing candidate, not approval. `REVIEW_REQUIRED` and `NO_DIRECT_HANDLER` rows must be resolved before the relevant UI slice is accepted.']
     (OUT/'ui-api-mapping.md').write_text('\n'.join(lines)+'\n',encoding='utf-8')
     print(f'{len(rows)} inventory rows: {dict(counts)}; all pending review')
 

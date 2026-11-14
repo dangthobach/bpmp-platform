@@ -4690,12 +4690,20 @@
         "x-priority": "P0"
       },
       "post": {
-        "operationId": "targetCheckinProcessModel",
+        "operationId": "checkinProcessModel",
+        "summary": "Check in an immutable BPMN model version",
         "tags": [
           "Authoring"
         ],
-        "summary": "checkinProcessModel",
-        "description": "PROPOSED; not implemented.  Entity/audit/precondition conventions apply. Scope/auth enforced by owner.",
+        "x-capability": "authoring.checkinProcessModel",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "bffSession": []
+          }
+        ],
         "parameters": [
           {
             "name": "processModelID",
@@ -4703,42 +4711,8 @@
             "required": true,
             "schema": {
               "type": "string",
-              "minLength": 1,
-              "maxLength": 256,
               "format": "uuid"
             }
-          },
-          {
-            "name": "X-BPMP-Tenant-ID",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 256
-            },
-            "description": "Must match trusted authenticated tenant scope."
-          },
-          {
-            "name": "X-Correlation-ID",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 256
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 256
-            },
-            "description": "Required with cookie auth on unsafe methods; bearer-only path follows existing contract."
           },
           {
             "name": "X-Command-ID",
@@ -4746,8 +4720,7 @@
             "required": true,
             "schema": {
               "type": "string",
-              "minLength": 1,
-              "maxLength": 256
+              "format": "uuid"
             }
           },
           {
@@ -4761,171 +4734,63 @@
             }
           },
           {
-            "name": "If-Match",
+            "name": "X-Correlation-ID",
             "in": "header",
             "required": true,
             "schema": {
               "type": "string",
-              "maxLength": 4096
-            },
-            "description": "Strong resource ETag. expectedVersion in body, when present, must agree."
+              "minLength": 1,
+              "maxLength": 256
+            }
           }
         ],
-        "responses": {
-          "202": {
-            "description": "Authorized result; 202 is acceptance, not projection convergence.",
-            "headers": {
-              "ETag": {
-                "schema": {
-                  "type": "string"
-                },
-                "description": "When response represents a versioned mutable entity."
-              }
-            },
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TargetReceipt"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Malformed input",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthenticated",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found or not visible",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "State/version conflict or idempotency payload mismatch",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "412": {
-            "description": "ETag mismatch",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "413": {
-            "description": "Payload or upload too large",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "410": {
-            "description": "Cursor or artifact expired",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Domain validation failed",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "428": {
-            "description": "Missing concurrency precondition",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Rate/cost limit",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Required owner/snapshot unavailable",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          }
-        },
-        "x-status": "proposed",
-        "x-owner": "Authoring",
-        "x-priority": "P0",
-        "x-capability": "authoring.checkinProcessModel",
-        "x-entity-precondition": true,
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/targetCheckinProcessModelRequest"
+                "$ref": "#/components/schemas/AuthoringCheckinProcessModelRequest"
               }
             }
           }
-        }
+        },
+        "responses": {
+          "201": {
+            "description": "Immutable model version created or idempotent replay",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthoringCheckinProcessModelResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Capability denied"
+          },
+          "404": {
+            "description": "Model not found"
+          },
+          "409": {
+            "description": "Revision or idempotency conflict"
+          },
+          "422": {
+            "description": "Draft is not validated"
+          },
+          "503": {
+            "description": "Authoring dependency unavailable"
+          }
+        },
+        "x-status": "current-registration",
+        "x-owner": "Authoring",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
+        "x-priority": "P0"
       }
     },
     "/v1/authoring/decision-models/{decisionModelID}/versions": {
@@ -5007,12 +4872,20 @@
         "x-priority": "P0"
       },
       "post": {
-        "operationId": "targetCheckinDecisionModel",
+        "operationId": "checkinDecisionModel",
+        "summary": "Check in an immutable DMN model version",
         "tags": [
           "Authoring"
         ],
-        "summary": "checkinDecisionModel",
-        "description": "PROPOSED; not implemented.  Entity/audit/precondition conventions apply. Scope/auth enforced by owner.",
+        "x-capability": "authoring.checkinDecisionModel",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "bffSession": []
+          }
+        ],
         "parameters": [
           {
             "name": "decisionModelID",
@@ -5020,42 +4893,8 @@
             "required": true,
             "schema": {
               "type": "string",
-              "minLength": 1,
-              "maxLength": 256,
               "format": "uuid"
             }
-          },
-          {
-            "name": "X-BPMP-Tenant-ID",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 256
-            },
-            "description": "Must match trusted authenticated tenant scope."
-          },
-          {
-            "name": "X-Correlation-ID",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 256
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 256
-            },
-            "description": "Required with cookie auth on unsafe methods; bearer-only path follows existing contract."
           },
           {
             "name": "X-Command-ID",
@@ -5063,8 +4902,7 @@
             "required": true,
             "schema": {
               "type": "string",
-              "minLength": 1,
-              "maxLength": 256
+              "format": "uuid"
             }
           },
           {
@@ -5078,171 +4916,63 @@
             }
           },
           {
-            "name": "If-Match",
+            "name": "X-Correlation-ID",
             "in": "header",
             "required": true,
             "schema": {
               "type": "string",
-              "maxLength": 4096
-            },
-            "description": "Strong resource ETag. expectedVersion in body, when present, must agree."
+              "minLength": 1,
+              "maxLength": 256
+            }
           }
         ],
-        "responses": {
-          "202": {
-            "description": "Authorized result; 202 is acceptance, not projection convergence.",
-            "headers": {
-              "ETag": {
-                "schema": {
-                  "type": "string"
-                },
-                "description": "When response represents a versioned mutable entity."
-              }
-            },
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TargetReceipt"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Malformed input",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthenticated",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found or not visible",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "State/version conflict or idempotency payload mismatch",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "412": {
-            "description": "ETag mismatch",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "413": {
-            "description": "Payload or upload too large",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "410": {
-            "description": "Cursor or artifact expired",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Domain validation failed",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "428": {
-            "description": "Missing concurrency precondition",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Rate/cost limit",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Required owner/snapshot unavailable",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          }
-        },
-        "x-status": "proposed",
-        "x-owner": "Authoring",
-        "x-priority": "P0",
-        "x-capability": "authoring.checkinDecisionModel",
-        "x-entity-precondition": true,
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/targetCheckinDecisionModelRequest"
+                "$ref": "#/components/schemas/AuthoringCheckinDecisionModelRequest"
               }
             }
           }
-        }
+        },
+        "responses": {
+          "201": {
+            "description": "Immutable model version created or idempotent replay",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthoringCheckinDecisionModelResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Capability denied"
+          },
+          "404": {
+            "description": "Model not found"
+          },
+          "409": {
+            "description": "Revision or idempotency conflict"
+          },
+          "422": {
+            "description": "Draft is not validated"
+          },
+          "503": {
+            "description": "Authoring dependency unavailable"
+          }
+        },
+        "x-status": "current-registration",
+        "x-owner": "Authoring",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
+        "x-priority": "P0"
       }
     },
     "/v1/authoring/process-models/{processModelID}/versions/{versionID}": {
@@ -5465,41 +5195,6 @@
             "schema": {
               "type": "string",
               "format": "uuid"
-            }
-          }
-        ],
-        "x-status": "current-registration",
-        "x-owner": "Authoring",
-        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
-        "x-priority": "P0"
-      }
-    },
-    "/v1/authoring/forms/by-key/{formKey}": {
-      "get": {
-        "operationId": "getPublishedFormByKey",
-        "summary": "Resolve the published form version for a workflow form key",
-        "responses": {
-          "200": {
-            "description": "Resolve the published form version for a workflow form key"
-          },
-          "400": {
-            "description": "Invalid request"
-          },
-          "403": {
-            "description": "Forbidden"
-          },
-          "502": {
-            "description": "Upstream unavailable"
-          }
-        },
-        "parameters": [
-          {
-            "name": "formKey",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "maxLength": 256
             }
           }
         ],
@@ -5920,6 +5615,54 @@
             }
           }
         },
+        "x-status": "current-registration",
+        "x-owner": "Authoring",
+        "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
+        "x-priority": "P0"
+      }
+    },
+    "/v1/authoring/published-forms/{formKey}": {
+      "get": {
+        "operationId": "getPublishedFormByKey",
+        "summary": "Resolve a published form version by workflow form key",
+        "responses": {
+          "200": {
+            "description": "Resolve the published form version for a workflow form key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthoringPublishedFormResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "502": {
+            "description": "Upstream unavailable"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "503": {
+            "description": "Authoring dependency unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "formKey",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256
+            }
+          }
+        ],
         "x-status": "current-registration",
         "x-owner": "Authoring",
         "x-evidence": "apps\\go\\api-gateway\\internal\\apidocs\\openapi.json",
@@ -64448,6 +64191,128 @@
           }
         }
       },
+      "AuthoringProcessModelVersionResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "tenantId",
+          "processModelId",
+          "versionNum",
+          "sourceRevision",
+          "createdAtEpochMs",
+          "versionTag"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "processModelId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "versionNum": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 1
+          },
+          "sourceRevision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "bpmnXml": {
+            "type": "string"
+          },
+          "contentHash": {
+            "type": "string",
+            "contentEncoding": "base64"
+          },
+          "createdBy": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "createdAtEpochMs": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "versionTag": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        }
+      },
+      "AuthoringDecisionModelVersionResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "tenantId",
+          "decisionModelId",
+          "versionNum",
+          "sourceRevision",
+          "createdAtEpochMs",
+          "versionTag"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "decisionModelId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "versionNum": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 1
+          },
+          "sourceRevision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "dmnXml": {
+            "type": "string"
+          },
+          "contentHash": {
+            "type": "string",
+            "contentEncoding": "base64"
+          },
+          "createdBy": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "createdAtEpochMs": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "versionTag": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        }
+      },
       "TargetAuditEntity": {
         "type": "object",
         "additionalProperties": false,
@@ -65665,37 +65530,6 @@
           "reason"
         ]
       },
-      "targetCheckinProcessModelRequest": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "expectedVersion": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 9007199254740991
-          },
-          "revisionDigest": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256
-          },
-          "versionTag": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256
-          },
-          "summary": {
-            "type": "string",
-            "maxLength": 4096
-          }
-        },
-        "required": [
-          "expectedVersion",
-          "revisionDigest",
-          "versionTag",
-          "summary"
-        ]
-      },
       "targetCompareProcessModelRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -65898,37 +65732,6 @@
         "required": [
           "expectedVersion",
           "reason"
-        ]
-      },
-      "targetCheckinDecisionModelRequest": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "expectedVersion": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 9007199254740991
-          },
-          "revisionDigest": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256
-          },
-          "versionTag": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256
-          },
-          "summary": {
-            "type": "string",
-            "maxLength": 4096
-          }
-        },
-        "required": [
-          "expectedVersion",
-          "revisionDigest",
-          "versionTag",
-          "summary"
         ]
       },
       "targetCompareDecisionModelRequest": {
@@ -72132,5 +71935,5 @@
       }
     }
   },
-  "x-baseline-sha256": "e28b3243714cde2026483095a7dfc78ce3a4abe452ac0c940b959795ff6294e8"
+  "x-baseline-sha256": "833567d94c189b8bd9fc2863e87100497307461baaf3115ec32cdc778db30c8b"
 }

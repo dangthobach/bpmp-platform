@@ -231,7 +231,7 @@ var publicOperationDefinitions = []publicOperationDefinition{
 	{PublicOperation{http.MethodGet, "/v1/authoring/decision-models/{decisionModelID}/versions/{versionID}", "getDecisionModelVersion"}, (*Handler).getDecisionModelVersion, false},
 	{PublicOperation{http.MethodGet, "/v1/authoring/forms", "listForms"}, (*Handler).listForms, false},
 	{PublicOperation{http.MethodPost, "/v1/authoring/forms", "createForm"}, (*Handler).createForm, false},
-	{PublicOperation{http.MethodGet, "/v1/authoring/forms/by-key/{formKey}", "getPublishedFormByKey"}, (*Handler).getPublishedFormByKey, false},
+	{PublicOperation{http.MethodGet, "/v1/authoring/published-forms/{formKey}", "getPublishedFormByKey"}, (*Handler).getPublishedFormByKey, false},
 	{PublicOperation{http.MethodGet, "/v1/authoring/forms/{formID}", "getForm"}, (*Handler).getForm, false},
 	{PublicOperation{http.MethodPut, "/v1/authoring/forms/{formID}/draft", "saveFormDraft"}, (*Handler).saveFormDraft, false},
 	{PublicOperation{http.MethodPost, "/v1/authoring/forms/{formID}/draft/validate", "validateFormDraft"}, (*Handler).validateFormDraft, false},

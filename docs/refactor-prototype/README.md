@@ -10,7 +10,8 @@ Tài liệu này mô tả thiết kế và trạng thái triển khai rút ra t�
 4. [Data model](data-model.md) và [DBML](schema.dbml): mô hình logic; DBML không thay migration.
 5. [Authoring](authoring-service.md): contract và trạng thái hiện thực BPMN/DMN/forms/deployment.
 6. [Delivery plan](delivery-plan.md): thứ tự triển khai và acceptance gates.
-7. [UI–API mapping](ui-api-mapping.md): tóm tắt ánh xạ prototype; chi tiết nằm ở CSV/JSON.
+7. [Domain decision pack](domain-readiness.md): proposal chờ duyệt, action-owner map và acceptance gates theo vertical slice.
+8. [UI–API mapping](ui-api-mapping.md): tóm tắt ánh xạ prototype; CSV có prototype area, contract owner/status và review state.
 
 `appendix/` chứa proposal chuyên biệt và hướng dẫn nền tảng bổ trợ. Dùng khi cần triển khai chủ đề đó; các trang chính phía trên giữ phần tóm tắt và điều hướng.
 

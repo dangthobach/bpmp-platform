@@ -16,6 +16,8 @@ use tonic::{
     transport::{Identity, Server, ServerTlsConfig},
 };
 
+const HEX: &[u8; 16] = b"0123456789abcdef";
+
 struct CompilerService {
     compiler: BpmnCompiler,
     signer: Option<Ed25519Signer>,
@@ -25,6 +27,7 @@ struct CompilerService {
 
 #[tonic::async_trait]
 impl BpmnCompilerService for CompilerService {
+    #[allow(clippy::too_many_lines)]
     async fn compile_bpmn(
         &self,
         request: Request<CompileBpmnRequest>,
@@ -105,6 +108,7 @@ impl BpmnCompilerService for CompilerService {
             Err(diagnostics) => {
                 return Ok(Response::new(CompileBpmnResponse {
                     valid: false,
+                    workflow_type: String::new(),
                     signed_wir_artifact: Vec::new(),
                     artifact_sha256: Vec::new(),
                     artifact_id: String::new(),
@@ -117,6 +121,7 @@ impl BpmnCompilerService for CompilerService {
         {
             return Ok(Response::new(CompileBpmnResponse {
                 valid: false,
+                workflow_type: wir.workflow_type.clone(),
                 signed_wir_artifact: Vec::new(),
                 artifact_sha256: Vec::new(),
                 artifact_id: String::new(),
@@ -320,10 +325,11 @@ fn store_artifact(
             "signed WIR artifact exceeds storage limits",
         ));
     }
-    let artifact_id = digest
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
+    let mut artifact_id = String::with_capacity(64);
+    for byte in digest {
+        artifact_id.push(HEX[usize::from(byte >> 4)] as char);
+        artifact_id.push(HEX[usize::from(byte & 0x0f)] as char);
+    }
     fs::create_dir_all(directory)
         .map_err(|_| Status::unavailable("WIR artifact directory is unavailable"))?;
     let path = directory.join(format!("{artifact_id}.wir"));

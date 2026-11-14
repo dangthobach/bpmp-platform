@@ -3129,6 +3129,105 @@
             "description": "Authoring dependency unavailable"
           }
         }
+      },
+      "post": {
+        "operationId": "checkinProcessModel",
+        "summary": "Check in an immutable BPMN model version",
+        "tags": [
+          "Authoring"
+        ],
+        "x-capability": "authoring.checkinProcessModel",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "bffSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "processModelID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-Command-ID",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          },
+          {
+            "name": "X-Correlation-ID",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthoringCheckinProcessModelRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Immutable model version created or idempotent replay",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthoringCheckinProcessModelResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Capability denied"
+          },
+          "404": {
+            "description": "Model not found"
+          },
+          "409": {
+            "description": "Revision or idempotency conflict"
+          },
+          "422": {
+            "description": "Draft is not validated"
+          },
+          "503": {
+            "description": "Authoring dependency unavailable"
+          }
+        }
       }
     },
     "/v1/authoring/decision-models/{decisionModelID}/versions": {
@@ -3199,6 +3298,105 @@
           },
           "404": {
             "description": "Model or version not found"
+          },
+          "503": {
+            "description": "Authoring dependency unavailable"
+          }
+        }
+      },
+      "post": {
+        "operationId": "checkinDecisionModel",
+        "summary": "Check in an immutable DMN model version",
+        "tags": [
+          "Authoring"
+        ],
+        "x-capability": "authoring.checkinDecisionModel",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "bffSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "decisionModelID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-Command-ID",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          },
+          {
+            "name": "X-Correlation-ID",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthoringCheckinDecisionModelRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Immutable model version created or idempotent replay",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthoringCheckinDecisionModelResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Capability denied"
+          },
+          "404": {
+            "description": "Model not found"
+          },
+          "409": {
+            "description": "Revision or idempotency conflict"
+          },
+          "422": {
+            "description": "Draft is not validated"
           },
           "503": {
             "description": "Authoring dependency unavailable"
@@ -3410,37 +3608,6 @@
             "schema": {
               "type": "string",
               "format": "uuid"
-            }
-          }
-        ]
-      }
-    },
-    "/v1/authoring/forms/by-key/{formKey}": {
-      "get": {
-        "operationId": "getPublishedFormByKey",
-        "summary": "Resolve the published form version for a workflow form key",
-        "responses": {
-          "200": {
-            "description": "Resolve the published form version for a workflow form key"
-          },
-          "400": {
-            "description": "Invalid request"
-          },
-          "403": {
-            "description": "Forbidden"
-          },
-          "502": {
-            "description": "Upstream unavailable"
-          }
-        },
-        "parameters": [
-          {
-            "name": "formKey",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "maxLength": 256
             }
           }
         ]
@@ -3825,6 +3992,50 @@
             }
           }
         }
+      }
+    },
+    "/v1/authoring/published-forms/{formKey}": {
+      "get": {
+        "operationId": "getPublishedFormByKey",
+        "summary": "Resolve a published form version by workflow form key",
+        "responses": {
+          "200": {
+            "description": "Resolve the published form version for a workflow form key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthoringPublishedFormResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "502": {
+            "description": "Upstream unavailable"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "503": {
+            "description": "Authoring dependency unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "formKey",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256
+            }
+          }
+        ]
       }
     }
   },
@@ -7050,6 +7261,128 @@
           "summary": {
             "type": "string",
             "minLength": 1,
+            "maxLength": 1000
+          }
+        }
+      },
+      "AuthoringProcessModelVersionResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "tenantId",
+          "processModelId",
+          "versionNum",
+          "sourceRevision",
+          "createdAtEpochMs",
+          "versionTag"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "processModelId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "versionNum": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 1
+          },
+          "sourceRevision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "bpmnXml": {
+            "type": "string"
+          },
+          "contentHash": {
+            "type": "string",
+            "contentEncoding": "base64"
+          },
+          "createdBy": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "createdAtEpochMs": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "versionTag": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        }
+      },
+      "AuthoringDecisionModelVersionResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "tenantId",
+          "decisionModelId",
+          "versionNum",
+          "sourceRevision",
+          "createdAtEpochMs",
+          "versionTag"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "decisionModelId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "versionNum": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 1
+          },
+          "sourceRevision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "dmnXml": {
+            "type": "string"
+          },
+          "contentHash": {
+            "type": "string",
+            "contentEncoding": "base64"
+          },
+          "createdBy": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "createdAtEpochMs": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "versionTag": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "summary": {
+            "type": "string",
             "maxLength": 1000
           }
         }

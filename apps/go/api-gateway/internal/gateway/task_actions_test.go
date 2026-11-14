@@ -23,6 +23,10 @@ type mockHumanTaskService struct {
 	metadata        metadata.MD
 }
 
+func (m *mockHumanTaskService) GetWorkItem(_ context.Context, req *humanv1.GetWorkItemRequest, _ ...grpc.CallOption) (*humanv1.GetWorkItemResponse, error) {
+	return &humanv1.GetWorkItemResponse{WorkItem: &humanv1.WorkItem{TenantId: req.TenantId, WorkItemId: req.WorkItemId}}, nil
+}
+
 func (m *mockHumanTaskService) DelegateWorkItem(ctx context.Context, req *humanv1.DelegateWorkItemRequest, _ ...grpc.CallOption) (*humanv1.DelegateWorkItemResponse, error) {
 	m.lastDelegateReq = req
 	m.metadata, _ = metadata.FromOutgoingContext(ctx)

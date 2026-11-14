@@ -1,6 +1,6 @@
 # ODS Refactor Progress
 
-Last updated: 2026-10-30 (Asia/Saigon)
+Last updated: 2026-11-14 (Asia/Saigon)
 
 This ledger is the source of truth for execution status. Percentages are weighted by evidenced deliverables; phase completion is controlled by exit criteria, not the percentage.
 
@@ -16,7 +16,7 @@ This ledger is the source of truth for execution status. Percentages are weighte
 | 5 - ODS Common and operations | not_started | 0% | Existing observability/configuration plumbing is reusable | Versioned master data, notification and audit projection |
 | 6 - Cutover and hardening | not_started | 0% | Strangler strategy documented | Canary/rollback/DR and legacy retirement evidence |
 
-Overall gate-counted progress: **29%**. This is 100% of Phase 0 plus the evidenced portion of Phase 1 (98%); Phase 2 implementation evidence is recorded below but is not counted in the overall figure until the mandatory Phase 1 environment gate passes. The remaining Phase 1 gap is strictly the hosted image build and staging rollback rehearsal (blocked on Docker Desktop environment socket issue).
+Overall gate-counted progress: **29%**. This is 100% of Phase 0 plus the evidenced portion of Phase 1 (98%); Phase 2 implementation evidence is recorded below but is not counted in the overall figure until the mandatory Phase 1 environment gate passes. The remaining Phase 1 gap is a hosted CI run plus signed staging promotion/rollback rehearsal; local builds, HTTP smoke, and Kubernetes rollout/rollback evidence now exist, but they are not hosted/staging evidence.
 
 ## Phase 1 evidence
 
@@ -83,6 +83,16 @@ Overall gate-counted progress: **29%**. This is 100% of Phase 0 plus the evidenc
 | 2026-10-29 | Browser trace release gates | `npm run test:ods-release`, production audit, Helm lint and `git diff --check` | Passed; cross-origin telemetry endpoint rejected and 0 production dependency vulnerabilities |
 | 2026-10-30 | Compatibility and failure matrix | `npm run verify:ods`, `npm run test:ods-release`, `git diff --check`, production audit | Passed: 16 Shell tests, 5 mfe-contract tests, 6 release gate tests; contractVersion/minShellVersion gates enforced; Shell config locks remoteContractVersion to compiled constant; RemoteBoundary contains render exceptions and retries without blocking siblings; CLI verifier rejects catalog when Shell is too old |
 | 2026-10-30 | Kafka consumer trace & metrics endpoint | `go test -race ./...` (platform + gateway) | Passed: 4 Kafka consumer trace lifecycle tests (remote linking, missing header root span, malformed traceparent recovery, nil error resilience), 5 metrics endpoint & port isolation tests, full platform & gateway -race suites clean |
+| 2026-11-14 | Gateway Authoring route and OpenAPI parity | `go vet ./apps/go/api-gateway/...`; `go test -race ./apps/go/api-gateway/...`; `python tools/build-api-design.py` | Passed locally; resolved ServeMux route overlap by moving published-form lookup under `/v1/authoring/published-forms/{formKey}` and added the two missing check-in operations to the embedded OpenAPI; generated design catalog reports 77 operations |
+| 2026-11-14 | Authoring Service quality | `go vet ./apps/go/authoring-service/...`; `go test -race ./apps/go/authoring-service/...` | Passed; added worker unit coverage for compile/stage/Engine commit/reconcile, changed artifact rejection, invalid compiler output, transient retry and max-attempt failure; PostgreSQL/Engine restart integration acceptance remains incomplete |
+| 2026-11-14 | Authoring worker failure semantics | Application unit tests in `deployments_test.go` | Passed: staged artifact hash is checked before Engine commit; invalid compile is terminal; transient compiler error releases lease with backoff; retry limit records terminal failure; successful Engine receipt and later ACTIVE state reconcile |
+| 2026-11-14 | ODS frontend and Task slice | `npm run verify:ods`; `npm run test:ods-e2e`; cockpit-web build and tests | Passed; Shell/Task boundary, workspace typecheck, unit/component tests, production builds, and 2 browser E2E tests; cockpit-web 51 tests passed |
+| 2026-11-14 | ODS local container artifacts | Docker builds for Shell and Task; ephemeral HTTP smoke (`/`, `/mf-manifest.json`) | Passed: both digest-addressed local images built and endpoints returned HTTP 200; not hosted CI or staging evidence |
+| 2026-11-14 | ODS local Kubernetes rollout and rollback | Isolated `docker-desktop` Helm releases using imported local OCI images and their manifest digests; one deliberately invalid image revision followed by `helm rollback` | Passed locally: Shell and Task both became Ready; invalid image revision failed while old replica remained available; rollback to revision 1 restored both rollouts. Diagnosed Docker config digest vs OCI manifest digest mismatch. Releases/namespaces cleaned up; this is not staging evidence |
+| 2026-11-14 | Compiler and engine build/test | `cargo test --locked -p bpmn-compiler -p bpmp-engine-server` | Passed after fixing invalid/mismatched compile response `workflow_type`; compiler and engine integration suites passed |
+| 2026-11-14 | Rust authoritative lint gate | `cargo clippy --locked --no-deps -p bpmn-compiler -p bpmp-adapter-rocksdb -p bpmp-raft-state-machine -p bpmp-engine-server --all-targets -- -D warnings` | Passed after addressing compiler server lint findings; workflow now limits lint to the selected crates and excludes generated/dependency code |
+| 2026-11-14 | API map and domain readiness | `python tools/map-prototype-api.py`; manual inventory review | Generated 1,386-row proposal map with candidate owner/status labels; decision pack records DOM-01..08 as proposals, Task/Authoring contracts and acceptance gates; domain-owner approval and UI browser confirmation remain pending |
+
 | 2026-10-30 | Kubernetes resilience controls | `helm lint` plus positive/negative `helm template` matrix | Passed; 2 HPAs, 2 ingress NetworkPolicies, zone/host spreading and explicit replicas when autoscaling is disabled; invalid HPA range rejected |
 | 2026-10-30 | Phase 2 Task MFE local quality gates | `npm run verify:ods` | Passed: dependency boundaries, all workspace typechecks, 38 unit/component tests and production builds; Task MFE contributes 10 interaction/edge tests |
 | 2026-10-30 | Task command browser path | `npm run test:ods-e2e` | Passed: 2 browser tests; independently served remote completed a task with expected version, command ID and idempotency key, then reconciled committed projection version |
@@ -90,7 +100,7 @@ Overall gate-counted progress: **29%**. This is 100% of Phase 0 plus the evidenc
 
 ## Active slice
 
-Current status: **Phase 1 is 98% and Phase 2 pre-entry implementation evidence is 65%; Phase 2 remains blocked rather than advanced because its entry gate has not passed**.
+Current status: **Phase 1 is 98% and Phase 2 pre-entry implementation evidence is 65%; Phase 2 remains blocked because the Phase 1 environment gate has not passed. Authoring/deployment code and API routes exist, but the worker/Engine recovery contract still lacks full integration acceptance evidence.**
 
 Active Phase 2 slice contract:
 - Owning deployables: `task-mfe` for UI composition, Portal Gateway for the Task BFF facade, Human Runtime for work-item projection/assignment, and `bpmp-engine` for final transition authorization and write-side idempotency.
@@ -105,7 +115,7 @@ Completed in the current slice:
 - Component coverage for happy path, retry with the same key/payload, 409 reconciliation and pagination; Playwright remote-to-command contract coverage.
 
 Remaining gate to close Phase 1 and formally enter Phase 2:
-- **Hosted build & staging rehearsal**: Workstation Docker Desktop secrets-engine socket prevents local container builds without destructive reset. The remaining verification must occur via hosted CI / staging container registry & cluster (or upon resolving workstation container runtime).
+- **Hosted CI + staging rehearsal**: Shell and Task images build locally and their HTTP endpoints smoke successfully. An isolated `docker-desktop` Helm rehearsal was attempted and cleaned up, but the Shell rollout did not become Ready; no staging target, registry credentials, signed catalog, or staging keys were provided. Obtain pod/event diagnostics, rerun the signed promotion + readiness failure + rollback rehearsal in an authorized staging environment, and capture evidence. The previous Docker secrets-engine blocker is no longer current.
 
 Exact next Phase 2 slice after that gate: define the unit-worklist query contract without client-side policy, wire bounded SSE hints/cursor reconciliation, then exercise two-actor concurrent claim and representative p95/projection-lag measurement against PostgreSQL + engine integration infrastructure.
 
@@ -125,7 +135,7 @@ Owner boundaries:
 
 ## Blockers and decisions needing external evidence
 
-- Phase 1 final environment gate is pending: Docker Desktop 4.94 on this workstation crashes while initializing its secrets-engine socket, so local image builds cannot be evidenced without repairing/resetting Docker state. No Docker data was deleted or reset. The available `docker-desktop` and `minikube` contexts were not assumed to be authorized staging targets.
+- Phase 1 hosted/staging gate remains pending: isolated `docker-desktop` rollout and `helm rollback` now pass using the actual OCI manifest digests. Hosted CI has not been rerun and no authorized staging target, registry credentials, signing keys, or environment catalog were supplied. The local `minikube` context is stopped. No remote deployment or Docker data reset occurred.
 - Production CCU, request distribution, domain cardinality, document throughput and retention figures are not yet supplied. Phase 0 records conservative design assumptions; performance acceptance cannot be claimed until sanitized production-like data is available.
 - Unified Portal OIDC endpoints, cookie/session policy and signing keys are external dependencies. Phase 1 uses explicit ports/configuration and test doubles; production activation remains gated on those inputs.
 - CSP upload/callback and external-system contracts are required before Phase 4 implementation.
