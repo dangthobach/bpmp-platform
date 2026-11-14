@@ -1077,7 +1077,7 @@ func lockIdempotency(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, key strin
 	if key == "" || len(key) > 256 {
 		return application.ErrInvalidArgument
 	}
-	_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, tenant.String()+"\x00"+key)
+	_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, tenant.String()+"\x1f"+key)
 	return err
 }
 
