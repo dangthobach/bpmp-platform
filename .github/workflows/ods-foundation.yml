@@ -133,6 +133,15 @@ jobs:
       - run: go vet ./apps/go/human-runtime/...
       - run: go test -race ./apps/go/human-runtime/...
 
+  platform-e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run broker-backed platform E2E
+        shell: pwsh
+        run: ./platform/e2e/run.ps1
+
   cockpit-quality:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
