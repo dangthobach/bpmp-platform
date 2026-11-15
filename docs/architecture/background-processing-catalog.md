@@ -86,6 +86,17 @@ mTLS before installing them.
 Redis browser-session and rate-limit operations are request-driven, not
 schedulers. They are bounded and fail closed according to the BFF contract.
 
+## Authoring Service
+
+| Worker/activity | Trigger/input | Durable state and identity | Bounds/retry | Recovery and failure |
+|---|---|---|---|---|
+| Runtime deployment worker | Polls `runtime_deployments` directly for queued or expired-lease jobs | PostgreSQL job row, deployment ID, transactional sequence, worker lease and persisted Engine receipt | One job per worker poll; 500 ms poll and 30 s lease in current service config; bounded compiler/Engine calls and retry attempts | A new worker reclaims expired leases, reuses the same deployment intent and reconciles Engine state before reporting `ACTIVE`/`ROLLED_BACK` |
+| Runtime deployment outbox publication | **Not implemented** | `runtime_deployment_outbox` rows are written transactionally and have `published_at`/`attempts` columns | No poller, broker topic, publisher configuration or ACK/retry policy exists in current Authoring source | Rows remain unpublished; do not treat these rows as delivered domain events. Owner must approve the event contract and delivery semantics before implementation, or explicitly scope the table as a local journal |
+
+The deployment job queue and the event outbox are separate mechanisms. Current
+worker recovery is backed by the job row/lease and Engine receipt, not by replay
+of the outbox. PostgreSQL integration proves row creation, not publication.
+
 ## Governance Service
 
 | Worker | Trigger/input | Durable state and identity | Bounds/retry | Recovery and failure |
