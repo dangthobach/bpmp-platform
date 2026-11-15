@@ -57,3 +57,31 @@ func TestKeysetPaginationIsCompleteAndDuplicateFree(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestNormalizePageSizeUsesTenantDefaultForMissingOrOverMaximum(t *testing.T) {
+	policy := RuntimePolicy{QueryDefaultPageSize: 25, QueryMaxPageSize: 100}
+	for _, test := range []struct {
+		name string
+		in   int
+		want int
+	}{
+		{name: "missing", in: 0, want: 25},
+		{name: "negative", in: -1, want: 25},
+		{name: "within policy", in: 50, want: 50},
+		{name: "at maximum", in: 100, want: 100},
+		{name: "over maximum", in: 101, want: 25},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := NormalizePageSize(test.in, policy)
+			if err != nil || got != test.want {
+				t.Fatalf("NormalizePageSize(%d) = %d, %v; want %d, nil", test.in, got, err, test.want)
+			}
+		})
+	}
+}
+
+func TestNormalizePageSizeRejectsInvalidTenantPolicy(t *testing.T) {
+	if _, err := NormalizePageSize(50, RuntimePolicy{QueryDefaultPageSize: 100, QueryMaxPageSize: 25}); err == nil {
+		t.Fatal("invalid tenant page-size policy was accepted")
+	}
+}
