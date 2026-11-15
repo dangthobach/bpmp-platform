@@ -111,3 +111,16 @@ func TestNewRejectsMissingEngineRPC(t *testing.T) {
 		t.Fatal("missing Engine RPC client was accepted")
 	}
 }
+
+func TestClientRejectsEmptyEngineResponses(t *testing.T) {
+	client, err := New(&deploymentRPCStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = client.CommitRuntimeDeployment(context.Background(), application.EngineDeploymentCommand{}); err == nil {
+		t.Fatal("empty Engine commit response was accepted")
+	}
+	if _, err = client.GetRuntimeDeployment(context.Background(), "deployment-14"); err == nil {
+		t.Fatal("empty Engine status response was accepted")
+	}
+}

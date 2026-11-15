@@ -28,6 +28,9 @@ func (c *Client) CommitRuntimeDeployment(ctx context.Context, command applicatio
 	if err != nil {
 		return application.EngineDeploymentState{}, err
 	}
+	if response == nil {
+		return application.EngineDeploymentState{}, errors.New("Engine returned an empty deployment commit response")
+	}
 	return application.EngineDeploymentState{DeploymentID: response.GetDeploymentId(), Status: response.GetStatus(), ArtifactID: response.GetArtifactId(), AppliedNodeIDs: response.GetAppliedNodeIds(), PendingNodeIDs: response.GetPendingNodeIds(), EngineConfigVersion: response.GetEngineConfigVersion(), EnginePolicyVersion: response.GetEnginePolicyVersion(), EngineConfigSHA256: response.GetEngineConfigSha256(), GovernanceConfigVersion: response.GetGovernanceConfigVersion(), GovernancePolicyVersion: response.GetGovernancePolicyVersion()}, nil
 }
 
@@ -35,6 +38,9 @@ func (c *Client) GetRuntimeDeployment(ctx context.Context, id string) (applicati
 	response, err := c.rpc.GetRuntimeDeployment(ctx, &enginev1.GetRuntimeDeploymentRequest{DeploymentId: id})
 	if err != nil {
 		return application.EngineDeploymentState{}, err
+	}
+	if response == nil {
+		return application.EngineDeploymentState{}, errors.New("Engine returned an empty deployment status response")
 	}
 	return application.EngineDeploymentState{DeploymentID: response.GetDeploymentId(), Status: response.GetStatus(), ArtifactID: response.GetArtifactId(), FailureCode: response.GetFailureCode(), AppliedNodeIDs: response.GetAppliedNodeIds(), PendingNodeIDs: response.GetPendingNodeIds(), EngineConfigVersion: response.GetEngineConfigVersion(), EnginePolicyVersion: response.GetEnginePolicyVersion(), EngineConfigSHA256: response.GetEngineConfigSha256(), GovernanceConfigVersion: response.GetGovernanceConfigVersion(), GovernancePolicyVersion: response.GetGovernancePolicyVersion()}, nil
 }

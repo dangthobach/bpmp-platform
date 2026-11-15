@@ -123,4 +123,30 @@ func TestRuntimeDeploymentPostgresQueueLeaseAndIdempotency(t *testing.T) {
 	if outbox != 2 || audit != 2 {
 		t.Fatalf("expected queued+staged outbox/audit, got outbox=%d audit=%d", outbox, audit)
 	}
+	stagedClaim, err := store.ClaimRuntimeDeployments(ctx, "worker-c", 4, time.Minute, dueNow.Add(2*time.Minute+time.Second))
+	if err != nil || len(stagedClaim) != 1 || stagedClaim[0].Status != "STAGING" {
+		t.Fatalf("staged deployment was not reclaimed for Engine commit: jobs=%+v err=%v", stagedClaim, err)
+	}
+
+	partial := application.EngineDeploymentState{
+		DeploymentID: created.ID, Status: "ACTIVATING", ArtifactID: current.ArtifactID,
+		AppliedNodeIDs: []uint64{1}, PendingNodeIDs: []uint64{2},
+		EngineConfigVersion: "engine-v4", EnginePolicyVersion: "policy-v2",
+	}
+	if err = store.SaveEngineDeploymentState(ctx, tenant.String(), created.ID, "worker-c", partial, nil, dueNow.Add(3*time.Minute)); err != nil {
+		t.Fatalf("persist partial Engine acknowledgement: %v", err)
+	}
+	recovered, err := store.ClaimRuntimeDeployments(ctx, "worker-after-restart", 4, time.Minute, dueNow.Add(3*time.Minute+2*time.Second))
+	if err != nil || len(recovered) != 1 || recovered[0].Status != "ACTIVATING" || !recovered[0].EngineAccepted || recovered[0].AttemptCount != stagedClaim[0].AttemptCount {
+		t.Fatalf("restart recovery must retain accepted intent without charging a new compile attempt: jobs=%+v err=%v", recovered, err)
+	}
+	active := partial
+	active.Status, active.AppliedNodeIDs, active.PendingNodeIDs = "ACTIVE", []uint64{1, 2}, nil
+	if err = store.SaveEngineDeploymentState(ctx, tenant.String(), created.ID, "worker-after-restart", active, nil, dueNow.Add(3*time.Minute+3*time.Second)); err != nil {
+		t.Fatalf("persist reconciled Engine activation: %v", err)
+	}
+	current, err = store.GetRuntimeDeployment(ctx, tenant.String(), created.ID)
+	if err != nil || current.Status != "ACTIVE" || !current.EngineAccepted || current.EngineConfigVersion != "engine-v4" {
+		t.Fatalf("Engine activation was not durable across worker restart: deployment=%+v err=%v", current, err)
+	}
 }
