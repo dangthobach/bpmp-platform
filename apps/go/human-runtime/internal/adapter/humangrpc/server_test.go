@@ -177,6 +177,22 @@ func TestMissingProofIsUnauthenticated(t *testing.T) {
 	}
 }
 
+func TestListWorkItemsRejectsCursorFromDifferentListScope(t *testing.T) {
+	item := domain.WorkItem{TenantID: "tenant-a", ID: "work-1"}
+	service, _ := application.NewService(&testStore{item: item}, &testEngine{}, testPolicy)
+	verifier := &testVerifier{actor: application.ActorIdentity{ActorID: "alice", Groups: map[string]struct{}{}}}
+	server, _ := New(service, testQuery{item: item}, verifier, testPolicy, time.Now)
+	request := &humanv1.ListWorkItemsRequest{
+		TenantId:   "tenant-a",
+		Scope:      humanv1.WorkItemListScope_WORK_ITEM_LIST_SCOPE_ASSIGNED_TO_ME,
+		PageToken:  encodeCursor(&application.PageCursor{UpdatedAt: time.Unix(1, 0).UTC(), WorkItemID: "work-0", Scope: application.WorkItemListScopeAll}),
+		ActorProof: originalJWT("signed"),
+	}
+	if _, err := server.ListWorkItems(context.Background(), request); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("expected cursor scope mismatch to be rejected, got %v", err)
+	}
+}
+
 func TestAuditQueryRequiresExplicitCapability(t *testing.T) {
 	item := domain.WorkItem{Assignment: domain.Assignment{AssigneeID: "alice"}}
 	store := &testStore{item: item}
