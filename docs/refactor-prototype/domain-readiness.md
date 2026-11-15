@@ -43,6 +43,29 @@ Tại lần tạo tài liệu, inventory có 1.386 dòng: 195 API candidate, 344
 
 Row-level mapping cho toàn bộ control/callback có tại [ui-api-mapping.csv](ui-api-mapping.csv). `contractOwner` và `contractStatus` được nối từ API catalog; `ownerReview` vẫn pending. Mỗi vertical slice phải đổi review state sau khi người phụ trách xem handler, authorization, persistence, failure path và browser walkthrough.
 
+### Source-review proposal cho 14 control chưa có handler trực tiếp
+
+Đối chiếu từng entry `NO_DIRECT_HANDLER` với source hiện tại để phân biệt form submit, UI-only control và command/query còn thiếu. Owner dưới đây là candidate để review, không phải assignment đã được duyệt hay endpoint hiện có.
+
+| UI ID | Quan sát từ source | Action/owner candidate | Review cần chốt |
+|---|---|---|---|
+| UI-0031 | Nút “Kết nối & tải dữ liệu” được submit qua form `onSubmit`; form gọi API kết nối và tải catalog | Authz Control Plane owns catalog/policy API; Organization owner cung cấp tree API | Chốt hai API base URL, token/session handling, tenant source, partial failure giữa hai owner và audit. Hiện là Admin UI connection flow, chưa phải hành động domain |
+| UI-0088 | Global search input không có submit/change handler | Shell sở hữu input/navigation; từng resource owner (Task/Authoring/Case/Report) sở hữu search và authorization | Product chốt phạm vi, loại kết quả, ranking, deep-link, quyền lọc và freshness; chưa gán cho một service search tổng hợp |
+| UI-0091 | Nút chọn ngôn ngữ không có handler | Shell UI preference | Chốt locale persistence (local preference hay profile owner) và supported locales; không cần business API nếu local-only |
+| UI-0112 | Nút trang trước đang disabled và chỉ hiển thị trang 1 | Integration Hub nếu endpoint registry có paging; hiện tại control placeholder | Chỉ bật khi registry API có cursor/total semantics; acceptance cho empty/one/many pages |
+| UI-0113 | Nút trang sau đang disabled và chỉ hiển thị trang 1 | Integration Hub nếu endpoint registry có paging; hiện tại control placeholder | Cùng contract UI-0112; không gửi command |
+| UI-0114 | Page-size select có lựa chọn 10/20 nhưng không có state handler | Foundation UI local preference; endpoint registry query nếu danh sách được nối backend | Chốt page-size bound/default và reset cursor khi đổi size; hiện select không thay đổi dữ liệu |
+| UI-0615 | Nút submit form tạo DMN snapshot; form handler gọi callback prototype | Authoring Service `CheckinDecisionModel` candidate | Chốt request gồm model ID, expected draft revision, digest, version tag/summary và idempotency; trạng thái hiện tại chỉ là mock callback |
+| UI-0765 | Checkbox `Executable` dùng `defaultChecked`, không cập nhật selected process | Authoring owns BPMN draft; Compiler validates semantic | Chốt trường BPMN nguồn, default/validation và hậu quả non-executable khi check-in/deploy; hiện input không lưu |
+| UI-0794 | Checkbox `Propagate` của Called Element dùng `defaultChecked`; processId handler hiện hard-code propagate=true | Authoring owns Called Element draft property; Compiler validates mapping semantics | Chốt boolean persistence, child-variable scope và compatibility khi gọi process khác version; hiện checkbox không điều khiển giá trị submit |
+| UI-0801 | Checkbox `flowable:async` dùng `defaultChecked` | Authoring owns draft metadata; Compiler/Engine own supported execution semantics | Xác nhận có hỗ trợ trong BPMP/WIR; nếu có, chốt safe retry/side-effect semantics; không mặc định port thuộc tính Flowable |
+| UI-0802 | Checkbox `flowable:exclusive` dùng `defaultChecked` | Authoring owns draft metadata; Compiler/Engine own supported execution semantics | Xác nhận có trường tương đương và semantics concurrency; từ chối rõ khi chưa hỗ trợ |
+| UI-0805 | Source/target input của Input Mapping có `defaultValue`, không persist edit | Authoring owns I/O mapping draft; Compiler validates FEEL/schema | Chốt cấu trúc source→target, expression grammar, duplicate target và validation error location |
+| UI-0811 | Source/target input của Output Mapping có `defaultValue`, không persist edit | Authoring owns I/O mapping draft; Compiler validates FEEL/schema | Cùng schema nhưng output direction; chốt unknown target, null/optional và runtime type mismatch |
+| UI-0827 | Kafka hook checkbox được dựng từ event names cố định, `defaultChecked`, không persist | Authoring owns declared event binding; Engine owns committed domain event contract; Kafka platform owns topic ACL/schema | Chốt allowlisted event names, topic derivation, outbox/ordering/idempotency và consumer contract; UI không được tự publish Kafka |
+
+Trong 14 entry: 2 handler thực tế đi qua submit form (UI-0031, UI-0615), 5 là UI/navigation hoặc placeholder pagination (UI-0088, UI-0091, UI-0112..UI-0114), và 7 control draft dùng default value/checked nhưng chưa persist. Các phân loại này chỉ xác nhận được từ source; vẫn cần UI owner walkthrough và domain owner review trước khi đổi `ownerReview` khỏi pending.
+
 ## 4. Acceptance contract theo vertical slice
 
 ### 4.1 Task
