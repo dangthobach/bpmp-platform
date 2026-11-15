@@ -122,7 +122,9 @@ func runMigrationOnly(path string) error {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	signalCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	ctx, cancel := context.WithTimeout(signalCtx, 2*time.Minute)
 	defer cancel()
 	pool, err := pgxpool.New(ctx, config.PostgresDSN)
 	if err != nil {
