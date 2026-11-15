@@ -40,7 +40,7 @@ Overall gate-counted progress: **29%**. This is 100% of Phase 0 plus the evidenc
 | SLA/history/idempotent UX | 15% | complete | SLA badge, typed audit failure/retry, stable command/idempotency identities retaining the same key and payload across retry, and no fabricated candidate group fallback |
 | Realtime and convergence UX | 10% | in_progress | Command acceptance is separate from projection convergence; manual reconcile and last-reconciled time are explicit; SSE hint/cursor integration remains |
 | Conflict/duplicate/concurrency safety | 10% | in_progress | Full broker-backed E2E verifies one concurrent claim winner and one HTTP 409, stale-version conflicts are not retried, and completion survives Engine leader loss; production-scale contention evidence remains |
-| Representative latency/error budget | 10% | not_started | Existing Human Runtime microbenchmarks are not accepted as end-to-end representative Task vertical evidence |
+| Representative latency/error budget | 10% | not_started | Existing Human Runtime microbenchmarks are not accepted as end-to-end representative Task vertical evidence; Task MFE asks for 50, Human Runtime uses tenant default/max policy (E2E fixture sets 50/200), and Phase 0 25/100 were test assumptions |
 
 ## Phase 0 evidence
 
@@ -117,6 +117,7 @@ Overall gate-counted progress: **29%**. This is 100% of Phase 0 plus the evidenc
 | 2026-11-15 | Authoring Engine receipt crash-recovery persistence | Isolated PostgreSQL 17 container; same race-enabled integration acceptance | Passed: persisted partial `ACTIVATING` receipt is reclaimed by a different worker after lease expiry, retains accepted intent and attempt count, then reconciles durably to `ACTIVE`; staging-to-Engine claim boundary is exercised. This verifies database/lease recovery, not an actual Engine process restart or Raft leader transition |
 | 2026-11-15 | UI action owner-routing and domain-slice contract audit | `ui-api-mapping.csv` source review; candidate path check against `api-spec.openapi.json` | 195/195 API candidates have a candidate owner/status; 20 `REVIEW_REQUIRED` rows are source-triaged into 10 Access UI interactions; 14 no-direct-handler controls have proposal mappings; Case/Document/Integration/MDM contract crosswalk links 15 representative paths and records remaining integration callback/retry gaps. Browser and domain-owner approval remain pending |
 | 2026-11-15 | Case/Document/Integration contract proposal completion | `docs/refactor-prototype/domain-readiness.md`; OpenAPI candidate headers and route check | Added candidate Case submit saga/receipt contract, Document upload/quarantine/scan/download contract, Integration callback+delivery retry routes/state machine, and slice-specific acceptance. All remain proposals; exact security/retention/provider parameters and owner sign-off are outstanding |
+| 2026-11-15 | Task page-size contract reconciliation | `requirements.md`, Phase 0 workload assumptions, Task MFE query, Human Runtime `NormalizePageSize`, `platform/e2e/run.ps1` | Corrected the ledger/spec distinction: Task MFE requests 50; Human Runtime normalizes omitted/invalid/over-max input to the tenant default and E2E currently sets 50/200; Phase 0 25/100 were design-test assumptions. Unit Worklist proposal asks owners to decide bounds and invalid-size semantics before implementation |
 
 ## Active slice
 
@@ -125,7 +126,7 @@ Current status: **Phase 1 is 98% and Phase 2 implementation evidence is 80%; Pha
 Active Phase 2 slice contract:
 - Owning deployables: `task-mfe` for UI composition, Portal Gateway for the Task BFF facade, Human Runtime for work-item projection/assignment, and `bpmp-engine` for final transition authorization and write-side idempotency.
 - Authoritative data and consistency: engine RocksDB/Raft command commit is authoritative; Human Runtime and Task MFE are asynchronously reconciled projections. Realtime may only trigger refetch.
-- Workload assumption: bounded 50-item pages; production task cardinality/query mix and p95 targets are still external inputs, so no capacity claim is made.
+- Workload assumption: current Task MFE requests 50-item pages; Human Runtime server default/max come from tenant runtime policy and are not hard-capped at 50 (broker E2E fixture sets max 200). Phase 0 used default 25/max 100 as design-test assumptions. Unit Worklist proposal now calls out the required bound/config decision; production cardinality/query mix and p95 targets remain external inputs, so no capacity claim is made.
 - Failure semantics: retryable transport/upstream failures retain the exact command key and payload; version conflict does not auto-retry; audit failure remains scoped; command acceptance is not presented as projection convergence.
 
 Completed in the current slice:
