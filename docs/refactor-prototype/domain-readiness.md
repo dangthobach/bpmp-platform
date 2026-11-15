@@ -9,7 +9,7 @@
 - `ui-api-mapping.csv` và `interaction-inventory.csv` là quét từ mã, chưa thay cho walkthrough/browser review.
 - UI prototype là một app đơn khối. `Prototype area` trong CSV không khẳng định MFE tương ứng đã được tách hoặc deploy.
 
-Tại lần tạo tài liệu, inventory có 1.386 dòng: 195 API candidate, 344 local draft, 813 local UI, 20 cần phân loại thủ công và 14 control chưa thấy handler trực tiếp. Catalog gắn operation owner cho candidate; tất cả dòng vẫn `PENDING_SOURCE_AND_BROWSER_REVIEW`. Đây là bản phân công ban đầu để domain owners duyệt, chưa phải xác nhận cuối.
+Tại lần tạo tài liệu, inventory có 1.386 dòng: 195 API candidate, 344 local draft, 813 local UI, 20 cần review thủ công và 14 control chưa thấy handler trực tiếp. Source audit hiện xác nhận 195/195 API candidate có `contractOwner` và `contractStatus`; 20 dòng `REVIEW_REQUIRED` đã được gom thành 10 tương tác trong bảng bên dưới; 14 control có proposal riêng. Toàn bộ 1.386 dòng vẫn mang `reviewState=PENDING_SOURCE_AND_BROWSER_REVIEW`; owner review chỉ áp dụng theo action/backend mapping liên quan. Đây là routing/source triage, chưa phải phê duyệt cuối.
 
 ## 2. Decision register
 
@@ -65,6 +65,25 @@ Row-level mapping cho toàn bộ control/callback có tại [ui-api-mapping.csv]
 | UI-0827 | Kafka hook checkbox được dựng từ event names cố định, `defaultChecked`, không persist | Authoring owns declared event binding; Engine owns committed domain event contract; Kafka platform owns topic ACL/schema | Chốt allowlisted event names, topic derivation, outbox/ordering/idempotency và consumer contract; UI không được tự publish Kafka |
 
 Trong 14 entry: 2 handler thực tế đi qua submit form (UI-0031, UI-0615), 5 là UI/navigation hoặc placeholder pagination (UI-0088, UI-0091, UI-0112..UI-0114), và 7 control draft dùng default value/checked nhưng chưa persist. Các phân loại này chỉ xác nhận được từ source; vẫn cần UI owner walkthrough và domain owner review trước khi đổi `ownerReview` khỏi pending.
+
+### Source-review proposal cho 20 dòng `REVIEW_REQUIRED`
+
+Các dòng này đều nằm trong Access UI và gồm các cặp control/event handler. Source audit giúp phân loại hành vi hiện tại; owner/action dưới đây vẫn là candidate, không tuyên bố API đang deploy hay đã được security/domain duyệt.
+
+| UI IDs | Hành vi được xác nhận trong source | Action/owner candidate | Điều kiện còn lại |
+|---|---|---|---|
+| UI-0022, UI-0023 | Form connect đọc token/tenant, lưu cấu hình kết nối vào `sessionStorage`, sau đó Effect gọi `refresh` | Authz Control Plane cho catalog/policy; Organization owner cho organization tree | Chốt OIDC/BFF session thay cho token nhập tay, tenant binding, CSRF/CSP, partial failure giữa hai owner; DOM-01/02 |
+| UI-0033, UI-0036 | Refresh gọi 6 query: entries, versions, audit, branches, queues, roles; dùng `Promise.all`, lỗi một nguồn làm cả refresh thất bại | Authz owner cho catalog/version/audit/roles; Organization owner cho branches; Human Runtime/assignment owner cho queues | Chốt query source/API contracts, freshness, all-or-nothing hay partial state và retry; review owner của `/v1/access/queues` |
+| UI-0039, UI-0040 | Đóng thông báo hiện tại bằng cách xóa UI state | Access UI local interaction | Không phải business command; giữ dismissible notice semantics |
+| UI-0041, UI-0042 | Chuyển tab policy/catalog/rollout/audit bằng UI state | Access UI local navigation; data vẫn thuộc Authz/Organization owners | Browser walkthrough xác nhận tab state và query không phát sinh quyền ngoài owner API |
+| UI-0044, UI-0046 | Tạo draft mới trong client bằng cách copy snapshot published/current, chưa gọi server | Authz Control Plane sở hữu policy draft; lưu bền vững chỉ xảy ra ở Save draft | Chốt draft-from-published behavior, version/revision CAS và khi không có published version |
+| UI-0047, UI-0048 | Xóa một grant khỏi client-side draft array | Authz Control Plane sở hữu grant/policy; đây không phải delete của published policy | Chốt dirty-state/undo và bảo đảm publish chỉ dùng version đã validate |
+| UI-0069, UI-0070 | Thêm grant rỗng vào client-side draft array | Authz Control Plane sở hữu grant/policy schema | Chốt field validation, capability/action binding, tenant/branch/queue scope semantics theo owner manifest |
+| UI-0072, UI-0076 | Save tạo draft mới hoặc CAS-update draft với `draft_revision`, snapshot và change reason | Authz Control Plane | Chốt idempotency key/digest, stale revision conflict, audit evidence và response schema |
+| UI-0073, UI-0077 | Validate draft theo version ID; sau response UI refresh trạng thái | Authz Control Plane validator; resource owners cung cấp registered actions/constraints | Chốt validation snapshot pinning, diagnostics schema, invalid/stale draft behavior và owner registration freshness |
+| UI-0074, UI-0078 | Publish version đã VALIDATED, gửi version number và reason; UI báo signed policy/bundle sequence | Authz Control Plane ký và phát hành immutable bundle | Chốt publish idempotency, signer/key rotation, revoke/rollback, consumer ACK threshold/timeout và audit |
+
+Các 20 row đã có source-triage nhưng `classification=REVIEW_REQUIRED` và `ownerReview` không được đổi trong generated CSV: browser walkthrough, owner/resource review, authorization/failure-state verification vẫn còn. Đây là chủ ý để không biến code-path observation thành API/domain approval.
 
 ## 4. Acceptance contract theo vertical slice
 
