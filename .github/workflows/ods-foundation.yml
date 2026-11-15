@@ -191,7 +191,7 @@ jobs:
           fi
 
   container-images:
-    needs: [frontend-quality, deployment-quality]
+    needs: [frontend-quality, deployment-quality, authoring-quality]
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
@@ -202,6 +202,8 @@ jobs:
             dockerfile: platform/ods/Dockerfile.ods-shell
           - app: task-mfe
             dockerfile: platform/ods/Dockerfile.task-mfe
+          - app: authoring-service
+            dockerfile: platform/ods/Dockerfile.authoring-service
     permissions:
       contents: read
       packages: write

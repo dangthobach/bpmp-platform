@@ -1,0 +1,17 @@
+FROM golang:1.25.12-bookworm AS builder
+WORKDIR /workspace
+COPY go/contracts ./go/contracts
+COPY apps/go/authoring-service ./apps/go/authoring-service
+WORKDIR /workspace/apps/go/authoring-service
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -trimpath -o /out/authoring-service ./cmd/authoring-service
+
+FROM alpine:3.22
+RUN apk add --no-cache ca-certificates curl \
+    && mkdir -p /opt/bpmp/authoring/migrations \
+    && chown -R 65532:65532 /opt/bpmp/authoring
+COPY --from=builder --chown=65532:65532 /out/authoring-service /usr/local/bin/authoring-service
+COPY --chown=65532:65532 db/authoring-service/migrations/ /opt/bpmp/authoring/migrations/
+USER 65532:65532
+ENTRYPOINT ["/usr/local/bin/authoring-service"]
