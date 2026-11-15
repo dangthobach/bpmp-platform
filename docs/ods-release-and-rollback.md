@@ -12,6 +12,28 @@
 
 The chart refuses tag-only images, fewer than two replicas, missing runtime JSON and unsigned catalog envelopes. Runtime configuration is mounted separately, so catalog promotion does not rebuild Shell.
 
+## Authorized staging rehearsal
+
+Run this gate only in an environment whose owner has approved the target cluster, namespace, release, maintenance window and controlled readiness-failure test. The current local Docker Desktop rehearsal is not a substitute for this gate.
+
+1. Record repository commit, hosted CI run, Shell/Task OCI manifest digests, provenance/attestation references, signed catalog version/key ID and verifier output. Never copy signing private keys into the evidence bundle.
+2. Record cluster context, namespace, Helm release, environment owner/approver and change window. Verify the target is staging and the release is isolated from production traffic.
+3. Promote the known-good signed catalog and digest-pinned images using the gates above. Capture Helm revision, rollout readiness, `/` and `/mf-manifest.json` responses, Task route load, session/CSRF checks, and browser→Gateway trace/correlation evidence.
+4. In a dedicated canary release or namespace, apply a controlled invalid readiness revision using the same immutable image/catalog delivery path. Do not break the healthy staging release to create the failure. Capture the failed revision, readiness events and proof that the previous digest remains available.
+5. Verify automatic atomic recovery, then explicitly restore the recorded known-good Helm revision/catalog and wait for readiness. Confirm the catalog annotation, image digests, remote manifest and browser trace all match the known-good revision.
+6. Attach evidence to the approved change record and record pass/fail for each check. A failed or unrecorded check leaves the staging gate open.
+
+| Evidence field | Required value |
+|---|---|
+| Change / approval | Change ID, environment owner, approver, approved window |
+| Source and supply chain | Commit SHA, CI run URL/ID, image manifest digests, attestation references |
+| Signed catalog | Catalog version, signing key ID, verifier output, previous known-good version |
+| Staging target | Cluster context, namespace, release, date/time, operator |
+| Healthy promotion | Helm revision, Ready replicas, Shell/remote smoke results, session/CSRF and trace evidence |
+| Controlled failure | Canary release/namespace, failing revision/digest, readiness events, prior revision availability |
+| Recovery | Atomic rollback result, explicit restored revision/catalog, final digest/annotation and smoke evidence |
+| Gate decision | Per-check result, exceptions, approver sign-off |
+
 ## Rollback
 
 If a remote fails its error/SLO gate, first promote the previous still-valid signed catalog. This removes the remote blast radius without rebuilding Shell. If the Shell or workload deployment is unhealthy, run:
