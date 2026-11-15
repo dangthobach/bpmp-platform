@@ -17,6 +17,7 @@ on:
       - "db/human-runtime/**"
       - "packages/frontend/**"
       - "platform/ods/**"
+      - "platform/authoring/**"
       - "tools/check-ods-frontend-boundaries.mjs"
       - "tools/bpmp-e2e-fixtures/**"
       - "tools/verify-ods-catalog.mjs"
@@ -187,6 +188,25 @@ jobs:
           fi
           if helm template ods platform/ods/helm/ods-foundation -f platform/ods/helm/ods-foundation/ci/values.yaml --set autoscaling.minReplicas=5 --set autoscaling.maxReplicas=2; then
             echo "invalid autoscaling range unexpectedly passed"
+            exit 1
+          fi
+          helm lint platform/authoring/helm/authoring-service -f platform/authoring/helm/authoring-service/ci/values.yaml
+          authoring_rendered="$(helm template authoring platform/authoring/helm/authoring-service -f platform/authoring/helm/authoring-service/ci/values.yaml)"
+          grep -q 'image: "ghcr.io/example/bpmp-platform/authoring-service@sha256:' <<< "$authoring_rendered"
+          authoring_policy_rendered="$(helm template authoring platform/authoring/helm/authoring-service -f platform/authoring/helm/authoring-service/ci/values.yaml -f platform/authoring/helm/authoring-service/ci/networkpolicy-values.yaml)"
+          test "$(grep -c '^kind: NetworkPolicy$' <<< "$authoring_policy_rendered")" -eq 2
+          migration_rendered="$(helm template authoring platform/authoring/helm/authoring-service -f platform/authoring/helm/authoring-service/ci/values.yaml --set migration.enabled=true)"
+          grep -q -- '--migrate-only' <<< "$migration_rendered"
+          if helm lint platform/authoring/helm/authoring-service -f platform/authoring/helm/authoring-service/ci/values.yaml --set image.digest=latest; then
+            echo "mutable Authoring image reference unexpectedly passed"
+            exit 1
+          fi
+          if helm template authoring platform/authoring/helm/authoring-service -f platform/authoring/helm/authoring-service/ci/values.yaml --set autoscaling.enabled=true --set autoscaling.minReplicas=5 --set autoscaling.maxReplicas=2; then
+            echo "invalid Authoring autoscaling range unexpectedly passed"
+            exit 1
+          fi
+          if helm lint platform/authoring/helm/authoring-service -f platform/authoring/helm/authoring-service/ci/values.yaml --set networkPolicy.enabled=true; then
+            echo "empty Authoring NetworkPolicy unexpectedly passed"
             exit 1
           fi
 

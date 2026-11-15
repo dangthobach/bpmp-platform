@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["image", "runtimeConfig", "service", "replicaCount"],
+  "properties": {
+    "replicaCount": {"type": "integer", "minimum": 1},
+    "image": {
+      "type": "object",
+      "required": ["repository", "digest"],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "digest": {"type": "string", "pattern": "^sha256:[a-fA-F0-9]{64}$"},
+        "pullPolicy": {"type": "string", "enum": ["Always", "IfNotPresent", "Never"]}
+      }
+    },
+    "service": {
+      "type": "object",
+      "required": ["grpcPort", "healthPort"],
+      "properties": {
+        "grpcPort": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "healthPort": {"type": "integer", "minimum": 1, "maximum": 65535}
+      }
+    },
+    "runtimeConfig": {
+      "type": "object",
+      "required": ["secretName", "revision", "mountPath", "fileName", "migrationPath", "ownerManifestPath"],
+      "properties": {
+        "secretName": {"type": "string", "minLength": 1},
+        "revision": {"type": "string", "minLength": 1},
+        "mountPath": {"type": "string", "minLength": 1},
+        "fileName": {"type": "string", "minLength": 1},
+        "migrationPath": {"type": "string", "minLength": 1},
+        "ownerManifestPath": {"type": "string", "minLength": 1}
+      }
+    },
+    "migration": {
+      "type": "object",
+      "required": ["enabled", "secretName", "mountPath", "fileName", "backoffLimit", "activeDeadlineSeconds"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "secretName": {"type": "string", "minLength": 1},
+        "mountPath": {"type": "string", "minLength": 1},
+        "fileName": {"type": "string", "minLength": 1},
+        "backoffLimit": {"type": "integer", "minimum": 0},
+        "activeDeadlineSeconds": {"type": "integer", "minimum": 1}
+      }
+    },
+    "autoscaling": {
+      "type": "object",
+      "required": ["enabled", "minReplicas", "maxReplicas", "targetCPUUtilizationPercentage"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "minReplicas": {"type": "integer", "minimum": 1},
+        "maxReplicas": {"type": "integer", "minimum": 1},
+        "targetCPUUtilizationPercentage": {"type": "integer", "minimum": 1, "maximum": 100}
+      }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "required": ["enabled", "ingress", "egress", "migrationEgress"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "ingress": {"type": "array", "items": {"type": "object"}},
+        "egress": {"type": "array", "items": {"type": "object"}},
+        "migrationEgress": {"type": "array", "items": {"type": "object"}}
+      }
+    },
+    "podDisruptionBudget": {
+      "type": "object",
+      "required": ["enabled", "minAvailable"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "minAvailable": {"type": "integer", "minimum": 1}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"networkPolicy": {"properties": {"enabled": {"const": true}}}}},
+      "then": {
+        "properties": {
+          "networkPolicy": {
+            "properties": {
+              "ingress": {"minItems": 1},
+              "egress": {"minItems": 1},
+              "migrationEgress": {"minItems": 1}
+            }
+          }
+        }
+      }
+    }
+  ]
+}

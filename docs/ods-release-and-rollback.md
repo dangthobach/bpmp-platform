@@ -45,6 +45,47 @@ helm rollback <release> <known-good-revision> -n <namespace> --wait
 
 Confirm the ConfigMap annotation `bpmp.dev/catalog-version`, deployment image digests and browser trace after rollback. Never roll back or delete committed workflow/domain events; this runbook changes only presentation deployment and routing metadata.
 
+## Authoring Service release
+
+Authoring is a separate backend release from the ODS Shell/Task chart. The
+service image is digest-pinned and the chart is in
+`platform/authoring/helm/authoring-service`; passing ODS frontend promotion does
+not prove that Authoring is running or that a runtime workflow deployment works.
+
+1. Use the image digest built by the Authoring quality-gated CI job and run the
+   chart lint/render gates. Keep the database schema compatible with the prior
+   service while the rollout is in progress.
+2. Materialize the `runtimeConfig.secretName` Secret from the approved secret
+   manager. Its `config.json` must align `listen_address`/`health_address` with
+   chart ports and point migrations/owner manifest at the image paths. Point
+   the Gateway's Authoring mTLS client to the chart's ClusterIP Service.
+3. If applying migrations, create the separate minimal `migration.secretName`
+   Secret containing only `postgres_dsn` and `migration_path`, then enable the
+   chart migration hook. Confirm the hook Job succeeds before the Deployment
+   rollout. A failed hook aborts the upgrade; use a reviewed forward-fix for
+   additive schema changes rather than assuming an application rollback rolls
+   back PostgreSQL.
+4. Enable NetworkPolicy with explicit API Gateway ingress and PostgreSQL,
+   Kafka, Compiler, Engine and DNS egress rules. Never put DSNs or key material
+   in Helm values or the release evidence bundle. Increment
+   `runtimeConfig.revision` when the external runtime Secret changes.
+5. Verify two Ready replicas, mTLS Gateway-to-Authoring gRPC, dependency-aware
+   `/health/ready`, deployment create/list/detail/rollback APIs, compiler
+   artifact staging, Engine safe-point activation and persisted reconciliation.
+   In a dedicated environment, exercise worker termination during ambiguous
+   Engine commit, Authoring restart/lease reclaim, Engine restart or leader
+   change during partial ACK, and rollback recovery; capture PostgreSQL and
+   Engine receipts by deployment ID.
+6. Retain previous image digest, chart version and runtime config revision. If
+   the rollout is unhealthy, restore the previous application/chart/config
+   revision only after confirming the schema remains backward-compatible; do
+   not erase deployment history or Engine intents.
+
+The migration-only config parser and chart hook rendering are covered by local
+Go and Helm gates. A real database migration run, Authoring/Compiler/Engine
+staging run, production secret-manager integration, registry promotion and
+restart/failover evidence remain separate release gates.
+
 ## Stop conditions
 
 - Signature, key ID, expiry, allowlist or catalog lifetime verification fails.

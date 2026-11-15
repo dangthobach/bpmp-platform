@@ -1,0 +1,66 @@
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 2
+
+image:
+  repository: ghcr.io/example/bpmp-platform/authoring-service
+  digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  grpcPort: 7443
+  healthPort: 8082
+
+runtimeConfig:
+  secretName: authoring-runtime-config
+  revision: "replace-with-secret-resource-version-or-release-id"
+  mountPath: /etc/bpmp/authoring
+  fileName: config.json
+  migrationPath: /opt/bpmp/authoring/migrations
+  ownerManifestPath: /opt/bpmp/authoring/authorization-owner-manifest.json
+
+migration:
+  enabled: false
+  secretName: authoring-migration-config
+  mountPath: /etc/bpmp/authoring-migration
+  fileName: migration.json
+  backoffLimit: 3
+  activeDeadlineSeconds: 600
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 1000m
+    memory: 512Mi
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+topologySpread:
+  enabled: true
+  constraints:
+    - topologyKey: topology.kubernetes.io/zone
+      maxSkew: 1
+      whenUnsatisfiable: ScheduleAnyway
+    - topologyKey: kubernetes.io/hostname
+      maxSkew: 1
+      whenUnsatisfiable: ScheduleAnyway
+
+networkPolicy:
+  enabled: false
+  # Production releases must supply narrow API Gateway ingress and explicit
+  # PostgreSQL, Kafka, Compiler, Engine and DNS egress rules.
+  ingress: []
+  egress: []
+  migrationEgress: []

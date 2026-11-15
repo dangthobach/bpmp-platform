@@ -1,0 +1,10 @@
+image:
+  repository: ghcr.io/example/bpmp-platform/authoring-service
+  digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+runtimeConfig:
+  secretName: authoring-test-runtime-config
+  revision: ci-fixture
+
+migration:
+  secretName: authoring-test-migration-config

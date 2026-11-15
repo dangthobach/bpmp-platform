@@ -94,15 +94,71 @@ type config struct {
 
 func main() {
 	path := flag.String("config", os.Getenv("AUTHORING_SERVICE_CONFIG"), "path to Authoring service JSON config")
+	migrateOnly := flag.Bool("migrate-only", false, "apply Authoring PostgreSQL migrations and exit")
 	flag.Parse()
 	if *path == "" {
 		slog.Error("configuration path is required")
 		os.Exit(2)
 	}
-	if err := run(*path); err != nil {
+	var err error
+	if *migrateOnly {
+		err = runMigrationOnly(*path)
+	} else {
+		err = run(*path)
+	}
+	if err != nil {
 		slog.Error("authoring service stopped", "error", err)
 		os.Exit(1)
 	}
+}
+
+type migrationConfig struct {
+	PostgresDSN   string `json:"postgres_dsn"`
+	MigrationPath string `json:"migration_path"`
+}
+
+func runMigrationOnly(path string) error {
+	config, err := loadMigrationConfig(path)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	pool, err := pgxpool.New(ctx, config.PostgresDSN)
+	if err != nil {
+		return fmt.Errorf("open PostgreSQL for migration: %w", err)
+	}
+	defer pool.Close()
+	if err = pool.Ping(ctx); err != nil {
+		return fmt.Errorf("ping PostgreSQL for migration: %w", err)
+	}
+	if err = applyMigration(ctx, pool, config.MigrationPath); err != nil {
+		return fmt.Errorf("apply Authoring migrations: %w", err)
+	}
+	slog.Info("Authoring migrations applied")
+	return nil
+}
+
+func loadMigrationConfig(path string) (migrationConfig, error) {
+	var value migrationConfig
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return value, err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err = decoder.Decode(&value); err != nil {
+		return value, err
+	}
+	if err = decoder.Decode(&struct{}{}); err != nil && !errors.Is(err, io.EOF) {
+		return value, errors.New("migration config must contain exactly one JSON value")
+	} else if err == nil {
+		return value, errors.New("migration config must contain exactly one JSON value")
+	}
+	if strings.TrimSpace(value.PostgresDSN) == "" || strings.TrimSpace(value.MigrationPath) == "" {
+		return value, errors.New("migration config requires postgres_dsn and migration_path")
+	}
+	return value, nil
 }
 
 func run(path string) error {
