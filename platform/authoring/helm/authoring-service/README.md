@@ -38,8 +38,10 @@ a disruption budget. Production values must enable `networkPolicy` and provide
 narrow API Gateway ingress plus PostgreSQL, Kafka, Compiler, Engine and DNS
 egress rules for the service, plus PostgreSQL and DNS egress for the migration
 Job. The chart does not create credentials, databases, Kafka topics,
-certificates, or an ingress route. Pin `image.digest` to a verified OCI manifest
-digest; mutable tags fail schema validation.
+certificates, or an ingress route. Set both image repository and digest for the
+target environment. The digest must be the verified OCI manifest digest;
+mutable tags fail schema validation and the chart has no deployable image
+default.
 
 The runtime worker participates in the same deployment and scales with service
 replicas. PostgreSQL lease/`SKIP LOCKED` ownership prevents two workers from

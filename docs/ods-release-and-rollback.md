@@ -52,6 +52,15 @@ service image is digest-pinned and the chart is in
 `platform/authoring/helm/authoring-service`; passing ODS frontend promotion does
 not prove that Authoring is running or that a runtime workflow deployment works.
 
+The ODS Foundation workflow packages the chart after Authoring quality gates
+and container image builds. Non-release runs retain a versioned `.tgz` artifact
+for 30 days. An `ods-vX.Y.Z` tag sets chart/app version to `X.Y.Z` and publishes
+the chart to `oci://ghcr.io/<owner>/<repo>/charts`. Before installing, supply the
+environment's image repository and verified manifest digest; the chart has no
+deployable image default. Registry publication is automated, while deployment
+values, runtime and migration Secrets, and staging promotion remain environment
+owner responsibilities.
+
 1. Use the image digest built by the Authoring quality-gated CI job and run the
    chart lint/render gates. Keep the database schema compatible with the prior
    service while the rollout is in progress.

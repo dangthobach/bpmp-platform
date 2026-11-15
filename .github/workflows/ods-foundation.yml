@@ -259,3 +259,52 @@ jobs:
           subject-name: ghcr.io/${{ github.repository }}/${{ matrix.app }}
           subject-digest: ${{ steps.image.outputs.digest }}
           push-to-registry: true
+
+  authoring-chart:
+    needs: [deployment-quality, authoring-quality, container-images]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.13.1
+      - name: Package versioned Authoring chart
+        id: package
+        shell: bash
+        run: |
+          version="0.1.0"
+          if [[ "$GITHUB_REF" == refs/tags/ods-v* ]]; then
+            version="${GITHUB_REF_NAME#ods-v}"
+          fi
+          mkdir -p "$RUNNER_TEMP/authoring-chart"
+          helm package platform/authoring/helm/authoring-service \
+            --version "$version" \
+            --app-version "$version" \
+            --destination "$RUNNER_TEMP/authoring-chart"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Upload chart package for non-release CI
+        if: ${{ !startsWith(github.ref, 'refs/tags/ods-v') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: authoring-service-chart-${{ github.sha }}
+          path: ${{ runner.temp }}/authoring-chart/authoring-service-${{ steps.package.outputs.version }}.tgz
+          if-no-files-found: error
+          retention-days: 30
+      - name: Authenticate to GHCR
+        if: startsWith(github.ref, 'refs/tags/ods-v')
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish chart to GHCR OCI
+        if: startsWith(github.ref, 'refs/tags/ods-v')
+        shell: bash
+        run: |
+          repository="${GITHUB_REPOSITORY,,}"
+          helm push "$RUNNER_TEMP/authoring-chart/authoring-service-${{ steps.package.outputs.version }}.tgz" \
+            "oci://ghcr.io/${repository}/charts"
