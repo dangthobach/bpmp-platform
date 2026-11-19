@@ -1,6 +1,6 @@
 # ODS Refactor Progress
 
-Last updated: 2026-11-15 (Asia/Saigon)
+Last updated: 2026-11-19 (Asia/Saigon)
 
 This ledger is the source of truth for execution status. Percentages are weighted by evidenced deliverables; phase completion is controlled by exit criteria, not the percentage.
 
@@ -129,6 +129,7 @@ Overall gate-counted progress: **29%**. This is 100% of Phase 0 plus the evidenc
 | 2026-11-15 | Local deployment environment recheck | Docker service status/start; `docker info`; `kubectl get nodes --request-timeout=5s` | Not runnable: Windows could not open `com.docker.service`; Docker engine pipe is absent and the configured `docker-desktop` API endpoint refuses connections. No new cluster rollout evidence was produced |
 | 2026-11-15 | Authoring chart release workflow static validation | `go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.11 .github/workflows/ods-foundation.yml`; Helm lint/template and release-version package checks | Passed; chart-package job is read-only and a separate `ods-v*`-only job holds `packages: write`; chart schema/render and `2.3.4` package naming pass. This does not prove hosted artifact upload or tag-triggered GHCR publication |
 | 2026-11-15 | Task full-gRPC synthetic latency check | `go test -run '^TestFullGrpcPathP95$' -count=1 -v ./internal/adapter/humangrpc` | Passed: 200 operations, concurrency 8, p95 1.0597 ms on this host. The harness uses an in-memory work-item store and stub Engine, so this is a handler/auth/gRPC signal only; it is not representative PostgreSQL+Engine workload evidence and does not close the Task latency gate |
+| 2026-11-19 | Stage target and local BPMP infrastructure recheck | `kubectl config get-contexts`; `kubectl --context docker-desktop get nodes`; Helm release/pod inventory; local Compose health probes; E2E Compose `config --quiet` | No staging kube context or BPMP release/pods are configured. Docker Desktop has one Ready node only. Local Redpanda reports healthy, four PostgreSQL instances accept connections, Redis responds `PONG`, and the OTEL collector container is healthy; these are local infrastructure checks, not stage service evidence. E2E Compose config is valid but its app services are not running. The runner was not invoked because it deletes the existing ignored `platform/e2e/runtime` directory |
 
 ## Active slice
 
