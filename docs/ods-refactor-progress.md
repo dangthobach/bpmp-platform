@@ -35,7 +35,7 @@ Overall gate-counted progress: **29%**. This is 100% of Phase 0 plus the evidenc
 
 | Deliverable | Weight | Status | Evidence |
 |---|---:|---|---|
-| Task MFE worklists and actions | 30% | in_progress | Personal/group worklists, current-page search/status filter, bounded keyset navigation, claim/unclaim/complete/delegate and task detail; Unit Worklist contract is not yet available |
+| Task MFE worklists and actions | 30% | in_progress | Personal/group worklists, current-page search/status filter, bounded keyset navigation, claim/unclaim/complete/delegate and task detail; prototype-aligned responsive shell/list styling now uses shared ODS theme; Unit Worklist contract is not yet available |
 | Task BFF facade | 25% | complete | Gateway list/detail/audit plus claim/unclaim/complete/delegate facade; authenticated actor proof, tenant, correlation and idempotency are forwarded to Human Runtime |
 | SLA/history/idempotent UX | 15% | complete | SLA badge, typed audit failure/retry, stable command/idempotency identities retaining the same key and payload across retry, and no fabricated candidate group fallback |
 | Realtime and convergence UX | 10% | in_progress | Command acceptance is separate from projection convergence; manual reconcile and last-reconciled time are explicit; SSE hint/cursor integration remains |

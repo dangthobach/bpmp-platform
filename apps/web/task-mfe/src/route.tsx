@@ -371,7 +371,7 @@ export function TaskWorklist({ platform }: RemoteRouteProps) {
           />
         )}
 
-        <Paper sx={{ p: 2 }}>
+        <Paper variant="outlined" sx={{ p: { xs: 1.5, md: 2 }, borderColor: "#e2e7e3", borderRadius: 2 }}>
           <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems="center" justifyContent="space-between">
             <Stack direction="row" spacing={1} role="tablist">
               <Button
@@ -415,7 +415,14 @@ export function TaskWorklist({ platform }: RemoteRouteProps) {
           </Stack>
         </Paper>
 
-        <Paper sx={{ p: 2 }}>
+        <Paper variant="outlined" sx={{ p: { xs: 1.25, md: 1.75 }, borderColor: "#e2e7e3", borderRadius: 2 }}>
+          <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" alignItems={{ xs: "flex-start", sm: "center" }} sx={{ px: 0.5, pb: 1.5, gap: 0.5 }}>
+            <Box>
+              <Typography variant="subtitle2" sx={{ fontWeight: 750 }}>{activeTab === "personal" ? "Assigned to me" : "Available to my groups"}</Typography>
+              <Typography variant="caption" color="text.secondary">Showing {filteredItems.length} of {allItems.length} work items on this page</Typography>
+            </Box>
+            <Chip size="small" variant="outlined" label={query.isValidating ? "Synchronizing" : "Projection-backed"} sx={{ color: query.isValidating ? "#8a5b00" : "primary.dark", borderColor: query.isValidating ? "#f1d28a" : "#b9dfca", bgcolor: query.isValidating ? "#fff8e6" : "#eff9f3" }} />
+          </Stack>
           <SimpleList
             items={listItems}
             emptyLabel={activeTab === "personal" ? "No assigned personal tasks" : "No pending group tasks"}
