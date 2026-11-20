@@ -4,6 +4,7 @@ import type { PlatformServices } from "@ods/mfe-contract";
 import { Button, Paper, Stack, Typography } from "@ods/shared-ui";
 import { commandKey, isRecord, rows, send } from "./api";
 import { ArtifactWorkspace } from "./ArtifactWorkspace";
+import { BpmnCanvas } from "./VisualCanvas";
 
 const starterBpmn = '<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"><bpmn:process id="new-process"><bpmn:startEvent id="start"/><bpmn:endEvent id="end"/><bpmn:sequenceFlow id="start-to-end" sourceRef="start" targetRef="end"/></bpmn:process></bpmn:definitions>';
 type Notice = { kind: "status" | "alert"; text: string };
@@ -25,6 +26,7 @@ export function AuthoringWorkspace({ platform }: { platform: PlatformServices })
 function ProcessWorkspace({ platform }: { platform: PlatformServices }): ReactNode {
   const [modelId, setModelId] = useState("");
   const [xml, setXml] = useState(starterBpmn);
+  const [editorMode, setEditorMode] = useState<"visual" | "source">("visual");
   const [modelKey, setModelKey] = useState("");
   const [modelName, setModelName] = useState("");
   const [versionTag, setVersionTag] = useState("");
@@ -121,7 +123,9 @@ function ProcessWorkspace({ platform }: { platform: PlatformServices }): ReactNo
     {modelId ? <>
       <Typography variant="h3">Draft {String(model.model_key ?? modelId)} · revision {String(draft.revision ?? "—")}</Typography>
       {detail.isLoading ? <p>Loading draft…</p> : null}{detail.data && !detail.data.ok ? <p role="alert">Draft read failed: {detail.data.problem.code}</p> : null}
-      <label>BPMN XML<textarea aria-label="BPMN XML draft" rows={12} value={xml} onChange={(event) => setXml(event.target.value)} /></label>
+      <Stack direction="row" spacing={1} sx={{ my: 1 }}><Button type="button" variant={editorMode === "visual" ? "contained" : "outlined"} onClick={() => setEditorMode("visual")}>Visual canvas</Button><Button type="button" variant={editorMode === "source" ? "contained" : "outlined"} onClick={() => setEditorMode("source")}>BPMN source</Button></Stack>
+      {editorMode === "visual" ? <BpmnCanvas source={xml} onChange={setXml} /> : null}
+      {editorMode === "source" ? <label>BPMN XML<textarea aria-label="BPMN XML draft" rows={12} value={xml} onChange={(event) => setXml(event.target.value)} /></label> : null}
       <Stack direction="row" spacing={1}><Button type="button" disabled={!draft.revision} onClick={() => void saveDraft()}>Save draft</Button><Button type="button" disabled={!draft.revision} onClick={() => void validateDraft()}>Validate draft</Button><input aria-label="Version tag" placeholder="Version tag" value={versionTag} onChange={(event) => setVersionTag(event.target.value)} /><input aria-label="Version summary" placeholder="Version summary" value={summary} onChange={(event) => setSummary(event.target.value)} /><Button type="button" disabled={draft.validation_status !== "VALID" || !versionTag.trim() || !summary.trim()} onClick={() => void checkin()}>Check in version</Button></Stack>
       {isRecord(draft) && Array.isArray(draft.diagnostics) ? <pre>{JSON.stringify(draft.diagnostics, null, 2)}</pre> : null}
       <Typography variant="h3">Immutable versions</Typography><ul>{versionRows.map((v, index) => <li key={String(v.id ?? index)}>{String(v.version_tag ?? v.version_num ?? "Version")} · {String(v.id ?? "")} <Button type="button" onClick={() => setVersionId(String(v.id ?? ""))}>Select for deploy</Button></li>)}</ul>

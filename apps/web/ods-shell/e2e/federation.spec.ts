@@ -138,6 +138,7 @@ test("runs Authoring draft through check-in, deployment detail and rollback", as
   await page.getByLabel("New model key").fill("claims");
   await page.getByLabel("New model name").fill("Claims");
   await page.getByRole("button", { name: "Create process model" }).click();
+  await page.getByRole("button", { name: "BPMN source" }).click();
   await page.getByLabel("BPMN XML draft").fill("<definitions><process id='claims'/></definitions>");
   await page.getByRole("button", { name: "Save draft" }).click();
   await expect(page.getByText(/Draft save succeeded/)).toBeVisible();

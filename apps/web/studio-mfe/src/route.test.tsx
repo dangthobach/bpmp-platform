@@ -8,7 +8,7 @@ describe("BPMP Studio", () => {
   it("lists immutable versions, deploys a selected version, inspects and rolls back a deployment", async () => {
     const callApi = vi.fn(async (options: { method: string; path: string; body?: unknown; idempotencyKey?: string }) => {
       if (options.method === "GET" && options.path === "/v1/authoring/process-models?page_size=50") return { ok: true as const, data: { models: [{ id: "model-1", name: "Claims" }] }, requestId: "r-m", correlationId: "c" };
-      if (options.method === "GET" && options.path === "/v1/authoring/process-models/model-1") return { ok: true as const, data: { model: { id: "model-1", model_key: "claims" }, draft: { revision: 1, bpmn_xml: "<definitions/>", validation_status: "VALID", diagnostics: [] } }, requestId: "r-detail", correlationId: "c" };
+      if (options.method === "GET" && options.path === "/v1/authoring/process-models/model-1") return { ok: true as const, data: { model: { id: "model-1", model_key: "claims" }, draft: { revision: 1, bpmn_xml: '<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"><bpmn:process id="p"><bpmn:startEvent id="start"/><bpmn:endEvent id="end"/><bpmn:sequenceFlow id="f" sourceRef="start" targetRef="end"/></bpmn:process></bpmn:definitions>', validation_status: "VALID", diagnostics: [] } }, requestId: "r-detail", correlationId: "c" };
       if (options.method === "GET" && options.path.includes("/versions?")) return { ok: true as const, data: { versions: [{ id: "version-1", version_tag: "v1" }] }, requestId: "r-v", correlationId: "c" };
       if (options.method === "GET" && options.path.includes("/deployments?") ) return { ok: true as const, data: { deployments: [{ id: "deployment-1", status: "ACTIVE" }] }, requestId: "r-d", correlationId: "c" };
       if (options.method === "GET" && options.path.includes("/deployments/deployment-1")) return { ok: true as const, data: { deployment: { id: "deployment-1", status: "ACTIVE" } }, requestId: "r-detail", correlationId: "c" };
@@ -17,6 +17,11 @@ describe("BPMP Studio", () => {
     const Component = moduleContract.route.Component;
     render(<OdsThemeProvider><Component platform={{ callApi: callApi as unknown as CallApi, navigate: vi.fn(), reportError: vi.fn() }} /></OdsThemeProvider>);
     fireEvent.click(await screen.findByRole("button", { name: "Claims" }));
+    expect(await screen.findByText("Editable path")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Start event/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "BPMN source" }));
+    expect(screen.getByRole("textbox", { name: "BPMN XML draft" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Visual canvas" }));
     fireEvent.click(await screen.findByRole("button", { name: "Select for deploy" }));
     fireEvent.click(screen.getByRole("button", { name: "Deploy selected version" }));
     await screen.findByText(/Deployment command accepted/);

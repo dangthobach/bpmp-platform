@@ -142,6 +142,8 @@ Added [BPMP Feature API Coverage](bpmp-feature-api-coverage.md), mapping prototy
 
 ## Active slice
 
+| 2026-11-20 | ODS parity gap follow-up | `apps/web/studio-mfe`; `docs/bpmp-feature-api-coverage.md` | Ported the BPMN visual editor into Studio without a cross-MFE dependency; visual/source mode supports safe linear and paired one-level gateway edits, and unsupported topologies remain source-only. Ported BPMN safety tests to Studio. Identity user/role mutation and Task history/bulk contracts are documented as proposals with owner and acceptance criteria; runtime APIs are absent and remain approval-gated. Stage evidence still requires an authorized staging target. |
+
 Current status: **Phase 1 is 98% and Phase 2 implementation evidence is 80%; Phase 2 remains formally blocked only on the authorized Phase 1 staging gate. Full local broker-backed E2E passes Task concurrent claim/completion, projection authorization and masking, revoke recovery, broker DLQ, Projection restart and Engine leader failover. Authoring has application coverage for lost Engine commit response, same-intent retry, partial-ACK pending state, all-node activation and rollback reconciliation, plus real PostgreSQL queue/lease/idempotency integration. Actual Authoring worker/Engine restart and leader-change integration remains open.**
 
 Active Phase 2 slice contract:
