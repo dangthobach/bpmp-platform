@@ -28,6 +28,8 @@ Tài liệu này phân biệt **API được đăng ký**, **API có handler/ups
 
 Các endpoint bên dưới vẫn chỉ có trong design catalog (`proposed`), chưa phải Gateway runtime routes. Các câu trả lời của product/domain owner được ghi nhận là quyết định đầu vào; chi tiết protocol còn thiếu tiếp tục là proposal cần Authz/Identity hoặc Human Runtime owner chốt trước khi triển khai.
 
+Phương án kiến trúc đầy đủ, gồm PKCE/BFF, role/branch model, event visibility, batch modes, quotas, retry, retention và acceptance gates: [ADR-012 proposal](decisions/ADR-012-authorization-identity-task-history-batch-proposal.md).
+
 #### Identity và tenant access
 
 | Chủ đề | Đã xác nhận | Còn cần chốt trong contract |
