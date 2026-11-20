@@ -1,6 +1,6 @@
 # BPMP Feature API Coverage
 
-Ngày rà soát: 2026-11-20 (Asia/Saigon)
+Ngày rà soát: 2026-11-21 (Asia/Saigon)
 
 Tài liệu này phân biệt **API được đăng ký**, **API có handler/upstream**, **API có bằng chứng kiểm chứng**, và **API mới là đề xuất** khi đối chiếu các feature trên prototype với BPMP hiện tại. Đây là inventory triển khai, không phải phê duyệt domain proposal.
 
@@ -14,7 +14,7 @@ Tài liệu này phân biệt **API được đăng ký**, **API có handler/ups
 
 **Không kết luận 77 operation đều đã chạy trên stage hoặc đều có E2E riêng.** Bằng chứng hiện có là route/spec parity, test theo service/vertical slice và BPMP full-flow E2E đã ghi trong progress ledger. Stage promotion vẫn đang chờ staging target/credentials/signing context được cấp.
 
-### ODS Shell parity snapshot (2026-11-20)
+### ODS Shell parity snapshot (2026-11-21)
 
 | Slice | ODS UI hiện tại | API đã nối trong ODS | Gaps còn lại |
 |---|---|---|---|
@@ -24,18 +24,45 @@ Tài liệu này phân biệt **API được đăng ký**, **API có handler/ups
 
 **Kết luận:** ODS hiện có API-backed vertical slices cho Task, BPMN/DMN/Form Authoring, deployment, Access catalog và Configuration lifecycle; mutations đi qua `callApi` với idempotency key và conflict reconciliation. BPMN graphical canvas đã có giới hạn hỗ trợ được công bố. Identity user/role mutations và Task completed history/bulk action vẫn thiếu runtime API. Không đánh đồng E2E fixture với upstream/staging evidence.
 
-### Gap contracts cần domain owner duyệt trước khi triển khai runtime
+### Quyết định domain đã xác nhận và contract còn cần chốt
 
-Các endpoint sau chỉ xuất hiện trong design catalog (`proposed`), không phải Gateway runtime routes. Đây là proposal để Authz/Identity và Human Runtime owners duyệt; chưa bật UI mutation hay giả lập behavior.
+Các endpoint bên dưới vẫn chỉ có trong design catalog (`proposed`), chưa phải Gateway runtime routes. Các câu trả lời của product/domain owner được ghi nhận là quyết định đầu vào; chi tiết protocol còn thiếu tiếp tục là proposal cần Authz/Identity hoặc Human Runtime owner chốt trước khi triển khai.
 
-| Slice / API proposal | Owner đề xuất | Contract tối thiểu cần chốt | Acceptance criteria khi owner duyệt |
-|---|---|---|---|
-| Identity users: `GET/POST /v1/admin/users`, `GET/PATCH/DELETE /v1/admin/users/{userID}`, `/restore`, `/lock`, `/unlock`, `/revoke-sessions`, user-role assignment | Authz/Identity owner | IdP là source-of-truth hay BPMP-owned identity; immutable external subject; tenant/org/branch scope; account lifecycle và delete/restore semantics; role assignment policy; audit actor; optimistic version; idempotency key | Actor chỉ đọc/sửa đúng tenant và scope; duplicate create/command retry không tạo duplicate; stale version trả 409 kèm resource version; lock/revoke có audit receipt; IdP-owned fields không bị ghi ngược; list/detail không lộ secret/session tokens. |
-| Identity roles: `GET/POST /v1/admin/roles`, `GET/PATCH/DELETE /v1/admin/roles/{roleID}`, `/restore`, role-permission assignment | Authz/Identity owner | System vs tenant role ownership; immutable role key; permission catalog authority; inheritance/assignment rules; delete-in-use behavior; scope, audit/version/idempotency | Không thể xóa/đổi key role hệ thống hoặc role đang gán nếu policy cấm; permission chỉ nằm trong catalog được cấp; stale write trả 409; thay đổi ghi audit; authorization được kiểm tra trước khi trả role/permission data. |
-| Task history: `GET /v1/work-items/{workItemID}/history` | Human Runtime owner | Audit/event source, event vocabulary, actor visibility/PII redaction, cursor pagination, ordering, retention, read-after-command/freshness | Lịch sử tenant-scoped, phân trang ổn định theo cursor, không mất/trùng event khi paging; mutation receipt liên kết correlation ID; projection delay được biểu diễn; dữ liệu nhạy cảm được redact theo quyền. |
-| Task bulk actions: `POST /v1/work-items/batch-actions` | Human Runtime owner | Supported action set (claim/unclaim/complete/delegate), per-item expected version, authorization scope, all-or-nothing hay partial success, per-item outcomes, idempotency/retry semantics, max batch size, audit | Mỗi item trả outcome độc lập với mã lỗi ổn định; partial failure không che item thành công; retry cùng key/payload không lặp transition; conflict item không làm mất receipt các item khác; batch size và quyền được enforce server-side; audit/correlation có thể truy vết từng item. |
+#### Identity và tenant access
 
-Khi owner duyệt, cập nhật runtime OpenAPI, Gateway route/upstream registry, service handler và contract tests đồng bộ trước khi nối UI. User/role tenant, branch, IdP semantics vẫn chờ quyết định domain owner; các tiêu chí trên là đề xuất có thể chỉnh sửa.
+| Chủ đề | Đã xác nhận | Còn cần chốt trong contract |
+|---|---|---|
+| Nguồn danh tính/xác thực | Keycloak IdP là nguồn dữ liệu chính; đăng nhập qua SSO. BPMP không phải nguồn quản lý credential. | OIDC issuer/client, subject key ổn định, claim mapping và đồng bộ tên/email; vòng đời tài khoản bị khóa/xóa ở Keycloak phản ánh vào session/membership BPMP ra sao. |
+| Tenant và quyền | Sau SSO, user được phân quyền vào từng tenant. Mỗi tenant cấu hình linh hoạt user membership, role và permission riêng. Role/permission tenant là authorization data của BPMP/Authz, độc lập credential IdP. | Tenant switching/session binding; org/branch scope (chưa có quyết định); system roles so với tenant roles; role inheritance; permission catalog và điều kiện xóa role đang được gán. |
+| Write guarantees | Optimistic concurrency, idempotency key và audit bắt buộc cho mọi mutation Identity đã được xác nhận. | Updates/actions trên resource hiện hữu dùng `expectedVersion`/ETag và 409 khi stale; create dùng idempotent command + uniqueness vì chưa có version trước đó. Chốt phạm vi/TTL key, event schema/retention audit; mapping lock/unlock/revoke-session sang Keycloak hay membership-local. |
+
+API proposal thuộc Authz/Identity owner: `GET/POST /v1/admin/users`, `GET/PATCH/DELETE /v1/admin/users/{userID}`, `/restore`, `/lock`, `/unlock`, `/revoke-sessions`, user-role assignment; tương tự collection/detail/restore và role-permission assignment cho `/v1/admin/roles`. User resource đề xuất là BPMP tenant membership/access profile tham chiếu cặp immutable `(idpIssuer, idpSubject)`, không phải credential/account tại Keycloak. Tên và semantics của routes chưa được duyệt. Acceptance: mọi read/write tenant scoped; authorization mặc định deny và được kiểm tra tại service trên từng object; IdP-owned credentials/claims không bị BPMP ghi ngược; stale version trả conflict; replay cùng key/payload không tạo hiệu ứng lặp; key dùng payload khác bị từ chối; audit ghi actor, tenant, resource, action, outcome và correlation, không chứa token/secret.
+
+#### Task event history
+
+| Chủ đề | Đã xác nhận | Còn cần chốt trong contract |
+|---|---|---|
+| Nguồn dữ liệu | Event Store là nguồn lịch sử có thẩm quyền; history không được tổng hợp từ UI state hay chỉ từ log ứng dụng. | Event types nào là user-visible, thứ tự/cursor pagination, visibility actor, PII masking, retention và consistency/freshness sau command. |
+| API proposal | `GET /v1/work-items/{workItemID}/history` thuộc Human Runtime. | Response envelope/cursor, event vocabulary/version, authorization model và error codes. |
+
+Acceptance: tenant/object authorization trước khi đọc; cursor ổn định không làm mất hoặc lặp event; event có occurrence time, actor (nếu được phép hiển thị), action, outcome, correlation/causation reference; redact theo policy; event store unavailability được trả rõ ràng chứ không giả lập lịch sử rỗng.
+
+#### Task bulk actions
+
+| Chủ đề | Đã xác nhận | Còn cần chốt trong contract |
+|---|---|---|
+| Hành động | Hỗ trợ đủ claim, unclaim, complete và delegate. | Hình dạng payload riêng cho complete/delegate, điều kiện hợp lệ và kết quả từng action. |
+| Concurrency | Mỗi item bắt buộc có `expectedVersion`. | Tên field/đơn vị version, cách trả version conflict và có cho item lặp trong cùng batch không. |
+| Kết quả | Cả atomic batch và partial success đều cần hỗ trợ; client phải chọn mode rõ ràng, không ngầm đoán. | Atomicity khả thi theo ranh giới transaction của Human Runtime; status/HTTP sync hay async; semantics item authorization failure trong atomic mode. |
+| API proposal | `POST /v1/work-items/batch-actions` thuộc Human Runtime. | Action-specific request/response, batch status/result query nếu async, giới hạn/quota và retention kết quả. Design OpenAPI hiện đặt `maxItems: 100`; đó mới là con số proposal, chưa được load-test/domain owner phê duyệt. |
+
+Baseline kỹ thuật đề xuất cho owner review: xác thực và kiểm tra tenant/action permission tại server cho từng item; worker re-check quyền khi chạy hoặc dùng ủy quyền bền vững được lưu rõ ràng (phải chọn một); atomic mode chỉ được nhận nếu bảo đảm all-or-nothing thật trong cùng consistency boundary, nếu không thì từ chối trước khi có side effect; partial mode lưu trạng thái/result từng item để retry chọn lọc. Idempotency namespace nên chứa tenant + actor/caller + operation + key, fingerprint payload; cùng key/payload trả trạng thái/kết quả tương đương, cùng key khác payload trả conflict; lưu dedupe cả batch và item để worker restart không lặp transition.
+
+Retry chỉ cho lỗi tạm thời và thao tác an toàn, có deadline/attempt budget hữu hạn, exponential backoff+jitter và tôn trọng `Retry-After`; không retry mù lỗi validation, authorization, business rule hay version conflict. Timeout sau side effect là kết quả chưa xác định: tra trạng thái bằng operation/item identity trước khi phát lệnh mới. Numeric max attempts, delay, deadline, per-tenant concurrency/queue quota, payload limit và result retention phải được benchmark trên stage rồi owner duyệt; chưa chốt hằng số.
+
+Audit/correlation baseline đề xuất: audit bền vững cho accepted/rejected command và kết quả từng item; giữ actor, tenant đã xác minh, executor/worker, action, resource ID, outcome/reason, expected/result version, operation/batch/item ID, request/correlation/trace ID, attempt và timestamp; không ghi credential/token hoặc payload nhạy cảm. Audit retention, kênh ghi bền vững và quyền tra cứu vẫn cần owner/policy chốt.
+
+Sau khi owner xác nhận các phần còn mở, cập nhật runtime OpenAPI, Gateway route/upstream registry, service handler, persistence/event schemas và contract tests đồng bộ; khi đó mới bật các thao tác UI. Bản thiết kế này chưa xem các API proposal là runtime đã triển khai.
 
 ## Trạng thái API theo feature BPMP
 
@@ -47,11 +74,11 @@ Khi owner duyệt, cập nhật runtime OpenAPI, Gateway route/upstream registry
 | **Runtime deployment / rollback** | `POST /v1/authoring/process-models/{processModelID}/deployments`, `GET /v1/authoring/deployments/{deploymentID}`, `POST /v1/authoring/deployments/{deploymentID}/rollback`, list deployments | Studio MFE gọi deployment command, poll detail đến terminal state, render history và gửi rollback qua `callApi`; command có idempotency key. | Browser E2E dùng mock Gateway; deployment receipt/partial ACK/restart/rollback cần upstream contract integration evidence. Staging vẫn chưa có target được ủy quyền. |
 | **Operation / Process Explorer** | 15 operation Projection gồm process query/completed query/capabilities, event query, aggregate, saved query/dashboard CRUD, export lifecycle, query-plan explain | Gateway/Projection handlers hiện hành; Cockpit có query/explorer pages. Read model là eventual/rebuildable, không nhận command. | Prototype operation pages hiển thị `INITIAL_INSTANCES` và cập nhật cục bộ. Cần nối filter/sort/paging, permission-before-aggregate, staleness, export lifecycle và query capability; không thêm process mutation vào Projection. |
 | **Optimize / dashboards** | Dùng lại Projection process query, aggregate, saved dashboards/queries, export | API hiện hành ở backend; một số màn Cockpit đã tích hợp query/dashboard. | Prototype metrics/chart đang lấy mock data; xác nhận mỗi chỉ số có định nghĩa, nguồn/refresh/staleness và authorization trước khi nối. Các Report/OLAP endpoints mới là proposed. |
-| **Identity / organization** | `GET /v1/access/users` hiện hành; Authz Control Plane có `/api/v1/organizations` và node operations ngoài Portal Gateway OpenAPI | Có API owner-side, nhưng organization API là contract riêng; không được tính vào 77 public Gateway operations. | Prototype tenant/role/account menu thay đổi state cục bộ. Chuyển tenant cần session-bound operation; org CRUD/tree cần contract, actor/tenant enforcement và CSRF. API design Identity/Session phần lớn proposed; lựa chọn IdP/branch ownership còn chờ owner duyệt. |
+| **Identity / organization** | `GET /v1/access/users` hiện hành; Authz Control Plane có `/api/v1/organizations` và node operations ngoài Portal Gateway OpenAPI | Có API owner-side, nhưng organization API là contract riêng; không được tính vào 77 public Gateway operations. | Đã xác nhận Keycloak là IdP/SSO source-of-truth và BPMP quản lý membership/role/permission theo tenant. Mutation API vẫn chưa có runtime. Session-bound tenant switching, Keycloak claim/session lifecycle, org/branch tree và customer/staff authorization còn cần contract/owner decision. |
 | **Access / authorization catalog** | 10 Gateway operations hiện hành: catalog versions/entries/roles, draft create/update/validate/publish, bundle, audit, acknowledgements; queues và assignment policy thuộc Human Runtime | Studio MFE gọi create/update/validate/publish, đọc entries/roles/users/audit/acknowledgements, và tạo/sửa assignment policies với expected version qua `callApi`; Authz/Human Runtime vẫn giữ quyết định owner-side. | Identity user/role mutation API chưa có trong current contract; chưa có visual policy/grant editor. Identity/branch/tenant policy expansion vẫn proposal chờ owner. |
 | **Task Management / queue policy** | `GET /v1/access/queues`, `GET/PUT /v1/assignment-policies` (Human Runtime) | Route hiện hành; policy do Human Runtime quản lý, engine vẫn là nơi quyết định transition. | UI prototype cần được đối chiếu field/version/conflict/audit với assignment policy contract. Không cho UI quyết định quyền complete hoặc tự sửa workflow state. |
 | **Foundation / configuration** | 9 profile operations trên Gateway tới Configuration Service + `GET /v1/runtime/browser-configuration` | Studio MFE hỗ trợ profile create/detail, draft, publish, rollback, restore, retire và diff; mutations dùng aggregate-version và idempotency. | Values do service validate theo owner policy; UI không chỉnh network endpoints/secrets. Browser E2E fixture chưa xác nhận Configuration Service trên stage. |
-| **Case / Document / Integration / MDM / Notification / Report / Governance / Session** | 256 operation proposed trong design catalog | Thiết kế/định hướng, chưa đưa vào runtime public contract. Một `GET /v1/cases/{caseID}` hiện có là case/work-item projection của Human Runtime, **không** phải Case aggregate service. | Chưa triển khai UI như thao tác thật. Chốt domain owner, actor model, persistence/outbox/inbox, retention/SLA/SLO, callback/idempotency, security/acceptance criteria trước khi tạo contract v1 và service. Các lựa chọn IdP, organization/branch, customer/staff authorization và retention là proposal chờ domain owner duyệt. |
+| **Case / Document / Integration / MDM / Notification / Report / Governance / Session** | 256 operation proposed trong design catalog | Thiết kế/định hướng, chưa đưa vào runtime public contract. Một `GET /v1/cases/{caseID}` hiện có là case/work-item projection của Human Runtime, **không** phải Case aggregate service. | Chưa triển khai UI như thao tác thật. Chốt domain owner, actor model, persistence/outbox/inbox, retention/SLA/SLO, callback/idempotency, security/acceptance criteria trước khi tạo contract v1 và service. Keycloak/tenant top-level decision đã xác nhận; session/claims, org/branch, customer/staff authorization và retention vẫn mở. |
 
 ## Đếm operation theo owner
 

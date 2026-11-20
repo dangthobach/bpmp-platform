@@ -5824,7 +5824,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/TargetBatchResult"
+                "$ref": "#/components/schemas/TargetWorkItemBatchResult"
               }
             }
           }

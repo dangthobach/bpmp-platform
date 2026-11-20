@@ -80,6 +80,7 @@ def build():
     schema('TargetBatchItem', 'id:id expectedVersion:i action:id values?:json reason?:s')
     schema('TargetBatchResultItem', 'id:id status:s receipt?:@TargetReceipt error?:@TargetIssue')
     schema('TargetBatchResult', 'jobId?:id items:[@TargetBatchResultItem]')
+    schema('TargetWorkItemBatchResult', 'operationId:id mode:id status:id items:[@TargetBatchResultItem]')
     schema('TargetVersion', 'id:id number:i digest:id createdAt:time createdBy:id schemaVersion?:id content?:json')
     schema('TargetReference', 'key:id releaseId:id modelVersionId?:id')
     schema('TargetFreshness', 'producer:id checkpoint:s lastReconciledAt:time stale:b')
@@ -163,8 +164,8 @@ def build():
     add('POST','/v1/incidents/{incidentID}/retry','retryIncident','Engine','expectedVersion:i reason:s',priority='P0',note='Validate task/job lease and max attempts, not local status reset.')
     add('GET','/v1/work-items/{workItemID}/form','getWorkItemForm','Human',output='TargetVersion',priority='P0')
     add('POST','/v1/work-items/{workItemID}/validate','validateWorkItemForm','Human','formVersionId:id values:json outcome:s',output='TargetValidation',priority='P0',cas=False)
-    add('POST','/v1/work-items/batch-actions','batchWorkItemActions','Human','items:[@TargetBatchItem]',output='TargetBatchResult',priority='P0',cas=False)
-    add('GET','/v1/work-items/{workItemID}/history','getWorkItemHistory','Human',output='ListAuditRecordsResponse',priority='P0')
+    add('POST','/v1/work-items/batch-actions','batchWorkItemActions','Human','mode:id items:[@TargetBatchItem]',output='TargetWorkItemBatchResult',priority='P0',cas=False,note='Supports CLAIM, UNCLAIM, COMPLETE and DELEGATE. Every item requires expectedVersion. Caller selects ATOMIC or PARTIAL. Authorization is checked per item in trusted tenant scope. Idempotency and audit/correlation are required. maxItems=100 is a proposal pending load validation and owner approval.')
+    add('GET','/v1/work-items/{workItemID}/history','getWorkItemHistory','Human',output='ListAuditRecordsResponse',priority='P0',note='Event Store is authoritative. Tenant/object authorization, event visibility, actor/PII redaction, stable cursor order, retention and freshness require owner approval; store unavailability must not appear as empty history.')
     add('POST','/v1/runtime-cases','activateRuntimeCase','Engine','caseModelVersionId:id caseId:id initialFacts:json',priority='P0',cas=False)
     add('POST','/v1/runtime-cases/{caseID}/sentries/evaluate','evaluateRuntimeSentries','Engine','expectedVersion:i facts:json',priority='P0',cas=True,command=True)
     add('GET','/v1/jobs/{jobID}','getJob','Gateway',output='TargetJob')
@@ -232,7 +233,7 @@ def build():
     add('POST',doc+'/holds','createDocumentHold','Document','expectedVersion:i reason:s')
 
     for base,noun,owner,fields in (
-        ('/v1/admin/users','User','Identity','username:id fullName:s email:s departmentRef?:id'),
+        ('/v1/admin/users','User','Identity','idpIssuer:uri idpSubject:id displayName:s email:s departmentRef?:id'),
         ('/v1/admin/roles','Role','Authz','code:id name:s roleType:id'),
         ('/v1/admin/permissions','Permission','Authz','code:id resourceType:id action:id mandatoryAudit:b'),
         ('/v1/admin/queues','Queue','Human','key:id name:s processKey:id'),
@@ -324,7 +325,7 @@ def build():
         'targetBatchPermissionActions': ['ASSIGN_ROLE','REVOKE_ROLE','ASSIGN_USER','REVOKE_USER','SET_AUDIT_POLICY','EXPORT'],
         'targetBatchResourceActions': ['PROBE','SET_STATUS','EXPORT'],
         'targetBatchServiceAccountActions': ['ROTATE_CERTIFICATE','RENEW_CERTIFICATE','REVOKE','EXPORT_METADATA'],
-        'targetBatchWorkItemActions': ['APPROVE','REJECT'],
+        'targetBatchWorkItemActions': ['CLAIM','UNCLAIM','COMPLETE','DELEGATE'],
         'targetBatchInstanceActions': ['CANCEL','EXECUTE_MIGRATION_PLAN','EXECUTE_TOKEN_MOVE_PLAN'],
     }
     for item in api['paths'].values():
@@ -337,6 +338,17 @@ def build():
                 item_schema=copy.deepcopy(schemas['TargetBatchItem'])
                 item_schema['properties']['action']['enum']=batch_actions[op['operationId']]
                 schemas[request_name]['properties']['items']['items']=item_schema
+                if op['operationId']=='targetBatchWorkItemActions':
+                    schemas[request_name]['properties']['mode']['enum']=['ATOMIC','PARTIAL']
+                    schemas['TargetWorkItemBatchResult']['properties']['mode']['enum']=['ATOMIC','PARTIAL']
+                    schemas['TargetWorkItemBatchResult']['properties']['status']['enum']=['ACCEPTED','RUNNING','SUCCEEDED','PARTIALLY_SUCCEEDED','FAILED']
+                    schemas['TargetWorkItemBatchResult']['properties']['status']['description']='PARTIALLY_SUCCEEDED is valid only when mode=PARTIAL; ATOMIC returns SUCCEEDED or FAILED after completion.'
+
+    for path, item in api['paths'].items():
+        if path.startswith('/v1/admin/users'):
+            for method, op in item.items():
+                if method in HTTP and op.get('x-status') == 'proposed':
+                    op['description'] = ('PROPOSED; not implemented. Keycloak is the SSO identity source. These APIs manage BPMP tenant membership/access profile; lock/unlock/revoke-session semantics require explicit Keycloak integration in an approved owner contract. BPMP does not create or write credentials.' )
 
     # Record exact internal RPC signatures, including worker/Raft-only surfaces.
     rpc_rows=[]

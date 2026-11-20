@@ -9754,7 +9754,7 @@
           "Human"
         ],
         "summary": "batchWorkItemActions",
-        "description": "PROPOSED; not implemented.  Entity/audit/precondition conventions apply. Scope/auth enforced by owner.",
+        "description": "PROPOSED; not implemented. Supports CLAIM, UNCLAIM, COMPLETE and DELEGATE. Every item requires expectedVersion. Caller selects ATOMIC or PARTIAL. Authorization is checked per item in trusted tenant scope. Idempotency and audit/correlation are required. maxItems=100 is a proposal pending load validation and owner approval. Entity/audit/precondition conventions apply. Scope/auth enforced by owner.",
         "parameters": [
           {
             "name": "X-BPMP-Tenant-ID",
@@ -9823,7 +9823,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TargetBatchResult"
+                  "$ref": "#/components/schemas/TargetWorkItemBatchResult"
                 }
               }
             }
@@ -9965,8 +9965,10 @@
           }
         },
         "x-allowed-actions": [
-          "APPROVE",
-          "REJECT"
+          "CLAIM",
+          "UNCLAIM",
+          "COMPLETE",
+          "DELEGATE"
         ]
       }
     },
@@ -9977,7 +9979,7 @@
           "Human"
         ],
         "summary": "getWorkItemHistory",
-        "description": "PROPOSED; not implemented.  Entity/audit/precondition conventions apply. Scope/auth enforced by owner.",
+        "description": "PROPOSED; not implemented. Event Store is authoritative. Tenant/object authorization, event visibility, actor/PII redaction, stable cursor order, retention and freshness require owner approval; store unavailability must not appear as empty history. Entity/audit/precondition conventions apply. Scope/auth enforced by owner.",
         "parameters": [
           {
             "name": "workItemID",
@@ -27010,7 +27012,7 @@
           "Identity"
         ],
         "summary": "listUser",
-        "description": "PROPOSED; not implemented.  Entity/audit/precondition conventions apply. Scope/auth enforced by owner.",
+        "description": "PROPOSED; not implemented. Keycloak is the SSO identity source. These APIs manage BPMP tenant membership/access profile; lock/unlock/revoke-session semantics require explicit Keycloak integration in an approved owner contract. BPMP does not create or write credentials.",
         "parameters": [
           {
             "name": "X-BPMP-Tenant-ID",
@@ -27220,7 +27222,7 @@
           "Identity"
         ],
         "summary": "createUser",
-        "description": "PROPOSED; not implemented.  Entity/audit/precondition conventions apply. Scope/auth enforced by owner.",
+        "description": "PROPOSED; not implemented. Keycloak is the SSO identity source. These APIs manage BPMP tenant membership/access profile; lock/unlock/revoke-session semantics require explicit Keycloak integration in an approved owner contract. BPMP does not create or write credentials.",
         "parameters": [
           {
             "name": "X-BPMP-Tenant-ID",
@@ -27439,7 +27441,7 @@
           "Identity"
         ],
         "summary": "getUser",
-        "description": "PROPOSED; not implemented.  Entity/audit/precondition conventions apply. Scope/auth enforced by owner.",
+        "description": "PROPOSED; not implemented. Keycloak is the SSO identity source. These APIs manage BPMP tenant membership/access profile; lock/unlock/revoke-session semantics require explicit Keycloak integration in an approved owner contract. BPMP does not create or write credentials.",
         "parameters": [
           {
             "name": "userID",
@@ -27626,7 +27628,7 @@
           "Identity"
         ],
         "summary": "updateUser",
-        "description": "PROPOSED; not implemented.  Entity/audit/precondition conventions apply. Scope/auth enforced by owner.",
+        "description": "PROPOSED; not implemented. Keycloak is the SSO identity source. These APIs manage BPMP tenant membership/access profile; lock/unlock/revoke-session semantics require explicit Keycloak integration in an approved owner contract. BPMP does not create or write credentials.",
         "parameters": [
           {
             "name": "userID",
@@ -27864,7 +27866,7 @@
           "Identity"
         ],
         "summary": "softDeleteUser",
-        "description": "PROPOSED; not implemented.  Entity/audit/precondition conventions apply. Scope/auth enforced by owner.",
+        "description": "PROPOSED; not implemented. Keycloak is the SSO identity source. These APIs manage BPMP tenant membership/access profile; lock/unlock/revoke-session semantics require explicit Keycloak integration in an approved owner contract. BPMP does not create or write credentials.",
         "parameters": [
           {
             "name": "userID",
@@ -28104,7 +28106,7 @@
           "Identity"
         ],
         "summary": "restoreUser",
-        "description": "PROPOSED; not implemented.  Entity/audit/precondition conventions apply. Scope/auth enforced by owner.",
+        "description": "PROPOSED; not implemented. Keycloak is the SSO identity source. These APIs manage BPMP tenant membership/access profile; lock/unlock/revoke-session semantics require explicit Keycloak integration in an approved owner contract. BPMP does not create or write credentials.",
         "parameters": [
           {
             "name": "userID",
@@ -28344,7 +28346,7 @@
           "Identity"
         ],
         "summary": "batchUserActions",
-        "description": "PROPOSED; not implemented.  Entity/audit/precondition conventions apply. Scope/auth enforced by owner.",
+        "description": "PROPOSED; not implemented. Keycloak is the SSO identity source. These APIs manage BPMP tenant membership/access profile; lock/unlock/revoke-session semantics require explicit Keycloak integration in an approved owner contract. BPMP does not create or write credentials.",
         "parameters": [
           {
             "name": "X-BPMP-Tenant-ID",
@@ -37915,7 +37917,7 @@
           "Identity"
         ],
         "summary": "LockUser",
-        "description": "PROPOSED; not implemented.  Entity/audit/precondition conventions apply. Scope/auth enforced by owner.",
+        "description": "PROPOSED; not implemented. Keycloak is the SSO identity source. These APIs manage BPMP tenant membership/access profile; lock/unlock/revoke-session semantics require explicit Keycloak integration in an approved owner contract. BPMP does not create or write credentials.",
         "parameters": [
           {
             "name": "userID",
@@ -38155,7 +38157,7 @@
           "Identity"
         ],
         "summary": "UnlockUser",
-        "description": "PROPOSED; not implemented.  Entity/audit/precondition conventions apply. Scope/auth enforced by owner.",
+        "description": "PROPOSED; not implemented. Keycloak is the SSO identity source. These APIs manage BPMP tenant membership/access profile; lock/unlock/revoke-session semantics require explicit Keycloak integration in an approved owner contract. BPMP does not create or write credentials.",
         "parameters": [
           {
             "name": "userID",
@@ -38395,7 +38397,7 @@
           "Identity"
         ],
         "summary": "RevokeSessionsUser",
-        "description": "PROPOSED; not implemented.  Entity/audit/precondition conventions apply. Scope/auth enforced by owner.",
+        "description": "PROPOSED; not implemented. Keycloak is the SSO identity source. These APIs manage BPMP tenant membership/access profile; lock/unlock/revoke-session semantics require explicit Keycloak integration in an approved owner contract. BPMP does not create or write credentials.",
         "parameters": [
           {
             "name": "userID",
@@ -38635,7 +38637,7 @@
           "Authz"
         ],
         "summary": "setUserRoles",
-        "description": "PROPOSED; not implemented.  Entity/audit/precondition conventions apply. Scope/auth enforced by owner.",
+        "description": "PROPOSED; not implemented. Keycloak is the SSO identity source. These APIs manage BPMP tenant membership/access profile; lock/unlock/revoke-session semantics require explicit Keycloak integration in an approved owner contract. BPMP does not create or write credentials.",
         "parameters": [
           {
             "name": "userID",
@@ -38875,7 +38877,7 @@
           "Authz"
         ],
         "summary": "setUserPermissions",
-        "description": "PROPOSED; not implemented.  Entity/audit/precondition conventions apply. Scope/auth enforced by owner.",
+        "description": "PROPOSED; not implemented. Keycloak is the SSO identity source. These APIs manage BPMP tenant membership/access profile; lock/unlock/revoke-session semantics require explicit Keycloak integration in an approved owner contract. BPMP does not create or write credentials.",
         "parameters": [
           {
             "name": "userID",
@@ -64596,6 +64598,52 @@
           "items"
         ]
       },
+      "TargetWorkItemBatchResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "mode": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "enum": [
+              "ATOMIC",
+              "PARTIAL"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "enum": [
+              "ACCEPTED",
+              "RUNNING",
+              "SUCCEEDED",
+              "PARTIALLY_SUCCEEDED",
+              "FAILED"
+            ],
+            "description": "PARTIALLY_SUCCEEDED is valid only when mode=PARTIAL; ATOMIC returns SUCCEEDED or FAILED after completion."
+          },
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/TargetBatchResultItem"
+            }
+          }
+        },
+        "required": [
+          "operationId",
+          "mode",
+          "status",
+          "items"
+        ]
+      },
       "TargetVersion": {
         "type": "object",
         "additionalProperties": false,
@@ -65251,6 +65299,15 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
+          "mode": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "enum": [
+              "ATOMIC",
+              "PARTIAL"
+            ]
+          },
           "items": {
             "type": "array",
             "maxItems": 100,
@@ -65273,8 +65330,10 @@
                   "minLength": 1,
                   "maxLength": 256,
                   "enum": [
-                    "APPROVE",
-                    "REJECT"
+                    "CLAIM",
+                    "UNCLAIM",
+                    "COMPLETE",
+                    "DELEGATE"
                   ]
                 },
                 "values": {
@@ -65296,6 +65355,7 @@
           }
         },
         "required": [
+          "mode",
           "items"
         ]
       },
@@ -67496,12 +67556,16 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "username": {
+          "idpIssuer": {
+            "type": "string",
+            "format": "uri"
+          },
+          "idpSubject": {
             "type": "string",
             "minLength": 1,
             "maxLength": 256
           },
-          "fullName": {
+          "displayName": {
             "type": "string",
             "maxLength": 4096
           },
@@ -67567,8 +67631,9 @@
           }
         },
         "required": [
-          "username",
-          "fullName",
+          "idpIssuer",
+          "idpSubject",
+          "displayName",
           "email",
           "id",
           "tenantId",
@@ -67604,12 +67669,16 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "username": {
+          "idpIssuer": {
+            "type": "string",
+            "format": "uri"
+          },
+          "idpSubject": {
             "type": "string",
             "minLength": 1,
             "maxLength": 256
           },
-          "fullName": {
+          "displayName": {
             "type": "string",
             "maxLength": 4096
           },
@@ -67624,8 +67693,9 @@
           }
         },
         "required": [
-          "username",
-          "fullName",
+          "idpIssuer",
+          "idpSubject",
+          "displayName",
           "email"
         ]
       },
@@ -67638,12 +67708,16 @@
             "minimum": 0,
             "maximum": 9007199254740991
           },
-          "username": {
+          "idpIssuer": {
+            "type": "string",
+            "format": "uri"
+          },
+          "idpSubject": {
             "type": "string",
             "minLength": 1,
             "maxLength": 256
           },
-          "fullName": {
+          "displayName": {
             "type": "string",
             "maxLength": 4096
           },
