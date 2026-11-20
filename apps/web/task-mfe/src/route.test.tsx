@@ -3,9 +3,9 @@ import { SWRConfig } from "swr";
 import { describe, expect, it, vi } from "vitest";
 import { OdsThemeProvider } from "@ods/shared-ui";
 import type { PlatformServices } from "@ods/mfe-contract";
-import { route } from "./route";
+import { route, type WorkItem } from "./route";
 
-const sampleWorkItems = [
+const sampleWorkItems: WorkItem[] = [
   {
     work_item_id: "task-1",
     task_name: "Personal Review Application",
@@ -35,12 +35,36 @@ const sampleWorkItems = [
 function createMockPlatform(workItems = sampleWorkItems): PlatformServices {
   return {
     callApi: vi.fn().mockImplementation(async ({ method, path }: { method: string; path: string }) => {
-      if (method === "GET" && path.startsWith("/v1/work-items")) {
+      if (method === "GET" && path.startsWith("/v1/work-items?")) {
         return {
           ok: true,
           data: { work_items: workItems },
           requestId: "req-1",
           correlationId: "corr-1",
+        };
+      }
+      if (method === "GET" && path.startsWith("/v1/work-items/")) {
+        const taskId = path.split("/").at(-1);
+        return {
+          ok: true,
+          data: { work_item: workItems.find((item) => item.work_item_id === taskId) ?? sampleWorkItems[0] },
+          requestId: "req-detail",
+          correlationId: "corr-detail",
+        };
+      }
+      if (method === "GET" && path.startsWith("/v1/authoring/published-forms/")) {
+        return {
+          ok: true,
+          data: {
+            form: { form_key: "task-form", name: "Task form" },
+            published_version: {
+              id: "form-version-1",
+              schema_json: JSON.stringify({ type: "object", properties: { applicant: { type: "string", title: "Applicant name", minLength: 1 } }, required: ["applicant"], additionalProperties: false }),
+              ui_schema_json: "{}",
+            },
+          },
+          requestId: "req-form",
+          correlationId: "corr-form",
         };
       }
       if (method === "GET" && path.startsWith("/v1/audit-records")) {
@@ -144,6 +168,7 @@ describe("TaskWorklist Vertical Slice", () => {
       expect(screen.getByText("Group Credit Verification")).toBeInTheDocument();
       expect(screen.queryByText("Personal Review Application")).not.toBeInTheDocument();
     });
+    expect(platform.callApi).toHaveBeenCalledWith(expect.objectContaining({ method: "GET", path: "/v1/work-items?page_size=50&scope=group" }));
   });
 
   it("claims an unassigned group task with idempotent key", async () => {
@@ -199,6 +224,32 @@ describe("TaskWorklist Vertical Slice", () => {
           idempotencyKey: expect.stringMatching(/^task-intent-/),
         })
       );
+    });
+  });
+
+  it("loads the current detail and published form, then submits typed outputs with its immutable version", async () => {
+    const task = { ...sampleWorkItems[0], form_key: "task-form" };
+    const platform = createMockPlatform([task]);
+    renderWorklist(platform);
+
+    await waitFor(() => expect(screen.getByText("Personal Review Application")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Complete" }));
+    const applicantField = await screen.findByLabelText(/Applicant name/);
+    expect(screen.getByRole("button", { name: "Submit Decision" })).toBeDisabled();
+    fireEvent.change(applicantField, { target: { value: "Nguyen Van A" } });
+    fireEvent.click(screen.getByRole("button", { name: "Submit Decision" }));
+
+    await waitFor(() => {
+      expect(platform.callApi).toHaveBeenCalledWith(expect.objectContaining({
+        method: "POST",
+        path: "/v1/work-items/task-1/complete",
+        body: {
+          decision: "APPROVED",
+          expected_version: 2,
+          form_version_id: "form-version-1",
+          outputs: { applicant: "Nguyen Van A" },
+        },
+      }));
     });
   });
 
@@ -303,7 +354,7 @@ describe("TaskWorklist Vertical Slice", () => {
   it("uses bounded server pagination instead of materializing the whole worklist", async () => {
     const platform = createMockPlatform();
     platform.callApi = vi.fn().mockImplementation(async ({ method, path }) => {
-      if (method === "GET" && path === "/v1/work-items?page_size=50") {
+      if (method === "GET" && path === "/v1/work-items?page_size=50&scope=mine") {
         return {
           ok: true,
           data: { work_items: [sampleWorkItems[0]], next_page_token: "page-2" },
@@ -311,7 +362,7 @@ describe("TaskWorklist Vertical Slice", () => {
           correlationId: "corr-page",
         };
       }
-      if (method === "GET" && path === "/v1/work-items?page_size=50&page_token=page-2") {
+      if (method === "GET" && path === "/v1/work-items?page_size=50&scope=mine&page_token=page-2") {
         return {
           ok: true,
           data: { work_items: [{ ...sampleWorkItems[0], work_item_id: "task-3", task_name: "Second Page Review" }] },

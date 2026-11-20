@@ -7,6 +7,7 @@
   "workspaces": [
     "apps/web/ods-shell",
     "apps/web/task-mfe",
+    "apps/web/studio-mfe",
     "packages/frontend/*"
   ],
   "scripts": {

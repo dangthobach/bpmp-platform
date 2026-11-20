@@ -14,6 +14,16 @@ Tài liệu này phân biệt **API được đăng ký**, **API có handler/ups
 
 **Không kết luận 77 operation đều đã chạy trên stage hoặc đều có E2E riêng.** Bằng chứng hiện có là route/spec parity, test theo service/vertical slice và BPMP full-flow E2E đã ghi trong progress ledger. Stage promotion vẫn đang chờ staging target/credentials/signing context được cấp.
 
+### ODS Shell parity snapshot (2026-11-20)
+
+| Slice | ODS UI hiện tại | API đã nối trong ODS | Gaps còn lại |
+|---|---|---|---|
+| Task | Task MFE, điều hướng My/Group từ Shell | Work-item list scope, detail, audit, claim/unclaim/complete/delegate, published form schema/version và completion outputs | Không có completed-history hoặc bulk-action runtime API; realtime/freshness acceptance và full browser workflow chưa chứng minh bằng upstream thật. |
+| Authoring/deployment | Studio MFE remote | Process model list, immutable version list, deployment submit với idempotency key, deployment history | Create/edit draft, validate, check-in, deployment detail polling và rollback chưa được chuyển từ Cockpit vào ODS. Deployment submit E2E mock xác minh request contract, không chứng minh service acceptance trên stage. |
+| Access/config | Studio MFE live read panels | Authorization catalog versions và configuration profile list qua same-origin `callApi` | Draft/edit/validate/publish/audit/acknowledgement, profile create/draft/publish/rollback/restore/retire/diff chưa có ODS action UI. Gateway chỉ phục vụ các route này khi upstream cấu hình; identity/branch semantics vẫn là proposal chờ domain owner. |
+
+**Kết luận:** đã có parity slice cho Task và deployment command, chưa đạt full UI/API parity cho ba feature group. Cockpit hiện có các luồng API-backed rộng hơn; chưa được port hết sang federated ODS remotes. Không coi `Studio` JSON viewer là authoring editor hay Access/config control plane.
+
 ## Trạng thái API theo feature BPMP
 
 | Feature trên prototype / Cockpit | API family hiện có và owner | Tình trạng triển khai | Khoảng trống trước khi gọi là parity |

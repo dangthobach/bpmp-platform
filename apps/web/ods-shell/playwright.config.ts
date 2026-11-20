@@ -16,6 +16,12 @@ export default defineConfig({
       timeout: 120_000,
     },
     {
+      command: "npm run dev -w @ods/studio-mfe",
+      url: "http://127.0.0.1:4302/mf-manifest.json",
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
+    {
       command: "npm run dev -w @ods/shell",
       url: "http://127.0.0.1:4300",
       reuseExistingServer: !process.env.CI,

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import useSWR from "swr";
 import type { RemoteRouteModule, RemoteRouteProps } from "@ods/mfe-contract";
 import {
@@ -49,6 +49,26 @@ export interface WorkItem {
   delegation_depth?: number;
 }
 
+interface WorkItemResponse { work_item: WorkItem }
+interface PublishedFormVersion { id: string; schema_json: string; ui_schema_json?: string }
+interface PublishedFormResponse { form: { form_key: string; name: string }; published_version: PublishedFormVersion }
+type FormOutputValue = string | number | boolean | FormOutputValue[];
+interface TaskFormField {
+  type: "string" | "integer" | "boolean" | "array";
+  title?: string;
+  description?: string;
+  enum?: Array<string | number | boolean>;
+  items?: { type?: "string" | "integer" | "boolean" };
+  minLength?: number;
+  maxLength?: number;
+  minimum?: number;
+  maximum?: number;
+  minItems?: number;
+  maxItems?: number;
+}
+interface TaskFormSchema { type: "object"; properties: Record<string, TaskFormField>; required?: string[]; additionalProperties?: boolean }
+interface TaskFormUiSchema { order?: string[]; fields?: Record<string, { widget?: "default" | "textarea"; width?: "full" | "half"; placeholder?: string; help_text?: string }> }
+
 interface WorkItemPage {
   work_items?: WorkItem[];
   next_page_token?: string;
@@ -65,7 +85,7 @@ interface CommandIntent {
   kind: CommandKind;
   taskId: string;
   path: string;
-  body: Record<string, string | number>;
+  body: Record<string, unknown>;
   commandId: string;
   idempotencyKey: string;
 }
@@ -102,6 +122,7 @@ export function TaskWorklist({ platform }: RemoteRouteProps) {
   const [pageToken, setPageToken] = useState("");
   const [previousPageTokens, setPreviousPageTokens] = useState<string[]>([]);
   const [selectedTask, setSelectedTask] = useState<WorkItem | null>(null);
+  const [formOutputs, setFormOutputs] = useState<Record<string, FormOutputValue>>({});
 
   // Dialog states for Actions
   const [actionType, setActionType] = useState<"complete" | "delegate" | null>(null);
@@ -115,17 +136,35 @@ export function TaskWorklist({ platform }: RemoteRouteProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const selectedTaskId = selectedTask?.work_item_id || selectedTask?.id;
   const detailTaskId = actionType === null ? selectedTaskId : undefined;
+  const workItemScope = activeTab === "personal" ? "mine" : "group";
 
-  const query = useSWR<WorkItemPage>(`task-mfe:worklist:${pageToken}`, async () => {
+  const query = useSWR<WorkItemPage>(`task-mfe:worklist:${workItemScope}:${pageToken}`, async () => {
     const pageTokenQuery = pageToken ? `&page_token=${encodeURIComponent(pageToken)}` : "";
     const result = await platform.callApi<WorkItemPage>({
       method: "GET",
-      path: `/v1/work-items?page_size=50${pageTokenQuery}`,
+      path: `/v1/work-items?page_size=50&scope=${workItemScope}${pageTokenQuery}`,
     });
     if (!result.ok) throw new TaskApiError(result.problem.title, result.problem.code, result.problem.retryable);
     setLastReconciledAt(new Date());
     return result.data;
   }, { shouldRetryOnError: false, revalidateOnFocus: true });
+
+  const detailQuery = useSWR<WorkItemResponse>(selectedTaskId ? `task-mfe:detail:${selectedTaskId}` : null, async () => {
+    if (!selectedTaskId) throw new Error("No work item selected");
+    const result = await platform.callApi<WorkItemResponse>({ method: "GET", path: `/v1/work-items/${encodeURIComponent(selectedTaskId)}` });
+    if (!result.ok) throw new TaskApiError(result.problem.title, result.problem.code, result.problem.retryable);
+    return result.data;
+  }, { shouldRetryOnError: false });
+  const activeTask = detailQuery.data?.work_item ?? selectedTask;
+  const formKey = actionType === "complete" ? activeTask?.form_key : undefined;
+  const formQuery = useSWR<PublishedFormResponse>(formKey ? `task-mfe:published-form:${formKey}` : null, async () => {
+    if (!formKey) throw new Error("No published form is linked to this task");
+    const result = await platform.callApi<PublishedFormResponse>({ method: "GET", path: `/v1/authoring/published-forms/${encodeURIComponent(formKey)}` });
+    if (!result.ok) throw new TaskApiError(result.problem.title, result.problem.code, result.problem.retryable);
+    return result.data;
+  }, { shouldRetryOnError: false });
+
+  useEffect(() => { setFormOutputs({}); }, [selectedTaskId, formQuery.data?.published_version.id]);
 
   // History query for selected task
   const historyQuery = useSWR<AuditRecordPage>(
@@ -195,7 +234,7 @@ export function TaskWorklist({ platform }: RemoteRouteProps) {
     }
   };
 
-  const beginCommand = (kind: CommandKind, task: WorkItem, body: Record<string, string | number>) => {
+  const beginCommand = (kind: CommandKind, task: WorkItem, body: Record<string, unknown>) => {
     if (isSubmitting) return;
     const taskId = task.work_item_id || task.id;
     if (!taskId) return;
@@ -238,27 +277,31 @@ export function TaskWorklist({ platform }: RemoteRouteProps) {
   };
 
   const handleCompleteSubmit = () => {
-    if (!selectedTask) return;
+    if (!activeTask) return;
+    if (detailQuery.isLoading || detailQuery.error) return;
     if (commandIntent?.kind === "complete") {
       void executeCommand(commandIntent);
       return;
     }
-    beginCommand("complete", selectedTask, {
+    const publishedForm = formQuery.data?.published_version;
+    if (activeTask.form_key && (!publishedForm || !isValidTaskForm(publishedForm, formOutputs))) return;
+    beginCommand("complete", activeTask, {
       decision,
-      expected_version: selectedTask.version ?? 1,
+      expected_version: activeTask.version ?? 1,
+      ...(publishedForm ? { form_version_id: publishedForm.id, outputs: formOutputs } : {}),
     });
   };
 
   const handleDelegateSubmit = () => {
-    if (!selectedTask || !delegateTarget.trim()) return;
+    if (!activeTask || !delegateTarget.trim() || detailQuery.isLoading || detailQuery.error) return;
     if (commandIntent?.kind === "delegate") {
       void executeCommand(commandIntent);
       return;
     }
     const body = delegateType === "user"
-      ? { expected_version: selectedTask.version ?? 1, assignee_id: delegateTarget.trim() }
-      : { expected_version: selectedTask.version ?? 1, candidate_group: delegateTarget.trim() };
-    beginCommand("delegate", selectedTask, body);
+      ? { expected_version: activeTask.version ?? 1, assignee_id: delegateTarget.trim() }
+      : { expected_version: activeTask.version ?? 1, candidate_group: delegateTarget.trim() };
+    beginCommand("delegate", activeTask, body);
   };
 
   if (query.isLoading) {
@@ -378,17 +421,17 @@ export function TaskWorklist({ platform }: RemoteRouteProps) {
                 role="tab"
                 aria-selected={activeTab === "personal"}
                 variant={activeTab === "personal" ? "contained" : "outlined"}
-                onClick={() => setActiveTab("personal")}
+                onClick={() => { setActiveTab("personal"); setPageToken(""); setPreviousPageTokens([]); }}
               >
-                {`Personal Tasks (${allItems.filter((i) => Boolean(i.assignee_id)).length})`}
+                Personal Tasks
               </Button>
               <Button
                 role="tab"
                 aria-selected={activeTab === "group"}
                 variant={activeTab === "group" ? "contained" : "outlined"}
-                onClick={() => setActiveTab("group")}
+                onClick={() => { setActiveTab("group"); setPageToken(""); setPreviousPageTokens([]); }}
               >
-                {`Group Tasks (${allItems.filter((i) => !i.assignee_id && i.candidate_group).length})`}
+                Group Tasks
               </Button>
             </Stack>
 
@@ -408,7 +451,7 @@ export function TaskWorklist({ platform }: RemoteRouteProps) {
                 >
                   <MenuItem value="ALL">All</MenuItem>
                   <MenuItem value="ACTIVE">Active</MenuItem>
-                  <MenuItem value="COMPLETED">Completed</MenuItem>
+                  <MenuItem value="COMPLETION_REQUESTED">Completion Requested</MenuItem>
                 </Select>
               </FormControl>
             </Stack>
@@ -462,38 +505,40 @@ export function TaskWorklist({ platform }: RemoteRouteProps) {
         <Dialog open onClose={() => setSelectedTask(null)} maxWidth="md" fullWidth>
           <DialogTitle>
             <Stack direction="row" justifyContent="space-between" alignItems="center">
-              <Typography variant="h6">{selectedTask.task_name || selectedTask.node_id}</Typography>
-              <SlaBadge deadlineEpochMs={selectedTask.sla_deadline_epoch_ms || selectedTask.due_at_epoch_ms} />
+              <Typography variant="h6">{activeTask?.task_name || activeTask?.node_id || selectedTask.task_name || selectedTask.node_id}</Typography>
+              <SlaBadge deadlineEpochMs={activeTask?.sla_deadline_epoch_ms || activeTask?.due_at_epoch_ms} />
             </Stack>
           </DialogTitle>
           <DialogContent dividers>
             <Stack spacing={2}>
+              {detailQuery.isLoading ? <LoadingPanel label="Loading current task details..." /> : null}
+              {detailQuery.error ? <ErrorPanel title="Current task details unavailable" detail={detailQuery.error instanceof TaskApiError ? `Code: ${detailQuery.error.code}` : "The detail query failed."} onRetry={() => { void detailQuery.mutate(); }} /> : null}
               <Box>
                 <Typography variant="subtitle2" color="text.secondary">Work Item ID</Typography>
-                <Typography variant="body2">{selectedTask.work_item_id || selectedTask.id}</Typography>
+                <Typography variant="body2">{activeTask?.work_item_id || activeTask?.id || selectedTask.work_item_id || selectedTask.id}</Typography>
               </Box>
               <Stack direction="row" spacing={4}>
                 <Box>
                   <Typography variant="subtitle2" color="text.secondary">Workflow</Typography>
-                  <Typography variant="body2">{selectedTask.workflow_type} (v{selectedTask.workflow_version})</Typography>
+                  <Typography variant="body2">{activeTask?.workflow_type || selectedTask.workflow_type} (v{activeTask?.workflow_version || selectedTask.workflow_version})</Typography>
                 </Box>
                 <Box>
                   <Typography variant="subtitle2" color="text.secondary">Status</Typography>
-                  <Chip label={selectedTask.status || "UNKNOWN"} size="small" />
+                  <Chip label={activeTask?.status || selectedTask.status || "UNKNOWN"} size="small" />
                 </Box>
                 <Box>
                   <Typography variant="subtitle2" color="text.secondary">Version</Typography>
-                  <Typography variant="body2">{selectedTask.version ?? 1}</Typography>
+                  <Typography variant="body2">{activeTask?.version ?? selectedTask.version ?? 1}</Typography>
                 </Box>
               </Stack>
               <Stack direction="row" spacing={4}>
                 <Box>
                   <Typography variant="subtitle2" color="text.secondary">Assignee</Typography>
-                  <Typography variant="body2">{selectedTask.assignee_id || "None"}</Typography>
+                  <Typography variant="body2">{activeTask?.assignee_id || "None"}</Typography>
                 </Box>
                 <Box>
                   <Typography variant="subtitle2" color="text.secondary">Candidate Group</Typography>
-                  <Typography variant="body2">{selectedTask.candidate_group || "None"}</Typography>
+                  <Typography variant="body2">{activeTask?.candidate_group || "None"}</Typography>
                 </Box>
               </Stack>
 
@@ -526,13 +571,13 @@ export function TaskWorklist({ platform }: RemoteRouteProps) {
             </Stack>
           </DialogContent>
           <DialogActions>
-            {selectedTask.assignee_id ? (
+            {(activeTask ?? selectedTask).assignee_id ? (
               <>
-                <Button onClick={() => openAction(selectedTask, "delegate")}>Delegate</Button>
-                <Button variant="contained" onClick={() => openAction(selectedTask, "complete")}>Complete</Button>
+                <Button onClick={() => openAction(activeTask ?? selectedTask, "delegate")} disabled={detailQuery.isLoading || Boolean(detailQuery.error)}>Delegate</Button>
+                <Button variant="contained" onClick={() => openAction(activeTask ?? selectedTask, "complete")} disabled={detailQuery.isLoading || Boolean(detailQuery.error)}>Complete</Button>
               </>
             ) : (
-              <Button variant="contained" onClick={() => void handleClaim(selectedTask)}>Claim</Button>
+              <Button variant="contained" onClick={() => void handleClaim(activeTask ?? selectedTask)}>Claim</Button>
             )}
             <Button onClick={() => setSelectedTask(null)}>Close</Button>
           </DialogActions>
@@ -557,6 +602,18 @@ export function TaskWorklist({ platform }: RemoteRouteProps) {
               <Typography variant="body2">
                 Decide on: <strong>{selectedTask.task_name || selectedTask.node_id}</strong>
               </Typography>
+              {formKey ? (
+                <Box>
+                  <Typography variant="subtitle2" sx={{ mb: 1 }}>Task form · {formQuery.data?.form.name || formKey}</Typography>
+                  {formQuery.isLoading ? <LoadingPanel label="Loading published form..." /> : null}
+                  {formQuery.error ? <ErrorPanel title="Published task form unavailable" detail={formQuery.error instanceof TaskApiError ? `Code: ${formQuery.error.code}` : "The form query failed."} onRetry={() => { void formQuery.mutate(); }} /> : null}
+                  {formQuery.data ? <TaskFormFields
+                    version={formQuery.data.published_version}
+                    values={formOutputs}
+                    onChange={setFormOutputs}
+                  /> : null}
+                </Box>
+              ) : null}
               <FormControl fullWidth size="small">
                 <InputLabel>Decision</InputLabel>
                 <Select
@@ -577,7 +634,7 @@ export function TaskWorklist({ platform }: RemoteRouteProps) {
           </DialogContent>
           <DialogActions>
             <Button onClick={() => { setActionType(null); setCommandIntent(null); setActionError(null); }} disabled={isSubmitting}>Cancel</Button>
-            <Button variant="contained" onClick={() => void handleCompleteSubmit()} disabled={isSubmitting}>
+            <Button variant="contained" onClick={() => void handleCompleteSubmit()} disabled={isSubmitting || detailQuery.isLoading || Boolean(detailQuery.error) || Boolean(formKey && (formQuery.isLoading || !formQuery.data || !isValidTaskForm(formQuery.data.published_version, formOutputs)))}>
               Submit Decision
             </Button>
           </DialogActions>
@@ -633,7 +690,7 @@ export function TaskWorklist({ platform }: RemoteRouteProps) {
             <Button
               variant="contained"
               onClick={() => void handleDelegateSubmit()}
-              disabled={isSubmitting || !delegateTarget.trim()}
+              disabled={isSubmitting || detailQuery.isLoading || Boolean(detailQuery.error) || !delegateTarget.trim()}
             >
               Delegate
             </Button>
@@ -649,6 +706,134 @@ class TaskApiError extends Error {
     super(message);
     this.name = "TaskApiError";
   }
+}
+
+function TaskFormFields({
+  version,
+  values,
+  onChange,
+}: {
+  version: PublishedFormVersion;
+  values: Record<string, FormOutputValue>;
+  onChange: (values: Record<string, FormOutputValue>) => void;
+}) {
+  const parsed = parseTaskForm(version);
+  if (!parsed) return <ErrorPanel title="Published form cannot be rendered" detail="The published schema or UI schema is invalid or contains an unsupported field type." />;
+  const names = [...new Set([...(parsed.ui.order ?? []), ...Object.keys(parsed.schema.properties).filter((name) => !(parsed.ui.order ?? []).includes(name))])];
+  return (
+    <Stack spacing={1.5}>
+      {names.map((name) => {
+        const field = parsed.schema.properties[name];
+        if (!field) return null;
+        const uiField = parsed.ui.fields?.[name] ?? {};
+        const required = parsed.schema.required?.includes(name) ?? false;
+        const label = `${field.title || name}${required ? " *" : ""}`;
+        const value = values[name];
+        const help = uiField.help_text || field.description;
+        if (field.type === "boolean") {
+          return <Box component="label" key={name} sx={{ display: "flex", alignItems: "center", gap: 1, py: 0.5 }}>
+            <input type="checkbox" checked={Boolean(value)} onChange={(event) => onChange({ ...values, [name]: event.target.checked })} />
+            <Typography variant="body2">{label}</Typography>
+            {help ? <Typography variant="caption" color="text.secondary">{help}</Typography> : null}
+          </Box>;
+        }
+        if (field.enum?.length) {
+          return <FormControl key={name} fullWidth size="small" required={required}>
+            <InputLabel>{label}</InputLabel>
+            <Select value={value === undefined ? "" : String(value)} label={label} onChange={(event) => {
+              const selected = field.enum?.find((option) => String(option) === event.target.value);
+              if (selected !== undefined) onChange({ ...values, [name]: selected });
+              else { const next = { ...values }; delete next[name]; onChange(next); }
+            }}>
+              <MenuItem value=""><em>Select…</em></MenuItem>
+              {field.enum.map((option) => <MenuItem key={String(option)} value={String(option)}>{String(option)}</MenuItem>)}
+            </Select>
+            {help ? <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>{help}</Typography> : null}
+          </FormControl>;
+        }
+        const isArray = field.type === "array";
+        const inputValue = isArray
+          ? (Array.isArray(value) ? value.join(", ") : "")
+          : value === undefined ? "" : String(value);
+        return <TextField
+          key={name}
+          fullWidth
+          size="small"
+          required={required}
+          label={label}
+          helperText={help}
+          placeholder={uiField.placeholder}
+          multiline={field.type === "string" && uiField.widget === "textarea"}
+          minRows={field.type === "string" && uiField.widget === "textarea" ? 3 : undefined}
+          type={field.type === "integer" ? "number" : "text"}
+          value={inputValue}
+          inputProps={{
+            min: field.minimum,
+            max: field.maximum,
+            minLength: field.minLength,
+            maxLength: field.maxLength,
+            step: field.type === "integer" ? 1 : undefined,
+          }}
+          onChange={(event) => {
+            const raw = event.target.value;
+            if (raw === "") {
+              const next = { ...values };
+              delete next[name];
+              onChange(next);
+            } else if (isArray) {
+              const tokens = raw.split(",").map((token) => token.trim()).filter(Boolean);
+              const items = tokens.map((token) => field.items?.type === "integer" ? Number(token) : field.items?.type === "boolean" ? token.toLowerCase() === "true" : token);
+              onChange({ ...values, [name]: items });
+            } else {
+              onChange({ ...values, [name]: field.type === "integer" ? Number(raw) : raw });
+            }
+          }}
+        />;
+      })}
+    </Stack>
+  );
+}
+
+function parseTaskForm(version: PublishedFormVersion): { schema: TaskFormSchema; ui: TaskFormUiSchema } | null {
+  try {
+    const schema = JSON.parse(version.schema_json) as TaskFormSchema;
+    const ui = JSON.parse(version.ui_schema_json || "{}") as TaskFormUiSchema;
+    if (!schema || schema.type !== "object" || !schema.properties || typeof schema.properties !== "object" || Array.isArray(schema.properties) || !ui || typeof ui !== "object" || Array.isArray(ui)) return null;
+    if (Object.keys(ui).some((key) => key !== "order" && key !== "fields")) return null;
+    if (schema.required && (!Array.isArray(schema.required) || schema.required.some((name) => typeof name !== "string" || !schema.properties[name]))) return null;
+    if (ui.order && (!Array.isArray(ui.order) || ui.order.some((name) => typeof name !== "string" || !schema.properties[name]) || new Set(ui.order).size !== ui.order.length)) return null;
+    if (ui.fields && (typeof ui.fields !== "object" || Array.isArray(ui.fields))) return null;
+    for (const [name, field] of Object.entries(schema.properties)) {
+      if (!field || !["string", "integer", "boolean", "array"].includes(field.type)) return null;
+      if (field.type === "array" && !["string", "integer", "boolean"].includes(field.items?.type ?? "")) return null;
+      if (field.enum && (!Array.isArray(field.enum) || field.enum.some((option) => !["string", "number", "boolean"].includes(typeof option)))) return null;
+      const uiField = ui.fields?.[name];
+      if (uiField && (Object.keys(uiField).some((key) => !["widget", "width", "placeholder", "help_text"].includes(key))
+        || (uiField.widget !== undefined && !["default", "textarea"].includes(uiField.widget))
+        || (uiField.widget === "textarea" && (field.type !== "string" || field.enum?.length))
+        || (uiField.width !== undefined && !["full", "half"].includes(uiField.width)))) return null;
+    }
+    if (Object.keys(ui.fields ?? {}).some((name) => !schema.properties[name])) return null;
+    return { schema, ui };
+  } catch {
+    return null;
+  }
+}
+
+function isValidTaskForm(version: PublishedFormVersion, values: Record<string, FormOutputValue>): boolean {
+  const parsed = parseTaskForm(version);
+  if (!parsed || parsed.schema.additionalProperties !== false) return false;
+  const propertyNames = Object.keys(parsed.schema.properties);
+  if (Object.keys(values).some((name) => !propertyNames.includes(name))) return false;
+  if ((parsed.schema.required ?? []).some((name) => values[name] === undefined || values[name] === "")) return false;
+  return Object.entries(values).every(([name, value]) => {
+    const field = parsed.schema.properties[name];
+    if (!field) return false;
+    if (field.type === "string") return typeof value === "string" && value.length >= (field.minLength ?? 0) && value.length <= (field.maxLength ?? Number.MAX_SAFE_INTEGER) && (!field.enum || field.enum.includes(value));
+    if (field.type === "integer") return typeof value === "number" && Number.isSafeInteger(value) && value >= (field.minimum ?? Number.MIN_SAFE_INTEGER) && value <= (field.maximum ?? Number.MAX_SAFE_INTEGER) && (!field.enum || field.enum.includes(value));
+    if (field.type === "boolean") return typeof value === "boolean" && (!field.enum || field.enum.includes(value));
+    return Array.isArray(value) && value.length >= (field.minItems ?? 0) && value.length <= (field.maxItems ?? 256) && value.every((item) => field.items?.type === "string" ? typeof item === "string" : field.items?.type === "integer" ? typeof item === "number" && Number.isSafeInteger(item) : typeof item === "boolean");
+  });
 }
 
 export const contractVersion = "1.0";

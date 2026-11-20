@@ -18,6 +18,7 @@ export function App(): ReactNode {
   const [attempt, setAttempt] = useState(0);
   const [bootstrap, setBootstrap] = useState<{ config: ShellConfig; catalog: RemoteCatalog } | null>(null);
   const [state, setState] = useState<CatalogState>({ status: "loading" });
+  const [activeRemote, setActiveRemote] = useState("task-mfe");
   const config = bootstrap?.config;
   const platform = useMemo<PlatformServices>(() => ({
     callApi: createCallApi({
@@ -61,10 +62,11 @@ export function App(): ReactNode {
   } else if (state.status === "failed") {
     content = <Page title="ODS unavailable"><ErrorPanel title="Application catalog could not be loaded" detail={state.error.message} onRetry={() => setAttempt((value) => value + 1)} /></Page>;
   } else {
-    const taskRemote = state.catalog.remotes.find((remote) => remote.name === "task-mfe");
-    content = taskRemote && config
-      ? <RemoteSlot entry={taskRemote} runtime={federationRuntime} timeoutMs={config.remoteTimeoutMs} platform={platform} />
-      : <Page title="No module"><ErrorPanel title="Task module is not configured" /></Page>;
+    const remotes = state.catalog.remotes;
+    const selected = remotes.find((remote) => remote.name === activeRemote) ?? remotes[0];
+    content = selected && config
+      ? <><nav aria-label="ODS modules" className="shell-navigation">{remotes.map((remote) => <button key={remote.name} type="button" aria-current={remote.name === selected.name ? "page" : undefined} onClick={() => setActiveRemote(remote.name)}>{remote.name.replace("-mfe", "").replaceAll("-", " ")}</button>)}</nav><RemoteSlot key={selected.name} entry={selected} runtime={federationRuntime} timeoutMs={config.remoteTimeoutMs} platform={platform} /></>
+      : <Page title="No module"><ErrorPanel title="No modules are configured" /></Page>;
   }
 
   return <OdsThemeProvider><ShellHeader title="ODS Platform" />{content}</OdsThemeProvider>;
