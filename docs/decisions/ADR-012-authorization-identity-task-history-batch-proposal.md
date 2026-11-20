@@ -232,12 +232,162 @@ Roll out in slices:
 
 ## 7. Inputs still needed before runtime contracts are approved
 
-- Keycloak realm/client, issuer/subject mapping, claim allowlist, account-disable/session revocation SLA and BFF deployment mode.
-- Whether organization node types need more than org/branch, who may reparent, and which roles can assign subtree/tenant-wide scope.
-- Customer/staff/partner personas, event categories/fields visible to each, and field-masking rules.
-- Compliance-approved authoritative event/audit retention classes, legal hold and erasure/crypto-shred rules.
-- Production-like batch mix, payload distribution, target inline latency, queue backlog, concurrency, RTO and support/replay window.
-- Which same-owner action combinations must be truly atomic; acceptance of `COMPLETE` as partial-only until Engine batch commit exists.
+- Keycloak realm/client/claim mapping and approval of the proposed session/revocation targets below.
+- Whether node types need more than organization and branch; the permissions for reparent and tenant-wide scope.
+- Customer/staff/partner event visibility rules and field-masking approval.
+- Compliance-approved retention periods, legal hold and erasure/crypto-shred rules; the proposal deliberately has no universal production TTL.
+- Production-like batch mix and load results to adjust the stage tuning profile below.
+- Whether to fund an Engine multi-transition Raft command for atomic `COMPLETE`; until then the contract rejects unsupported atomic combinations.
+
+## 8. Detailed owner recommendations
+
+The values in this section are actionable defaults for implementation and stage testing. They remain proposals until the named owner approves them. Tenant configuration may tighten a value or select a supported mode; it cannot relax platform security/capacity ceilings.
+
+### 8.1 Keycloak claim, session and revocation
+
+**Recommend:** confidential Portal BFF client, OIDC Authorization Code + mandatory PKCE `S256`, exact redirect URI allowlist, server-side `state`/`nonce`/verifier, secure session cookie, CSRF token on unsafe cookie requests. Keep refresh/access tokens server-side, encrypted at rest if persisted, and never expose the Keycloak Admin API credential to a browser or tenant admin.
+
+Proposed initial session profile for stage:
+
+| Setting | Starting value | Enforcement |
+|---|---:|---|
+| Access token lifespan | 5 minutes | Gateway verifies issuer, audience, signature, `exp`, `nbf`; never treat token roles as BPMP permission authority. |
+| BFF session idle timeout | 30 minutes | Rotate session ID after login/step-up; destroy server session at idle expiry. |
+| BFF absolute session lifetime | 8 hours | Require a new Authorization Code flow after expiry; step-up `max_age` for privileged operations. |
+| Disable/revoke propagation SLO | 60 seconds end-to-end | Measure from Keycloak account/session event to BFF, Authz, Engine and owner PEP rejection. Alert and fail closed if revocation state is stale beyond the bound. |
+
+These are security-profile proposals, not user-configurable tenant values. Keycloak logout alone is insufficient evidence that every issued access token is unusable. Enable OIDC Back-Channel Logout to the BFF; verify logout tokens and deduplicate by issuer/session/event ID. On account disable or administrator revocation, publish a durable IdP lifecycle event to Authz. Authz marks the federated principal inactive, increments a monotonic principal/tenant revoke epoch, invalidates affected BFF sessions, and publishes the signed revoke update. Engine and query/task PEPs reject a proof whose epoch is below their local floor. Short access-token lifetime bounds residual risk while back-channel delivery/reconciliation runs.
+
+If Keycloak does not reliably publish account-disable events, add an Admin Events consumer or bounded reconciliation poller using a service credential with only required read/revoke scopes. Its cursor and last-success time are durable and monitored. Do not make per-request introspection the default authorization path. A missing/late identity status source denies high-risk mutations and raises a stale-revocation alert; it must not silently extend membership.
+
+Claim allowlist proposal: `sub`, `iss`, `aud`, `exp`, `iat`, `auth_time`, `sid`, `acr`/`amr` when supplied, and a small profile allowlist such as `email`, `email_verified`, `name`, `preferred_username`. `(iss, sub)` is immutable identity; profile claims are versioned snapshots. Tenant membership and roles are loaded from Authz and can be revoked independently of Keycloak profile claims.
+
+Migration proposal for the existing Authz directory: expand `user_account` with `idp_issuer` and `idp_subject`, backfill only from verified existing `external_id` mappings, add a unique `(idp_issuer, idp_subject)` constraint, dual-read during one migration window, then stop using username as a join key. Preserve current IDs and tenant role links; do not rewrite historical actor IDs. Accounts that cannot be linked unambiguously remain disabled for SSO until an administrator resolves them.
+
+### 8.2 Organization/branch and role administration
+
+Use a single Authz-owned organization tree per tenant, with multiple roots allowed only if the tenant configuration enables that model. `node_type` is extensible from a platform enum such as `ORGANIZATION`, `BRANCH`, `DEPARTMENT`; adding a type requires a versioned schema and owner policy for whether it participates in branch scope. IDs are immutable; a node cannot change tenant.
+
+Admin mutations:
+
+- `Create/Update/Deactivate/ReparentOrganizationNode` carry `expectedVersion`, `Idempotency-Key`, reason and correlation ID. Reparent is a privileged action requiring explicit confirmation/dual approval when it changes the effective scope of existing grants.
+- Reparent validation checks same tenant, no cycle, active parent, permitted node types and bounded subtree size before commit. It commits a new `treeVersion` and one durable `OrganizationTreeChanged` outbox event in the same Authz DB transaction.
+- Affected grants are not rewritten. Scope is evaluated against the current tree; the event invalidates branch-expansion caches and triggers audit/reconciliation. Until an owner has loaded the new tree version or safely resolved it online, the affected branch decision fails closed.
+- Do not permit hard delete of a node referenced by resources/grants. Deactivate or reparent with a reason and migration preview. Tenant-wide scope is a separately named privileged grant, never the empty-branch interpretation.
+
+Role semantics:
+
+- Platform roles: immutable, platform-owned capability definitions; no tenant may edit or delete them.
+- Tenant custom roles: tenant-owned name/description and bindings to the platform permission catalog; key immutable after creation, mutable fields use `expectedVersion`.
+- Permission catalog entries are registered by owner manifest with resource type, action, readable/writable fields, supported scope kinds and policy schema version. Tenant admins can compose these entries into role grants and supported typed conditions; they cannot author executable code or grant an unregistered action.
+- A role may be assigned at tenant, exact organization/branch or explicit subtree scope. The UI/API shows the effective descendant set and tree version before publish.
+- Deleting/deactivating an assigned role is rejected with a stable `ROLE_IN_USE` conflict unless the request atomically replaces/removes all assignments within the same Authz database transaction. No cascade across owners.
+- Permission additions, direct grants, tenant-admin changes, role deletion and scope broadening require mandatory audit. Tenant-specified expiry is allowed only within platform min/max bounds.
+
+### 8.3 Event visibility matrix and retention
+
+Separate user-facing task timeline from compliance/security audit search. Proposed policy capabilities:
+
+| Capability | Default subject scope | Fields visible |
+|---|---|---|
+| `task.history.read` | Current assignee/candidate group for that task; scoped supervisor with explicit branch binding | Event type, time, outcome, safe summary and task version |
+| `task.history.read_actor` | Same row scope plus explicit grant | Actor display reference; do not return email/IdP claims by default |
+| `task.history.read_payload` | Explicit high-risk grant and purpose/reason | Only owner-allowlisted, classified fields after masking |
+| `audit.search` / `audit.export` | Separate auditor/security role and scoped tenant/branch | Audit metadata; export requires separate action, reason, limit and audit |
+
+System events with no end-user audience remain invisible in the task timeline. Missing classification defaults to the most restrictive class. Denied rows are filtered without counts; denied fields are omitted, not replaced with untrusted client text. Each page/export reauthorizes against current membership, policy and tree version.
+
+Retention contract uses mandatory `retentionClass` on every event, not arbitrary per-user TTL. Governance owns a versioned class registry with `sourceOwner`, event category, minimum/maximum retention, archive tier, disposition method, legal-hold behavior and deletion evidence. Event append fails closed if a required class is unknown. Legal hold blocks disposition and is queryable by authorized Compliance roles. A disposition creates a separate immutable certificate with event range/digest, policy version, approver and time; it never edits prior event bytes.
+
+Recommended initial lifecycle (durations intentionally left as Compliance input):
+
+1. Engine/Human Runtime source evidence: retention class plus append-only source, encrypted and backed up under owner policy.
+2. Search/timeline projection: rebuildable, may use a shorter configurable hot window; older rows page from archive/source or return a typed `ARCHIVED` result. Projection expiration never implies source deletion.
+3. Security/admin audit: separate retention class, mandatory audit cannot be disabled by tenant config, legal hold takes precedence.
+4. Idempotency/batch receipts: retain at least the advertised replay/retry period; delete only after the operation is terminal and replay guarantee expires.
+
+Do not set “7 years” or another universal production duration in code. Before enabling purge/crypto-shred, Compliance must approve the retention-class durations and data-subject erasure rules for each deployment/jurisdiction. Stage can use short disposable values isolated from production data.
+
+### 8.4 Atomicity and execution matrix
+
+Publish `GET /v1/work-items/batch-capabilities` with deployment and tenant-specific capabilities, e.g.:
+
+```json
+{
+  "schemaVersion": "1",
+  "actions": {
+    "CLAIM": { "modes": ["ATOMIC", "PARTIAL"], "owner": "human-runtime" },
+    "UNCLAIM": { "modes": ["ATOMIC", "PARTIAL"], "owner": "human-runtime" },
+    "DELEGATE": { "modes": ["ATOMIC", "PARTIAL"], "owner": "human-runtime" },
+    "COMPLETE": { "modes": ["PARTIAL"], "owner": "bpmp-engine" }
+  },
+  "mixedActionModes": ["PARTIAL"],
+  "limitsProfile": "task-batch-standard-v1"
+}
+```
+
+Atomic eligibility proposal:
+
+| Set of items | `ATOMIC` | `PARTIAL` | Reason |
+|---|---|---|---|
+| Claim/unclaim/delegate, same Human Runtime tenant DB and transaction domain | Enable after transaction and lock-order proof | Enable | Single local PostgreSQL transaction can commit item updates, item dedupe, audit and outbox together. |
+| Complete items | Disable initially | Enable | Engine owns final transition; HR projection is not authoritative. Enable atomic only after an Engine Raft batch command validates and appends every transition in one consistency group. |
+| Mixed action types/owners | Disable | Enable | Human Runtime DB and Engine Raft have no distributed transaction; compensation is not atomicity. |
+| Cross-tenant or cross-partition | Reject | Reject or split into separate tenant operations | One batch must have one trusted tenant context and bounded consistency domain. |
+
+For every atomic request, canonicalize and preflight the complete list (duplicate IDs, visibility, per-item authorization, expected version, current state, action schema, atomic eligibility) before writes. Recheck versions under the committing transaction/Engine command. On any failure, no item changes; return deterministic per-item blockers and `FAILED`. Do not hold DB locks while making network calls. For Engine atomic complete, the command must be one Raft proposal whose deterministic state-machine validation produces either all events/idempotency/audit/outbox records or none. Until that exists and passes crash/leader-change tests, do not advertise atomic complete.
+
+For Human Runtime atomic actions, lock rows in sorted work-item ID order, use one bounded SQL transaction, and append all audit/outbox/item-dedupe rows in that same transaction. Enforce one tenant and one transaction domain per batch. Set a database statement timeout/deadlock retry budget; a deadlock retry repeats the exact idempotent transaction, not an individual item after partial commit.
+
+### 8.5 Quota and retry profile
+
+Start stage with this owner-configurable profile; measure p95/p99 latency, queue age, DB pool use, Engine commit duration, per-action fan-out and noisy-tenant impact before production:
+
+| Knob | Stage starting value | Enforcement/owner |
+|---|---:|---|
+| Items per batch | 100 | Human Runtime schema; reject before enqueue |
+| Canonical request body | 256 KiB | Gateway + Human Runtime |
+| Inline threshold | <=20 items AND estimated <=2 s | Human Runtime; otherwise async operation |
+| Worker concurrency per operation | 8 | Human Runtime worker policy |
+| Active operations per tenant | 2 | Fair queue/bulkhead; tenant override can only lower |
+| Default/max history page | 50/100 | Human Runtime query policy; opaque keyset cursor |
+| Inline retry attempts | 4 total including first | Single retry owner; 4xx business/authorization/version errors are not retried |
+| Retry delay | 200 ms base, 5 s cap, full jitter | Transient 429/503/dependency failure only; respect `Retry-After` |
+| Inline total deadline | 30 s hard ceiling; target completion <=2 s | If threshold exceeded, stop blocking and return/retain operation status; never duplicate work |
+| Idempotency replay retention | 7 days starting proposal | Must exceed max client retry/reconciliation window; batch and item dedupe retained together |
+| Batch result retention | 30 days starting proposal | Operational receipt/query policy, independent of evidence retention |
+
+These numbers are stage starting points only. Production config comes from versioned `TaskBatchPolicy` with platform hard ceilings and tenant-level lowering. The profile additionally includes max weighted work units, payload size, max queue age, global worker/DB budget, per-action concurrency, downstream fan-out, operation deadline and result retention. Define action weights from measured service cost; use both item-count and cost-unit admission. Return `429` with `Retry-After` for quota/backpressure; never discard an accepted operation.
+
+Error/retry contract:
+
+- `400/422`: schema or business invalid; no automatic retry.
+- `401/403/404`: authentication/authorization/visibility; no retry until caller context changes.
+- `409`: stale expected version or idempotency fingerprint mismatch; reread/reconcile, do not replay blindly.
+- `429`: honor bounded `Retry-After` and remaining deadline.
+- `502/503/504` or connection timeout after command submission: preserve same key, query operation/receipt; retry only if owner says safe and idempotency record is durable.
+- Exhausted attempts: mark item `RECONCILIATION_REQUIRED` or `DEAD_LETTERED`, preserve actor and keys, alert operator; manual replay requires separate capability/reason and same operation identity.
+
+One layer owns retries at a time. Browser does not retry batch commands automatically. BFF forwards the same command/idempotency IDs. Human Runtime retries local DB transactions only on classified transient SQL errors and deadline; Engine owns transition retry/idempotency. This avoids multiplied retries.
+
+### 8.6 Sync/async and batch payload
+
+`execution=AUTO` is default: small work inside the configured cost/deadline and one owner boundary may complete inline with `200`; otherwise persist an operation and return `202` plus `operationId`, `statusUrl`, and `Retry-After`. `execution=ASYNC` always queues. There is no forced synchronous mode for cross-owner/multi-aggregate work. `GET statusUrl` returns progress and per-item receipts; SSE may signal a refresh but is not authority. Replaying the same POST always returns the same operation handle/result.
+
+Action payload schema versions are discriminated and owner-published:
+
+- `CLAIM`: only ID/version; server derives actor as assignee.
+- `UNCLAIM`: ID/version and optional reason; only current assignee or scoped manager, as policy permits.
+- `DELEGATE`: ID/version, target principal or assignment group reference, reason; server validates target membership, queue eligibility, delegation depth and no self-delegation if policy requires.
+- `COMPLETE`: ID/version, published form version, outcome key, schema-validated values and optional reason; Engine revalidates actor and transition; never trust client to assert completion.
+
+Reject duplicate IDs, unknown fields and mixed-tenant resources. Large output values should be referenced by bounded artifact IDs and validated through the owning form schema rather than embedded without a hard byte cap.
+
+### 8.7 Audit fields and acceptance gates
+
+Audit one batch envelope and one outcome per item/attempt. Store verified `issuer/subject`, executor/workload, tenant, operation/batch/item/command IDs, action/resource, expected/result version, Authz bundle sequence, organization tree version, decision reference, outcome/reason, attempt, timestamp, correlation/trace IDs and source owner. Store payload digest and allowlisted field references, not raw values, tokens or credentials. Human Runtime writes work-item state/version, idempotency journal, audit event and outbox in one SQL transaction; Engine writes transition event, dedupe, audit reference and outbox in its Raft atomic command.
+
+Production enablement is blocked until stage demonstrates: Keycloak disable/logout propagation SLO; revoked membership denial in Engine and query PEP; branch reparent invalidation; per-event field redaction; history cursor stability under concurrent events and replay; atomic rollback under injected failure; partial batch worker crash/retry without duplicates; tenant fairness under load; quota responses; and audit reconstruction from operation ID to final business event.
 
 ## References
 
