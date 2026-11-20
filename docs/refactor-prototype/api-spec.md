@@ -8,6 +8,7 @@
 - RPC nội bộ: `contracts/proto/bpmp/*/v1`.
 - Operation đề xuất và trạng thái current/proposed: [design OpenAPI](api-spec.openapi.json), [catalog](api-catalog.json).
 - Ánh xạ prototype: [tóm tắt](ui-api-mapping.md), [CSV chi tiết](ui-api-mapping.csv).
+- Phân loại theo BPMP feature, owner và evidence level: [BPMP Feature API Coverage](../bpmp-feature-api-coverage.md).
 
 ## Quy tắc bắt buộc
 

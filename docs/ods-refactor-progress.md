@@ -18,6 +18,10 @@ This ledger is the source of truth for execution status. Percentages are weighte
 
 Overall gate-counted progress: **29%**. This is 100% of Phase 0 plus the evidenced portion of Phase 1 (98%); Phase 2 implementation evidence is recorded below but is not counted in the overall figure until the mandatory Phase 1 environment gate passes. Hosted ODS CI now passes on PR #19, and local builds, HTTP smoke, and Kubernetes rollout/rollback evidence exist. The remaining Phase 1 gap is signed promotion and rollback rehearsal in an authorized staging environment; hosted CI and local rehearsal do not substitute for that gate.
 
+## API feature coverage review (2026-11-20)
+
+Added [BPMP Feature API Coverage](bpmp-feature-api-coverage.md), mapping prototype and Cockpit feature areas to API owner, registration state, implementation evidence and remaining gaps. The runtime Gateway OpenAPI and route registry both contain 77 matching operations; the design catalog contains 256 additional `proposed` operations. Route parity is registration evidence only. Individual endpoint staging/E2E evidence and the authorized Phase 1 staging gate remain separate requirements. Proposed domain decisions remain pending owner approval.
+
 ## Phase 1 evidence
 
 | Deliverable | Weight | Status | Evidence |
