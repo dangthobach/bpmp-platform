@@ -4,23 +4,28 @@ import type { CallApi } from "@ods/call-api";
 import { OdsThemeProvider } from "@ods/shared-ui";
 import moduleContract from "./route";
 
-describe("Studio route", () => {
-  it("lists process models, loads immutable versions and submits deployment with idempotency", async () => {
+describe("BPMP Studio", () => {
+  it("lists immutable versions, deploys a selected version, inspects and rolls back a deployment", async () => {
     const callApi = vi.fn(async (options: { method: string; path: string; body?: unknown; idempotencyKey?: string }) => {
-      if (options.path === "/v1/authoring/process-models?page_size=50") return { ok: true as const, data: { models: [{ id: "process-1", name: "Claims" }] }, requestId: "r1", correlationId: "c1" };
-      if (options.path.includes("/versions?")) return { ok: true as const, data: { versions: [{ id: "version-1" }] }, requestId: "r2", correlationId: "c2" };
-      if (options.path.includes("/deployments") && options.method === "GET") return { ok: true as const, data: { deployments: [] }, requestId: "r3", correlationId: "c3" };
-      return { ok: true as const, data: { deployment_id: "deployment-1" }, requestId: "r4", correlationId: "c4" };
+      if (options.method === "GET" && options.path === "/v1/authoring/process-models?page_size=50") return { ok: true as const, data: { models: [{ id: "model-1", name: "Claims" }] }, requestId: "r-m", correlationId: "c" };
+      if (options.method === "GET" && options.path === "/v1/authoring/process-models/model-1") return { ok: true as const, data: { model: { id: "model-1", model_key: "claims" }, draft: { revision: 1, bpmn_xml: "<definitions/>", validation_status: "VALID", diagnostics: [] } }, requestId: "r-detail", correlationId: "c" };
+      if (options.method === "GET" && options.path.includes("/versions?")) return { ok: true as const, data: { versions: [{ id: "version-1", version_tag: "v1" }] }, requestId: "r-v", correlationId: "c" };
+      if (options.method === "GET" && options.path.includes("/deployments?") ) return { ok: true as const, data: { deployments: [{ id: "deployment-1", status: "ACTIVE" }] }, requestId: "r-d", correlationId: "c" };
+      if (options.method === "GET" && options.path.includes("/deployments/deployment-1")) return { ok: true as const, data: { deployment: { id: "deployment-1", status: "ACTIVE" } }, requestId: "r-detail", correlationId: "c" };
+      return { ok: true as const, data: { deployment_id: "deployment-1" }, requestId: "r-post", correlationId: "c" };
     });
     const Component = moduleContract.route.Component;
     render(<OdsThemeProvider><Component platform={{ callApi: callApi as unknown as CallApi, navigate: vi.fn(), reportError: vi.fn() }} /></OdsThemeProvider>);
-
-    await screen.findByText("process-1");
-    fireEvent.click(screen.getByRole("button", { name: "Manage deployments" }));
-    await waitFor(() => expect(callApi).toHaveBeenCalledWith(expect.objectContaining({ path: expect.stringContaining("/versions?") })));
-    fireEvent.change(screen.getByLabelText("Immutable version ID"), { target: { value: "version-1" } });
-    fireEvent.click(screen.getByRole("button", { name: "Deploy version" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Claims" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Select for deploy" }));
+    fireEvent.click(screen.getByRole("button", { name: "Deploy selected version" }));
     await screen.findByText(/Deployment command accepted/);
-    expect(callApi).toHaveBeenCalledWith(expect.objectContaining({ method: "POST", body: { process_model_version_id: "version-1", target_environment: "stage" }, idempotencyKey: expect.any(String) }));
+    const deployCall = callApi.mock.calls.find(([input]) => input.method === "POST" && input.path.endsWith("/deployments"));
+    expect(deployCall?.[0]).toEqual(expect.objectContaining({ body: { process_model_version_id: "version-1", target_environment: "stage" }, idempotencyKey: expect.any(String) }));
+    fireEvent.click(await screen.findByRole("button", { name: "Inspect deployment" }));
+    await waitFor(() => expect(callApi).toHaveBeenCalledWith(expect.objectContaining({ path: "/v1/authoring/deployments/deployment-1" })));
+    fireEvent.click(screen.getByRole("button", { name: "Rollback this deployment" }));
+    await screen.findByText(/Rollback succeeded/);
+    expect(callApi).toHaveBeenCalledWith(expect.objectContaining({ method: "POST", path: "/v1/authoring/deployments/deployment-1/rollback", idempotencyKey: expect.any(String) }));
   });
 });
