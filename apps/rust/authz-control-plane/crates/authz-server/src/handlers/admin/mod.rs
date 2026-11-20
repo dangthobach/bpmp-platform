@@ -1,5 +1,7 @@
 pub mod catalog;
 pub mod identity;
+pub mod identity_profile;
+pub mod identity_resolve;
 pub mod policy;
 pub mod rbac;
 pub mod revoke;
@@ -36,6 +38,14 @@ pub fn admin_routes() -> Router<AppState> {
         .route("/permissions", post(rbac::create_permission))
         .route("/users/:user_id/roles", post(rbac::assign_role))
         .route("/users", get(identity::list_users))
+        .route(
+            "/identity/resolve-subject",
+            post(identity_resolve::resolve_subject),
+        )
+        .route(
+            "/identity/profiles",
+            post(identity_profile::provision_profile),
+        )
         // Versioned authorization catalog control-plane APIs.
         .route(
             "/catalog/versions",

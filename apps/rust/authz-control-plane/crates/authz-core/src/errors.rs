@@ -45,6 +45,18 @@ pub enum AuthzError {
         actual_version: i64,
     },
 
+    /// An idempotency key was reused for a different command body.
+    #[error("idempotency key was already used for a different command")]
+    IdempotencyConflict,
+
+    /// The tenant username or IdP subject is already linked to another profile.
+    #[error("identity profile conflicts with an existing tenant profile")]
+    IdentityProfileConflict,
+
+    /// Actor-context issuance is unavailable because its signer is not configured.
+    #[error("actor context issuer is unavailable")]
+    ActorContextIssuerUnavailable,
+
     // ── Authentication ──────────────────────────────────────────────────────
     /// JWT token is missing, expired, or invalid.
     #[error("invalid JWT token: {reason}")]
@@ -189,6 +201,9 @@ impl AuthzError {
             AuthzError::UserNotFound { .. } => "USER_NOT_FOUND",
             AuthzError::UserDeactivated { .. } => "USER_DEACTIVATED",
             AuthzError::VersionConflict { .. } => "VERSION_CONFLICT",
+            AuthzError::IdempotencyConflict => "IDEMPOTENCY_CONFLICT",
+            AuthzError::IdentityProfileConflict => "IDENTITY_PROFILE_CONFLICT",
+            AuthzError::ActorContextIssuerUnavailable => "ACTOR_CONTEXT_ISSUER_UNAVAILABLE",
             AuthzError::InvalidToken { .. } => "INVALID_TOKEN",
             AuthzError::MissingClaim { .. } => "MISSING_CLAIM",
             AuthzError::EmergencyRevoked { .. } => "EMERGENCY_REVOKED",

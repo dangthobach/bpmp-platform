@@ -1,10 +1,31 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { SWRConfig } from "swr";
 import type { CallApi } from "@ods/call-api";
 import { OdsThemeProvider } from "@ods/shared-ui";
 import moduleContract from "./route";
 
 describe("BPMP Studio", () => {
+  it("provisions a tenant access profile with an idempotency key", async () => {
+    const callApi = vi.fn(async (_options: { method: string; path: string; body?: unknown; idempotencyKey?: string }) => ({
+      ok: true as const, data: { profiles: [], users: [], versions: [], entries: [], roles: [], records: [] },
+      requestId: "r-profile", correlationId: "c-profile",
+    }));
+    const Component = moduleContract.route.Component;
+    render(<SWRConfig value={{ provider: () => new Map() }}><OdsThemeProvider><Component platform={{ callApi: callApi as unknown as CallApi, navigate: vi.fn(), reportError: vi.fn() }} /></OdsThemeProvider></SWRConfig>);
+    fireEvent.click(screen.getByRole("button", { name: "Access" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Identity username" }), { target: { value: "jane.doe" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Keycloak issuer" }), { target: { value: "https://idp.example/realms/bpmp" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Keycloak subject" }), { target: { value: "subject-17" } });
+    fireEvent.click(screen.getByRole("button", { name: "Provision profile" }));
+    await screen.findByText(/Tenant access profile provisioned succeeded/);
+    expect(callApi).toHaveBeenCalledWith(expect.objectContaining({
+      method: "POST", path: "/v1/access/identity/profiles",
+      body: { username: "jane.doe", issuer: "https://idp.example/realms/bpmp", subject: "subject-17" },
+      idempotencyKey: expect.any(String),
+    }));
+  });
+
   it("lists immutable versions, deploys a selected version, inspects and rolls back a deployment", async () => {
     const callApi = vi.fn(async (options: { method: string; path: string; body?: unknown; idempotencyKey?: string }) => {
       if (options.method === "GET" && options.path === "/v1/authoring/process-models?page_size=50") return { ok: true as const, data: { models: [{ id: "model-1", name: "Claims" }] }, requestId: "r-m", correlationId: "c" };

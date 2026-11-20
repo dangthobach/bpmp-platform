@@ -1,5 +1,5 @@
 {
-  "baselineSha256": "833567d94c189b8bd9fc2863e87100497307461baaf3115ec32cdc778db30c8b",
+  "baselineSha256": "cfc7cab7e5e9bed75b89d6df04aecfe132f221377ee8b8d81cdaceac85175e22",
   "operations": [
     {
       "method": "GET",
@@ -1577,7 +1577,7 @@
       "method": "GET",
       "path": "/v1/access/queues",
       "operationId": "listAccessQueues",
-      "owner": "Human",
+      "owner": "Authz",
       "priority": "P0",
       "status": "current-registration",
       "request": null,
@@ -1699,7 +1699,7 @@
       "method": "GET",
       "path": "/v1/access/users",
       "operationId": "listIdentityUsers",
-      "owner": "Human",
+      "owner": "Authz",
       "priority": "P0",
       "status": "current-registration",
       "request": null,
@@ -1725,6 +1725,49 @@
         }
       },
       "capability": "identity.user.read"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/access/identity/profiles",
+      "operationId": "provisionIdentityProfile",
+      "owner": "Authz",
+      "priority": "P0",
+      "status": "current-registration",
+      "request": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProvisionIdentityProfileRequest"
+            }
+          }
+        }
+      },
+      "response": {
+        "201": {
+          "description": "Tenant access profile provisioned or idempotently replayed",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProvisionedIdentityProfile"
+              }
+            }
+          }
+        },
+        "400": {
+          "$ref": "#/components/responses/BadRequest"
+        },
+        "403": {
+          "$ref": "#/components/responses/Forbidden"
+        },
+        "409": {
+          "description": "Idempotency key or tenant identity link conflict"
+        },
+        "502": {
+          "$ref": "#/components/responses/UpstreamUnavailable"
+        }
+      },
+      "capability": "identity.profile.manage"
     },
     {
       "method": "GET",

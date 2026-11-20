@@ -328,6 +328,7 @@ dependencies = [
  "authz-engine",
  "authz-http-middleware",
  "axum 0.7.9",
+ "base64 0.22.1",
  "bpmp-authz-contracts",
  "chrono",
  "config",

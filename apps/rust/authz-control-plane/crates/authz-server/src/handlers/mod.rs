@@ -1,5 +1,6 @@
 //! HTTP handlers module.
 
+pub mod actor_context;
 pub mod admin;
 pub mod check;
 pub mod explain;

@@ -1,7 +1,7 @@
 # BPMP Identity and Trust Flows
 
 - Status: Current trust-boundary contract with planned/external OIDC steps marked
-- Last verified: 2026-10-30
+- Last verified: 2026-11-21
 - Security invariant: workload identity authenticates a service; it never grants
   the end user's workflow authority
 
@@ -12,12 +12,60 @@
 | Bearer JWT | External Identity Provider | API/Cockpit Gateway, actor verifier | External client authentication and actor claims | Trusting an unverified tenant/header or bypassing resource authz |
 | Opaque browser session cookie | Unified Portal (external producer) | API/Portal Gateway | Browser authentication without exposing access/refresh tokens | Engine authorization or direct service-to-service identity |
 | CSRF token | Unified Portal bootstrap | API/Portal Gateway | Bind unsafe browser requests to the session | Actor authorization |
-| Signed internal actor context | Trusted identity adapter/Portal | Gateway, Human Runtime, Engine, query services | Short-lived, tenant/command/audience-bound actor evidence | Granting new capabilities at a trusted hop |
+| Signed internal actor context | Authz Control Plane | Gateway, Human Runtime, Engine, query services | Short-lived, tenant/command/audience-bound actor evidence | Granting new capabilities at a trusted hop |
 | Workload certificate/context | Platform workload PKI | Every internal server | Authenticate service/process and authorize RPC method access | Substituting for actor proof |
 | Signed authz policy bundle | Authz Control Plane | Embedded engine evaluator | Immutable transition policy data | Remote decision RPC on the command critical path |
 | Signed revoke update | Authz Control Plane | Engine/query PDP consumers | Monotonic tenant/actor revoke floors | A fail-open cache hint |
 | Dual-control proof | Governance Service after maker/checker approval | Engine | Authorize a concrete governance transition | General workflow authorization |
 | Remote assignment token | Engine | Remote Worker and Engine ACK path | Bind task, lease, worker, tenant, session, and expiry | Reuse across assignments or leases |
+
+## Keycloak subject to BPMP access profile
+
+Keycloak authenticates a user through OIDC Authorization Code + PKCE S256.
+The trusted Gateway/BFF validates the issuer, signature, audience, nonce and
+authorization response, then calls Authz Control Plane using a workload token
+with `identity.subject.resolve`. The internal endpoint
+`POST /admin/v1/identity/resolve-subject` accepts the verified `issuer` and
+`subject` and returns only active tenant profiles whose links were provisioned
+in Authz. `POST /admin/v1/identity/profiles` allows a tenant administrator with
+`identity.profile.manage` to provision a profile using an IdP subject confirmed
+through the organization's identity-administration process. This admin route
+does not call Keycloak to verify another person's subject; a self-service
+account-link flow still needs its own OIDC proof contract. Each profile carries
+its BPMP `user_id`, tenant, version and current
+Authz-managed role codes. Keycloak realm/client roles are not copied into BPMP
+permissions. No password, access token or refresh token is stored in BPMP.
+
+The `(issuer, subject)` pair is exact and issuer-scoped. Existing `external_id`
+values are not automatically linked because they do not prove the issuer; a
+future account-linking or provisioning flow must establish that mapping after
+verified authentication and audit it. Membership mutations remain owned by
+Authz and must use optimistic concurrency, idempotency and owner-side audit.
+Gateway must keep tokens server-side and issue a Secure, HttpOnly, SameSite
+session cookie with CSRF protection for unsafe browser requests. Tenant
+selection binds one returned profile to the session; the server must recheck
+membership/version on refresh and reject a disabled or revoked profile. OIDC
+PKCE callback, token exchange, session creation/destruction, and Keycloak logout
+or back-channel revocation are not implemented yet.
+
+For an established browser session, Gateway does not mint actor authority. If
+the session has no pre-issued actor proof, it requests
+`POST /authz/v1/actor-context` over its authenticated service channel. Authz
+derives current active membership, tenant-global roles and capabilities from
+its own database, checks the Gateway's tenant-bound service delegation, and
+signs a short-lived proof for an allowlisted downstream audience and command.
+Gateway bounds and validates the response, then forwards the signed proof
+unchanged. Engine and other consumers still verify signature, audience, time,
+tenant, command and revoke floor. Projection proofs use the query revoke epoch;
+query revocation is not reused as write-side identity revocation. A dedicated
+identity/membership revoke epoch and feed still need to be wired for mutations.
+Authz private signing material is separate
+from Gateway workload keys; the matching public key must be configured in each
+consumer's actor keyring. Actor proof byte/role/capability limits must match
+those configured by Engine.
+
+This endpoint is an internal service contract, not a browser or public Gateway
+route. It returns no profiles for unknown, disabled or unlinked subjects.
 
 ## Trust zones
 

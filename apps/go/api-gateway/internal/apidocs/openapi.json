@@ -2433,6 +2433,76 @@
         "x-capability": "identity.user.read"
       }
     },
+    "/v1/access/identity/profiles": {
+      "post": {
+        "summary": "Provision a tenant access profile linked to an IdP subject",
+        "operationId": "provisionIdentityProfile",
+        "tags": [
+          "Access"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "bffSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantID"
+          },
+          {
+            "$ref": "#/components/parameters/CorrelationID"
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProvisionIdentityProfileRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Tenant access profile provisioned or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProvisionedIdentityProfile"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "description": "Idempotency key or tenant identity link conflict"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        },
+        "x-capability": "identity.profile.manage"
+      }
+    },
     "/v1/authoring/process-models": {
       "parameters": [
         {
@@ -6241,6 +6311,77 @@
           },
           "next_page_token": {
             "type": "string"
+          }
+        }
+      },
+      "ProvisionIdentityProfileRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "username",
+          "issuer",
+          "subject"
+        ],
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Ignored by the Gateway; tenant is taken from the authenticated actor context."
+          },
+          "username": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "issuer": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "subject": {
+            "type": "string",
+            "maxLength": 255
+          }
+        }
+      },
+      "ProvisionedIdentityProfile": {
+        "type": "object",
+        "required": [
+          "tenant_id",
+          "user_id",
+          "username",
+          "active",
+          "version",
+          "attributes_version",
+          "roles"
+        ],
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "username": {
+            "type": "string"
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "attributes_version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },

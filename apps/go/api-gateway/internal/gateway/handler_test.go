@@ -335,14 +335,18 @@ func TestIdentityUserDirectoryUsesDelegatedReadCapabilityAndTenant(t *testing.T)
 	actorToken := jwt.NewWithClaims(jwt.SigningMethodEdDSA, jwt.MapClaims{"iss": "issuer", "sub": "admin-1", "aud": []string{"gateway"}, "exp": now.Add(time.Hour).Unix(), "iat": now.Add(-time.Minute).Unix(), "tenant_id": "tenant-a", "capabilities": []string{"identity.user.read"}})
 	actorToken.Header["kid"] = "actor-key"
 	raw, err := actorToken.SignedString(private)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	var upstreamRequest *http.Request
 	upstream := doerFunc(func(request *http.Request) (*http.Response, error) {
 		upstreamRequest = request
 		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"users":[],"next_page_token":""}`))}, nil
 	})
 	handler, err := NewHandler(&recordingEngine{}, &recordingHuman{}, testVerifier(t, public), &workloadSigner{id: "api-gateway", keyID: "workload-key", key: private, ttl: time.Minute}, newModelRateLimiter(10, time.Minute), staticPolicyProvider{}, WithAuthorizationAdmin(upstream, "https://authz.example.test", "authz-admin"))
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	handler.now = func() time.Time { return now }
 	request := httptest.NewRequest(http.MethodGet, "/v1/access/users?limit=25&after_user_id=00000000-0000-0000-0000-000000000001", nil)
 	request.Header.Set("Authorization", "Bearer "+raw)
@@ -350,12 +354,68 @@ func TestIdentityUserDirectoryUsesDelegatedReadCapabilityAndTenant(t *testing.T)
 	request.Header.Set("X-Correlation-ID", "identity-users-1")
 	response := httptest.NewRecorder()
 	handler.Routes().ServeHTTP(response, request)
-	if response.Code != http.StatusOK || upstreamRequest == nil { t.Fatalf("user directory proxy failed: %d %s", response.Code, response.Body.String()) }
+	if response.Code != http.StatusOK || upstreamRequest == nil {
+		t.Fatalf("user directory proxy failed: %d %s", response.Code, response.Body.String())
+	}
 	if upstreamRequest.URL.Path != "/admin/v1/users" || upstreamRequest.URL.Query().Get("tenant_id") != "tenant-a" || upstreamRequest.URL.Query().Get("after_user_id") != "00000000-0000-0000-0000-000000000001" || upstreamRequest.URL.Query().Get("limit") != "25" {
 		t.Fatalf("delegated user query is incorrect: %s", upstreamRequest.URL.String())
 	}
 	if delegated := upstreamRequest.Header.Get("Authorization"); !strings.HasPrefix(delegated, "Bearer ") || delegated == "Bearer "+raw {
 		t.Fatalf("expected gateway-signed delegation token, got %q", delegated)
+	}
+}
+
+func TestIdentityProfileProvisioningForwardsTenantIdempotencyAndCapability(t *testing.T) {
+	public, private, _ := ed25519.GenerateKey(nil)
+	now := time.Unix(1_000, 0).UTC()
+	actorToken := jwt.NewWithClaims(jwt.SigningMethodEdDSA, jwt.MapClaims{
+		"iss": "issuer", "sub": "admin-1", "aud": []string{"gateway"},
+		"exp": now.Add(time.Hour).Unix(), "iat": now.Add(-time.Minute).Unix(),
+		"tenant_id": "tenant-a", "capabilities": []string{"identity.profile.manage"},
+	})
+	actorToken.Header["kid"] = "actor-key"
+	raw, err := actorToken.SignedString(private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var upstreamRequest *http.Request
+	upstream := doerFunc(func(request *http.Request) (*http.Response, error) {
+		upstreamRequest = request
+		body, _ := io.ReadAll(request.Body)
+		if string(body) != `{"issuer":"https://idp.example/realms/bpmp","subject":"subject-17","tenant_id":"tenant-a","username":"jane.doe"}` {
+			t.Errorf("untrusted tenant or request body was not normalized: %s", body)
+		}
+		return &http.Response{StatusCode: http.StatusCreated, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"user_id":"profile-1"}`))}, nil
+	})
+	handler, err := NewHandler(
+		&recordingEngine{}, &recordingHuman{}, testVerifier(t, public),
+		&workloadSigner{id: "api-gateway", keyID: "workload-key", key: private, ttl: time.Minute},
+		newModelRateLimiter(10, time.Minute), staticPolicyProvider{},
+		WithAuthorizationAdmin(upstream, "https://authz.example.test", "authz-admin"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler.now = func() time.Time { return now }
+	request := httptest.NewRequest(http.MethodPost, "/v1/access/identity/profiles", strings.NewReader(`{"tenant_id":"attacker","username":"jane.doe","issuer":"https://idp.example/realms/bpmp","subject":"subject-17"}`))
+	request.Header.Set("Authorization", "Bearer "+raw)
+	request.Header.Set("X-BPMP-Tenant-ID", "tenant-a")
+	request.Header.Set("X-Correlation-ID", "profile-correlation-1")
+	request.Header.Set("Idempotency-Key", "profile-create-1")
+	request.Header.Set("X-Request-ID", "request-17")
+	response := httptest.NewRecorder()
+	handler.Routes().ServeHTTP(response, request)
+	if response.Code != http.StatusCreated || upstreamRequest == nil {
+		t.Fatalf("profile provisioning proxy failed: %d %s", response.Code, response.Body.String())
+	}
+	if upstreamRequest.URL.Path != "/admin/v1/identity/profiles" ||
+		upstreamRequest.Header.Get("Idempotency-Key") != "profile-create-1" ||
+		upstreamRequest.Header.Get("X-Request-ID") != "request-17" ||
+		upstreamRequest.Header.Get("X-Correlation-ID") != "profile-correlation-1" {
+		t.Fatalf("provisioning contract headers/path not forwarded: %+v", upstreamRequest)
+	}
+	if delegated := upstreamRequest.Header.Get("Authorization"); !strings.HasPrefix(delegated, "Bearer ") || delegated == "Bearer "+raw {
+		t.Fatalf("expected gateway-signed identity delegation, got %q", delegated)
 	}
 }
 

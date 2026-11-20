@@ -389,6 +389,38 @@ Audit one batch envelope and one outcome per item/attempt. Store verified `issue
 
 Production enablement is blocked until stage demonstrates: Keycloak disable/logout propagation SLO; revoked membership denial in Engine and query PEP; branch reparent invalidation; per-event field redaction; history cursor stability under concurrent events and replay; atomic rollback under injected failure; partial batch worker crash/retry without duplicates; tenant fairness under load; quota responses; and audit reconstruction from operation ID to final business event.
 
+## Implementation status (2026-11-21)
+
+The first implementation slice establishes Authz identity resolution and
+administrator-driven profile provisioning:
+
+- Migration `018_idp_subject_link.sql` adds an issuer-scoped IdP subject link,
+  an immutable provisioning audit record and expiring idempotency receipts to
+  each tenant access profile. It deliberately does not backfill legacy
+  `external_id` values.
+- `POST /admin/v1/identity/resolve-subject` resolves a verified `(issuer,
+  subject)` to active tenant profiles and Authz-managed roles. The caller must
+  be a service principal with `identity.subject.resolve`; the route is inside
+  the existing service-JWT protected router.
+- `POST /admin/v1/identity/profiles` provisions a tenant access profile with
+  `identity.profile.manage`, expected tenant context, idempotency key and
+  atomic audit. Gateway exposes `POST /v1/access/identity/profiles`; Studio
+  Access has a provisioning form. Admins must verify the target subject in the
+  IdP administration process; the endpoint does not query Keycloak to verify
+  another person.
+- Gateway OIDC PKCE callback/session lifecycle, existing-profile linking and
+  role mutations, organization/branch administration, and Task EventStore
+  history/batch actions remain subsequent deployable slices.
+
+Acceptance for this slice: migration applies cleanly to an existing Authz
+database; unlinked legacy accounts remain unchanged; a subject resolves only
+when issuer and subject both match; inactive/deleted memberships and inactive
+tenants are omitted; tenant roles come from Authz and expired role grants are
+omitted; callers without the dedicated service capability are denied; duplicate
+provision retries replay one result, key/payload mismatch conflicts, and the
+profile/audit/idempotency result commit together. Gateway actor tenant cannot be
+overridden by the request body.
+
 ## References
 
 - [ADR-002: RocksDB/Raft authority and Kafka integration feed](../adr/ADR-002-authoritative-event-log-and-kafka.md)

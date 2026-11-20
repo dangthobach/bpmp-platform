@@ -29,6 +29,13 @@ pub struct ServerConfig {
     pub owner_manifest_key_ids: HashMap<String, Vec<String>>,
     pub policy_signing_key_id: Option<String>,
     pub policy_signing_key_path: Option<String>,
+    pub actor_context_signing_key_id: Option<String>,
+    pub actor_context_signing_key_path: Option<String>,
+    pub actor_context_audiences: Vec<String>,
+    pub actor_context_ttl_ms: u64,
+    pub actor_context_max_proof_bytes: usize,
+    pub actor_context_max_roles: usize,
+    pub actor_context_max_capabilities: usize,
     /// Default fail mode: "DENY" or "OPEN"
     pub fail_mode: String,
     /// ReBAC max traversal depth
@@ -133,6 +140,31 @@ impl ServerConfig {
             )?,
             policy_signing_key_id: optional("AUTHZ_POLICY_SIGNING_KEY_ID"),
             policy_signing_key_path: optional("AUTHZ_POLICY_SIGNING_KEY_PATH"),
+            actor_context_signing_key_id: optional("AUTHZ_ACTOR_CONTEXT_SIGNING_KEY_ID"),
+            actor_context_signing_key_path: optional("AUTHZ_ACTOR_CONTEXT_SIGNING_KEY_PATH"),
+            actor_context_audiences: optional("AUTHZ_ACTOR_CONTEXT_AUDIENCES")
+                .unwrap_or_default()
+                .split(',')
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+                .collect(),
+            actor_context_ttl_ms: std::env::var("AUTHZ_ACTOR_CONTEXT_TTL_MS")
+                .unwrap_or_else(|_| "15000".to_owned())
+                .parse()
+                .context("AUTHZ_ACTOR_CONTEXT_TTL_MS is invalid")?,
+            actor_context_max_proof_bytes: std::env::var("AUTHZ_ACTOR_CONTEXT_MAX_PROOF_BYTES")
+                .unwrap_or_else(|_| "4096".to_owned())
+                .parse()
+                .context("AUTHZ_ACTOR_CONTEXT_MAX_PROOF_BYTES is invalid")?,
+            actor_context_max_roles: std::env::var("AUTHZ_ACTOR_CONTEXT_MAX_ROLES")
+                .unwrap_or_else(|_| "256".to_owned())
+                .parse()
+                .context("AUTHZ_ACTOR_CONTEXT_MAX_ROLES is invalid")?,
+            actor_context_max_capabilities: std::env::var("AUTHZ_ACTOR_CONTEXT_MAX_CAPABILITIES")
+                .unwrap_or_else(|_| "512".to_owned())
+                .parse()
+                .context("AUTHZ_ACTOR_CONTEXT_MAX_CAPABILITIES is invalid")?,
             fail_mode: std::env::var("FAIL_MODE").unwrap_or_else(|_| "DENY".to_owned()),
             rebac_max_depth: std::env::var("REBAC_MAX_DEPTH")
                 .unwrap_or_else(|_| "10".to_owned())
@@ -202,6 +234,41 @@ impl ServerConfig {
                 "AUTHZ_POLICY_SIGNING_KEY_ID and AUTHZ_POLICY_SIGNING_KEY_PATH must be configured together"
             );
         }
+        let actor_context_signer_configured = config.actor_context_signing_key_id.is_some()
+            || config.actor_context_signing_key_path.is_some();
+        if config.actor_context_signing_key_id.is_some()
+            != config.actor_context_signing_key_path.is_some()
+            || config
+                .actor_context_signing_key_id
+                .as_ref()
+                .is_some_and(|key_id| !valid_actor_context_id(key_id))
+            || (actor_context_signer_configured
+                && (config.actor_context_audiences.is_empty()
+                    || config.actor_context_audiences.len() > 32
+                    || config.actor_context_ttl_ms == 0
+                    || config.actor_context_ttl_ms > 120_000
+                    || config.actor_context_max_proof_bytes == 0
+                    || config.actor_context_max_proof_bytes > 65_536
+                    || config.actor_context_max_roles == 0
+                    || config.actor_context_max_roles > 4_096
+                    || config.actor_context_max_capabilities == 0
+                    || config.actor_context_max_capabilities > 4_096
+                    || {
+                        let unique = config
+                            .actor_context_audiences
+                            .iter()
+                            .collect::<std::collections::HashSet<_>>();
+                        unique.len() != config.actor_context_audiences.len()
+                    }
+                    || config
+                        .actor_context_audiences
+                        .iter()
+                        .any(|audience| !valid_actor_context_id(audience))))
+        {
+            anyhow::bail!(
+                "Authz actor-context signer requires paired key settings, 1..=32 audiences, and a TTL in 1..=120000 ms"
+            );
+        }
         let mut owner_key_ids = std::collections::HashSet::new();
         if config.owner_manifest_key_ids.is_empty()
             || config
@@ -268,4 +335,12 @@ fn optional(name: &str) -> Option<String> {
     std::env::var(name)
         .ok()
         .filter(|value| !value.trim().is_empty())
+}
+
+fn valid_actor_context_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':'))
 }

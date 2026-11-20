@@ -32,7 +32,7 @@ use authz_engine::{
     },
     shadow::ShadowEngine,
 };
-use bpmp_authz_contracts::Ed25519Signer;
+use bpmp_authz_contracts::{AuthorizationProofLimits, Ed25519Signer};
 use serde_json::Value as JsonValue;
 use sqlx::PgPool;
 use tokio_rustls::rustls::{self, Certificate, PrivateKey};
@@ -78,6 +78,10 @@ pub fn build_router(state: AppState, transport: TransportConfig) -> Result<Route
             post(crate::handlers::query_revoke::change),
         )
         .route("/authz/v1/explain", post(crate::handlers::explain_handler))
+        .route(
+            "/authz/v1/actor-context",
+            post(crate::handlers::actor_context::issue),
+        )
         .nest("/admin/v1", crate::handlers::admin::admin_routes())
         .layer(middleware::from_fn_with_state(
             state.clone(),
@@ -109,6 +113,37 @@ fn load_policy_bundle_signing(
     Ok(Some(crate::state::PolicyBundleSigning {
         key_id: key_id.clone(),
         signer: Arc::new(Ed25519Signer::from_bytes(&seed)),
+    }))
+}
+
+fn load_actor_context_signing(
+    config: &ServerConfig,
+) -> Result<Option<crate::state::ActorContextSigning>> {
+    let (Some(key_id), Some(path)) = (
+        config.actor_context_signing_key_id.as_ref(),
+        config.actor_context_signing_key_path.as_ref(),
+    ) else {
+        return Ok(None);
+    };
+    let bytes = std::fs::read(path)
+        .with_context(|| format!("read Authz actor-context signing key {path}"))?;
+    let seed: [u8; 32] = bytes.as_slice().try_into().map_err(|_| {
+        anyhow::anyhow!("Authz actor-context signing seed must contain exactly 32 bytes")
+    })?;
+    let proof_limits = AuthorizationProofLimits::new(
+        config.actor_context_max_proof_bytes,
+        config.actor_context_max_roles,
+        config.actor_context_max_capabilities,
+    )
+    .map_err(|error| anyhow::anyhow!("invalid actor-context proof limits: {error}"))?;
+    Ok(Some(crate::state::ActorContextSigning {
+        key_id: key_id.clone(),
+        signer: Arc::new(Ed25519Signer::from_bytes(&seed)),
+        audiences: config.actor_context_audiences.iter().cloned().collect(),
+        ttl_ms: config.actor_context_ttl_ms,
+        max_roles: config.actor_context_max_roles,
+        max_capabilities: config.actor_context_max_capabilities,
+        proof_limits,
     }))
 }
 
@@ -182,6 +217,7 @@ pub async fn run(config: ServerConfig) -> Result<()> {
         jwt_audience: config.jwt_audience.clone(),
         owner_manifest_key_ids: config.owner_manifest_key_ids.clone(),
         policy_bundle_signing: load_policy_bundle_signing(&config)?,
+        actor_context_signing: load_actor_context_signing(&config)?,
         policy_bundle_max_bytes: config
             .kafka_max_message_bytes
             .saturating_sub(1024)
@@ -204,6 +240,10 @@ pub async fn run(config: ServerConfig) -> Result<()> {
         )
         .await;
     });
+
+    tokio::spawn(
+        crate::job::identity_idempotency::start_identity_idempotency_cleanup(pool.clone()),
+    );
 
     let transport = TransportConfig {
         service: config.service_name.clone(),

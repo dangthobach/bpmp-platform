@@ -25,6 +25,7 @@ type authenticatedActor struct {
 	capabilities []string
 	proofType    authv1.ActorProofType
 	signedProof  []byte
+	fromBrowserSession bool
 }
 
 type HandlerOption func(*Handler) error
@@ -121,7 +122,6 @@ func (h *Handler) authenticateActor(
 		return authenticatedActor{}, errUpstream
 	}
 	if !validID(session.TenantID) || !validID(session.ActorID) ||
-		len(session.SignedActorContext) == 0 ||
 		int64(len(session.SignedActorContext)) > h.sessionConfig.MaxRecordBytes ||
 		len(session.CSRFTokenSHA256) != sha256.Size ||
 		!session.ExpiresAt.After(now) ||
@@ -135,6 +135,7 @@ func (h *Handler) authenticateActor(
 		tenantID: session.TenantID, actorID: session.ActorID,
 		proofType:   authv1.ActorProofType_ACTOR_PROOF_TYPE_SIGNED_INTERNAL_CONTEXT,
 		signedProof: append([]byte(nil), session.SignedActorContext...),
+		fromBrowserSession: true,
 	}, nil
 }
 

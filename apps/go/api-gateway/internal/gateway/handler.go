@@ -197,6 +197,7 @@ var publicOperationDefinitions = []publicOperationDefinition{
 	{PublicOperation{http.MethodGet, "/v1/access/catalog/entries", "listAuthorizationCatalogEntries"}, (*Handler).authorizationCatalog, false},
 	{PublicOperation{http.MethodGet, "/v1/access/catalog/roles", "listAuthorizationRoles"}, (*Handler).authorizationCatalog, false},
 	{PublicOperation{http.MethodGet, "/v1/access/users", "listIdentityUsers"}, (*Handler).authorizationCatalog, false},
+	{PublicOperation{http.MethodPost, "/v1/access/identity/profiles", "provisionIdentityProfile"}, (*Handler).authorizationCatalog, false},
 	{PublicOperation{http.MethodGet, "/v1/access/catalog/audit", "listAuthorizationCatalogAudit"}, (*Handler).authorizationCatalog, false},
 	{PublicOperation{http.MethodGet, "/v1/access/catalog/acknowledgements", "listAuthorizationCatalogAcknowledgements"}, (*Handler).authorizationCatalog, false},
 	{PublicOperation{http.MethodGet, "/v1/access/queues", "listAccessQueues"}, (*Handler).listAccessQueues, false},
@@ -662,6 +663,9 @@ func (h *Handler) authenticateRequest(r *http.Request, commandRequired bool) (re
 		return requestScope{}, err
 	}
 	tenant = identity.tenantID
+	requestmeta.Enrich(r.Context(), requestmeta.Values{
+		TenantID: tenant, CommandID: command, ActorID: identity.actorID,
+	})
 	policy, err := h.policyProvider.Policy(tenant)
 	if err != nil {
 		return requestScope{}, errUpstream
@@ -684,10 +688,27 @@ func (h *Handler) authenticateRequest(r *http.Request, commandRequired bool) (re
 	if !allowed {
 		return requestScope{}, errRateLimited
 	}
-	requestmeta.Enrich(r.Context(), requestmeta.Values{
-		TenantID: tenant, CommandID: command, ActorID: identity.actorID,
-		PolicyVersion: policy.PolicyVersion,
-	})
+	if identity.fromBrowserSession && len(identity.signedProof) == 0 {
+		audience, audienceOK := actorContextAudience(r.URL.Path, h.workload.id)
+		if !audienceOK || h.authorizationProxy == nil {
+			return requestScope{}, errUpstream
+		}
+		proofCommandID := command
+		if proofCommandID == "" {
+			proofCommandID = correlation
+		}
+		signedContext, err := h.authorizationProxy.issueActorContext(
+			r.Context(), h.workload, tenant, identity.actorID, audience,
+			proofCommandID, policy, now,
+		)
+		if err != nil {
+			return requestScope{}, err
+		}
+		identity.signedProof = signedContext.proof
+		identity.capabilities = signedContext.capabilities
+		identity.proofType = authv1.ActorProofType_ACTOR_PROOF_TYPE_SIGNED_INTERNAL_CONTEXT
+	}
+	requestmeta.Enrich(r.Context(), requestmeta.Values{PolicyVersion: policy.PolicyVersion})
 	return requestScope{
 		tenantID: tenant, commandID: command, idempotencyKey: idempotency,
 		correlationID: correlation, actorID: identity.actorID,

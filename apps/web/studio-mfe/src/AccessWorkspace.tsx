@@ -12,6 +12,7 @@ export function AccessWorkspace({ platform }: { platform: PlatformServices }): R
   const [failure, setFailure] = useState("");
   const retries = useRef(new Map<string, { fingerprint: string; key: string }>());
   const [policy, setPolicy] = useState({ policy_ref: "", workflow_type: "", workflow_version: "", node_id: "", assignee_id: "", candidate_group: "", sla_duration_ms: 0, escalation_policy_ref: "", config_version: "", expected_version: 0 });
+  const [profile, setProfile] = useState({ username: "", issuer: "", subject: "" });
   const versions = useSWR(["studio-access-versions"], async () => send(platform.callApi, "GET", "/v1/access/catalog/versions"));
   const entries = useSWR(["studio-access-entries"], async () => send(platform.callApi, "GET", "/v1/access/catalog/entries"));
   const audit = useSWR(["studio-access-audit"], async () => send(platform.callApi, "GET", "/v1/access/catalog/audit?limit=100"));
@@ -56,6 +57,15 @@ export function AccessWorkspace({ platform }: { platform: PlatformServices }): R
     await mutate("PUT", "/v1/assignment-policies", policy, "Assignment policy saved");
     await Promise.all([policies.mutate(), queues.mutate()]);
   }
+  async function provisionProfile(): Promise<void> {
+    if (!profile.username.trim() || !profile.issuer.trim() || !profile.subject.trim()) {
+      setFailure("Username, IdP issuer and IdP subject are required."); return;
+    }
+    await mutate("POST", "/v1/access/identity/profiles", {
+      username: profile.username.trim(), issuer: profile.issuer.trim(), subject: profile.subject.trim(),
+    }, "Tenant access profile provisioned");
+    await users.mutate();
+  }
   function editPolicy(item: Record<string, unknown>): void {
     setPolicy({
       policy_ref: String(item.policy_ref ?? ""), workflow_type: String(item.workflow_type ?? ""), workflow_version: String(item.workflow_version ?? ""), node_id: String(item.node_id ?? ""),
@@ -75,7 +85,20 @@ export function AccessWorkspace({ platform }: { platform: PlatformServices }): R
     {audit.data && !audit.data.ok ? <p role="alert">Access audit unavailable: {audit.data.problem.code}</p> : null}
     <details><summary>Owner capability entries ({entryRows.length})</summary><pre>{JSON.stringify(entries.data?.ok ? entries.data.data : null, null, 2)}</pre></details>
     <details><summary>Audit history ({auditRows.length})</summary><pre>{JSON.stringify(audit.data?.ok ? audit.data.data : null, null, 2)}</pre></details>
-    <details><summary>Roles and users</summary>{roles.data?.ok ? <pre>{JSON.stringify(roles.data.data, null, 2)}</pre> : roles.data ? <p role="alert">Role catalog unavailable: {roles.data.problem.code}</p> : <p>Loading roles…</p>}{users.data?.ok ? <pre>{JSON.stringify(users.data.data, null, 2)}</pre> : users.data ? <p role="alert">User directory unavailable: {users.data.problem.code}</p> : <p>Loading users…</p>}</details>
+    <details><summary>Roles and users</summary>
+      <section aria-label="Provision tenant identity profile">
+        <Typography variant="h3">Provision tenant access profile</Typography>
+        <p>An authorized administrator links the exact issuer and subject to a BPMP tenant profile. Verify the target identity through the organization’s IdP administration process first; credentials and IdP role claims are not stored.</p>
+        <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap" }}>
+          <input aria-label="Identity username" value={profile.username} onChange={(event) => setProfile({ ...profile, username: event.target.value })} />
+          <input aria-label="Keycloak issuer" value={profile.issuer} onChange={(event) => setProfile({ ...profile, issuer: event.target.value })} />
+          <input aria-label="Keycloak subject" value={profile.subject} onChange={(event) => setProfile({ ...profile, subject: event.target.value })} />
+          <Button type="button" disabled={!profile.username.trim() || !profile.issuer.trim() || !profile.subject.trim()} onClick={() => void provisionProfile()}>Provision profile</Button>
+        </Stack>
+      </section>
+      {roles.data?.ok ? <pre>{JSON.stringify(roles.data.data, null, 2)}</pre> : roles.data ? <p role="alert">Role catalog unavailable: {roles.data.problem.code}</p> : <p>Loading roles…</p>}
+      {users.data?.ok ? <pre>{JSON.stringify(users.data.data, null, 2)}</pre> : users.data ? <p role="alert">User directory unavailable: {users.data.problem.code}</p> : <p>Loading users…</p>}
+    </details>
     <section aria-label="Assignment policy management">
       <Typography variant="h3">Assignment policies · Human Runtime</Typography>
       {policies.data && !policies.data.ok ? <p role="alert">Assignment policies unavailable: {policies.data.problem.code}</p> : null}

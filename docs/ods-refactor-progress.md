@@ -1,6 +1,6 @@
 # ODS Refactor Progress
 
-Last updated: 2026-11-19 (Asia/Saigon)
+Last updated: 2026-11-21 (Asia/Saigon)
 
 This ledger is the source of truth for execution status. Percentages are weighted by evidenced deliverables; phase completion is controlled by exit criteria, not the percentage.
 
@@ -21,6 +21,10 @@ Overall gate-counted progress: **29%**. This is 100% of Phase 0 plus the evidenc
 ## API feature coverage review (2026-11-20)
 
 Added [BPMP Feature API Coverage](bpmp-feature-api-coverage.md), mapping prototype and Cockpit feature areas to API owner, registration state, implementation evidence and remaining gaps. The runtime Gateway OpenAPI and route registry both contain 77 matching operations; the design catalog contains 256 additional `proposed` operations. Route parity is registration evidence only. Individual endpoint staging/E2E evidence and the authorized Phase 1 staging gate remain separate requirements. Proposed domain decisions remain pending owner approval.
+
+## Identity implementation follow-up (2026-11-21)
+
+Implemented the Authz-side IdP subject foundation in migration `018_idp_subject_link.sql`: exact `(issuer, subject)` links, tenant-scoped uniqueness, no unsafe backfill from legacy `external_id`, internal service-only subject resolution, and tenant-bound profile provisioning. Provisioning requires `identity.profile.manage` plus `Idempotency-Key`; profile write, idempotency receipt and audit fingerprint commit in one PostgreSQL transaction. Gateway now exposes the tenant-bound operation and Studio Access UI can submit it with a stable retry key. Verified: `cargo check -p authz-server`; `go test ./internal/gateway ./internal/apidocs`; Studio `npm run typecheck && npm test` (7 tests); API design generator reports 78 current Gateway operations. This does not close Phase 1: migration/runtime DB acceptance was not possible because the Docker Desktop Linux engine pipe was unavailable. Gateway PKCE callback/session creation, existing-profile link/update/deactivation, tenant role mutation hardening, Task EventStore history, and bulk commands remain open. Phase percentages and formal status are unchanged.
 
 ## Phase 1 evidence
 
@@ -145,6 +149,7 @@ Added [BPMP Feature API Coverage](bpmp-feature-api-coverage.md), mapping prototy
 ## Active slice
 
 | 2026-11-21 | Detailed Authz/Identity/Task owner recommendations | `docs/decisions/ADR-012-authorization-identity-task-history-batch-proposal.md`; Authz `user_account`; Human Runtime `human_audit_log` | Added owner-ready defaults for Keycloak PKCE/BFF sessions and revocation, subject-link migration, org/branch/role mutations, event visibility classes and retention lifecycle, atomic capability matrix, batch request/execution semantics, stage quota/retry profile and acceptance gates. Stage numbers remain proposed; no tests/runtime changes because this turn is a design proposal only. |
+| 2026-11-21 | Authz-issued actor context trust slice | Authz `POST /authz/v1/actor-context`; Gateway session-bound proof acquisition; `docs/contracts/authz-identity-subject-resolution.md`; `docs/architecture/identity-and-trust-flows.md` | Authz signs short-lived proofs from active tenant-global membership/role data; role/capability DB result arrays are bounded before materialization. Signer key, audience allowlist, TTL and proof/role/capability limits are configurable. Gateway validates returned scope, lifetime, list bounds/uniqueness/identifier shape and strict base64; response reads cap at 1 MiB; unknown routes and Authz failures fail closed. Query revoke epochs are kept within the Projection read domain; the dedicated identity/membership revoke epoch feed is still absent, so non-Projection proofs currently carry epoch zero and downstream floors deny stale/revoked actors. Correlation metadata enters the issuer call. `go test ./internal/gateway` passes; `cargo fmt --all -- --check`, `cargo check -p authz-server`, and the isolated Authz actor-context unit test pass. `cargo test -p authz-server` builds and runs 2/3 tests, but its SQLx integration test cannot start because `DATABASE_URL` is unset; the Docker Linux engine pipe is also unavailable. Still not deployed: issuer key/keyring configuration, OIDC PKCE callback/session creation and logout/revocation, profile/role update administration, Engine EventStore read RPC, and Task history/bulk endpoints. |
 
 | 2026-11-21 | Authorization/Identity/Task architecture proposal | `docs/decisions/ADR-012-authorization-identity-task-history-batch-proposal.md`; `docs/adr/ADR-008-embedded-authoritative-authorization.md`; `docs/adr/ADR-011-ods-data-ownership-and-events.md` | Proposed one Authz control plane reusing current signed-bundle/org-tree ownership, Keycloak Authorization Code + PKCE S256 with BFF session, tenant-configured roles/permissions and explicit exact/subtree branch scopes; local PEP/evaluators remain at owners. Task History distinguishes Engine Raft events and Human Runtime-owned append-only task evidence, with a rebuildable cursor projection and explicit watermarks. Batch proposal documents action-scoped atomic capability, partial mode, adaptive sync/async, configurable resource/retry/audit controls. No implementation or quota/retention values marked approved. |
 
