@@ -311,6 +311,13 @@ func (h *Handler) logoutBrowserSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errUnauthorized)
 		return
 	}
+	if len(tokens) == 0 {
+		// A cross-site POST may omit the SameSite session cookie. Do not let
+		// that unauthenticated response clear the browser's active cookies.
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if len(tokens) == 1 {
 		if len(tokens[0]) == 0 || len(tokens[0]) > h.sessionConfig.MaxTokenBytes {
 			writeError(w, errUnauthorized)

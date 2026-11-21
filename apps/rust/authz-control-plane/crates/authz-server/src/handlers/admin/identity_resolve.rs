@@ -72,12 +72,22 @@ pub async fn resolve_subject(
            WHERE u.idp_issuer = $1 AND u.idp_subject = $2
              AND u.is_active AND NOT u.is_deleted
            GROUP BY u.id
-           ORDER BY u.tenant_id"#,
+           ORDER BY u.tenant_id
+           LIMIT 101"#,
     )
     .bind(issuer)
     .bind(subject)
     .fetch_all(&state.pool)
     .await?;
+
+    // Gateway accepts at most 100 tenant profiles. Bound materialization here
+    // as well so an unexpectedly broad subject link cannot exhaust the owner.
+    if rows.len() > 100 {
+        return Err(AuthzError::Internal(
+            "OIDC subject resolves to too many tenant profiles".into(),
+        )
+        .into());
+    }
 
     let mut profiles = Vec::with_capacity(rows.len());
     for row in rows {

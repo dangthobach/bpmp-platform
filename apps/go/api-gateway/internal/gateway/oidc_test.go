@@ -11,14 +11,18 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
+	"github.com/dangthobach/bpmp-platform/apps/go/api-gateway/internal/adapter/redissession"
 	"github.com/dangthobach/bpmp-platform/apps/go/api-gateway/internal/config"
 	"github.com/dangthobach/bpmp-platform/apps/go/api-gateway/internal/core/ports"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/redis/go-redis/v9"
 )
 
 type oidcTestSessionStore struct {
@@ -267,6 +271,11 @@ func TestBrowserSessionLogoutRequiresCSRFAndDestroysServerRecord(t *testing.T) {
 		"session-token": {TenantID: "tenant-a", ActorID: "user-a", CSRFTokenSHA256: csrfHash[:], ExpiresAt: now.Add(time.Minute)},
 	}}
 	handler := &Handler{sessionStore: store, sessionConfig: config.BrowserSession{CookieName: "__Host-bpmp_session", CSRFHeaderName: "X-CSRF-Token", MaxTokenBytes: 256}, now: func() time.Time { return now }}
+	noCookie := httptest.NewRecorder()
+	handler.Routes().ServeHTTP(noCookie, httptest.NewRequest(http.MethodPost, "/auth/session/logout", nil))
+	if noCookie.Code != http.StatusNoContent || len(noCookie.Result().Cookies()) != 0 || store.deleted != "" {
+		t.Fatalf("logout without session must not clear an active browser cookie: status=%d cookies=%v", noCookie.Code, noCookie.Result().Cookies())
+	}
 	request := httptest.NewRequest(http.MethodPost, "/auth/session/logout", nil)
 	request.AddCookie(&http.Cookie{Name: "__Host-bpmp_session", Value: "session-token"})
 	response := httptest.NewRecorder()
@@ -284,12 +293,102 @@ func TestBrowserSessionLogoutRequiresCSRFAndDestroysServerRecord(t *testing.T) {
 	}
 }
 
+func TestOIDCFullFlowWithRedisSessionAdapter(t *testing.T) {
+	now := time.Now().UTC()
+	publicKey, privateKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	redisAddress := os.Getenv("BPMP_TEST_REDIS_ADDR")
+	if redisAddress == "" {
+		redisAddress = miniredis.RunT(t).Addr()
+	}
+	redisClient := redis.NewClient(&redis.Options{Addr: redisAddress})
+	t.Cleanup(func() { _ = redisClient.Close() })
+	store, err := redissession.New(redisClient, redissession.Config{
+		Prefix: "bff:session:test:" + strings.ReplaceAll(t.Name(), "/", ":"), OperationTimeout: time.Second, MaxTokenBytes: 256, MaxRecordBytes: 8192,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	authzClient := doerFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}},
+			Body: io.NopCloser(strings.NewReader(`{"profiles":[{"tenant_id":"tenant-a","user_id":"user-a","active":true,"roles":[]}]}`))}, nil
+	})
+	var exchangedVerifier string
+	var nonce string
+	oidcClient := doerFunc(func(request *http.Request) (*http.Response, error) {
+		if err := request.ParseForm(); err != nil {
+			return nil, err
+		}
+		exchangedVerifier = request.Form.Get("code_verifier")
+		body := `{"token_type":"Bearer","id_token":"` + makeOIDCIDToken(t, privateKey, nonce, now) + `"}`
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(body))}, nil
+	})
+	handler := newOIDCTestHandler(t, now, publicKey, store, store, authzClient, oidcClient)
+	login := httptest.NewRecorder()
+	handler.Routes().ServeHTTP(login, httptest.NewRequest(http.MethodGet, "/auth/oidc/login?tenant_id=tenant-a", nil))
+	if login.Code != http.StatusFound {
+		t.Fatalf("login status=%d body=%s", login.Code, login.Body.String())
+	}
+	redirect, err := url.Parse(login.Header().Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	nonce = redirect.Query().Get("nonce")
+	state := redirect.Query().Get("state")
+	if nonce == "" || state == "" {
+		t.Fatal("login redirect lacks state or nonce")
+	}
+	callbackRequest := httptest.NewRequest(http.MethodGet, "/auth/oidc/callback?state="+state+"&code=authorization-code", nil)
+	for _, cookie := range login.Result().Cookies() {
+		callbackRequest.AddCookie(cookie)
+	}
+	callback := httptest.NewRecorder()
+	handler.Routes().ServeHTTP(callback, callbackRequest)
+	if callback.Code != http.StatusSeeOther || exchangedVerifier == "" {
+		t.Fatalf("callback status=%d verifier=%q body=%s", callback.Code, exchangedVerifier, callback.Body.String())
+	}
+	var sessionCookie, csrfCookie *http.Cookie
+	for _, cookie := range callback.Result().Cookies() {
+		if cookie.Name == "__Host-bpmp_session" {
+			sessionCookie = cookie
+		}
+		if cookie.Name == csrfCookieName {
+			csrfCookie = cookie
+		}
+	}
+	if sessionCookie == nil || csrfCookie == nil {
+		t.Fatal("callback did not set session and CSRF cookies")
+	}
+	session, err := store.Get(context.Background(), sessionCookie.Value)
+	if err != nil || session.TenantID != "tenant-a" || session.ActorID != "user-a" {
+		t.Fatalf("persisted session=%#v err=%v", session, err)
+	}
+	replay := httptest.NewRecorder()
+	handler.Routes().ServeHTTP(replay, callbackRequest)
+	if replay.Code != http.StatusUnauthorized {
+		t.Fatalf("OIDC state replay status=%d", replay.Code)
+	}
+	logoutRequest := httptest.NewRequest(http.MethodPost, "/auth/session/logout", nil)
+	logoutRequest.AddCookie(sessionCookie)
+	logoutRequest.Header.Set("X-CSRF-Token", csrfCookie.Value)
+	logout := httptest.NewRecorder()
+	handler.Routes().ServeHTTP(logout, logoutRequest)
+	if logout.Code != http.StatusNoContent {
+		t.Fatalf("logout status=%d", logout.Code)
+	}
+	if _, err = store.Get(context.Background(), sessionCookie.Value); !errors.Is(err, ports.ErrBrowserSessionNotFound) {
+		t.Fatalf("session survived logout: %v", err)
+	}
+}
+
 func newOIDCTestHandler(
 	t *testing.T,
 	now time.Time,
 	publicKey ed25519.PublicKey,
-	sessionStore *oidcTestSessionStore,
-	transactions *oidcTestTransactions,
+	sessionStore ports.BrowserSessionStore,
+	transactions ports.OIDCTransactionStore,
 	authzClient httpDoer,
 	oidcClient httpDoer,
 ) *Handler {
