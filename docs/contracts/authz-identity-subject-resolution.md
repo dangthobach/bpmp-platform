@@ -154,7 +154,47 @@ Engine actor keyring before enabling browser-session traffic. Missing issuer
 configuration makes the endpoint unavailable and Gateway returns a retryable
 upstream failure rather than proceeding without actor evidence.
 
-This endpoint does not establish or refresh a browser session. OIDC Authorization
-Code + PKCE callback, nonce/state persistence, token exchange, session create/
-destroy, CSRF bootstrap, Keycloak logout/revocation, and verified self-linking
-remain separate implementation slices.
+The Gateway now implements OIDC Authorization Code + PKCE, nonce/state
+single-use persistence, token exchange, signed ID-token verification, tenant
+profile resolution, opaque session create/destroy, and CSRF bootstrap. It does
+not persist provider access/refresh tokens. Keycloak RP-initiated/back-channel
+logout and a verified end-user self-link flow remain separate follow-up work.
+
+## Key provisioning gate
+
+OIDC login is opt-in (`OIDC_ENABLED=false` by default). Before enabling it in a
+browser-facing environment:
+
+1. Provision an Ed25519 32-byte private seed as a secret mounted only into
+   Authz. Set `AUTHZ_ACTOR_CONTEXT_SIGNING_KEY_ID` and
+   `AUTHZ_ACTOR_CONTEXT_SIGNING_KEY_PATH` to that secret.
+2. Derive the raw 32-byte public key using the platform's approved secret/key
+   management workflow. Mount that public key read-only into Engine and add
+   `{ "key_id": "portal-actor-context-k1", "path": "/run/secrets/portal-actor-context-public.key" }`
+   to `authorization.actor_keys` in Engine runtime configuration. The key ID
+   must exactly equal Authz's signing key ID.
+3. Include `api-gateway` (the configured Gateway workload ID) in
+   `AUTHZ_ACTOR_CONTEXT_AUDIENCES`. Add downstream audiences only where the
+   Gateway deliberately routes signed actor proofs to those owners.
+4. Restart Authz and Engine, then verify a signed test proof is accepted by
+   Engine and rejected for unknown key ID, wrong audience, tampered content,
+   expired validity, inactive membership, and revoked access before setting
+   `OIDC_ENABLED=true`.
+
+Private key bytes must never be checked in, copied into ordinary environment
+variables, or mounted into Engine. Engine receives only the public key. Missing
+or mismatched signing/keyring configuration fails closed; it must block the
+browser-session traffic promotion gate.
+
+## Profile and role mutation contract
+
+`PUT /admin/v1/identity/profiles/{user_id}` updates username, exact IdP issuer
+and subject link, active state, and expected profile version. Role grant and
+revoke use `POST`/`DELETE /admin/v1/users/{user_id}/roles/{role_id}` with the
+expected profile version. Each mutation requires a tenant-bound management
+capability and `Idempotency-Key`; an identical retry returns its stored result,
+while key reuse with a different request returns conflict. Profile version,
+attribute cache version, audit fingerprint, and idempotency response commit in
+the Authz PostgreSQL transaction. Concurrent stale writes return `409` and do
+not partially mutate roles or profile links. Credentials remain exclusively
+owned by Keycloak.
