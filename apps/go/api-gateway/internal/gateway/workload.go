@@ -34,6 +34,20 @@ func (s *workloadSigner) signAuthzDelegation(tenantID, actorID, capability, audi
 	return token.SignedString(s.key)
 }
 
+func (s *workloadSigner) signAuthzServiceCapability(capability, audience string, now time.Time) (string, error) {
+	if s.id == "" || s.keyID == "" || len(s.key) != ed25519.PrivateKeySize ||
+		capability == "" || audience == "" {
+		return "", errors.New("authorization service delegation claims are incomplete")
+	}
+	claims := jwt.MapClaims{
+		"sub": s.id, "capabilities": []string{capability},
+		"aud": []string{audience}, "iat": now.Unix(), "exp": now.Add(time.Minute).Unix(),
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
+	token.Header["kid"] = s.keyID
+	return token.SignedString(s.key)
+}
+
 func newWorkloadSigner(value config.Workload) (*workloadSigner, error) {
 	data, err := os.ReadFile(value.PrivateKeyPath)
 	if err != nil {

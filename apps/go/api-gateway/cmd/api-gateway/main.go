@@ -202,13 +202,16 @@ func run(path string) error {
 		return fmt.Errorf("ping rate-limit Redis: %w", err)
 	}
 	var handlerOptions []gateway.HandlerOption
+	var sessionStore *redissession.Store
 	if authoringConn != nil {
 		handlerOptions = append(handlerOptions, gateway.WithAuthoring(authoringv1.NewAuthoringServiceClient(authoringConn)))
 	}
 	if value.BrowserSession.Enabled {
-		sessionStore, sessionErr := redissession.New(redisClient, redissession.Config{
+		var sessionErr error
+		sessionStore, sessionErr = redissession.New(redisClient, redissession.Config{
 			Prefix:           value.BrowserSession.RedisKeyPrefix,
 			OperationTimeout: time.Duration(value.BrowserSession.OperationTimeoutMS) * time.Millisecond,
+			MaxTokenBytes:    value.BrowserSession.MaxTokenBytes,
 			MaxRecordBytes:   value.BrowserSession.MaxRecordBytes,
 		})
 		if sessionErr != nil {
@@ -233,6 +236,21 @@ func run(path string) error {
 		handlerOptions = append(handlerOptions, gateway.WithAuthorizationAdmin(
 			authorizationClient, value.AuthorizationURL, value.AuthorizationAudience,
 		))
+	}
+	if value.OIDC.Enabled {
+		oidcClient := &http.Client{
+			Transport: platformtelemetry.HTTPTransport(&http.Transport{
+				ForceAttemptHTTP2: true,
+				TLSClientConfig:   &tls.Config{MinVersion: tls.VersionTLS12},
+			}),
+			Timeout: time.Duration(value.OIDC.OperationTimeoutMS) * time.Millisecond,
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		}
+		handlerOptions = append(handlerOptions,
+			gateway.WithOIDCLogin(value.OIDC, oidcClient, sessionStore),
+		)
 	}
 	handler, err := gateway.NewWithPolicy(
 		enginev1.NewEngineCommandServiceClient(engineConn),

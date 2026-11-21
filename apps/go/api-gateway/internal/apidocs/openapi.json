@@ -57,6 +57,49 @@
     }
   ],
   "paths": {
+    "/v1/access/identity/profiles/{userID}": {
+      "put": {
+        "summary": "Update an IdP-linked tenant access profile",
+        "operationId": "updateIdentityProfile",
+        "tags": ["Identity"],
+        "parameters": [{"name":"userID","in":"path","required":true,"schema":{"type":"string","format":"uuid"}},{"name":"Idempotency-Key","in":"header","required":true,"schema":{"type":"string","maxLength":200}}],
+        "requestBody": {"required":true,"content":{"application/json":{"schema":{"type":"object","required":["username","issuer","subject","active","expected_version"],"properties":{"username":{"type":"string","maxLength":100},"issuer":{"type":"string","maxLength":512},"subject":{"type":"string","maxLength":255},"active":{"type":"boolean"},"expected_version":{"type":"integer","minimum":0}}}}}},
+        "responses": {"200":{"description":"Updated profile"},"409":{"description":"Version or IdP link conflict"},"422":{"description":"Invalid request"}}
+      }
+    },
+    "/v1/access/users/{userID}/roles/{roleID}": {
+      "parameters": [{"name":"userID","in":"path","required":true,"schema":{"type":"string","format":"uuid"}},{"name":"roleID","in":"path","required":true,"schema":{"type":"string","format":"uuid"}},{"name":"Idempotency-Key","in":"header","required":true,"schema":{"type":"string","maxLength":200}}],
+      "post": {"summary":"Assign a tenant role to an access profile","operationId":"assignIdentityRole","tags":["Identity"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["expected_version"],"properties":{"expected_version":{"type":"integer","minimum":0}}}}}},"responses":{"200":{"description":"Role assigned"},"409":{"description":"Version or idempotency conflict"},"422":{"description":"Invalid request"}}},
+      "delete": {"summary":"Revoke a tenant role from an access profile","operationId":"revokeIdentityRole","tags":["Identity"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["expected_version"],"properties":{"expected_version":{"type":"integer","minimum":0}}}}}},"responses":{"200":{"description":"Role revoked"},"409":{"description":"Version or idempotency conflict"},"422":{"description":"Invalid request"}}}
+    },
+    "/auth/oidc/login": {
+      "get": {
+        "summary": "Start an OIDC Authorization Code flow with PKCE",
+        "operationId": "startOIDCLogin",
+        "tags": ["Authentication"],
+        "parameters": [{"name":"tenant_id","in":"query","required":false,"schema":{"type":"string","format":"uuid"}}],
+        "responses": {"302":{"description":"Redirect to configured OIDC provider"},"400":{"description":"Invalid login request"},"409":{"description":"Session exists or tenant selection is required"},"429":{"description":"Rate limited"}}
+      }
+    },
+    "/auth/oidc/callback": {
+      "get": {
+        "summary": "Complete OIDC callback and establish a BPMP browser session",
+        "operationId": "completeOIDCLogin",
+        "tags": ["Authentication"],
+        "parameters": [{"name":"code","in":"query","required":true,"schema":{"type":"string"}},{"name":"state","in":"query","required":true,"schema":{"type":"string"}}],
+        "responses": {"303":{"description":"Session created; redirect to application"},"401":{"description":"Invalid or expired OIDC transaction"},"403":{"description":"No active tenant access profile"},"409":{"description":"Tenant selection required"},"502":{"description":"Identity service unavailable"}}
+      }
+    },
+    "/auth/session/logout": {
+      "post": {
+        "summary": "Destroy the current BPMP browser session",
+        "operationId": "logoutBrowserSession",
+        "tags": ["Authentication"],
+        "security": [{"bffSession":[]}],
+        "parameters": [{"name":"X-CSRF-Token","in":"header","required":true,"schema":{"type":"string"}}],
+        "responses": {"204":{"description":"Session destroyed"},"403":{"description":"CSRF validation failed"},"502":{"description":"Session store unavailable"}}
+      }
+    },
     "/v1/runtime/browser-configuration": {
       "parameters": [
         {

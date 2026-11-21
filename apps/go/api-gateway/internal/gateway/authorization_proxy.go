@@ -32,6 +32,20 @@ type actorContextResponse struct {
 	Capabilities       []string `json:"capabilities"`
 }
 
+type tenantAccessProfile struct {
+	TenantID          string   `json:"tenant_id"`
+	UserID            string   `json:"user_id"`
+	Username          string   `json:"username"`
+	Active            bool     `json:"active"`
+	Version           int64    `json:"version"`
+	AttributesVersion int64    `json:"attributes_version"`
+	Roles             []string `json:"roles"`
+}
+
+type subjectResolutionResponse struct {
+	Profiles []tenantAccessProfile `json:"profiles"`
+}
+
 type authorizationProxy struct {
 	client   httpDoer
 	baseURL  *url.URL
@@ -149,6 +163,85 @@ func (p *authorizationProxy) issueActorContext(
 	return issuedActorContext{proof: proof, capabilities: append([]string(nil), decoded.Capabilities...)}, nil
 }
 
+func (p *authorizationProxy) resolveOIDCSubject(
+	parent context.Context,
+	signer *workloadSigner,
+	issuer, subject string,
+	policy RuntimePolicy,
+	now time.Time,
+) ([]tenantAccessProfile, error) {
+	if p == nil || signer == nil || policy.UpstreamTimeout <= 0 ||
+		policy.MaxRequestBodyBytes <= 0 || policy.MaxUpstreamResponseBytes <= 0 {
+		return nil, errUpstream
+	}
+	delegation, err := signer.signAuthzServiceCapability(
+		"identity.subject.resolve", p.audience, now,
+	)
+	if err != nil {
+		return nil, errUpstream
+	}
+	body, err := json.Marshal(struct {
+		Issuer  string `json:"issuer"`
+		Subject string `json:"subject"`
+	}{issuer, subject})
+	if err != nil || int64(len(body)) > policy.MaxRequestBodyBytes {
+		return nil, errInvalid
+	}
+	target := *p.baseURL
+	target.Path += "/admin/v1/identity/resolve-subject"
+	target.RawPath, target.RawQuery = "", ""
+	ctx, cancel := context.WithTimeout(parent, policy.UpstreamTimeout)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, target.String(), bytes.NewReader(body))
+	if err != nil {
+		return nil, errUpstream
+	}
+	request.Header.Set("Authorization", "Bearer "+delegation)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json")
+	requestmeta.InjectHTTP(ctx, request.Header)
+	response, err := p.client.Do(request)
+	if err != nil {
+		return nil, errUpstream
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		if response.StatusCode == http.StatusTooManyRequests {
+			return nil, errRateLimited
+		}
+		return nil, errUpstream
+	}
+	maxResponseBytes := policy.MaxUpstreamResponseBytes
+	if maxResponseBytes > maxActorContextResponseBytes {
+		maxResponseBytes = maxActorContextResponseBytes
+	}
+	responseBody, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
+	if err != nil || int64(len(responseBody)) > maxResponseBytes {
+		return nil, errUpstream
+	}
+	var decoded subjectResolutionResponse
+	decoder := json.NewDecoder(bytes.NewReader(responseBody))
+	decoder.DisallowUnknownFields()
+	if err = decoder.Decode(&decoded); err != nil {
+		return nil, errUpstream
+	}
+	if err = decoder.Decode(&struct{}{}); err != io.EOF || len(decoded.Profiles) > 100 {
+		return nil, errUpstream
+	}
+	seenTenants := make(map[string]struct{}, len(decoded.Profiles))
+	for _, profile := range decoded.Profiles {
+		if !profile.Active || !validID(profile.TenantID) || !validID(profile.UserID) ||
+			len(profile.Roles) > 512 {
+			return nil, errUpstream
+		}
+		if _, duplicate := seenTenants[profile.TenantID]; duplicate {
+			return nil, errUpstream
+		}
+		seenTenants[profile.TenantID] = struct{}{}
+	}
+	return decoded.Profiles, nil
+}
+
 func validActorContextClaims(response actorContextResponse, now time.Time) bool {
 	issuedAt := response.IssuedAtEpochMS
 	expiresAt := response.ExpiresAtEpochMS
@@ -240,8 +333,12 @@ func (h *Handler) authorizationCatalog(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/v1/access/users" {
 		requiredCapability = "identity.user.read"
-	} else if r.URL.Path == "/v1/access/identity/profiles" {
+	} else if r.URL.Path == "/v1/access/identity/profiles" || strings.HasPrefix(r.URL.Path, "/v1/access/identity/profiles/") {
 		requiredCapability = "identity.profile.manage"
+	} else if r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/roles/") {
+		requiredCapability = "identity.role.assign"
+	} else if r.Method == http.MethodDelete && strings.Contains(r.URL.Path, "/roles/") {
+		requiredCapability = "identity.role.revoke"
 	}
 	if !hasCapability(scope.capabilities, requiredCapability) {
 		writeError(w, errForbidden)
@@ -286,6 +383,10 @@ func (h *Handler) authorizationCatalog(w http.ResponseWriter, r *http.Request) {
 			}
 			tenantJSON, _ := json.Marshal(scope.tenantID)
 			value["tenant_id"] = tenantJSON
+			if roleID := r.PathValue("roleID"); roleID != "" {
+				roleJSON, _ := json.Marshal(roleID)
+				value["role_id"] = roleJSON
+			}
 			body, err = json.Marshal(value)
 			if err != nil || int64(len(body)) > maxRequestBytes {
 				writeError(w, errInvalid)

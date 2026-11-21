@@ -1,8 +1,28 @@
 import type { AxiosInstance } from "axios";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createCallApi } from "./index";
 
+afterEach(() => vi.unstubAllGlobals());
+
 describe("createCallApi", () => {
+  it("automatically sends the same-origin browser CSRF cookie", async () => {
+    vi.stubGlobal("document", { cookie: "theme=dark; __Host-bpmp_csrf=abcdefghijklmnopqrstuvwxyz_0123456789-AB" });
+    const request = vi.fn().mockResolvedValue({ status: 204, data: undefined, headers: {} });
+    const callApi = createCallApi({
+      defaultTimeoutMs: 1_000,
+      maxResponseBytes: 1_000_000,
+      transport: { request } as unknown as AxiosInstance,
+    });
+
+    await callApi({ method: "POST", path: "/v1/work-items/task-1/claim", idempotencyKey: "claim-1" });
+
+    expect(request).toHaveBeenCalledWith(expect.objectContaining({
+      headers: expect.objectContaining({
+        "X-CSRF-Token": "abcdefghijklmnopqrstuvwxyz_0123456789-AB",
+      }),
+    }));
+  });
+
   it("propagates identities and returns typed success", async () => {
     const request = vi.fn().mockResolvedValue({
       status: 200,

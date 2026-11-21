@@ -4,6 +4,7 @@ import (
 	"crypto"
 	"crypto/ed25519"
 	"crypto/rsa"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -34,10 +35,12 @@ type Identity struct {
 }
 
 type claims struct {
-	TenantID     string   `json:"tenant_id"`
-	Roles        []string `json:"roles"`
-	Capabilities []string `json:"capabilities"`
-	RevokeEpoch  uint64   `json:"revoke_epoch"`
+	TenantID        string   `json:"tenant_id"`
+	Roles           []string `json:"roles"`
+	Capabilities    []string `json:"capabilities"`
+	RevokeEpoch     uint64   `json:"revoke_epoch"`
+	Nonce           string   `json:"nonce"`
+	AuthorizedParty string   `json:"azp"`
 	jwt.RegisteredClaims
 }
 
@@ -87,6 +90,8 @@ func NewFromJWKS(config Config, data []byte) (*Verifier, error) {
 	}, nil
 }
 
+func (v *Verifier) MaxTokenBytes() int { return v.maxTokenBytes }
+
 func (v *Verifier) Verify(raw, tenantID string, now time.Time) (Identity, error) {
 	if raw == "" || len(raw) > v.maxTokenBytes || tenantID == "" {
 		return Identity{}, errors.New("actor token is missing or oversized")
@@ -129,6 +134,48 @@ func (v *Verifier) Verify(raw, tenantID string, now time.Time) (Identity, error)
 			return value.IssuedAt.Time
 		}(),
 	}, nil
+}
+
+// VerifyIDToken validates the OIDC ID token used by the server-side PKCE
+// callback. Unlike an API access token, an ID token has no tenant claim; the
+// tenant access profile is resolved separately from Authz using iss/sub.
+func (v *Verifier) VerifyIDToken(raw, issuer, audience, nonce string, now time.Time) (Identity, error) {
+	if raw == "" || len(raw) > v.maxTokenBytes || issuer == "" || audience == "" || nonce == "" {
+		return Identity{}, errors.New("OIDC ID token is missing or oversized")
+	}
+	value := &claims{}
+	parser := jwt.NewParser(
+		jwt.WithValidMethods(v.methods),
+		jwt.WithTimeFunc(func() time.Time { return now }),
+		jwt.WithLeeway(v.skew),
+		jwt.WithExpirationRequired(),
+		jwt.WithIssuedAt(),
+	)
+	token, err := parser.ParseWithClaims(raw, value, func(token *jwt.Token) (any, error) {
+		kid, ok := token.Header["kid"].(string)
+		if !ok || kid == "" {
+			return nil, errors.New("JWT kid is missing")
+		}
+		key := v.keys[kid]
+		if key == nil {
+			return nil, errors.New("JWT key is unknown")
+		}
+		return key, nil
+	})
+	if err != nil || !token.Valid || value.Subject == "" || value.Issuer != issuer ||
+		!audienceAllowed(value.Audience, stringSet([]string{audience})) ||
+		subtle.ConstantTimeCompare([]byte(value.Nonce), []byte(nonce)) != 1 {
+		return Identity{}, errors.New("OIDC ID token claims are invalid")
+	}
+	if len(value.Audience) > 1 && value.AuthorizedParty != audience {
+		return Identity{}, errors.New("OIDC ID token authorized party is invalid")
+	}
+	return Identity{Subject: value.Subject, IssuedAt: func() time.Time {
+		if value.IssuedAt == nil {
+			return time.Time{}
+		}
+		return value.IssuedAt.Time
+	}()}, nil
 }
 
 type jwksDocument struct {

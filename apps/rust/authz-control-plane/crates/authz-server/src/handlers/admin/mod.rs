@@ -36,7 +36,10 @@ pub fn admin_routes() -> Router<AppState> {
         // RBAC endpoints (roles, permissions, user_roles)
         .route("/roles", post(rbac::create_role))
         .route("/permissions", post(rbac::create_permission))
-        .route("/users/:user_id/roles", post(rbac::assign_role))
+        .route(
+            "/users/:user_id/roles/:role_id",
+            post(rbac::assign_role).delete(rbac::revoke_role),
+        )
         .route("/users", get(identity::list_users))
         .route(
             "/identity/resolve-subject",
@@ -46,6 +49,7 @@ pub fn admin_routes() -> Router<AppState> {
             "/identity/profiles",
             post(identity_profile::provision_profile),
         )
+        .route("/identity/profiles/:user_id", put(identity_profile::update_profile))
         // Versioned authorization catalog control-plane APIs.
         .route(
             "/catalog/versions",

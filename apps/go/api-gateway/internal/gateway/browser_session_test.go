@@ -25,6 +25,12 @@ func (function browserSessionStoreFunc) Get(
 	return function(ctx, token)
 }
 
+func (function browserSessionStoreFunc) Create(context.Context, string, ports.BrowserSession) error {
+	return nil
+}
+
+func (function browserSessionStoreFunc) Delete(context.Context, string) error { return nil }
+
 func TestBrowserSessionAuthenticatesQueryAndPreservesSignedContext(t *testing.T) {
 	now := time.Unix(1_000, 0).UTC()
 	csrf := sha256.Sum256([]byte("csrf-token"))

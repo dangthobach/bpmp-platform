@@ -44,6 +44,9 @@ type Handler struct {
 	upstreams          *upstreamController
 	sessionStore       ports.BrowserSessionStore
 	sessionConfig      config.BrowserSession
+	oidcConfig         config.OIDC
+	oidcClient         httpDoer
+	oidcTransactions   ports.OIDCTransactionStore
 }
 
 type RuntimePolicy struct {
@@ -158,6 +161,13 @@ func NewHandler(
 
 func (h *Handler) Routes() http.Handler {
 	mux := http.NewServeMux()
+	if h.sessionStore != nil {
+		mux.HandleFunc("POST /auth/session/logout", h.logoutBrowserSession)
+	}
+	if h.oidcClient != nil {
+		mux.HandleFunc("GET /auth/oidc/login", h.startOIDCLogin)
+		mux.HandleFunc("GET /auth/oidc/callback", h.completeOIDCLogin)
+	}
 	for _, definition := range publicOperationDefinitions {
 		if definition.configuration && h.configurationProxy == nil {
 			continue
@@ -198,6 +208,9 @@ var publicOperationDefinitions = []publicOperationDefinition{
 	{PublicOperation{http.MethodGet, "/v1/access/catalog/roles", "listAuthorizationRoles"}, (*Handler).authorizationCatalog, false},
 	{PublicOperation{http.MethodGet, "/v1/access/users", "listIdentityUsers"}, (*Handler).authorizationCatalog, false},
 	{PublicOperation{http.MethodPost, "/v1/access/identity/profiles", "provisionIdentityProfile"}, (*Handler).authorizationCatalog, false},
+	{PublicOperation{http.MethodPut, "/v1/access/identity/profiles/{userID}", "updateIdentityProfile"}, (*Handler).authorizationCatalog, false},
+	{PublicOperation{http.MethodPost, "/v1/access/users/{userID}/roles/{roleID}", "assignIdentityRole"}, (*Handler).authorizationCatalog, false},
+	{PublicOperation{http.MethodDelete, "/v1/access/users/{userID}/roles/{roleID}", "revokeIdentityRole"}, (*Handler).authorizationCatalog, false},
 	{PublicOperation{http.MethodGet, "/v1/access/catalog/audit", "listAuthorizationCatalogAudit"}, (*Handler).authorizationCatalog, false},
 	{PublicOperation{http.MethodGet, "/v1/access/catalog/acknowledgements", "listAuthorizationCatalogAcknowledgements"}, (*Handler).authorizationCatalog, false},
 	{PublicOperation{http.MethodGet, "/v1/access/queues", "listAccessQueues"}, (*Handler).listAccessQueues, false},
@@ -618,10 +631,15 @@ func (h *Handler) browserConfiguration(w http.ResponseWriter, r *http.Request) {
 }
 
 func PublicOperations() []PublicOperation {
-	operations := make([]PublicOperation, 0, len(publicOperationDefinitions))
+	operations := make([]PublicOperation, 0, len(publicOperationDefinitions)+3)
 	for _, definition := range publicOperationDefinitions {
 		operations = append(operations, definition.PublicOperation)
 	}
+	operations = append(operations,
+		PublicOperation{Method: http.MethodGet, Path: "/auth/oidc/login", OperationID: "startOIDCLogin"},
+		PublicOperation{Method: http.MethodGet, Path: "/auth/oidc/callback", OperationID: "completeOIDCLogin"},
+		PublicOperation{Method: http.MethodPost, Path: "/auth/session/logout", OperationID: "logoutBrowserSession"},
+	)
 	return operations
 }
 

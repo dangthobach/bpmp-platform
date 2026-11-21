@@ -20,7 +20,7 @@ func TestStoreUsesHashedKeyAndDecodesBoundedRecord(t *testing.T) {
 	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
 	t.Cleanup(func() { _ = client.Close() })
 	store, err := New(client, Config{
-		Prefix: "bff:session", OperationTimeout: time.Second, MaxRecordBytes: 4096,
+		Prefix: "bff:session", OperationTimeout: time.Second, MaxTokenBytes: 256, MaxRecordBytes: 4096,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -65,7 +65,7 @@ func TestStoreFailsClosedForMissingMalformedAndOversizedRecords(t *testing.T) {
 	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
 	t.Cleanup(func() { _ = client.Close() })
 	store, err := New(client, Config{
-		Prefix: "bff:session", OperationTimeout: time.Second, MaxRecordBytes: 8,
+		Prefix: "bff:session", OperationTimeout: time.Second, MaxTokenBytes: 256, MaxRecordBytes: 8,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -82,5 +82,51 @@ func TestStoreFailsClosedForMissingMalformedAndOversizedRecords(t *testing.T) {
 		if _, err = store.Get(context.Background(), token); err == nil {
 			t.Fatalf("%s record unexpectedly succeeded", token)
 		}
+	}
+}
+
+func TestStoreCreatesDeletesSessionsAndConsumesOIDCStateOnce(t *testing.T) {
+	t.Parallel()
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+	store, err := New(client, Config{
+		Prefix: "bff:session", OperationTimeout: time.Second,
+		MaxTokenBytes: 256, MaxRecordBytes: 4096,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	csrf := sha256.Sum256([]byte("csrf"))
+	if err = store.Create(context.Background(), "opaque-session", ports.BrowserSession{
+		TenantID: "tenant-a", ActorID: "actor-a", CSRFTokenSHA256: csrf[:],
+		ExpiresAt: now.Add(time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := store.Get(context.Background(), "opaque-session"); err != nil || got.ActorID != "actor-a" {
+		t.Fatalf("created session not readable: session=%#v err=%v", got, err)
+	}
+	if err = store.Delete(context.Background(), "opaque-session"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.Get(context.Background(), "opaque-session"); !errors.Is(err, ports.ErrBrowserSessionNotFound) {
+		t.Fatalf("deleted session remains readable: %v", err)
+	}
+	state := "random-state"
+	transaction := ports.OIDCLoginTransaction{
+		CodeVerifier: "pkce-verifier", Nonce: "nonce", TenantID: "tenant-a",
+		ExpiresAt: now.Add(time.Minute),
+	}
+	if err = store.Save(context.Background(), state, transaction); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.Consume(context.Background(), state)
+	if err != nil || got.CodeVerifier != transaction.CodeVerifier || got.Nonce != transaction.Nonce || got.TenantID != transaction.TenantID {
+		t.Fatalf("consumed transaction mismatch: transaction=%#v err=%v", got, err)
+	}
+	if _, err = store.Consume(context.Background(), state); !errors.Is(err, ports.ErrOIDCTransactionNotFound) {
+		t.Fatalf("OIDC state was replayable: %v", err)
 	}
 }

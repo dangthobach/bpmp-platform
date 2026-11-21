@@ -20,11 +20,11 @@ type actorIdentity struct {
 }
 
 type authenticatedActor struct {
-	tenantID     string
-	actorID      string
-	capabilities []string
-	proofType    authv1.ActorProofType
-	signedProof  []byte
+	tenantID           string
+	actorID            string
+	capabilities       []string
+	proofType          authv1.ActorProofType
+	signedProof        []byte
 	fromBrowserSession bool
 }
 
@@ -74,6 +74,16 @@ func (v *verifier) verify(raw, tenantID string, now time.Time) (actorIdentity, e
 	}
 	return actorIdentity{ID: identity.Subject, Capabilities: append([]string(nil), identity.Capabilities...)}, nil
 }
+
+func (v *verifier) verifyOIDCIDToken(raw, issuer, audience, nonce string, now time.Time) (string, error) {
+	identity, err := v.value.VerifyIDToken(raw, issuer, audience, nonce, now)
+	if err != nil {
+		return "", err
+	}
+	return identity.Subject, nil
+}
+
+func (v *verifier) maxTokenBytes() int { return v.value.MaxTokenBytes() }
 
 func (h *Handler) authenticateActor(
 	r *http.Request,
@@ -133,8 +143,8 @@ func (h *Handler) authenticateActor(
 	}
 	return authenticatedActor{
 		tenantID: session.TenantID, actorID: session.ActorID,
-		proofType:   authv1.ActorProofType_ACTOR_PROOF_TYPE_SIGNED_INTERNAL_CONTEXT,
-		signedProof: append([]byte(nil), session.SignedActorContext...),
+		proofType:          authv1.ActorProofType_ACTOR_PROOF_TYPE_SIGNED_INTERNAL_CONTEXT,
+		signedProof:        append([]byte(nil), session.SignedActorContext...),
 		fromBrowserSession: true,
 	}, nil
 }

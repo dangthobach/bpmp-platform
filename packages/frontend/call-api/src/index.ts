@@ -78,7 +78,7 @@ export function createCallApi(configuration: CallApiConfiguration): CallApi {
       "X-Request-ID": requestId,
       "X-Correlation-ID": correlationId,
     };
-    const csrfToken = configuration.csrfToken?.();
+    const csrfToken = configuration.csrfToken?.() ?? readBrowserCsrfCookie();
     if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
     if (options.idempotencyKey) {
       const idempotencyKey = normalizeIdentifier(options.idempotencyKey);
@@ -149,6 +149,17 @@ export function createCallApi(configuration: CallApiConfiguration): CallApi {
       };
     }
   };
+}
+
+function readBrowserCsrfCookie(): string | undefined {
+  if (typeof document === "undefined" || document.cookie.length > 8_192) return undefined;
+  for (const cookie of document.cookie.split(";")) {
+    const separator = cookie.indexOf("=");
+    if (separator < 0 || cookie.slice(0, separator).trim() !== "__Host-bpmp_csrf") continue;
+    const token = cookie.slice(separator + 1).trim();
+    return /^[A-Za-z0-9_-]{32,256}$/.test(token) ? token : undefined;
+  }
+  return undefined;
 }
 
 function safeStartTrace(

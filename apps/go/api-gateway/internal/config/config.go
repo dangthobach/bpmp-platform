@@ -35,6 +35,7 @@ type Config struct {
 	APIDocs               APIDocs        `json:"api_docs"`
 	RuntimeConfig         RuntimeConfig  `json:"runtime_configuration"`
 	BrowserSession        BrowserSession `json:"browser_session"`
+	OIDC                  OIDC           `json:"oidc"`
 }
 
 type PublicTLS struct {
@@ -83,6 +84,18 @@ type BrowserSession struct {
 	OperationTimeoutMS int64  `json:"operation_timeout_ms"`
 	MaxTokenBytes      int    `json:"max_token_bytes"`
 	MaxRecordBytes     int64  `json:"max_record_bytes"`
+}
+type OIDC struct {
+	Enabled               bool     `json:"enabled"`
+	Issuer                string   `json:"issuer"`
+	AuthorizationEndpoint string   `json:"authorization_endpoint"`
+	TokenEndpoint         string   `json:"token_endpoint"`
+	ClientID              string   `json:"client_id"`
+	RedirectURI           string   `json:"redirect_uri"`
+	Scopes                []string `json:"scopes"`
+	OperationTimeoutMS    int64    `json:"operation_timeout_ms"`
+	TransactionTTLMS      int64    `json:"transaction_ttl_ms"`
+	SessionTTLMS          int64    `json:"session_ttl_ms"`
 }
 type HTTP struct {
 	ReadHeaderTimeoutMS int64  `json:"read_header_timeout_ms"`
@@ -189,6 +202,12 @@ func (c Config) Validate() error {
 	if err := c.BrowserSession.Validate(); err != nil {
 		return err
 	}
+	if err := c.OIDC.Validate(c.BrowserSession, c.Identity); err != nil {
+		return err
+	}
+	if c.OIDC.Enabled && (c.AuthorizationURL == "" || c.AuthorizationAudience == "" || c.UpstreamTLS.AuthorizationServerName == "") {
+		return errors.New("OIDC login requires the Authz subject-resolution upstream")
+	}
 	if c.AuthorizationURL != "" || c.AuthorizationAudience != "" || c.UpstreamTLS.AuthorizationServerName != "" {
 		endpoint, parseErr := url.Parse(c.AuthorizationURL)
 		if parseErr != nil || endpoint.Scheme != "https" || endpoint.Host == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" || c.AuthorizationAudience == "" || c.UpstreamTLS.AuthorizationServerName == "" {
@@ -199,6 +218,56 @@ func (c Config) Validate() error {
 		if c.AuthoringAddress == "" || c.UpstreamTLS.AuthoringServerName == "" {
 			return errors.New("API Gateway Authoring upstream configuration is incomplete")
 		}
+	}
+	return nil
+}
+
+func (c OIDC) Validate(session BrowserSession, identity Identity) error {
+	if !c.Enabled {
+		return nil
+	}
+	endpoint := func(raw string) bool {
+		parsed, err := url.Parse(raw)
+		return err == nil && parsed.Scheme == "https" && parsed.Host != "" &&
+			parsed.User == nil && parsed.Fragment == ""
+	}
+	redirect, redirectErr := url.Parse(c.RedirectURI)
+	issuer, issuerErr := url.Parse(c.Issuer)
+	if !session.Enabled || c.Issuer == "" || len(c.Issuer) > 512 || issuerErr != nil ||
+		issuer.Scheme != "https" || issuer.Host == "" || issuer.RawQuery != "" ||
+		!endpoint(c.Issuer) || !endpoint(c.AuthorizationEndpoint) || !endpoint(c.TokenEndpoint) ||
+		redirectErr != nil || redirect.Scheme != "https" || redirect.Host == "" ||
+		redirect.User != nil || redirect.RawQuery != "" || redirect.Fragment != "" ||
+		c.ClientID == "" || len(c.ClientID) > 256 ||
+		c.OperationTimeoutMS <= 0 || c.OperationTimeoutMS > 10_000 ||
+		c.TransactionTTLMS < 60_000 || c.TransactionTTLMS > 600_000 ||
+		c.SessionTTLMS < 60_000 || c.SessionTTLMS > 28_800_000 {
+		return errors.New("api-gateway OIDC configuration is invalid")
+	}
+	trustedIssuer := false
+	for _, issuer := range identity.Issuers {
+		if issuer == c.Issuer {
+			trustedIssuer = true
+			break
+		}
+	}
+	if !trustedIssuer || len(c.Scopes) == 0 {
+		return errors.New("api-gateway OIDC issuer or scopes are invalid")
+	}
+	seen := make(map[string]struct{}, len(c.Scopes))
+	openid := false
+	for _, scope := range c.Scopes {
+		if scope == "" || len(scope) > 64 || strings.ContainsAny(scope, " \t\r\n") {
+			return errors.New("api-gateway OIDC scopes are invalid")
+		}
+		if _, exists := seen[scope]; exists {
+			return errors.New("api-gateway OIDC scopes contain duplicates")
+		}
+		seen[scope] = struct{}{}
+		openid = openid || scope == "openid"
+	}
+	if !openid {
+		return errors.New("api-gateway OIDC scopes must include openid")
 	}
 	return nil
 }
