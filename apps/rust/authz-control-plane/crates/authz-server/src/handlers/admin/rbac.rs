@@ -231,8 +231,14 @@ async fn mutate_user_role(
     }
 
     if assign {
-        sqlx::query("INSERT INTO user_role (user_id,role_id,tenant_id,granted_by) VALUES ($1,$2,$3,$4) ON CONFLICT (user_id,role_id) DO NOTHING")
-            .bind(user_id).bind(role_id).bind(payload.tenant_id).bind(actor_id).execute(&mut *tx).await?;
+        let inserted = sqlx::query("INSERT INTO user_role (user_id,role_id,tenant_id,granted_by) VALUES ($1,$2,$3,$4) ON CONFLICT (user_id,role_id) DO NOTHING")
+            .bind(user_id).bind(role_id).bind(payload.tenant_id).bind(actor_id).execute(&mut *tx).await?.rows_affected();
+        if inserted != 1 {
+            return Err(authz_core::AuthzError::InvalidRequest {
+                reason: "role is already assigned to this user".into(),
+            }
+            .into());
+        }
     } else {
         let removed =
             sqlx::query("DELETE FROM user_role WHERE user_id=$1 AND role_id=$2 AND tenant_id=$3")

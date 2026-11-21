@@ -138,6 +138,10 @@ func (h *Handler) completeOIDCLogin(w http.ResponseWriter, r *http.Request) {
 	setCorrelationHeader(w, r)
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
+	if tokens := h.browserSessionTokens(r); len(tokens) != 0 {
+		requestmeta.WriteProblem(w, r, http.StatusConflict, "active_session_exists", "Active session exists", "End the current session before completing a new OIDC login", false)
+		return
+	}
 	query := r.URL.Query()
 	stateValues, codeValues := query["state"], query["code"]
 	cookieState, cookieOK := singleCookie(r, oidcStateCookieName)

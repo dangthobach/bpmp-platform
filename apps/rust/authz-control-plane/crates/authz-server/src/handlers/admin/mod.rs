@@ -49,7 +49,10 @@ pub fn admin_routes() -> Router<AppState> {
             "/identity/profiles",
             post(identity_profile::provision_profile),
         )
-        .route("/identity/profiles/:user_id", put(identity_profile::update_profile))
+        .route(
+            "/identity/profiles/:user_id",
+            put(identity_profile::update_profile),
+        )
         // Versioned authorization catalog control-plane APIs.
         .route(
             "/catalog/versions",

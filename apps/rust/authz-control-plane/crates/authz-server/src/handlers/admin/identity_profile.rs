@@ -236,20 +236,36 @@ pub async fn update_profile(
     headers: HeaderMap,
     Json(request): Json<UpdateProfileRequest>,
 ) -> Result<Json<ProvisionedProfile>, ApiError> {
-    if !principal.capabilities.iter().any(|capability| capability == "identity.profile.manage")
+    if !principal
+        .capabilities
+        .iter()
+        .any(|capability| capability == "identity.profile.manage")
         || principal.tenant_id.as_deref() != Some(request.tenant_id.to_string().as_str())
     {
-        return Err(AuthzError::PolicyDenied { policy_name: "identity_profile_manage".into(), reason: "principal cannot manage identity profiles in this tenant".into() }.into());
+        return Err(AuthzError::PolicyDenied {
+            policy_name: "identity_profile_manage".into(),
+            reason: "principal cannot manage identity profiles in this tenant".into(),
+        }
+        .into());
     }
     if request.expected_version < 0 {
         return Err(invalid_request("expected_version must be non-negative"));
     }
-    validate_request(&ProvisionProfileRequest { tenant_id: request.tenant_id, username: request.username.clone(), issuer: request.issuer.clone(), subject: request.subject.clone() })?;
-    let idempotency_key = headers.get("Idempotency-Key").and_then(|value| value.to_str().ok())
+    validate_request(&ProvisionProfileRequest {
+        tenant_id: request.tenant_id,
+        username: request.username.clone(),
+        issuer: request.issuer.clone(),
+        subject: request.subject.clone(),
+    })?;
+    let idempotency_key = headers
+        .get("Idempotency-Key")
+        .and_then(|value| value.to_str().ok())
         .filter(|value| !value.trim().is_empty() && value.len() <= 200)
         .ok_or_else(|| invalid_request("Idempotency-Key is required and limited to 200 bytes"))?;
     let key_hash = Sha256::digest(idempotency_key.as_bytes()).to_vec();
-    let request_hash = Sha256::digest(serde_json::to_vec(&(user_id, &request)).map_err(AuthzError::from)?).to_vec();
+    let request_hash =
+        Sha256::digest(serde_json::to_vec(&(user_id, &request)).map_err(AuthzError::from)?)
+            .to_vec();
     let actor_ref = principal.actor_id.as_deref().unwrap_or(&principal.subject);
     let actor_id = Uuid::parse_str(actor_ref).ok();
     let mut tx = state.pool.begin().await?;
@@ -261,27 +277,62 @@ pub async fn update_profile(
         let receipt = sqlx::query("SELECT request_hash,response_body FROM identity_profile_idempotency WHERE tenant_id=$1 AND actor_ref=$2 AND operation='UPDATE_PROFILE' AND idempotency_key_hash=$3 FOR UPDATE")
             .bind(request.tenant_id).bind(actor_ref).bind(&key_hash).fetch_one(&mut *tx).await?;
         let prior: Vec<u8> = receipt.try_get("request_hash")?;
-        if prior != request_hash { return Err(AuthzError::IdempotencyConflict.into()); }
+        if prior != request_hash {
+            return Err(AuthzError::IdempotencyConflict.into());
+        }
         let body: Option<serde_json::Value> = receipt.try_get("response_body")?;
-        let Some(body) = body else { return Err(AuthzError::Internal("identity profile idempotency receipt has no response".into()).into()); };
+        let Some(body) = body else {
+            return Err(AuthzError::Internal(
+                "identity profile idempotency receipt has no response".into(),
+            )
+            .into());
+        };
         let profile = serde_json::from_value(body).map_err(AuthzError::from)?;
         tx.commit().await?;
         return Ok(Json(profile));
     }
     let current = sqlx::query("SELECT version FROM user_account WHERE id=$1 AND tenant_id=$2 AND NOT is_deleted FOR UPDATE")
         .bind(user_id).bind(request.tenant_id).fetch_optional(&mut *tx).await?;
-    let Some(current) = current else { return Err(AuthzError::UserNotFound { user_id, tenant_id: request.tenant_id }.into()); };
+    let Some(current) = current else {
+        return Err(AuthzError::UserNotFound {
+            user_id,
+            tenant_id: request.tenant_id,
+        }
+        .into());
+    };
     let actual: i64 = current.try_get("version")?;
     if actual != request.expected_version {
-        return Err(AuthzError::VersionConflict { entity: "user access profile", entity_id: user_id, expected_version: request.expected_version, actual_version: actual }.into());
+        return Err(AuthzError::VersionConflict {
+            entity: "user access profile",
+            entity_id: user_id,
+            expected_version: request.expected_version,
+            actual_version: actual,
+        }
+        .into());
     }
     let updated = sqlx::query("UPDATE user_account SET username=$1,idp_issuer=$2,idp_subject=$3,is_active=$4,updated_by=$5,attributes_version=attributes_version+1 WHERE id=$6 AND tenant_id=$7 RETURNING version,attributes_version")
         .bind(request.username.trim()).bind(&request.issuer).bind(&request.subject).bind(request.active).bind(actor_id).bind(user_id).bind(request.tenant_id).fetch_one(&mut *tx).await;
-    let updated = match updated { Ok(row) => row, Err(sqlx::Error::Database(error)) if error.code().as_deref()==Some("23505") => return Err(AuthzError::IdentityProfileConflict.into()), Err(error) => return Err(error.into()) };
+    let updated = match updated {
+        Ok(row) => row,
+        Err(sqlx::Error::Database(error)) if error.code().as_deref() == Some("23505") => {
+            return Err(AuthzError::IdentityProfileConflict.into())
+        }
+        Err(error) => return Err(error.into()),
+    };
     let roles: Vec<String> = sqlx::query_scalar("SELECT r.code FROM user_role ur JOIN role r ON r.id=ur.role_id AND r.tenant_id=ur.tenant_id WHERE ur.user_id=$1 AND ur.tenant_id=$2 AND (ur.expires_at IS NULL OR ur.expires_at>now()) ORDER BY r.code")
         .bind(user_id).bind(request.tenant_id).fetch_all(&mut *tx).await?;
-    let profile = ProvisionedProfile { tenant_id: request.tenant_id, user_id, username: request.username.trim().to_owned(), active: request.active, version: updated.try_get("version")?, attributes_version: updated.try_get("attributes_version")?, roles };
-    let fingerprint = Sha256::digest([request.issuer.as_bytes(), &[0], request.subject.as_bytes()].concat()).to_vec();
+    let profile = ProvisionedProfile {
+        tenant_id: request.tenant_id,
+        user_id,
+        username: request.username.trim().to_owned(),
+        active: request.active,
+        version: updated.try_get("version")?,
+        attributes_version: updated.try_get("attributes_version")?,
+        roles,
+    };
+    let fingerprint =
+        Sha256::digest([request.issuer.as_bytes(), &[0], request.subject.as_bytes()].concat())
+            .to_vec();
     sqlx::query("INSERT INTO identity_profile_mutation_audit (tenant_id,user_id,operation,entity_version,actor_ref,executor_ref,request_id,idempotency_key_hash,identity_fingerprint) VALUES ($1,$2,'UPDATE_PROFILE',$3,$4,$5,$6,$7,$8)")
         .bind(request.tenant_id).bind(user_id).bind(profile.version).bind(actor_ref).bind(&principal.subject).bind(&request_id.0).bind(&key_hash).bind(fingerprint).execute(&mut *tx).await?;
     sqlx::query("UPDATE identity_profile_idempotency SET response_body=$4 WHERE tenant_id=$1 AND actor_ref=$2 AND operation='UPDATE_PROFILE' AND idempotency_key_hash=$3")
