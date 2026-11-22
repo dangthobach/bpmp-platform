@@ -8,8 +8,8 @@ use bpmp_domain_core::{
 };
 
 use crate::ports::{
-    CommitOutcome, CommitRequest, ConfigurationLookup, ConfigurationProviderPort, LoadedInstance,
-    StoreError, WorkflowStorePort,
+    CommitOutcome, CommitRequest, ConfigurationLookup, ConfigurationProviderPort, HistoryPage,
+    HistoryReadPort, LoadedInstance, StoreError, WorkflowStorePort,
 };
 use crate::{
     AuthorizationAudit, BoundaryProjectionMutation, BoundaryRuntimeError, BoundaryRuntimeStorePort,
@@ -119,6 +119,46 @@ impl InMemoryWorkflowStore {
             .lock()
             .map_err(|error| StoreError::Unavailable(error.to_string()))?;
         Ok(state.authorization_audits.len())
+    }
+}
+
+impl HistoryReadPort for InMemoryWorkflowStore {
+    fn read_history_page(
+        &self,
+        tenant_id: &TenantId,
+        instance_id: &InstanceId,
+        after_sequence: u64,
+        limit: usize,
+    ) -> Result<HistoryPage, StoreError> {
+        if !(1..=100).contains(&limit) {
+            return Err(StoreError::InvalidHistoryPageSize);
+        }
+        let state = self
+            .state
+            .lock()
+            .map_err(|error| StoreError::Unavailable(error.to_string()))?;
+        let key = StreamKey {
+            tenant_id: tenant_id.clone(),
+            instance_id: instance_id.clone(),
+        };
+        let stream = state.streams.get(&key);
+        let watermark = stream.map_or(0, |events| events.len() as u64);
+        let events: Vec<_> = stream
+            .into_iter()
+            .flat_map(|events| events.iter())
+            .filter(|event| event.metadata.sequence > after_sequence)
+            .take(limit)
+            .cloned()
+            .collect();
+        let next_after_sequence = events
+            .last()
+            .map(|event| event.metadata.sequence)
+            .filter(|sequence| *sequence < watermark);
+        Ok(HistoryPage {
+            events,
+            watermark,
+            next_after_sequence,
+        })
     }
 }
 
@@ -821,10 +861,101 @@ fn boundary_lock_error<T>(error: std::sync::PoisonError<T>) -> BoundaryRuntimeEr
 #[cfg(test)]
 mod tests {
     use bpmp_domain_core::{
-        ConfigVersion, CorrelationId, KeyScope, PolicyVersion, WorkflowType, WorkflowVersion,
+        ConfigVersion, CorrelationId, DomainEvent, InstanceState, KeyScope, PolicyVersion,
+        WorkflowType, WorkflowVersion,
     };
 
     use super::*;
+
+    #[test]
+    fn history_pages_include_events_hidden_by_replay_snapshot() {
+        let tenant_id = TenantId::new("tenant-a").unwrap();
+        let instance_id = InstanceId::new("instance-1").unwrap();
+        let workflow_type = WorkflowType::new("order").unwrap();
+        let workflow_version = WorkflowVersion::new("1").unwrap();
+        let config_version = ConfigVersion::new("config-1").unwrap();
+        let policy_version = PolicyVersion::new("policy-1").unwrap();
+        let key_scope = KeyScope::new("tenant-a/data").unwrap();
+        let store = InMemoryWorkflowStore::default();
+        let key = StreamKey {
+            tenant_id: tenant_id.clone(),
+            instance_id: instance_id.clone(),
+        };
+        let events = (1..=3)
+            .map(|sequence| EventEnvelope {
+                metadata: crate::EventMetadata {
+                    event_id: format!("event-{sequence}"),
+                    tenant_id: tenant_id.clone(),
+                    instance_id: instance_id.clone(),
+                    sequence,
+                    schema_version: 1,
+                    correlation_id: CorrelationId::new("correlation-1").unwrap(),
+                    causation_command_id: CommandId::new("command-1").unwrap(),
+                    occurred_at_epoch_ms: sequence,
+                    config_version: config_version.clone(),
+                    policy_version: policy_version.clone(),
+                    actor_id: ActorId::new("actor-1").unwrap(),
+                    encryption_key_scope: key_scope.clone(),
+                    workflow_type: workflow_type.clone(),
+                    workflow_version: workflow_version.clone(),
+                },
+                event: DomainEvent::WorkflowCompleted {
+                    occurred_at_epoch_ms: sequence,
+                },
+            })
+            .collect();
+        let mut snapshot_state = InstanceState::default();
+        snapshot_state.sequence = 2;
+        let snapshot = SnapshotEnvelope {
+            tenant_id: tenant_id.clone(),
+            instance_id: instance_id.clone(),
+            workflow_type,
+            workflow_version,
+            state: snapshot_state,
+            config_version,
+            policy_version,
+            encryption_key_scope: key_scope,
+        };
+        {
+            let mut state = store.state.lock().unwrap();
+            state.streams.insert(key.clone(), events);
+            state.snapshots.insert(key, snapshot);
+        }
+        assert_eq!(
+            store.load(&tenant_id, &instance_id).unwrap().events.len(),
+            1
+        );
+        let first = store
+            .read_history_page(&tenant_id, &instance_id, 0, 2)
+            .unwrap();
+        assert_eq!(first.watermark, 3);
+        assert_eq!(
+            first
+                .events
+                .iter()
+                .map(|event| event.metadata.sequence)
+                .collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+        assert_eq!(first.next_after_sequence, Some(2));
+        let second = store
+            .read_history_page(&tenant_id, &instance_id, 2, 2)
+            .unwrap();
+        assert_eq!(second.events[0].metadata.sequence, 3);
+        assert_eq!(second.next_after_sequence, None);
+        assert_eq!(
+            store
+                .read_history_page(&TenantId::new("tenant-b").unwrap(), &instance_id, 0, 2)
+                .unwrap()
+                .events
+                .len(),
+            0
+        );
+        assert_eq!(
+            store.read_history_page(&tenant_id, &instance_id, 0, 0),
+            Err(StoreError::InvalidHistoryPageSize)
+        );
+    }
 
     #[test]
     fn mismatched_authorization_audit_leaves_store_unchanged() {

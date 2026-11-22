@@ -19,9 +19,9 @@ use bpmp_contracts::raft::v1::{
 use bpmp_domain_core::{ActorId, CommandId, IdempotencyKey, InstanceId, TenantId};
 use bpmp_engine::{
     CommitOutcome, CommitRequest, CommittedResult, EngineCommandHandlerPort, EngineError,
-    LoadedInstance, LocalTaskActivation, RemoteTask, RemoteTaskClaim, RemoteTaskClaimRequest,
-    RemoteTaskEnqueueOutcome, RemoteTaskError, RemoteTaskFailureOutcome, RemoteTaskIngressPort,
-    RemoteTaskStorePort, StoreError, TransportError, WorkflowStorePort,
+    HistoryPage, HistoryReadPort, LoadedInstance, LocalTaskActivation, RemoteTask, RemoteTaskClaim,
+    RemoteTaskClaimRequest, RemoteTaskEnqueueOutcome, RemoteTaskError, RemoteTaskFailureOutcome,
+    RemoteTaskIngressPort, RemoteTaskStorePort, StoreError, TransportError, WorkflowStorePort,
 };
 use bpmp_payload_crypto::PayloadCryptoPort;
 use bpmp_raft_state_machine::{ApplyOutcome, ApplyResponse, PreparedAtomicBatch, TypeConfig};
@@ -1008,6 +1008,22 @@ where
         Err(StoreError::Unavailable(
             "Raft workflow prepare budget exhausted".into(),
         ))
+    }
+}
+
+impl<C> HistoryReadPort for RaftWorkflowStore<C>
+where
+    C: PayloadCryptoPort + 'static,
+{
+    fn read_history_page(
+        &self,
+        tenant_id: &TenantId,
+        instance_id: &InstanceId,
+        after_sequence: u64,
+        limit: usize,
+    ) -> Result<HistoryPage, StoreError> {
+        self.local
+            .read_history_page(tenant_id, instance_id, after_sequence, limit)
     }
 }
 

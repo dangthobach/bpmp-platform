@@ -117,6 +117,37 @@ pub struct LoadedInstance {
     pub version: u64,
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct HistoryPage {
+    pub events: Vec<EventEnvelope>,
+    pub watermark: u64,
+    pub next_after_sequence: Option<u64>,
+}
+
+/// Reads authoritative events independently of replay snapshots. The caller
+/// must authorize the tenant and instance before invoking this internal port.
+pub trait HistoryReadPort: Send + Sync {
+    fn read_history_page(
+        &self,
+        tenant_id: &TenantId,
+        instance_id: &InstanceId,
+        after_sequence: u64,
+        limit: usize,
+    ) -> Result<HistoryPage, StoreError>;
+}
+
+impl<T: HistoryReadPort + ?Sized> HistoryReadPort for Arc<T> {
+    fn read_history_page(
+        &self,
+        tenant_id: &TenantId,
+        instance_id: &InstanceId,
+        after_sequence: u64,
+        limit: usize,
+    ) -> Result<HistoryPage, StoreError> {
+        (**self).read_history_page(tenant_id, instance_id, after_sequence, limit)
+    }
+}
+
 pub struct CommitRequest {
     pub tenant_id: TenantId,
     pub instance_id: InstanceId,
@@ -304,6 +335,8 @@ pub enum StoreError {
     CorruptData(String),
     #[error("replay exceeds the configured in-memory event bound {configured_limit}")]
     ReplayLimitExceeded { configured_limit: usize },
+    #[error("history page size must be between 1 and 100")]
+    InvalidHistoryPageSize,
     #[error("store operation failed: {0}")]
     Unavailable(String),
 }

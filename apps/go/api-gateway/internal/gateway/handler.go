@@ -253,6 +253,7 @@ var publicOperationDefinitions = []publicOperationDefinition{
 	{PublicOperation{http.MethodGet, "/v1/authoring/forms/{formID}/versions", "listFormVersions"}, (*Handler).listFormVersions, false},
 	{PublicOperation{http.MethodGet, "/v1/authoring/forms/{formID}/versions/{versionID}", "getFormVersion"}, (*Handler).getFormVersion, false},
 	{PublicOperation{http.MethodGet, "/v1/work-items/{workItemID}", "getWorkItem"}, (*Handler).getWorkItem, false},
+	{PublicOperation{http.MethodGet, "/v1/work-items/{workItemID}/history", "getWorkItemHistory"}, (*Handler).getWorkItemHistory, false},
 	{PublicOperation{http.MethodPost, "/v1/work-items/{workItemID}/complete", "completeWorkItem"}, (*Handler).completeWorkItem, false},
 	{PublicOperation{http.MethodPost, "/v1/work-items/{workItemID}/delegate", "delegateWorkItem"}, (*Handler).delegateWorkItem, false},
 	{PublicOperation{http.MethodPost, "/v1/work-items/{workItemID}/claim", "claimWorkItem"}, (*Handler).claimWorkItem, false},
@@ -804,6 +805,37 @@ func (h *Handler) getWorkItem(w http.ResponseWriter, r *http.Request) {
 				TenantId:   scope.tenantID,
 				WorkItemId: id,
 				ActorProof: actorProof(scope),
+			})
+		})
+	if err != nil {
+		writeError(w, errUpstream)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) getWorkItemHistory(w http.ResponseWriter, r *http.Request) {
+	setCorrelationHeader(w, r)
+	scope, err := h.authenticateQuery(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	id := r.PathValue("workItemID")
+	if !validID(id) {
+		writeError(w, errInvalid)
+		return
+	}
+	pageSize, err := positiveUint32Query(r, "page_size")
+	if err != nil {
+		writeError(w, errInvalid)
+		return
+	}
+	response, err := invokeUpstream(h, upstreamContext(r, scope), scope, humanDependency,
+		func(ctx context.Context) (*humanv1.GetWorkItemHistoryResponse, error) {
+			return h.human.GetWorkItemHistory(ctx, &humanv1.GetWorkItemHistoryRequest{
+				TenantId: scope.tenantID, WorkItemId: id, PageSize: pageSize,
+				PageToken: r.URL.Query().Get("page_token"), ActorProof: actorProof(scope),
 			})
 		})
 	if err != nil {

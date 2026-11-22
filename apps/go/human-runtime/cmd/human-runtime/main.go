@@ -188,8 +188,9 @@ func run(configPath string) error {
 	if err != nil {
 		return err
 	}
-	engineClient, err := enginegrpc.New(
+	engineClient, err := enginegrpc.NewWithHistory(
 		enginev1.NewEngineCommandServiceClient(engineConn),
+		enginev1.NewEngineHistoryServiceClient(engineConn),
 		security,
 	)
 	if err != nil {
@@ -207,6 +208,7 @@ func run(configPath string) error {
 	if err != nil {
 		return err
 	}
+	humanServer.SetHistoryReader(engineClient)
 
 	kafkaClient, err := kgo.NewClient(
 		kgo.SeedBrokers(config.Kafka.Brokers...),

@@ -23,6 +23,7 @@ type SecurityProvider interface {
 
 type Client struct {
 	client   enginev1.EngineCommandServiceClient
+	history  enginev1.EngineHistoryServiceClient
 	security SecurityProvider
 }
 
@@ -31,6 +32,28 @@ func New(client enginev1.EngineCommandServiceClient, security SecurityProvider) 
 		return nil, errors.New("engine client and security provider are required")
 	}
 	return &Client{client: client, security: security}, nil
+}
+
+func NewWithHistory(client enginev1.EngineCommandServiceClient, history enginev1.EngineHistoryServiceClient, security SecurityProvider) (*Client, error) {
+	if client == nil || history == nil || security == nil {
+		return nil, errors.New("engine command/history clients and security provider are required")
+	}
+	return &Client{client: client, history: history, security: security}, nil
+}
+
+func (c *Client) ReadHistoryPage(ctx context.Context, tenantID, instanceID string, afterSequence uint64, pageSize uint32) (*enginev1.ReadHistoryPageResponse, error) {
+	if c.history == nil {
+		return nil, errors.New("engine history client is not configured")
+	}
+	request := &enginev1.ReadHistoryPageRequest{
+		TenantId: tenantID, InstanceId: instanceID,
+		AfterSequence: afterSequence, PageSize: pageSize,
+	}
+	traceParent, traceState := requestmeta.TraceFromIncomingContext(ctx)
+	ctx = requestmeta.OutgoingContext(ctx, requestmeta.Values{
+		TenantID: tenantID, TraceParent: traceParent, TraceState: traceState,
+	})
+	return c.history.ReadHistoryPage(ctx, request)
 }
 
 func (c *Client) CompleteUserTask(ctx context.Context, command application.EngineCompleteCommand) error {

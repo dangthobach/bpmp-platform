@@ -36,12 +36,12 @@ use bpmp_engine::{
     BoundaryPolicyHandle, BoundaryRuntime, BoundaryRuntimeError, BranchScopeResolverPort,
     ConfigurationLookup, ConfigurationProviderPort, EmbeddedAuthorizationProvider, Engine,
     EngineBoundaryCommandDispatcher, GrpcEngineCommandService, GrpcEngineGovernanceService,
-    GrpcRemoteWorkerDispatchService, GrpcTransportConfig, LocalTaskActivation,
-    LocalTaskCompletionDispatcherPort, LocalTaskExecutionOutcome, LocalTaskExecutorPort,
-    LocalTaskKind, LocalTaskRetryPolicy, LocalTaskRetryPolicyHandle, LocalTaskRuntime,
-    LocalTaskRuntimeError, OutboxBoundaryEventSource, OutboxError, OutboxPublisher,
-    OutboxPublisherConfig, OutboxRecord, OutboxStorePort, PublishAcknowledgement, RemoteTaskClaim,
-    RemoteTaskCompletionPort, RemoteTaskError, RemoteWorkerCoordinator,
+    GrpcEngineHistoryService, GrpcRemoteWorkerDispatchService, GrpcTransportConfig,
+    LocalTaskActivation, LocalTaskCompletionDispatcherPort, LocalTaskExecutionOutcome,
+    LocalTaskExecutorPort, LocalTaskKind, LocalTaskRetryPolicy, LocalTaskRetryPolicyHandle,
+    LocalTaskRuntime, LocalTaskRuntimeError, OutboxBoundaryEventSource, OutboxError,
+    OutboxPublisher, OutboxPublisherConfig, OutboxRecord, OutboxStorePort, PublishAcknowledgement,
+    RemoteTaskClaim, RemoteTaskCompletionPort, RemoteTaskError, RemoteWorkerCoordinator,
     RemoteWorkerPolicyActivationPort, RemoteWorkerPolicyHandle, ResolvedBranchScope,
     RetryDelayPort, RetryingLocalTaskExecutor, RuntimeConfigurationUpdate,
     RuntimeGovernancePolicyUpdate, RuntimeRegistry, RuntimeSafePointGate, SafePointCommandHandler,
@@ -864,6 +864,17 @@ pub async fn run(path: PathBuf) -> Result<()> {
         config.grpc.max_decoding_bytes,
         config.grpc.max_encoding_bytes,
     );
+    let history_authorization = WorkloadAuthorization::try_new(
+        &config.authorization.history_client_certificate_sha256,
+        &["/bpmp.engine.v1.EngineHistoryService/ReadHistoryPage".into()],
+    )
+    .map_err(anyhow::Error::msg)
+    .context("build Engine history workload authorization")?;
+    let history_grpc = GrpcEngineHistoryService::new(raft_store.clone(), history_authorization)
+        .into_server(
+            config.grpc.max_decoding_bytes,
+            config.grpc.max_encoding_bytes,
+        );
     let deployment_config = Arc::new(config.clone());
     let deployment_store = store.clone();
     let deployment_raft_store = raft_store.clone();
@@ -900,6 +911,7 @@ pub async fn run(path: PathBuf) -> Result<()> {
                 .with_service_name("bpmp.engine.v1.RemoteWorkerDispatchService")
                 .with_service_name("bpmp.governance.v1.EngineGovernanceService")
                 .with_service_name("bpmp.engine.v1.EngineDeploymentService")
+                .with_service_name("bpmp.engine.v1.EngineHistoryService")
                 .build_v1()
         })
         .transpose()
@@ -919,6 +931,7 @@ pub async fn run(path: PathBuf) -> Result<()> {
         .add_service(remote_grpc)
         .add_service(governance_grpc)
         .add_service(deployment_grpc)
+        .add_service(history_grpc)
         .add_optional_service(reflection)
         .serve_with_shutdown(config.listen_addr, shutdown());
     tokio::pin!(server);

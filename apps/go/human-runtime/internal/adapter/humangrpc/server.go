@@ -5,16 +5,21 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/dangthobach/bpmp-platform/apps/go/human-runtime/internal/application"
 	"github.com/dangthobach/bpmp-platform/apps/go/human-runtime/internal/domain"
 	authv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/authorization/v1"
+	enginev1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/engine/v1"
 	humanv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/human/v1"
 	"github.com/dangthobach/bpmp-platform/go/platform/requestmeta"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 type Server struct {
@@ -24,6 +29,15 @@ type Server struct {
 	verifier application.ActorVerifier
 	policy   application.RuntimePolicyProvider
 	now      func() time.Time
+	history  interface {
+		ReadHistoryPage(context.Context, string, string, uint64, uint32) (*enginev1.ReadHistoryPageResponse, error)
+	}
+}
+
+func (s *Server) SetHistoryReader(reader interface {
+	ReadHistoryPage(context.Context, string, string, uint64, uint32) (*enginev1.ReadHistoryPageResponse, error)
+}) {
+	s.history = reader
 }
 
 func New(service *application.Service, query application.QueryPort, verifier application.ActorVerifier, policy application.RuntimePolicyProvider, now func() time.Time) (*Server, error) {
@@ -182,6 +196,128 @@ func (s *Server) ListAuditRecords(ctx context.Context, r *humanv1.ListAuditRecor
 		})
 	}
 	return &humanv1.ListAuditRecordsResponse{Records: out, NextPageToken: encodeAuditCursor(next)}, nil
+}
+
+type workItemHistoryCursor struct {
+	TenantID    string `json:"tenant_id"`
+	WorkItemID  string `json:"work_item_id"`
+	EngineAfter uint64 `json:"engine_after"`
+	AuditToken  string `json:"audit_token"`
+}
+
+func (s *Server) GetWorkItemHistory(ctx context.Context, r *humanv1.GetWorkItemHistoryRequest) (*humanv1.GetWorkItemHistoryResponse, error) {
+	_, identity, err := s.verify(ctx, r.GetTenantId(), "", r.GetActorProof(), s.now())
+	if err != nil {
+		return nil, err
+	}
+	if _, allowed := identity.Capabilities["audit.read"]; !allowed {
+		return nil, status.Error(codes.PermissionDenied, "actor lacks audit.read capability")
+	}
+	if s.history == nil {
+		return nil, status.Error(codes.Unavailable, "Engine history reader is unavailable")
+	}
+	cursor := workItemHistoryCursor{TenantID: r.GetTenantId(), WorkItemID: r.GetWorkItemId()}
+	if r.GetPageToken() != "" {
+		if len(r.GetPageToken()) > 8192 {
+			return nil, status.Error(codes.InvalidArgument, "task history page token is too large")
+		}
+		raw, decodeErr := base64.RawURLEncoding.DecodeString(r.GetPageToken())
+		if decodeErr != nil || json.Unmarshal(raw, &cursor) != nil || cursor.TenantID != r.GetTenantId() || cursor.WorkItemID != r.GetWorkItemId() {
+			return nil, status.Error(codes.InvalidArgument, "invalid task history page token")
+		}
+	}
+	item, err := s.query.GetWorkItem(ctx, r.GetTenantId(), r.GetWorkItemId())
+	if err != nil {
+		return nil, status.Error(codes.NotFound, "work item not found")
+	}
+	if item.TenantID != r.GetTenantId() || item.ID != r.GetWorkItemId() || item.InstanceID == "" || item.NodeID == "" {
+		return nil, status.Error(codes.DataLoss, "work item history scope is invalid")
+	}
+	policy, err := s.policy.Policy(r.GetTenantId())
+	if err != nil {
+		return nil, status.Error(codes.Unavailable, "runtime policy unavailable")
+	}
+	pageSize, err := application.NormalizePageSize(int(r.GetPageSize()), policy)
+	if err != nil {
+		return nil, status.Error(codes.Unavailable, "runtime policy invalid")
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	enginePage, err := s.history.ReadHistoryPage(ctx, r.GetTenantId(), item.InstanceID, cursor.EngineAfter, uint32(pageSize))
+	if err != nil || enginePage == nil {
+		return nil, status.Error(codes.Unavailable, "Engine history query failed")
+	}
+	if cursor.EngineAfter > enginePage.GetWatermark() {
+		return nil, status.Error(codes.InvalidArgument, "task history cursor exceeds Engine watermark")
+	}
+	auditCursor, err := decodeAuditCursor(cursor.AuditToken)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid task history audit cursor")
+	}
+	audits, nextAudit, err := s.query.ListAuditRecords(ctx, r.GetTenantId(), item.ID, "", pageSize, auditCursor)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "query task audit history")
+	}
+	entries := make([]*humanv1.WorkItemHistoryEntry, 0, len(enginePage.GetEvents())+len(audits))
+	for _, stored := range enginePage.GetEvents() {
+		var event enginev1.EventEnvelope
+		if err := proto.Unmarshal(stored.GetEventEnvelope(), &event); err != nil || event.GetMetadata() == nil || event.GetEvent() == nil || event.GetMetadata().GetTenantId() != r.GetTenantId() || event.GetMetadata().GetInstanceId() != item.InstanceID || event.GetMetadata().GetSequence() != stored.GetSequence() {
+			return nil, status.Error(codes.DataLoss, "Engine returned an invalid event envelope")
+		}
+		nodeID := ""
+		switch payload := event.GetEvent().(type) {
+		case *enginev1.EventEnvelope_UserTaskActivated:
+			nodeID = payload.UserTaskActivated.GetNodeId()
+		case *enginev1.EventEnvelope_UserTaskCompleted:
+			nodeID = payload.UserTaskCompleted.GetNodeId()
+		case *enginev1.EventEnvelope_UserTaskCancelled:
+			nodeID = payload.UserTaskCancelled.GetNodeId()
+		}
+		if nodeID != item.NodeID {
+			continue
+		}
+		kind := strings.TrimPrefix(strings.TrimPrefix(fmt.Sprintf("%T", event.GetEvent()), "*enginev1.EventEnvelope_"), "*")
+		entries = append(entries, &humanv1.WorkItemHistoryEntry{
+			Source: "ENGINE", OccurredAtEpochMs: event.GetMetadata().GetOccurredAtEpochMs(),
+			EngineSequence: stored.GetSequence(), ActorId: event.GetMetadata().GetActorId(), Action: kind,
+			CommandId: event.GetMetadata().GetCausationCommandId(), CorrelationId: event.GetMetadata().GetCorrelationId(),
+			EngineEventEnvelope: append([]byte(nil), stored.GetEventEnvelope()...),
+		})
+	}
+	for _, record := range audits {
+		entries = append(entries, &humanv1.WorkItemHistoryEntry{
+			Source: "HUMAN_RUNTIME", OccurredAtEpochMs: uint64(record.OccurredAt.UnixMilli()), AuditId: record.AuditID,
+			ActorId: record.ActorID, Action: record.Action, CommandId: record.CommandID, CorrelationId: record.CorrelationID,
+			AuditDetailsJson: append([]byte(nil), record.DetailsJSON...),
+		})
+	}
+	sort.SliceStable(entries, func(i, j int) bool {
+		if entries[i].GetOccurredAtEpochMs() != entries[j].GetOccurredAtEpochMs() {
+			return entries[i].GetOccurredAtEpochMs() < entries[j].GetOccurredAtEpochMs()
+		}
+		if entries[i].GetSource() != entries[j].GetSource() {
+			return entries[i].GetSource() < entries[j].GetSource()
+		}
+		if entries[i].GetEngineSequence() != entries[j].GetEngineSequence() {
+			return entries[i].GetEngineSequence() < entries[j].GetEngineSequence()
+		}
+		return entries[i].GetAuditId() < entries[j].GetAuditId()
+	})
+	engineAfter := cursor.EngineAfter
+	if enginePage.GetHasMore() {
+		engineAfter = enginePage.GetNextAfterSequence()
+	} else if engineEvents := enginePage.GetEvents(); len(engineEvents) != 0 {
+		engineAfter = engineEvents[len(engineEvents)-1].GetSequence()
+	}
+	nextAuditToken := encodeAuditCursor(nextAudit)
+	response := &humanv1.GetWorkItemHistoryResponse{Entries: entries, EngineWatermark: enginePage.GetWatermark()}
+	if enginePage.GetHasMore() || nextAudit != nil {
+		cursor.EngineAfter, cursor.AuditToken = engineAfter, nextAuditToken
+		raw, _ := json.Marshal(cursor)
+		response.NextPageToken = base64.RawURLEncoding.EncodeToString(raw)
+	}
+	return response, nil
 }
 
 func (s *Server) ListAssignmentGroups(ctx context.Context, r *humanv1.ListAssignmentGroupsRequest) (*humanv1.ListAssignmentGroupsResponse, error) {

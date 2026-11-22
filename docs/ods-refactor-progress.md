@@ -1,6 +1,6 @@
 # ODS Refactor Progress
 
-Last updated: 2026-11-21 (Asia/Saigon)
+Last updated: 2026-11-22 (Asia/Saigon)
 
 This ledger is the source of truth for execution status. Percentages are weighted by evidenced deliverables; phase completion is controlled by exit criteria, not the percentage.
 
@@ -25,6 +25,10 @@ Added [BPMP Feature API Coverage](bpmp-feature-api-coverage.md), mapping prototy
 ## Identity implementation follow-up (2026-11-21)
 
 Implemented the Authz-side IdP subject foundation in migration `018_idp_subject_link.sql`: exact `(issuer, subject)` links, tenant-scoped uniqueness, no unsafe backfill from legacy `external_id`, internal service-only subject resolution, and tenant-bound profile provisioning. Provisioning requires `identity.profile.manage` plus `Idempotency-Key`; profile write, idempotency receipt and audit fingerprint commit in one PostgreSQL transaction. Gateway now exposes the tenant-bound operation and Studio Access UI can submit it with a stable retry key. Verified: `cargo check -p authz-server`; `go test ./internal/gateway ./internal/apidocs`; Studio `npm run typecheck && npm test` (7 tests); API design generator reports 78 current Gateway operations. This does not close Phase 1: migration/runtime DB acceptance was not possible because the Docker Desktop Linux engine pipe was unavailable. Gateway PKCE callback/session creation, existing-profile link/update/deactivation, tenant role mutation hardening, Task EventStore history, and bulk commands remain open. Phase percentages and formal status are unchanged.
+
+## Engine EventStore and Task history follow-up (2026-11-22)
+
+Added a tenant/instance-scoped, bounded Engine history read port over the full durable event stream, independent of replay snapshots; RocksDB validates contiguous sequence, stream scope and decrypted payload, and returns a stable watermark/cursor. Added `EngineHistoryService/ReadHistoryPage`, exact workload mTLS allowlisting through a dedicated history-client certificate fingerprint, and generated Go contracts. Human Runtime now composes Engine events for the work item's BPMN user-task node with Human Runtime audit records, sorts them by occurrence time, bounds both source pages to 100, validates tenant/instance/sequence, and binds opaque cursors to the tenant and work item. Gateway exposes `GET /v1/work-items/{workItemID}/history` and forwards only the authenticated tenant, actor proof and cursor. Verified: Engine tests (47 unit + 13 flow), `go test ./...` in Human Runtime, and Gateway routing tests pass. RocksDB adapter page/reopen/tenant-boundary tests are authored but could not be run, and `bpmp-engine-server` could not be compiled in this environment: `librocksdb-sys` bindgen requires `libclang`, which is absent; package installation was unavailable without local sudo credentials. Therefore the live Engine↔Human Runtime mTLS round trip remains unverified. Durable partial bulk mutation receipts and atomic-mode eligibility remain the exact next runtime slice; no progress percentage or phase gate is advanced.
 
 ## Phase 1 evidence
 

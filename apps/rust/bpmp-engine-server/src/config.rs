@@ -195,6 +195,15 @@ impl RuntimeConfig {
                 .deployment_client_certificate_sha256
                 .iter()
                 .any(|fingerprint| !valid_sha256_hex(fingerprint))
+            || self
+                .authorization
+                .history_client_certificate_sha256
+                .is_empty()
+            || self
+                .authorization
+                .history_client_certificate_sha256
+                .iter()
+                .any(|fingerprint| !valid_sha256_hex(fingerprint))
             || remote.allowed_protocol_versions.is_empty()
             || remote
                 .allowed_protocol_versions
@@ -355,6 +364,8 @@ pub struct AuthorizationConfig {
     pub governance_client_certificate_sha256: Vec<String>,
     #[serde(default)]
     pub deployment_client_certificate_sha256: Vec<String>,
+    #[serde(default)]
+    pub history_client_certificate_sha256: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

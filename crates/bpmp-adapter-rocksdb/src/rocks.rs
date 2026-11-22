@@ -22,10 +22,10 @@ use bpmp_engine::{
     BoundaryProjectionMutation, BoundaryRuntimeError, BoundaryRuntimeStorePort, BoundarySignal,
     BoundarySignalKind, BoundarySubscriptionKey, ClaimedCorrelation, ClaimedTimer, CommitOutcome,
     CommitRequest, CommittedResult, EventCodec, EventEnvelope, GovernanceTransitionPlan,
-    LoadedInstance, LocalTaskRuntimeError, LocalTaskRuntimeStorePort, OutboxError, OutboxRecord,
-    OutboxStorePort, ProjectedBoundarySubscription, RemoteTask, RemoteTaskClaim,
-    RemoteTaskClaimRequest, RemoteTaskError, SignalEnqueueOutcome, SnapshotCodec, SnapshotEnvelope,
-    StoreError, TimerDispatchCompletion, TimerSchedule, WorkflowStorePort,
+    HistoryPage, HistoryReadPort, LoadedInstance, LocalTaskRuntimeError, LocalTaskRuntimeStorePort,
+    OutboxError, OutboxRecord, OutboxStorePort, ProjectedBoundarySubscription, RemoteTask,
+    RemoteTaskClaim, RemoteTaskClaimRequest, RemoteTaskError, SignalEnqueueOutcome, SnapshotCodec,
+    SnapshotEnvelope, StoreError, TimerDispatchCompletion, TimerSchedule, WorkflowStorePort,
 };
 use bpmp_governance_domain::{CompensationLedgerEntry, CompensationStatus, GovernanceAuditRef};
 use bpmp_payload_crypto::{CryptoError, EncryptedPayload, EncryptionContext, PayloadCryptoPort};
@@ -1432,6 +1432,82 @@ impl<C> RocksDbWorkflowStore<C> {
             claims.push(remote_claim_from_record(&record)?);
         }
         Ok(claims)
+    }
+}
+
+impl<C: PayloadCryptoPort> HistoryReadPort for RocksDbWorkflowStore<C> {
+    fn read_history_page(
+        &self,
+        tenant_id: &TenantId,
+        instance_id: &InstanceId,
+        after_sequence: u64,
+        limit: usize,
+    ) -> Result<HistoryPage, StoreError> {
+        if !(1..=100).contains(&limit) {
+            return Err(StoreError::InvalidHistoryPageSize);
+        }
+        let watermark = read_version(&self.db, tenant_id, instance_id)?;
+        if after_sequence >= watermark {
+            return Ok(HistoryPage {
+                events: Vec::new(),
+                watermark,
+                next_after_sequence: None,
+            });
+        }
+        let prefix = stream_prefix(tenant_id, instance_id);
+        let start = event_storage_key(tenant_id, instance_id, after_sequence + 1);
+        let mut events = Vec::with_capacity(limit);
+        let mut previous = after_sequence;
+        for item in self.db.iterator_cf(
+            cf(&self.db, EVENTS_CF)?,
+            IteratorMode::From(&start, Direction::Forward),
+        ) {
+            let (key, value) = item.map_err(unavailable)?;
+            if !key.starts_with(&prefix) {
+                break;
+            }
+            let sequence = sequence_from_event_key(&prefix, key.as_ref())?;
+            if sequence > watermark {
+                break;
+            }
+            if previous.checked_add(1) != Some(sequence) {
+                return Err(StoreError::CorruptData(
+                    "history event sequence has a gap".into(),
+                ));
+            }
+            let record = EncryptedEventRecord::decode(value.as_ref())
+                .map_err(|error| StoreError::CorruptData(error.to_string()))?;
+            let encrypted = encrypted_payload(record)?;
+            let plaintext = self
+                .crypto
+                .decrypt(key.as_ref(), &encrypted)
+                .map_err(|error| map_runtime_payload_read_error(error, &encrypted))?;
+            let event = EventCodec::decode(&plaintext)
+                .map_err(|error| StoreError::CorruptData(error.to_string()))?;
+            if event.metadata.tenant_id != *tenant_id
+                || event.metadata.instance_id != *instance_id
+                || event.metadata.sequence != sequence
+            {
+                return Err(StoreError::CorruptData(
+                    "history event scope or sequence is invalid".into(),
+                ));
+            }
+            events.push(event);
+            previous = sequence;
+            if events.len() == limit {
+                break;
+            }
+        }
+        if previous < watermark && events.len() < limit {
+            return Err(StoreError::CorruptData(
+                "history event stream ends before watermark".into(),
+            ));
+        }
+        Ok(HistoryPage {
+            events,
+            watermark,
+            next_after_sequence: (previous < watermark).then_some(previous),
+        })
     }
 }
 
@@ -4582,6 +4658,41 @@ mod tests {
             reopened.commit(request()).unwrap(),
             CommitOutcome::Duplicate(_)
         ));
+    }
+
+    #[test]
+    fn history_read_pages_are_snapshot_independent_bounded_and_tenant_scoped() {
+        let directory = tempfile::tempdir().unwrap();
+        let store =
+            RocksDbWorkflowStore::open(config(directory.path()), TestCrypto { fail: false })
+                .unwrap();
+        let request = request();
+        store.commit(request.clone()).unwrap();
+        let tenant_id = request.tenant_id;
+        let instance_id = request.instance_id;
+
+        // Replay reads only the post-snapshot tail, while the history port
+        // returns the full committed source stream.
+        let loaded = store.load(&tenant_id, &instance_id).unwrap();
+        assert_eq!(loaded.version, 1);
+        assert_eq!(loaded.events.len(), 1);
+        let page = store
+            .read_history_page(&tenant_id, &instance_id, 0, 1)
+            .unwrap();
+        assert_eq!(page.watermark, 1);
+        assert_eq!(page.events.len(), 1);
+        assert_eq!(page.events[0].metadata.sequence, 1);
+        assert_eq!(page.next_after_sequence, None);
+
+        let empty = store
+            .read_history_page(&TenantId::new("tenant-b").unwrap(), &instance_id, 0, 10)
+            .unwrap();
+        assert!(empty.events.is_empty());
+        assert_eq!(empty.watermark, 0);
+        assert_eq!(
+            store.read_history_page(&tenant_id, &instance_id, 0, 101),
+            Err(StoreError::InvalidHistoryPageSize)
+        );
     }
 
     #[test]

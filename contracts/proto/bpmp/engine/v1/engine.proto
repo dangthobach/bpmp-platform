@@ -195,6 +195,33 @@ service EngineCommandService {
   rpc HandleCommand(CommandEnvelope) returns (CommandReceipt);
 }
 
+// History is a read-only view over the authoritative event stream. Access is
+// restricted by the Engine workload mTLS allowlist.
+service EngineHistoryService {
+  rpc ReadHistoryPage(ReadHistoryPageRequest) returns (ReadHistoryPageResponse);
+}
+
+message ReadHistoryPageRequest {
+  string tenant_id = 1;
+  string instance_id = 2;
+  uint64 after_sequence = 3;
+  uint32 page_size = 4;
+}
+
+message StoredWorkflowEvent {
+  uint64 sequence = 1;
+  // Encoded bpmp.engine.v1.EventEnvelope; consumers can decode without a
+  // second Engine-owned event schema.
+  bytes event_envelope = 2;
+}
+
+message ReadHistoryPageResponse {
+  repeated StoredWorkflowEvent events = 1;
+  uint64 watermark = 2;
+  uint64 next_after_sequence = 3;
+  bool has_more = 4;
+}
+
 message ScriptTaskActivated {
   string node_id = 1;
   string task_type = 2;

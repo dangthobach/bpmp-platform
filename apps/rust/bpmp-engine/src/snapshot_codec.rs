@@ -783,6 +783,8 @@ mod tests {
                 },
                 sequence: 100,
                 resource_branch_id: Some("branch-17".into()),
+                resource_branch_ancestry: Vec::new(),
+                organization_version: 0,
                 variables: [(
                     "recipients".into(),
                     WorkflowValue::List(vec![WorkflowValue::String("a".into())]),

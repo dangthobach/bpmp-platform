@@ -884,7 +884,8 @@ fn engine_config(
                 "max_registration_proof_ttl_ms": 60_000
             },
             "governance_client_certificate_sha256": [tls_certificate_sha256_hex],
-            "deployment_client_certificate_sha256": [tls_certificate_sha256_hex]
+            "deployment_client_certificate_sha256": [tls_certificate_sha256_hex],
+            "history_client_certificate_sha256": [tls_certificate_sha256_hex]
         },
         "branch_scope_resolver": {
             "endpoint":"https://authz-app:9443",

@@ -2,6 +2,8 @@ package humangrpc
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -9,12 +11,18 @@ import (
 	"github.com/dangthobach/bpmp-platform/apps/go/human-runtime/internal/application"
 	"github.com/dangthobach/bpmp-platform/apps/go/human-runtime/internal/domain"
 	authv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/authorization/v1"
+	enginev1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/engine/v1"
 	humanv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/human/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
-type testQuery struct{ item domain.WorkItem }
+type testQuery struct {
+	item   domain.WorkItem
+	audits []application.AuditRecord
+	next   *application.AuditCursor
+}
 
 type assignmentPolicyQuery struct {
 	testQuery
@@ -47,8 +55,8 @@ func (q testQuery) ListWorkItems(context.Context, string, string, []string, appl
 func (testQuery) GetCase(context.Context, string, string) (application.CaseView, error) {
 	return application.CaseView{}, errors.New("not found")
 }
-func (testQuery) ListAuditRecords(context.Context, string, string, string, int, *application.AuditCursor) ([]application.AuditRecord, *application.AuditCursor, error) {
-	return nil, nil, nil
+func (q testQuery) ListAuditRecords(context.Context, string, string, string, int, *application.AuditCursor) ([]application.AuditRecord, *application.AuditCursor, error) {
+	return q.audits, q.next, nil
 }
 func (testQuery) ListAssignmentGroups(context.Context, string) ([]application.AssignmentGroup, error) {
 	return nil, nil
@@ -202,6 +210,62 @@ func TestAuditQueryRequiresExplicitCapability(t *testing.T) {
 	_, err := server.ListAuditRecords(context.Background(), &humanv1.ListAuditRecordsRequest{TenantId: "tenant-a", ActorProof: originalJWT("signed")})
 	if status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("expected permission denied, got %v", err)
+	}
+}
+
+type testHistoryReader struct {
+	response *enginev1.ReadHistoryPageResponse
+}
+
+func (r testHistoryReader) ReadHistoryPage(context.Context, string, string, uint64, uint32) (*enginev1.ReadHistoryPageResponse, error) {
+	return r.response, nil
+}
+
+func TestWorkItemHistoryMergesEngineEventsAndHumanAuditInTimeOrder(t *testing.T) {
+	item := domain.WorkItem{TenantID: "tenant-a", ID: "work-1", InstanceID: "instance-1", NodeID: "review"}
+	query := testQuery{item: item, audits: []application.AuditRecord{{
+		AuditID: "audit-1", WorkItemID: item.ID, ActorID: "alice", Action: "DELEGATED",
+		OccurredAt: time.UnixMilli(100), CommandID: "command-a", CorrelationID: "correlation-a",
+	}}}
+	encoded, err := proto.Marshal(&enginev1.EventEnvelope{Metadata: &enginev1.EventMetadata{
+		TenantId: item.TenantID, InstanceId: item.InstanceID, Sequence: 7,
+		OccurredAtEpochMs: 200, ActorId: "alice", CausationCommandId: "command-b", CorrelationId: "correlation-b",
+	}, Event: &enginev1.EventEnvelope_UserTaskCompleted{UserTaskCompleted: &enginev1.UserTaskCompleted{NodeId: "review"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, _ := application.NewService(&testStore{item: item}, &testEngine{}, testPolicy)
+	verifier := &testVerifier{actor: application.ActorIdentity{ActorID: "alice", Capabilities: map[string]struct{}{"audit.read": {}}}}
+	server, _ := New(service, query, verifier, testPolicy, time.Now)
+	server.SetHistoryReader(testHistoryReader{response: &enginev1.ReadHistoryPageResponse{
+		Events: []*enginev1.StoredWorkflowEvent{{Sequence: 7, EventEnvelope: encoded}}, Watermark: 7,
+	}})
+	response, err := server.GetWorkItemHistory(context.Background(), &humanv1.GetWorkItemHistoryRequest{
+		TenantId: item.TenantID, WorkItemId: item.ID, PageSize: 10, ActorProof: originalJWT("signed"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.GetEntries()) != 2 || response.GetEntries()[0].GetSource() != "HUMAN_RUNTIME" || response.GetEntries()[1].GetSource() != "ENGINE" {
+		t.Fatalf("history sources were not merged in chronological order: %+v", response.GetEntries())
+	}
+	if response.GetEngineWatermark() != 7 || response.GetEntries()[1].GetEngineSequence() != 7 || response.GetEntries()[1].GetCommandId() != "command-b" {
+		t.Fatalf("Engine event metadata was not preserved: %+v", response)
+	}
+}
+
+func TestWorkItemHistoryRejectsCursorBoundToAnotherTask(t *testing.T) {
+	item := domain.WorkItem{TenantID: "tenant-a", ID: "work-1", InstanceID: "instance-1"}
+	service, _ := application.NewService(&testStore{item: item}, &testEngine{}, testPolicy)
+	verifier := &testVerifier{actor: application.ActorIdentity{ActorID: "alice", Capabilities: map[string]struct{}{"audit.read": {}}}}
+	server, _ := New(service, testQuery{item: item}, verifier, testPolicy, time.Now)
+	server.SetHistoryReader(testHistoryReader{response: &enginev1.ReadHistoryPageResponse{}})
+	otherTask, _ := json.Marshal(workItemHistoryCursor{TenantID: item.TenantID, WorkItemID: "work-other"})
+	_, err := server.GetWorkItemHistory(context.Background(), &humanv1.GetWorkItemHistoryRequest{
+		TenantId: item.TenantID, WorkItemId: item.ID, PageToken: base64.RawURLEncoding.EncodeToString(otherTask), ActorProof: originalJWT("signed"),
+	})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("cross-task history cursor was not rejected: %v", err)
 	}
 }
 

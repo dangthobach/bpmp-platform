@@ -14,6 +14,7 @@ mod dispatch_credit;
 mod event_codec;
 mod governance;
 mod governance_transport;
+mod history_transport;
 mod local_task_runtime;
 pub mod memory;
 mod outbox;
@@ -63,6 +64,7 @@ pub use governance::{
 pub use governance_transport::{
     EngineGovernanceHandlerPort, GovernanceTransportError, GrpcEngineGovernanceService,
 };
+pub use history_transport::GrpcEngineHistoryService;
 pub use local_task_runtime::{
     LocalTaskActivation, LocalTaskCompletionDispatcherPort, LocalTaskExecutionOutcome,
     LocalTaskExecutorPort, LocalTaskKind, LocalTaskRetryPolicy, LocalTaskRetryPolicyHandle,
@@ -76,8 +78,8 @@ pub use outbox::{
 pub use ports::{
     ActorProofKind, AuthorizationError, AuthorizationProviderPort, AuthorizationRequest,
     AuthorizedPrincipal, CommitOutcome, CommitRequest, ConfigurationLookup,
-    ConfigurationProviderPort, LoadedInstance, ResourceAuthorizationContext, StoreError,
-    WorkflowStorePort,
+    ConfigurationProviderPort, HistoryPage, HistoryReadPort, LoadedInstance,
+    ResourceAuthorizationContext, StoreError, WorkflowStorePort,
 };
 pub use remote_task::{
     RemoteTask, RemoteTaskClaim, RemoteTaskClaimRequest, RemoteTaskCompletionPort,

@@ -68,9 +68,16 @@ func (c *recordingEngine) HandleCommand(ctx context.Context, envelope *enginev1.
 type recordingHuman struct {
 	humanv1.HumanRuntimeServiceClient
 	listRequest         *humanv1.ListWorkItemsRequest
+	historyRequest      *humanv1.GetWorkItemHistoryRequest
 	policyListRequest   *humanv1.ListAssignmentPoliciesRequest
 	policyUpsertRequest *humanv1.UpsertAssignmentPolicyRequest
 	metadata            metadata.MD
+}
+
+func (c *recordingHuman) GetWorkItemHistory(ctx context.Context, request *humanv1.GetWorkItemHistoryRequest, _ ...grpc.CallOption) (*humanv1.GetWorkItemHistoryResponse, error) {
+	c.historyRequest = request
+	c.metadata, _ = metadata.FromOutgoingContext(ctx)
+	return &humanv1.GetWorkItemHistoryResponse{EngineWatermark: 9}, nil
 }
 
 type recordingProjection struct {
@@ -277,6 +284,36 @@ func TestListWorkItemsForwardsTenantActorAndCursor(t *testing.T) {
 	}
 	if values := human.metadata.Get("x-bpmp-correlation-id"); len(values) != 1 || values[0] != "correlation-1" {
 		t.Fatalf("correlation metadata was not preserved: %v", values)
+	}
+}
+
+func TestGetWorkItemHistoryForwardsTenantActorAndCursor(t *testing.T) {
+	public, private, _ := ed25519.GenerateKey(nil)
+	now := time.Unix(1_000, 0).UTC()
+	claims := jwt.MapClaims{"iss": "issuer", "sub": "actor-1", "aud": []string{"gateway"}, "exp": now.Add(time.Hour).Unix(), "iat": now.Add(-time.Minute).Unix(), "tenant_id": "tenant-a"}
+	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
+	token.Header["kid"] = "actor-key"
+	raw, err := token.SignedString(private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	human := &recordingHuman{}
+	handler, err := NewHandler(&recordingEngine{}, human, testVerifier(t, public), &workloadSigner{id: "api-gateway", keyID: "workload-key", key: private, ttl: time.Minute}, newModelRateLimiter(10, time.Minute), staticPolicyProvider{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler.now = func() time.Time { return now }
+	request := httptest.NewRequest(http.MethodGet, "/v1/work-items/work-1/history?page_size=10&page_token=cursor-1", nil)
+	request.Header.Set("Authorization", "Bearer "+raw)
+	request.Header.Set("X-BPMP-Tenant-ID", "tenant-a")
+	request.Header.Set("X-Correlation-ID", "correlation-1")
+	response := httptest.NewRecorder()
+	handler.Routes().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d: %s", response.Code, response.Body.String())
+	}
+	if human.historyRequest.GetTenantId() != "tenant-a" || human.historyRequest.GetWorkItemId() != "work-1" || human.historyRequest.GetPageSize() != 10 || human.historyRequest.GetPageToken() != "cursor-1" || string(human.historyRequest.GetActorProof().GetSignedProof()) != raw {
+		t.Fatalf("history query lost actor/scope/cursor: %+v", human.historyRequest)
 	}
 }
 

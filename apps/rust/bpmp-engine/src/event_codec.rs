@@ -1219,6 +1219,8 @@ mod tests {
                 start_node_id: NodeId::new("start").unwrap(),
                 initial_variables: BTreeMap::new(),
                 resource_branch_id: None,
+                resource_branch_ancestry: Vec::new(),
+                organization_version: 0,
                 occurred_at_epoch_ms: 123,
             },
         };
