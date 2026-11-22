@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import useSWR from "swr";
 import type { RemoteRouteModule, RemoteRouteProps } from "@ods/mfe-contract";
 import {
@@ -79,6 +79,19 @@ interface CommandResponse {
   work_item_version?: number;
 }
 
+interface BulkClaimResponse {
+  operation_id: string;
+  status: string;
+  duplicate?: boolean;
+  receipts?: Array<{ work_item_id: string; status: string; error_code?: string; retryable?: boolean }>;
+}
+
+interface BulkClaimIntent {
+  body: { mode: "PARTIAL"; action: "CLAIM"; items: Array<{ work_item_id: string; expected_version: number }> };
+  commandId: string;
+  idempotencyKey: string;
+}
+
 type CommandKind = "claim" | "unclaim" | "complete" | "delegate";
 
 interface CommandIntent {
@@ -102,17 +115,19 @@ interface ReconciliationNotice {
   pending: boolean;
 }
 
-interface AuditRecord {
+interface WorkItemHistoryEntry {
+  source: string;
   audit_id: string;
   actor_id: string;
   action: string;
   occurred_at_epoch_ms: number;
-  from_version?: number;
-  to_version?: number;
+  engine_sequence?: number;
 }
 
-interface AuditRecordPage {
-  records?: AuditRecord[];
+interface WorkItemHistoryPage {
+  entries?: WorkItemHistoryEntry[];
+  next_page_token?: string;
+  engine_watermark?: number;
 }
 
 export function TaskWorklist({ platform }: RemoteRouteProps) {
@@ -122,6 +137,12 @@ export function TaskWorklist({ platform }: RemoteRouteProps) {
   const [pageToken, setPageToken] = useState("");
   const [previousPageTokens, setPreviousPageTokens] = useState<string[]>([]);
   const [selectedTask, setSelectedTask] = useState<WorkItem | null>(null);
+  const [bulkSelection, setBulkSelection] = useState<{ scope: string; ids: string[] }>({ scope: "", ids: [] });
+  const [bulkIntent, setBulkIntent] = useState<BulkClaimIntent | null>(null);
+  const [bulkResult, setBulkResult] = useState<BulkClaimResponse | null>(null);
+  const [bulkError, setBulkError] = useState<ActionFailure | null>(null);
+  const bulkBusy = useRef(false);
+  const [historyPage, setHistoryPage] = useState<{ taskId: string; token: string; previous: string[] } | null>(null);
   const [formOutputs, setFormOutputs] = useState<Record<string, FormOutputValue>>({});
 
   // Dialog states for Actions
@@ -136,7 +157,11 @@ export function TaskWorklist({ platform }: RemoteRouteProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const selectedTaskId = selectedTask?.work_item_id || selectedTask?.id;
   const detailTaskId = actionType === null ? selectedTaskId : undefined;
+  const currentHistoryPage = historyPage?.taskId === detailTaskId ? historyPage : null;
+  const historyPageToken = currentHistoryPage?.token ?? "";
   const workItemScope = activeTab === "personal" ? "mine" : "group";
+  const selectionScope = `${workItemScope}:${pageToken}`;
+  const selectedBulkIDs = bulkSelection.scope === selectionScope ? bulkSelection.ids : [];
 
   const query = useSWR<WorkItemPage>(`task-mfe:worklist:${workItemScope}:${pageToken}`, async () => {
     const pageTokenQuery = pageToken ? `&page_token=${encodeURIComponent(pageToken)}` : "";
@@ -166,14 +191,14 @@ export function TaskWorklist({ platform }: RemoteRouteProps) {
 
   useEffect(() => { setFormOutputs({}); }, [selectedTaskId, formQuery.data?.published_version.id]);
 
-  // History query for selected task
-  const historyQuery = useSWR<AuditRecordPage>(
-    detailTaskId ? `task-mfe:audit:${detailTaskId}` : null,
+  const historyQuery = useSWR<WorkItemHistoryPage>(
+    detailTaskId ? `task-mfe:history:${detailTaskId}:${historyPageToken}` : null,
     async () => {
-      if (!detailTaskId) return { records: [] };
-      const result = await platform.callApi<AuditRecordPage>({
+      if (!detailTaskId) return { entries: [] };
+      const pageTokenQuery = historyPageToken ? `&page_token=${encodeURIComponent(historyPageToken)}` : "";
+      const result = await platform.callApi<WorkItemHistoryPage>({
         method: "GET",
-        path: `/v1/audit-records?work_item_id=${encodeURIComponent(detailTaskId)}`,
+        path: `/v1/work-items/${encodeURIComponent(detailTaskId)}/history?page_size=50${pageTokenQuery}`,
       });
       if (!result.ok) throw new TaskApiError(result.problem.title, result.problem.code, result.problem.retryable);
       return result.data;
@@ -232,6 +257,61 @@ export function TaskWorklist({ platform }: RemoteRouteProps) {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const executeBulkClaim = async (intent: BulkClaimIntent) => {
+    if (bulkBusy.current || isSubmitting) return;
+    bulkBusy.current = true;
+    setIsSubmitting(true);
+    setBulkError(null);
+    try {
+      const response = await platform.callApi<BulkClaimResponse>({
+        method: "POST", path: "/v1/work-items/bulk", body: intent.body,
+        commandId: intent.commandId, idempotencyKey: intent.idempotencyKey,
+      });
+      if (!response.ok) {
+        const retryable = response.problem.status !== 409 && response.problem.retryable;
+        setBulkError({
+          title: response.problem.title || "Bulk claim failed",
+          detail: `Code: ${response.problem.code}; request: ${response.requestId}`,
+          retryable,
+        });
+        if (!retryable) setBulkIntent(null);
+        return;
+      }
+      setBulkResult(response.data);
+      setBulkSelection({ scope: selectionScope, ids: [] });
+      if (!response.data.receipts?.some((receipt) => receipt.retryable)) setBulkIntent(null);
+      try {
+        await query.mutate();
+      } catch (error) {
+        platform.reportError(error, { remote: "task-mfe", phase: "bulk-claim-reconcile" });
+        setBulkError({ title: "Worklist refresh failed", detail: "The bulk receipt was saved. Reconcile the worklist to see the latest projection.", retryable: false });
+      }
+    } catch (error) {
+      platform.reportError(error, { remote: "task-mfe", phase: "bulk-claim" });
+      setBulkError({ title: "Bulk claim transport failed", detail: "No receipt was returned. Retry uses the same operation ID and payload.", retryable: true });
+    } finally {
+      bulkBusy.current = false;
+      setIsSubmitting(false);
+    }
+  };
+
+  const beginBulkClaim = (items: WorkItem[]) => {
+    if (bulkBusy.current || isSubmitting || bulkIntent || items.length === 0 || items.length > 20) return;
+    const mutations = items.map((item) => ({
+      work_item_id: item.work_item_id || item.id || "",
+      expected_version: item.version ?? 0,
+    }));
+    if (mutations.some((item) => !item.work_item_id || !Number.isSafeInteger(item.expected_version) || item.expected_version < 1)) return;
+    const intent: BulkClaimIntent = {
+      body: { mode: "PARTIAL", action: "CLAIM", items: mutations },
+      commandId: `task-bulk-command-${crypto.randomUUID()}`,
+      idempotencyKey: `task-bulk-intent-${crypto.randomUUID()}`,
+    };
+    setBulkIntent(intent);
+    setBulkResult(null);
+    void executeBulkClaim(intent);
   };
 
   const beginCommand = (kind: CommandKind, task: WorkItem, body: Record<string, unknown>) => {
@@ -354,9 +434,17 @@ export function TaskWorklist({ platform }: RemoteRouteProps) {
     let actionButton: ReactNode = null;
     if (activeTab === "group" && !item.assignee_id) {
       actionButton = (
-        <Button size="small" variant="contained" onClick={() => void handleClaim(item)} disabled={isSubmitting}>
-          Claim
-        </Button>
+        <Stack direction="row" spacing={1}>
+          <Button size="small" variant="outlined" aria-pressed={selectedBulkIDs.includes(id)} disabled={isSubmitting || !Number.isSafeInteger(item.version) || (item.version ?? 0) < 1 || (!selectedBulkIDs.includes(id) && selectedBulkIDs.length >= 20)} onClick={() => {
+            setBulkSelection({
+              scope: selectionScope,
+              ids: selectedBulkIDs.includes(id) ? selectedBulkIDs.filter((selected) => selected !== id) : [...selectedBulkIDs, id],
+            });
+          }}>{selectedBulkIDs.includes(id) ? "Selected" : "Select"}</Button>
+          <Button size="small" variant="contained" onClick={() => void handleClaim(item)} disabled={isSubmitting}>
+            Claim
+          </Button>
+        </Stack>
       );
     } else if (activeTab === "personal" && item.assignee_id) {
       actionButton = (
@@ -414,6 +502,15 @@ export function TaskWorklist({ platform }: RemoteRouteProps) {
           />
         )}
 
+        {bulkError && <ErrorPanel title={bulkError.title} detail={bulkError.detail} {...(bulkError.retryable && bulkIntent ? { onRetry: () => { void executeBulkClaim(bulkIntent); } } : {})} />}
+        {bulkResult && <Box role="status" aria-live="polite">
+          <StatusPanel title={`Bulk claim: ${bulkResult.status}`} detail={`Operation ${bulkResult.operation_id}; each item has its own receipt.`} pending={bulkResult.receipts?.some((receipt) => receipt.retryable) ?? false} />
+          {bulkResult.receipts?.map((receipt) => <Typography key={receipt.work_item_id} variant="body2">
+            {receipt.work_item_id}: {receipt.status}{receipt.error_code ? ` (${receipt.error_code})` : ""}
+          </Typography>)}
+          {bulkIntent && bulkResult.receipts?.some((receipt) => receipt.retryable) && <Button onClick={() => { void executeBulkClaim(bulkIntent); }} disabled={isSubmitting}>Retry unresolved items</Button>}
+        </Box>}
+
         <Paper variant="outlined" sx={{ p: { xs: 1.5, md: 2 }, borderColor: "#e2e7e3", borderRadius: 2 }}>
           <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems="center" justifyContent="space-between">
             <Stack direction="row" spacing={1} role="tablist">
@@ -470,6 +567,11 @@ export function TaskWorklist({ platform }: RemoteRouteProps) {
             items={listItems}
             emptyLabel={activeTab === "personal" ? "No assigned personal tasks" : "No pending group tasks"}
           />
+          {activeTab === "group" && selectedBulkIDs.length > 0 && <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 2 }}>
+            <Typography variant="body2">{selectedBulkIDs.length} selected on this page (maximum 20)</Typography>
+            <Button variant="contained" disabled={isSubmitting || bulkIntent !== null || query.isValidating} onClick={() => beginBulkClaim(allItems.filter((item) => selectedBulkIDs.includes(item.work_item_id || item.id || "") && !item.assignee_id))}>Claim selected</Button>
+            <Button onClick={() => setBulkSelection({ scope: selectionScope, ids: [] })}>Clear selection</Button>
+          </Stack>}
           <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ mt: 2 }}>
             <Button
               size="small"
@@ -500,7 +602,7 @@ export function TaskWorklist({ platform }: RemoteRouteProps) {
         </Paper>
       </Stack>
 
-      {/* Task Details & Audit History Modal */}
+      {/* Task Details & History Modal */}
       {selectedTask && actionType === null && (
         <Dialog open onClose={() => setSelectedTask(null)} maxWidth="md" fullWidth>
           <DialogTitle>
@@ -543,31 +645,44 @@ export function TaskWorklist({ platform }: RemoteRouteProps) {
               </Stack>
 
               <Divider sx={{ my: 1 }} />
-              <Typography variant="subtitle1" fontWeight={700}>Audit History</Typography>
+              <Typography variant="subtitle1" fontWeight={700}>Task History</Typography>
               {historyQuery.isLoading ? (
-                <LoadingPanel label="Loading audit history..." />
+                <LoadingPanel label="Loading task history..." />
               ) : historyQuery.error ? (
                 <ErrorPanel
-                  title="Audit history unavailable"
-                  detail={historyQuery.error instanceof TaskApiError ? `Code: ${historyQuery.error.code}` : "The audit query failed."}
+                  title="Task history unavailable"
+                  detail={historyQuery.error instanceof TaskApiError ? `Code: ${historyQuery.error.code}` : "The history query failed."}
                   onRetry={() => { void historyQuery.mutate(); }}
                 />
-              ) : (historyQuery.data?.records ?? []).length === 0 ? (
-                <Typography variant="body2" color="text.secondary">No audit entries found</Typography>
+              ) : (historyQuery.data?.entries ?? []).length === 0 ? (
+                <Typography variant="body2" color="text.secondary">No task history entries on this page</Typography>
               ) : (
                 <Stack spacing={1}>
-                  {historyQuery.data?.records?.map((record) => (
-                    <Box key={record.audit_id} sx={{ p: 1, bgcolor: "background.default", borderRadius: 1 }}>
+                  {historyQuery.data?.entries?.map((entry, index) => (
+                    <Box key={`${entry.source}:${entry.audit_id || entry.engine_sequence || index}`} sx={{ p: 1, bgcolor: "background.default", borderRadius: 1 }}>
                       <Typography variant="body2" fontWeight={600}>
-                        {record.action} by {record.actor_id}
+                        {entry.action} by {entry.actor_id || "system"}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
-                        {new Date(record.occurred_at_epoch_ms).toLocaleString()} • Version: {record.from_version ?? 0} → {record.to_version ?? 0}
+                        {entry.source} • {new Date(entry.occurred_at_epoch_ms).toLocaleString()}
+                        {entry.source === "ENGINE" ? ` • Engine event ${entry.engine_sequence}` : ""}
                       </Typography>
                     </Box>
                   ))}
                 </Stack>
               )}
+              {!historyQuery.error && !historyQuery.isLoading && (currentHistoryPage?.previous.length || historyQuery.data?.next_page_token) ? (
+                <Stack direction="row" spacing={1}>
+                  <Button disabled={!currentHistoryPage?.previous.length} onClick={() => {
+                    if (!detailTaskId || !currentHistoryPage?.previous.length) return;
+                    setHistoryPage({ taskId: detailTaskId, token: currentHistoryPage.previous.at(-1) ?? "", previous: currentHistoryPage.previous.slice(0, -1) });
+                  }}>Previous history page</Button>
+                  <Button disabled={!historyQuery.data?.next_page_token} onClick={() => {
+                    if (!detailTaskId || !historyQuery.data?.next_page_token) return;
+                    setHistoryPage({ taskId: detailTaskId, token: historyQuery.data.next_page_token, previous: [...(currentHistoryPage?.previous ?? []), historyPageToken] });
+                  }}>Next history page</Button>
+                </Stack>
+              ) : null}
             </Stack>
           </DialogContent>
           <DialogActions>

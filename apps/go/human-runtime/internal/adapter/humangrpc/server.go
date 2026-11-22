@@ -234,6 +234,9 @@ func (s *Server) GetWorkItemHistory(ctx context.Context, r *humanv1.GetWorkItemH
 	if item.TenantID != r.GetTenantId() || item.ID != r.GetWorkItemId() || item.InstanceID == "" || item.NodeID == "" {
 		return nil, status.Error(codes.DataLoss, "work item history scope is invalid")
 	}
+	if !item.CanAct(identity.ActorID, identity.Groups) {
+		return nil, status.Error(codes.PermissionDenied, "actor cannot read this work item history")
+	}
 	policy, err := s.policy.Policy(r.GetTenantId())
 	if err != nil {
 		return nil, status.Error(codes.Unavailable, "runtime policy unavailable")
@@ -283,14 +286,12 @@ func (s *Server) GetWorkItemHistory(ctx context.Context, r *humanv1.GetWorkItemH
 			Source: "ENGINE", OccurredAtEpochMs: event.GetMetadata().GetOccurredAtEpochMs(),
 			EngineSequence: stored.GetSequence(), ActorId: event.GetMetadata().GetActorId(), Action: kind,
 			CommandId: event.GetMetadata().GetCausationCommandId(), CorrelationId: event.GetMetadata().GetCorrelationId(),
-			EngineEventEnvelope: append([]byte(nil), stored.GetEventEnvelope()...),
 		})
 	}
 	for _, record := range audits {
 		entries = append(entries, &humanv1.WorkItemHistoryEntry{
 			Source: "HUMAN_RUNTIME", OccurredAtEpochMs: uint64(record.OccurredAt.UnixMilli()), AuditId: record.AuditID,
 			ActorId: record.ActorID, Action: record.Action, CommandId: record.CommandID, CorrelationId: record.CorrelationID,
-			AuditDetailsJson: append([]byte(nil), record.DetailsJSON...),
 		})
 	}
 	sort.SliceStable(entries, func(i, j int) bool {

@@ -43,6 +43,26 @@ function createMockPlatform(workItems = sampleWorkItems): PlatformServices {
           correlationId: "corr-1",
         };
       }
+      if (method === "GET" && path.startsWith("/v1/work-items/") && path.includes("/history?")) {
+        const secondPage = path.includes("page_token=history-next");
+        return {
+          ok: true,
+          data: {
+            entries: [{
+              source: secondPage ? "HUMAN_RUNTIME" : "ENGINE",
+              audit_id: secondPage ? "audit-2" : "",
+              engine_sequence: secondPage ? 0 : 1,
+              actor_id: secondPage ? "officer-alice" : "system",
+              action: secondPage ? "DELEGATED" : "USER_TASK_ACTIVATED",
+              occurred_at_epoch_ms: Date.now() - 100000,
+            }],
+            next_page_token: secondPage ? "" : "history-next",
+            engine_watermark: 1,
+          },
+          requestId: "req-history",
+          correlationId: "corr-history",
+        };
+      }
       if (method === "GET" && path.startsWith("/v1/work-items/")) {
         const taskId = path.split("/").at(-1);
         return {
@@ -65,25 +85,6 @@ function createMockPlatform(workItems = sampleWorkItems): PlatformServices {
           },
           requestId: "req-form",
           correlationId: "corr-form",
-        };
-      }
-      if (method === "GET" && path.startsWith("/v1/audit-records")) {
-        return {
-          ok: true,
-          data: {
-            records: [
-              {
-                audit_id: "audit-1",
-                actor_id: "system",
-                action: "WORK_ITEM_ACTIVATED",
-                occurred_at_epoch_ms: Date.now() - 100000,
-                from_version: 0,
-                to_version: 1,
-              },
-            ],
-          },
-          requestId: "req-audit",
-          correlationId: "corr-audit",
         };
       }
       if (method === "POST" && path.endsWith("/claim")) {
@@ -198,6 +199,60 @@ describe("TaskWorklist Vertical Slice", () => {
         })
       );
     });
+  });
+
+  it("retries only unresolved bulk claims with the same operation and shows per-item receipts", async () => {
+    const secondGroupTask = { ...sampleWorkItems[1], work_item_id: "task-3", task_name: "Second group task", version: 2 };
+    const platform = createMockPlatform([...sampleWorkItems, secondGroupTask]);
+    const baseCallApi = platform.callApi;
+    let attempts = 0;
+    platform.callApi = vi.fn().mockImplementation(async (request) => {
+      if (request.method === "POST" && request.path === "/v1/work-items/bulk") {
+        attempts += 1;
+        return {
+          ok: true,
+          data: {
+            operation_id: request.commandId,
+            status: attempts === 1 ? "PARTIALLY_SUCCEEDED" : "SUCCEEDED",
+            receipts: [
+              { work_item_id: "task-2", status: "SUCCEEDED" },
+              { work_item_id: "task-3", status: attempts === 1 ? "FAILED" : "SUCCEEDED", error_code: attempts === 1 ? "DEPENDENCY_TIMEOUT" : "", retryable: attempts === 1 },
+            ],
+          },
+          requestId: `bulk-${attempts}`,
+          correlationId: "bulk-correlation",
+        };
+      }
+      return baseCallApi(request);
+    });
+    renderWorklist(platform);
+
+    await screen.findByText("Personal Review Application");
+    fireEvent.click(screen.getByRole("tab", { name: /Group Tasks/i }));
+    await screen.findByText("Second group task");
+    for (const button of screen.getAllByRole("button", { name: "Select" })) fireEvent.click(button);
+    const submit = screen.getByRole("button", { name: "Claim selected" });
+    fireEvent.click(submit);
+    fireEvent.click(submit);
+
+    await waitFor(() => expect(screen.getByText("Bulk claim: PARTIALLY_SUCCEEDED")).toBeInTheDocument());
+    expect(attempts).toBe(1);
+    expect(screen.getByText("task-3: FAILED (DEPENDENCY_TIMEOUT)")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry unresolved items" }));
+    await waitFor(() => expect(screen.getByText("Bulk claim: SUCCEEDED")).toBeInTheDocument());
+
+    const calls = (platform.callApi as ReturnType<typeof vi.fn>).mock.calls.map(([request]) => request)
+      .filter((request) => request.method === "POST" && request.path === "/v1/work-items/bulk");
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toEqual(expect.objectContaining({
+      body: { mode: "PARTIAL", action: "CLAIM", items: [
+        { work_item_id: "task-2", expected_version: 1 },
+        { work_item_id: "task-3", expected_version: 2 },
+      ] },
+    }));
+    expect(calls[1].commandId).toBe(calls[0].commandId);
+    expect(calls[1].idempotencyKey).toBe(calls[0].idempotencyKey);
+    expect(calls[1].body).toEqual(calls[0].body);
   });
 
   it("completes a personal task with decision selection", async () => {
@@ -383,7 +438,7 @@ describe("TaskWorklist Vertical Slice", () => {
     await waitFor(() => expect(screen.getByText("Personal Review Application")).toBeInTheDocument());
   });
 
-  it("shows audit history in task detail modal", async () => {
+  it("shows Engine and Human Runtime history with cursor navigation", async () => {
     const platform = createMockPlatform();
     renderWorklist(platform);
 
@@ -392,9 +447,13 @@ describe("TaskWorklist Vertical Slice", () => {
     fireEvent.click(screen.getByText("Personal Review Application"));
 
     await waitFor(() => {
-      expect(screen.getByText("Audit History")).toBeInTheDocument();
-      expect(screen.getByText(/WORK_ITEM_ACTIVATED by system/)).toBeInTheDocument();
+      expect(screen.getByText("Task History")).toBeInTheDocument();
+      expect(screen.getByText(/USER_TASK_ACTIVATED by system/)).toBeInTheDocument();
     });
+    fireEvent.click(screen.getByRole("button", { name: "Next history page" }));
+    await waitFor(() => expect(screen.getByText(/DELEGATED by officer-alice/)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Previous history page" }));
+    await waitFor(() => expect(screen.getByText(/USER_TASK_ACTIVATED by system/)).toBeInTheDocument());
   });
 
   it("shows scoped retry for retryable API failures", async () => {

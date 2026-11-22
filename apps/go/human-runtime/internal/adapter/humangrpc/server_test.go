@@ -272,10 +272,10 @@ func (r testHistoryReader) ReadHistoryPage(context.Context, string, string, uint
 }
 
 func TestWorkItemHistoryMergesEngineEventsAndHumanAuditInTimeOrder(t *testing.T) {
-	item := domain.WorkItem{TenantID: "tenant-a", ID: "work-1", InstanceID: "instance-1", NodeID: "review"}
+	item := domain.WorkItem{TenantID: "tenant-a", ID: "work-1", InstanceID: "instance-1", NodeID: "review", Assignment: domain.Assignment{AssigneeID: "alice"}}
 	query := testQuery{item: item, audits: []application.AuditRecord{{
 		AuditID: "audit-1", WorkItemID: item.ID, ActorID: "alice", Action: "DELEGATED",
-		OccurredAt: time.UnixMilli(100), CommandID: "command-a", CorrelationID: "correlation-a",
+		OccurredAt: time.UnixMilli(100), CommandID: "command-a", CorrelationID: "correlation-a", DetailsJSON: []byte(`{"secret":"account-number"}`),
 	}}}
 	encoded, err := proto.Marshal(&enginev1.EventEnvelope{Metadata: &enginev1.EventMetadata{
 		TenantId: item.TenantID, InstanceId: item.InstanceID, Sequence: 7,
@@ -301,6 +301,23 @@ func TestWorkItemHistoryMergesEngineEventsAndHumanAuditInTimeOrder(t *testing.T)
 	}
 	if response.GetEngineWatermark() != 7 || response.GetEntries()[1].GetEngineSequence() != 7 || response.GetEntries()[1].GetCommandId() != "command-b" {
 		t.Fatalf("Engine event metadata was not preserved: %+v", response)
+	}
+	if len(response.GetEntries()[0].GetAuditDetailsJson()) != 0 || len(response.GetEntries()[1].GetEngineEventEnvelope()) != 0 {
+		t.Fatalf("raw owner payload escaped the safe task timeline: %+v", response.GetEntries())
+	}
+}
+
+func TestWorkItemHistoryRejectsUnassignedAuditReaderBeforeOwnerQueries(t *testing.T) {
+	item := domain.WorkItem{TenantID: "tenant-a", ID: "work-1", InstanceID: "instance-1", NodeID: "review", Assignment: domain.Assignment{AssigneeID: "alice"}}
+	service, _ := application.NewService(&testStore{item: item}, &testEngine{}, testPolicy)
+	verifier := &testVerifier{actor: application.ActorIdentity{ActorID: "mallory", Capabilities: map[string]struct{}{"audit.read": {}}}}
+	server, _ := New(service, testQuery{item: item}, verifier, testPolicy, time.Now)
+	server.SetHistoryReader(testHistoryReader{response: &enginev1.ReadHistoryPageResponse{}})
+	_, err := server.GetWorkItemHistory(context.Background(), &humanv1.GetWorkItemHistoryRequest{
+		TenantId: item.TenantID, WorkItemId: item.ID, ActorProof: originalJWT("signed"),
+	})
+	if status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("unassigned audit reader accessed task history: %v", err)
 	}
 }
 
