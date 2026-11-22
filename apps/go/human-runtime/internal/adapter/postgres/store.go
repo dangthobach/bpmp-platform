@@ -97,8 +97,8 @@ func (s *Store) RequestCompletion(ctx context.Context, item domain.WorkItem, com
 		`status=$1,decision=$2,completion_command_id=$3,completion_payload_digest=$4`, item.Status, item.Decision, commandID, item.CompletionPayloadDigest)
 }
 
-func (s *Store) Delegate(ctx context.Context, item domain.WorkItem, commandID, correlationID, actorID string) error {
-	return s.updateWorkItem(ctx, item, commandID, correlationID, actorID, "DELEGATED",
+func (s *Store) Delegate(ctx context.Context, item domain.WorkItem, commandID, correlationID, actorID, reason string) error {
+	return s.updateWorkItemWithDetails(ctx, item, commandID, correlationID, actorID, "DELEGATED", map[string]any{"reason": reason},
 		`assignee_id=NULLIF($1,''),candidate_group=NULLIF($2,''),delegation_depth=$3`,
 		item.Assignment.AssigneeID, item.Assignment.CandidateGroup, item.DelegationDepth)
 }
@@ -185,6 +185,10 @@ func (s *Store) UpsertAssignmentPolicy(ctx context.Context, policy domain.Assign
 }
 
 func (s *Store) updateWorkItem(ctx context.Context, item domain.WorkItem, commandID, correlationID, actorID, action, setSQL string, values ...any) error {
+	return s.updateWorkItemWithDetails(ctx, item, commandID, correlationID, actorID, action, nil, setSQL, values...)
+}
+
+func (s *Store) updateWorkItemWithDetails(ctx context.Context, item domain.WorkItem, commandID, correlationID, actorID, action string, additionalDetails map[string]any, setSQL string, values ...any) error {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return err
@@ -201,6 +205,11 @@ func (s *Store) updateWorkItem(ctx context.Context, item domain.WorkItem, comman
 		return application.ErrVersionConflict
 	}
 	details := map[string]any{"decision": item.Decision, "assignee_id": item.Assignment.AssigneeID, "candidate_group": item.Assignment.CandidateGroup, "delegation_depth": item.DelegationDepth}
+	for key, value := range additionalDetails {
+		if value != "" {
+			details[key] = value
+		}
+	}
 	if err = appendAudit(ctx, tx, item.TenantID, action+":"+commandID, item.ID, "", actorID, action, item.UpdatedAt, commandID, correlationID, item.Version-1, item.Version, details); err != nil {
 		return err
 	}
@@ -249,7 +258,7 @@ func (s *Store) CommitCompletion(ctx context.Context, event application.Committe
 		return err
 	}
 	auditID := "completed:" + event.EventID
-	if err = appendAudit(ctx, tx, event.TenantID, auditID, id, "", "engine", "COMPLETED", event.OccurredAt, "", "", version-1, version, map[string]any{"decision": event.Decision, "event_id": event.EventID, "sequence": event.Sequence}); err != nil {
+	if err = appendAudit(ctx, tx, event.TenantID, auditID, id, "", "engine", "COMPLETED", event.OccurredAt, event.CommandID, event.CorrelationID, version-1, version, map[string]any{"decision": event.Decision, "event_id": event.EventID, "sequence": event.Sequence}); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/protobuf/proto"
 
@@ -80,10 +82,10 @@ func TestPostgresProjectionAuditLockingAndLeaseRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = store.Delegate(ctx, delegated, "delegate-1", "correlation-1", "alice"); err != nil {
+	if err = store.Delegate(ctx, delegated, "delegate-1", "correlation-1", "alice", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err = store.Delegate(ctx, delegated, "delegate-2", "correlation-2", "alice"); !errors.Is(err, application.ErrVersionConflict) {
+	if err = store.Delegate(ctx, delegated, "delegate-2", "correlation-2", "alice", ""); !errors.Is(err, application.ErrVersionConflict) {
 		t.Fatalf("expected version conflict, got %v", err)
 	}
 	if _, err = pool.Exec(ctx, `INSERT INTO assignment_policies(tenant_id,policy_ref,workflow_type,workflow_version,node_id,candidate_group,sla_duration_ms,config_version,created_at,created_by,updated_at,updated_by) VALUES('tenant-a','claimers','approval','1','review','reviewers',1000,'cfg-1',$1,'admin',$1,'admin')`, now); err != nil {
@@ -110,7 +112,7 @@ func TestPostgresProjectionAuditLockingAndLeaseRecovery(t *testing.T) {
 			<-start
 			claimed, claimErr := domain.Delegate(claimItem, actor, domain.Assignment{AssigneeID: actor}, now.Add(time.Duration(i+2)*time.Millisecond))
 			if claimErr == nil {
-				claimErr = store.Delegate(ctx, claimed, "claim-command-"+actor, "claim-correlation-"+actor, actor)
+				claimErr = store.Delegate(ctx, claimed, "claim-command-"+actor, "claim-correlation-"+actor, actor, "")
 			}
 			claimResults <- claimErr
 		}(i, actor)
@@ -171,6 +173,47 @@ func TestPostgresProjectionAuditLockingAndLeaseRecovery(t *testing.T) {
 	completed, err := store.GetWorkItem(ctx, "tenant-a", item.ID)
 	if err != nil || completed.Status != domain.WorkItemCompleted || completed.Decision != "approved" {
 		t.Fatalf("committed completion was not projected: %#v err=%v", completed, err)
+	}
+	bulkOperation := application.BulkOperation{
+		TenantID: "tenant-a", ActorID: "bob", OperationID: "bulk-operation-1", IdempotencyKey: "bulk-idem-1",
+		Action: "COMPLETE", Mode: "PARTIAL", CorrelationID: "bulk-correlation-1",
+		RequestDigest: bytes.Repeat([]byte{4}, 32), OccurredAt: now.Add(6 * time.Second),
+	}
+	bulkItems := []application.BulkItemReceipt{{WorkItemID: item.ID, CommandID: "bulk-child-1", Status: "PENDING"}}
+	operationID, receipts, duplicate, err := store.BeginBulkOperation(ctx, bulkOperation, bulkItems)
+	if err != nil || duplicate || operationID != bulkOperation.OperationID || len(receipts) != 1 || receipts[0].Status != "PENDING" {
+		t.Fatalf("bulk journal start failed: operation=%s duplicate=%v receipts=%+v err=%v", operationID, duplicate, receipts, err)
+	}
+	// Model a commit whose response was lost, followed by a retryable receipt
+	// write. The item outcome audit must remain discoverable behind this receipt.
+	auditTx, err := pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = appendAudit(ctx, auditTx, "tenant-a", "completed:bulk-child-1", item.ID, "", "engine", "COMPLETED", now.Add(7*time.Second), "bulk-child-1", "bulk-correlation-1", completed.Version, completed.Version+1, map[string]any{"decision": "approved"}); err != nil {
+		_ = auditTx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if err = auditTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	retryableReceipt := application.BulkItemReceipt{WorkItemID: item.ID, CommandID: "bulk-child-1", Status: "FAILED", ErrorCode: "UPSTREAM_UNAVAILABLE", Retryable: true}
+	if err = store.SaveBulkItemReceipt(ctx, "tenant-a", operationID, item.ID, retryableReceipt, now.Add(8*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if action, version, found, auditErr := store.FindBulkCommandAudit(ctx, "tenant-a", "bulk-child-1"); auditErr != nil || !found || action != "COMPLETED" || version != completed.Version+1 {
+		t.Fatalf("committed command audit was hidden by retry receipt: action=%s version=%d found=%v err=%v", action, version, found, auditErr)
+	}
+	completedReceipt := application.BulkItemReceipt{WorkItemID: item.ID, CommandID: "bulk-child-1", Status: "SUCCEEDED", ResultingVersion: completed.Version + 1}
+	if err = store.SaveBulkItemReceipt(ctx, "tenant-a", operationID, item.ID, completedReceipt, now.Add(9*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	operationID, receipts, duplicate, err = store.BeginBulkOperation(ctx, bulkOperation, bulkItems)
+	if err != nil || !duplicate || operationID != bulkOperation.OperationID || len(receipts) != 1 || receipts[0].Status != "SUCCEEDED" {
+		t.Fatalf("bulk journal replay lost the terminal receipt: operation=%s duplicate=%v receipts=%+v err=%v", operationID, duplicate, receipts, err)
+	}
+	if action, version, found, auditErr := store.FindBulkCommandAudit(ctx, "tenant-a", "bulk-child-1"); auditErr != nil || !found || action != "COMPLETED" || version != completed.Version+1 {
+		t.Fatalf("committed mutation audit is missing: action=%s version=%d found=%v err=%v", action, version, found, auditErr)
 	}
 	conflictingSequence := completion
 	conflictingSequence.EventID = "event-3"

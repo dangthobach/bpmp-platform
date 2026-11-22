@@ -75,6 +75,110 @@ func (WorkItemListScope) EnumDescriptor() ([]byte, []int) {
 	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{0}
 }
 
+type WorkItemBulkMode int32
+
+const (
+	WorkItemBulkMode_WORK_ITEM_BULK_MODE_UNSPECIFIED WorkItemBulkMode = 0
+	WorkItemBulkMode_WORK_ITEM_BULK_MODE_PARTIAL     WorkItemBulkMode = 1
+	WorkItemBulkMode_WORK_ITEM_BULK_MODE_ATOMIC      WorkItemBulkMode = 2
+)
+
+// Enum value maps for WorkItemBulkMode.
+var (
+	WorkItemBulkMode_name = map[int32]string{
+		0: "WORK_ITEM_BULK_MODE_UNSPECIFIED",
+		1: "WORK_ITEM_BULK_MODE_PARTIAL",
+		2: "WORK_ITEM_BULK_MODE_ATOMIC",
+	}
+	WorkItemBulkMode_value = map[string]int32{
+		"WORK_ITEM_BULK_MODE_UNSPECIFIED": 0,
+		"WORK_ITEM_BULK_MODE_PARTIAL":     1,
+		"WORK_ITEM_BULK_MODE_ATOMIC":      2,
+	}
+)
+
+func (x WorkItemBulkMode) Enum() *WorkItemBulkMode {
+	p := new(WorkItemBulkMode)
+	*p = x
+	return p
+}
+
+func (x WorkItemBulkMode) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (WorkItemBulkMode) Descriptor() protoreflect.EnumDescriptor {
+	return file_bpmp_human_v1_human_proto_enumTypes[1].Descriptor()
+}
+
+func (WorkItemBulkMode) Type() protoreflect.EnumType {
+	return &file_bpmp_human_v1_human_proto_enumTypes[1]
+}
+
+func (x WorkItemBulkMode) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use WorkItemBulkMode.Descriptor instead.
+func (WorkItemBulkMode) EnumDescriptor() ([]byte, []int) {
+	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{1}
+}
+
+type WorkItemBulkAction int32
+
+const (
+	WorkItemBulkAction_WORK_ITEM_BULK_ACTION_UNSPECIFIED WorkItemBulkAction = 0
+	WorkItemBulkAction_WORK_ITEM_BULK_ACTION_CLAIM       WorkItemBulkAction = 1
+	WorkItemBulkAction_WORK_ITEM_BULK_ACTION_UNCLAIM     WorkItemBulkAction = 2
+	WorkItemBulkAction_WORK_ITEM_BULK_ACTION_COMPLETE    WorkItemBulkAction = 3
+	WorkItemBulkAction_WORK_ITEM_BULK_ACTION_DELEGATE    WorkItemBulkAction = 4
+)
+
+// Enum value maps for WorkItemBulkAction.
+var (
+	WorkItemBulkAction_name = map[int32]string{
+		0: "WORK_ITEM_BULK_ACTION_UNSPECIFIED",
+		1: "WORK_ITEM_BULK_ACTION_CLAIM",
+		2: "WORK_ITEM_BULK_ACTION_UNCLAIM",
+		3: "WORK_ITEM_BULK_ACTION_COMPLETE",
+		4: "WORK_ITEM_BULK_ACTION_DELEGATE",
+	}
+	WorkItemBulkAction_value = map[string]int32{
+		"WORK_ITEM_BULK_ACTION_UNSPECIFIED": 0,
+		"WORK_ITEM_BULK_ACTION_CLAIM":       1,
+		"WORK_ITEM_BULK_ACTION_UNCLAIM":     2,
+		"WORK_ITEM_BULK_ACTION_COMPLETE":    3,
+		"WORK_ITEM_BULK_ACTION_DELEGATE":    4,
+	}
+)
+
+func (x WorkItemBulkAction) Enum() *WorkItemBulkAction {
+	p := new(WorkItemBulkAction)
+	*p = x
+	return p
+}
+
+func (x WorkItemBulkAction) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (WorkItemBulkAction) Descriptor() protoreflect.EnumDescriptor {
+	return file_bpmp_human_v1_human_proto_enumTypes[2].Descriptor()
+}
+
+func (WorkItemBulkAction) Type() protoreflect.EnumType {
+	return &file_bpmp_human_v1_human_proto_enumTypes[2]
+}
+
+func (x WorkItemBulkAction) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use WorkItemBulkAction.Descriptor instead.
+func (WorkItemBulkAction) EnumDescriptor() ([]byte, []int) {
+	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{2}
+}
+
 type ListAssignmentGroupsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	TenantId      string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
@@ -1050,6 +1154,7 @@ type DelegateWorkItemRequest struct {
 	CandidateGroup  string                 `protobuf:"bytes,7,opt,name=candidate_group,json=candidateGroup,proto3" json:"candidate_group,omitempty"`
 	ActorProof      *v1.ActorProof         `protobuf:"bytes,8,opt,name=actor_proof,json=actorProof,proto3" json:"actor_proof,omitempty"`
 	IdempotencyKey  string                 `protobuf:"bytes,9,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	Reason          string                 `protobuf:"bytes,10,opt,name=reason,proto3" json:"reason,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -1143,6 +1248,13 @@ func (x *DelegateWorkItemRequest) GetActorProof() *v1.ActorProof {
 func (x *DelegateWorkItemRequest) GetIdempotencyKey() string {
 	if x != nil {
 		return x.IdempotencyKey
+	}
+	return ""
+}
+
+func (x *DelegateWorkItemRequest) GetReason() string {
+	if x != nil {
+		return x.Reason
 	}
 	return ""
 }
@@ -2175,6 +2287,358 @@ func (x *WorkItemHistoryEntry) GetAuditDetailsJson() []byte {
 	return nil
 }
 
+type BulkWorkItemMutation struct {
+	state           protoimpl.MessageState  `protogen:"open.v1"`
+	WorkItemId      string                  `protobuf:"bytes,1,opt,name=work_item_id,json=workItemId,proto3" json:"work_item_id,omitempty"`
+	ExpectedVersion int64                   `protobuf:"varint,2,opt,name=expected_version,json=expectedVersion,proto3" json:"expected_version,omitempty"`
+	Decision        string                  `protobuf:"bytes,3,opt,name=decision,proto3" json:"decision,omitempty"`
+	FormVersionId   string                  `protobuf:"bytes,4,opt,name=form_version_id,json=formVersionId,proto3" json:"form_version_id,omitempty"`
+	Outputs         []*v11.WorkflowVariable `protobuf:"bytes,5,rep,name=outputs,proto3" json:"outputs,omitempty"`
+	AssigneeId      string                  `protobuf:"bytes,6,opt,name=assignee_id,json=assigneeId,proto3" json:"assignee_id,omitempty"`
+	CandidateGroup  string                  `protobuf:"bytes,7,opt,name=candidate_group,json=candidateGroup,proto3" json:"candidate_group,omitempty"`
+	Reason          string                  `protobuf:"bytes,8,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *BulkWorkItemMutation) Reset() {
+	*x = BulkWorkItemMutation{}
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BulkWorkItemMutation) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BulkWorkItemMutation) ProtoMessage() {}
+
+func (x *BulkWorkItemMutation) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BulkWorkItemMutation.ProtoReflect.Descriptor instead.
+func (*BulkWorkItemMutation) Descriptor() ([]byte, []int) {
+	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *BulkWorkItemMutation) GetWorkItemId() string {
+	if x != nil {
+		return x.WorkItemId
+	}
+	return ""
+}
+
+func (x *BulkWorkItemMutation) GetExpectedVersion() int64 {
+	if x != nil {
+		return x.ExpectedVersion
+	}
+	return 0
+}
+
+func (x *BulkWorkItemMutation) GetDecision() string {
+	if x != nil {
+		return x.Decision
+	}
+	return ""
+}
+
+func (x *BulkWorkItemMutation) GetFormVersionId() string {
+	if x != nil {
+		return x.FormVersionId
+	}
+	return ""
+}
+
+func (x *BulkWorkItemMutation) GetOutputs() []*v11.WorkflowVariable {
+	if x != nil {
+		return x.Outputs
+	}
+	return nil
+}
+
+func (x *BulkWorkItemMutation) GetAssigneeId() string {
+	if x != nil {
+		return x.AssigneeId
+	}
+	return ""
+}
+
+func (x *BulkWorkItemMutation) GetCandidateGroup() string {
+	if x != nil {
+		return x.CandidateGroup
+	}
+	return ""
+}
+
+func (x *BulkWorkItemMutation) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+type BulkMutateWorkItemsRequest struct {
+	state          protoimpl.MessageState  `protogen:"open.v1"`
+	TenantId       string                  `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	OperationId    string                  `protobuf:"bytes,2,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
+	IdempotencyKey string                  `protobuf:"bytes,3,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	CorrelationId  string                  `protobuf:"bytes,4,opt,name=correlation_id,json=correlationId,proto3" json:"correlation_id,omitempty"`
+	Mode           WorkItemBulkMode        `protobuf:"varint,5,opt,name=mode,proto3,enum=bpmp.human.v1.WorkItemBulkMode" json:"mode,omitempty"`
+	Action         WorkItemBulkAction      `protobuf:"varint,6,opt,name=action,proto3,enum=bpmp.human.v1.WorkItemBulkAction" json:"action,omitempty"`
+	Items          []*BulkWorkItemMutation `protobuf:"bytes,7,rep,name=items,proto3" json:"items,omitempty"`
+	ActorProof     *v1.ActorProof          `protobuf:"bytes,8,opt,name=actor_proof,json=actorProof,proto3" json:"actor_proof,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *BulkMutateWorkItemsRequest) Reset() {
+	*x = BulkMutateWorkItemsRequest{}
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BulkMutateWorkItemsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BulkMutateWorkItemsRequest) ProtoMessage() {}
+
+func (x *BulkMutateWorkItemsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BulkMutateWorkItemsRequest.ProtoReflect.Descriptor instead.
+func (*BulkMutateWorkItemsRequest) Descriptor() ([]byte, []int) {
+	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *BulkMutateWorkItemsRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *BulkMutateWorkItemsRequest) GetOperationId() string {
+	if x != nil {
+		return x.OperationId
+	}
+	return ""
+}
+
+func (x *BulkMutateWorkItemsRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
+}
+
+func (x *BulkMutateWorkItemsRequest) GetCorrelationId() string {
+	if x != nil {
+		return x.CorrelationId
+	}
+	return ""
+}
+
+func (x *BulkMutateWorkItemsRequest) GetMode() WorkItemBulkMode {
+	if x != nil {
+		return x.Mode
+	}
+	return WorkItemBulkMode_WORK_ITEM_BULK_MODE_UNSPECIFIED
+}
+
+func (x *BulkMutateWorkItemsRequest) GetAction() WorkItemBulkAction {
+	if x != nil {
+		return x.Action
+	}
+	return WorkItemBulkAction_WORK_ITEM_BULK_ACTION_UNSPECIFIED
+}
+
+func (x *BulkMutateWorkItemsRequest) GetItems() []*BulkWorkItemMutation {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
+func (x *BulkMutateWorkItemsRequest) GetActorProof() *v1.ActorProof {
+	if x != nil {
+		return x.ActorProof
+	}
+	return nil
+}
+
+type BulkWorkItemReceipt struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	WorkItemId       string                 `protobuf:"bytes,1,opt,name=work_item_id,json=workItemId,proto3" json:"work_item_id,omitempty"`
+	CommandId        string                 `protobuf:"bytes,2,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
+	Status           string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
+	ErrorCode        string                 `protobuf:"bytes,4,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
+	Retryable        bool                   `protobuf:"varint,5,opt,name=retryable,proto3" json:"retryable,omitempty"`
+	ResultingVersion int64                  `protobuf:"varint,6,opt,name=resulting_version,json=resultingVersion,proto3" json:"resulting_version,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *BulkWorkItemReceipt) Reset() {
+	*x = BulkWorkItemReceipt{}
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BulkWorkItemReceipt) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BulkWorkItemReceipt) ProtoMessage() {}
+
+func (x *BulkWorkItemReceipt) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BulkWorkItemReceipt.ProtoReflect.Descriptor instead.
+func (*BulkWorkItemReceipt) Descriptor() ([]byte, []int) {
+	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *BulkWorkItemReceipt) GetWorkItemId() string {
+	if x != nil {
+		return x.WorkItemId
+	}
+	return ""
+}
+
+func (x *BulkWorkItemReceipt) GetCommandId() string {
+	if x != nil {
+		return x.CommandId
+	}
+	return ""
+}
+
+func (x *BulkWorkItemReceipt) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *BulkWorkItemReceipt) GetErrorCode() string {
+	if x != nil {
+		return x.ErrorCode
+	}
+	return ""
+}
+
+func (x *BulkWorkItemReceipt) GetRetryable() bool {
+	if x != nil {
+		return x.Retryable
+	}
+	return false
+}
+
+func (x *BulkWorkItemReceipt) GetResultingVersion() int64 {
+	if x != nil {
+		return x.ResultingVersion
+	}
+	return 0
+}
+
+type BulkMutateWorkItemsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OperationId   string                 `protobuf:"bytes,1,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
+	Status        string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+	Duplicate     bool                   `protobuf:"varint,3,opt,name=duplicate,proto3" json:"duplicate,omitempty"`
+	Receipts      []*BulkWorkItemReceipt `protobuf:"bytes,4,rep,name=receipts,proto3" json:"receipts,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BulkMutateWorkItemsResponse) Reset() {
+	*x = BulkMutateWorkItemsResponse{}
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BulkMutateWorkItemsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BulkMutateWorkItemsResponse) ProtoMessage() {}
+
+func (x *BulkMutateWorkItemsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_bpmp_human_v1_human_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BulkMutateWorkItemsResponse.ProtoReflect.Descriptor instead.
+func (*BulkMutateWorkItemsResponse) Descriptor() ([]byte, []int) {
+	return file_bpmp_human_v1_human_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *BulkMutateWorkItemsResponse) GetOperationId() string {
+	if x != nil {
+		return x.OperationId
+	}
+	return ""
+}
+
+func (x *BulkMutateWorkItemsResponse) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *BulkMutateWorkItemsResponse) GetDuplicate() bool {
+	if x != nil {
+		return x.Duplicate
+	}
+	return false
+}
+
+func (x *BulkMutateWorkItemsResponse) GetReceipts() []*BulkWorkItemReceipt {
+	if x != nil {
+		return x.Receipts
+	}
+	return nil
+}
+
 var File_bpmp_human_v1_human_proto protoreflect.FileDescriptor
 
 const file_bpmp_human_v1_human_proto_rawDesc = "" +
@@ -2275,7 +2739,7 @@ const file_bpmp_human_v1_human_proto_rawDesc = "" +
 	"\x0fidempotency_key\x18\b \x01(\tR\x0eidempotencyKey\x12:\n" +
 	"\aoutputs\x18\t \x03(\v2 .bpmp.engine.v1.WorkflowVariableR\aoutputs\x12&\n" +
 	"\x0fform_version_id\x18\n" +
-	" \x01(\tR\rformVersionId\"\x80\x03\n" +
+	" \x01(\tR\rformVersionId\"\x98\x03\n" +
 	"\x17DelegateWorkItemRequest\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12 \n" +
 	"\fwork_item_id\x18\x02 \x01(\tR\n" +
@@ -2289,7 +2753,9 @@ const file_bpmp_human_v1_human_proto_rawDesc = "" +
 	"\x0fcandidate_group\x18\a \x01(\tR\x0ecandidateGroup\x12B\n" +
 	"\vactor_proof\x18\b \x01(\v2!.bpmp.authorization.v1.ActorProofR\n" +
 	"actorProof\x12'\n" +
-	"\x0fidempotency_key\x18\t \x01(\tR\x0eidempotencyKey\"e\n" +
+	"\x0fidempotency_key\x18\t \x01(\tR\x0eidempotencyKey\x12\x16\n" +
+	"\x06reason\x18\n" +
+	" \x01(\tR\x06reason\"e\n" +
 	"\x18CompleteWorkItemResponse\x12\x1d\n" +
 	"\n" +
 	"command_id\x18\x01 \x01(\tR\tcommandId\x12*\n" +
@@ -2393,12 +2859,58 @@ const file_bpmp_human_v1_human_proto_rawDesc = "" +
 	"\x0ecorrelation_id\x18\b \x01(\tR\rcorrelationId\x122\n" +
 	"\x15engine_event_envelope\x18\t \x01(\fR\x13engineEventEnvelope\x12,\n" +
 	"\x12audit_details_json\x18\n" +
-	" \x01(\fR\x10auditDetailsJson*\xa6\x01\n" +
+	" \x01(\fR\x10auditDetailsJson\"\xc5\x02\n" +
+	"\x14BulkWorkItemMutation\x12 \n" +
+	"\fwork_item_id\x18\x01 \x01(\tR\n" +
+	"workItemId\x12)\n" +
+	"\x10expected_version\x18\x02 \x01(\x03R\x0fexpectedVersion\x12\x1a\n" +
+	"\bdecision\x18\x03 \x01(\tR\bdecision\x12&\n" +
+	"\x0fform_version_id\x18\x04 \x01(\tR\rformVersionId\x12:\n" +
+	"\aoutputs\x18\x05 \x03(\v2 .bpmp.engine.v1.WorkflowVariableR\aoutputs\x12\x1f\n" +
+	"\vassignee_id\x18\x06 \x01(\tR\n" +
+	"assigneeId\x12'\n" +
+	"\x0fcandidate_group\x18\a \x01(\tR\x0ecandidateGroup\x12\x16\n" +
+	"\x06reason\x18\b \x01(\tR\x06reason\"\x9b\x03\n" +
+	"\x1aBulkMutateWorkItemsRequest\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12!\n" +
+	"\foperation_id\x18\x02 \x01(\tR\voperationId\x12'\n" +
+	"\x0fidempotency_key\x18\x03 \x01(\tR\x0eidempotencyKey\x12%\n" +
+	"\x0ecorrelation_id\x18\x04 \x01(\tR\rcorrelationId\x123\n" +
+	"\x04mode\x18\x05 \x01(\x0e2\x1f.bpmp.human.v1.WorkItemBulkModeR\x04mode\x129\n" +
+	"\x06action\x18\x06 \x01(\x0e2!.bpmp.human.v1.WorkItemBulkActionR\x06action\x129\n" +
+	"\x05items\x18\a \x03(\v2#.bpmp.human.v1.BulkWorkItemMutationR\x05items\x12B\n" +
+	"\vactor_proof\x18\b \x01(\v2!.bpmp.authorization.v1.ActorProofR\n" +
+	"actorProof\"\xd8\x01\n" +
+	"\x13BulkWorkItemReceipt\x12 \n" +
+	"\fwork_item_id\x18\x01 \x01(\tR\n" +
+	"workItemId\x12\x1d\n" +
+	"\n" +
+	"command_id\x18\x02 \x01(\tR\tcommandId\x12\x16\n" +
+	"\x06status\x18\x03 \x01(\tR\x06status\x12\x1d\n" +
+	"\n" +
+	"error_code\x18\x04 \x01(\tR\terrorCode\x12\x1c\n" +
+	"\tretryable\x18\x05 \x01(\bR\tretryable\x12+\n" +
+	"\x11resulting_version\x18\x06 \x01(\x03R\x10resultingVersion\"\xb6\x01\n" +
+	"\x1bBulkMutateWorkItemsResponse\x12!\n" +
+	"\foperation_id\x18\x01 \x01(\tR\voperationId\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\x12\x1c\n" +
+	"\tduplicate\x18\x03 \x01(\bR\tduplicate\x12>\n" +
+	"\breceipts\x18\x04 \x03(\v2\".bpmp.human.v1.BulkWorkItemReceiptR\breceipts*\xa6\x01\n" +
 	"\x11WorkItemListScope\x12$\n" +
 	" WORK_ITEM_LIST_SCOPE_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18WORK_ITEM_LIST_SCOPE_ALL\x10\x01\x12'\n" +
 	"#WORK_ITEM_LIST_SCOPE_ASSIGNED_TO_ME\x10\x02\x12$\n" +
-	" WORK_ITEM_LIST_SCOPE_GROUP_QUEUE\x10\x032\x8a\b\n" +
+	" WORK_ITEM_LIST_SCOPE_GROUP_QUEUE\x10\x03*x\n" +
+	"\x10WorkItemBulkMode\x12#\n" +
+	"\x1fWORK_ITEM_BULK_MODE_UNSPECIFIED\x10\x00\x12\x1f\n" +
+	"\x1bWORK_ITEM_BULK_MODE_PARTIAL\x10\x01\x12\x1e\n" +
+	"\x1aWORK_ITEM_BULK_MODE_ATOMIC\x10\x02*\xc7\x01\n" +
+	"\x12WorkItemBulkAction\x12%\n" +
+	"!WORK_ITEM_BULK_ACTION_UNSPECIFIED\x10\x00\x12\x1f\n" +
+	"\x1bWORK_ITEM_BULK_ACTION_CLAIM\x10\x01\x12!\n" +
+	"\x1dWORK_ITEM_BULK_ACTION_UNCLAIM\x10\x02\x12\"\n" +
+	"\x1eWORK_ITEM_BULK_ACTION_COMPLETE\x10\x03\x12\"\n" +
+	"\x1eWORK_ITEM_BULK_ACTION_DELEGATE\x10\x042\xf8\b\n" +
 	"\x13HumanRuntimeService\x12T\n" +
 	"\vGetWorkItem\x12!.bpmp.human.v1.GetWorkItemRequest\x1a\".bpmp.human.v1.GetWorkItemResponse\x12Z\n" +
 	"\rListWorkItems\x12#.bpmp.human.v1.ListWorkItemsRequest\x1a$.bpmp.human.v1.ListWorkItemsResponse\x12c\n" +
@@ -2406,7 +2918,8 @@ const file_bpmp_human_v1_human_proto_rawDesc = "" +
 	"\x10DelegateWorkItem\x12&.bpmp.human.v1.DelegateWorkItemRequest\x1a'.bpmp.human.v1.DelegateWorkItemResponse\x12H\n" +
 	"\aGetCase\x12\x1d.bpmp.human.v1.GetCaseRequest\x1a\x1e.bpmp.human.v1.GetCaseResponse\x12c\n" +
 	"\x10ListAuditRecords\x12&.bpmp.human.v1.ListAuditRecordsRequest\x1a'.bpmp.human.v1.ListAuditRecordsResponse\x12i\n" +
-	"\x12GetWorkItemHistory\x12(.bpmp.human.v1.GetWorkItemHistoryRequest\x1a).bpmp.human.v1.GetWorkItemHistoryResponse\x12o\n" +
+	"\x12GetWorkItemHistory\x12(.bpmp.human.v1.GetWorkItemHistoryRequest\x1a).bpmp.human.v1.GetWorkItemHistoryResponse\x12l\n" +
+	"\x13BulkMutateWorkItems\x12).bpmp.human.v1.BulkMutateWorkItemsRequest\x1a*.bpmp.human.v1.BulkMutateWorkItemsResponse\x12o\n" +
 	"\x14ListAssignmentGroups\x12*.bpmp.human.v1.ListAssignmentGroupsRequest\x1a+.bpmp.human.v1.ListAssignmentGroupsResponse\x12u\n" +
 	"\x16ListAssignmentPolicies\x12,.bpmp.human.v1.ListAssignmentPoliciesRequest\x1a-.bpmp.human.v1.ListAssignmentPoliciesResponse\x12u\n" +
 	"\x16UpsertAssignmentPolicy\x12,.bpmp.human.v1.UpsertAssignmentPolicyRequest\x1a-.bpmp.human.v1.UpsertAssignmentPolicyResponseb\x06proto3"
@@ -2423,87 +2936,101 @@ func file_bpmp_human_v1_human_proto_rawDescGZIP() []byte {
 	return file_bpmp_human_v1_human_proto_rawDescData
 }
 
-var file_bpmp_human_v1_human_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_bpmp_human_v1_human_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
+var file_bpmp_human_v1_human_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_bpmp_human_v1_human_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
 var file_bpmp_human_v1_human_proto_goTypes = []any{
 	(WorkItemListScope)(0),                 // 0: bpmp.human.v1.WorkItemListScope
-	(*ListAssignmentGroupsRequest)(nil),    // 1: bpmp.human.v1.ListAssignmentGroupsRequest
-	(*AssignmentGroup)(nil),                // 2: bpmp.human.v1.AssignmentGroup
-	(*ListAssignmentGroupsResponse)(nil),   // 3: bpmp.human.v1.ListAssignmentGroupsResponse
-	(*AssignmentPolicy)(nil),               // 4: bpmp.human.v1.AssignmentPolicy
-	(*ListAssignmentPoliciesRequest)(nil),  // 5: bpmp.human.v1.ListAssignmentPoliciesRequest
-	(*ListAssignmentPoliciesResponse)(nil), // 6: bpmp.human.v1.ListAssignmentPoliciesResponse
-	(*UpsertAssignmentPolicyRequest)(nil),  // 7: bpmp.human.v1.UpsertAssignmentPolicyRequest
-	(*UpsertAssignmentPolicyResponse)(nil), // 8: bpmp.human.v1.UpsertAssignmentPolicyResponse
-	(*GetWorkItemRequest)(nil),             // 9: bpmp.human.v1.GetWorkItemRequest
-	(*GetWorkItemResponse)(nil),            // 10: bpmp.human.v1.GetWorkItemResponse
-	(*ListWorkItemsRequest)(nil),           // 11: bpmp.human.v1.ListWorkItemsRequest
-	(*ListWorkItemsResponse)(nil),          // 12: bpmp.human.v1.ListWorkItemsResponse
-	(*CompleteWorkItemRequest)(nil),        // 13: bpmp.human.v1.CompleteWorkItemRequest
-	(*DelegateWorkItemRequest)(nil),        // 14: bpmp.human.v1.DelegateWorkItemRequest
-	(*CompleteWorkItemResponse)(nil),       // 15: bpmp.human.v1.CompleteWorkItemResponse
-	(*DelegateWorkItemResponse)(nil),       // 16: bpmp.human.v1.DelegateWorkItemResponse
-	(*WorkItem)(nil),                       // 17: bpmp.human.v1.WorkItem
-	(*GetCaseRequest)(nil),                 // 18: bpmp.human.v1.GetCaseRequest
-	(*GetCaseResponse)(nil),                // 19: bpmp.human.v1.GetCaseResponse
-	(*CasePlanItem)(nil),                   // 20: bpmp.human.v1.CasePlanItem
-	(*CaseView)(nil),                       // 21: bpmp.human.v1.CaseView
-	(*ListAuditRecordsRequest)(nil),        // 22: bpmp.human.v1.ListAuditRecordsRequest
-	(*ListAuditRecordsResponse)(nil),       // 23: bpmp.human.v1.ListAuditRecordsResponse
-	(*AuditRecord)(nil),                    // 24: bpmp.human.v1.AuditRecord
-	(*GetWorkItemHistoryRequest)(nil),      // 25: bpmp.human.v1.GetWorkItemHistoryRequest
-	(*GetWorkItemHistoryResponse)(nil),     // 26: bpmp.human.v1.GetWorkItemHistoryResponse
-	(*WorkItemHistoryEntry)(nil),           // 27: bpmp.human.v1.WorkItemHistoryEntry
-	(*v1.ActorProof)(nil),                  // 28: bpmp.authorization.v1.ActorProof
-	(*v11.WorkflowVariable)(nil),           // 29: bpmp.engine.v1.WorkflowVariable
+	(WorkItemBulkMode)(0),                  // 1: bpmp.human.v1.WorkItemBulkMode
+	(WorkItemBulkAction)(0),                // 2: bpmp.human.v1.WorkItemBulkAction
+	(*ListAssignmentGroupsRequest)(nil),    // 3: bpmp.human.v1.ListAssignmentGroupsRequest
+	(*AssignmentGroup)(nil),                // 4: bpmp.human.v1.AssignmentGroup
+	(*ListAssignmentGroupsResponse)(nil),   // 5: bpmp.human.v1.ListAssignmentGroupsResponse
+	(*AssignmentPolicy)(nil),               // 6: bpmp.human.v1.AssignmentPolicy
+	(*ListAssignmentPoliciesRequest)(nil),  // 7: bpmp.human.v1.ListAssignmentPoliciesRequest
+	(*ListAssignmentPoliciesResponse)(nil), // 8: bpmp.human.v1.ListAssignmentPoliciesResponse
+	(*UpsertAssignmentPolicyRequest)(nil),  // 9: bpmp.human.v1.UpsertAssignmentPolicyRequest
+	(*UpsertAssignmentPolicyResponse)(nil), // 10: bpmp.human.v1.UpsertAssignmentPolicyResponse
+	(*GetWorkItemRequest)(nil),             // 11: bpmp.human.v1.GetWorkItemRequest
+	(*GetWorkItemResponse)(nil),            // 12: bpmp.human.v1.GetWorkItemResponse
+	(*ListWorkItemsRequest)(nil),           // 13: bpmp.human.v1.ListWorkItemsRequest
+	(*ListWorkItemsResponse)(nil),          // 14: bpmp.human.v1.ListWorkItemsResponse
+	(*CompleteWorkItemRequest)(nil),        // 15: bpmp.human.v1.CompleteWorkItemRequest
+	(*DelegateWorkItemRequest)(nil),        // 16: bpmp.human.v1.DelegateWorkItemRequest
+	(*CompleteWorkItemResponse)(nil),       // 17: bpmp.human.v1.CompleteWorkItemResponse
+	(*DelegateWorkItemResponse)(nil),       // 18: bpmp.human.v1.DelegateWorkItemResponse
+	(*WorkItem)(nil),                       // 19: bpmp.human.v1.WorkItem
+	(*GetCaseRequest)(nil),                 // 20: bpmp.human.v1.GetCaseRequest
+	(*GetCaseResponse)(nil),                // 21: bpmp.human.v1.GetCaseResponse
+	(*CasePlanItem)(nil),                   // 22: bpmp.human.v1.CasePlanItem
+	(*CaseView)(nil),                       // 23: bpmp.human.v1.CaseView
+	(*ListAuditRecordsRequest)(nil),        // 24: bpmp.human.v1.ListAuditRecordsRequest
+	(*ListAuditRecordsResponse)(nil),       // 25: bpmp.human.v1.ListAuditRecordsResponse
+	(*AuditRecord)(nil),                    // 26: bpmp.human.v1.AuditRecord
+	(*GetWorkItemHistoryRequest)(nil),      // 27: bpmp.human.v1.GetWorkItemHistoryRequest
+	(*GetWorkItemHistoryResponse)(nil),     // 28: bpmp.human.v1.GetWorkItemHistoryResponse
+	(*WorkItemHistoryEntry)(nil),           // 29: bpmp.human.v1.WorkItemHistoryEntry
+	(*BulkWorkItemMutation)(nil),           // 30: bpmp.human.v1.BulkWorkItemMutation
+	(*BulkMutateWorkItemsRequest)(nil),     // 31: bpmp.human.v1.BulkMutateWorkItemsRequest
+	(*BulkWorkItemReceipt)(nil),            // 32: bpmp.human.v1.BulkWorkItemReceipt
+	(*BulkMutateWorkItemsResponse)(nil),    // 33: bpmp.human.v1.BulkMutateWorkItemsResponse
+	(*v1.ActorProof)(nil),                  // 34: bpmp.authorization.v1.ActorProof
+	(*v11.WorkflowVariable)(nil),           // 35: bpmp.engine.v1.WorkflowVariable
 }
 var file_bpmp_human_v1_human_proto_depIdxs = []int32{
-	28, // 0: bpmp.human.v1.ListAssignmentGroupsRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
-	2,  // 1: bpmp.human.v1.ListAssignmentGroupsResponse.groups:type_name -> bpmp.human.v1.AssignmentGroup
-	28, // 2: bpmp.human.v1.ListAssignmentPoliciesRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
-	4,  // 3: bpmp.human.v1.ListAssignmentPoliciesResponse.policies:type_name -> bpmp.human.v1.AssignmentPolicy
-	28, // 4: bpmp.human.v1.UpsertAssignmentPolicyRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
-	4,  // 5: bpmp.human.v1.UpsertAssignmentPolicyResponse.policy:type_name -> bpmp.human.v1.AssignmentPolicy
-	28, // 6: bpmp.human.v1.GetWorkItemRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
-	17, // 7: bpmp.human.v1.GetWorkItemResponse.work_item:type_name -> bpmp.human.v1.WorkItem
-	28, // 8: bpmp.human.v1.ListWorkItemsRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	34, // 0: bpmp.human.v1.ListAssignmentGroupsRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	4,  // 1: bpmp.human.v1.ListAssignmentGroupsResponse.groups:type_name -> bpmp.human.v1.AssignmentGroup
+	34, // 2: bpmp.human.v1.ListAssignmentPoliciesRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	6,  // 3: bpmp.human.v1.ListAssignmentPoliciesResponse.policies:type_name -> bpmp.human.v1.AssignmentPolicy
+	34, // 4: bpmp.human.v1.UpsertAssignmentPolicyRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	6,  // 5: bpmp.human.v1.UpsertAssignmentPolicyResponse.policy:type_name -> bpmp.human.v1.AssignmentPolicy
+	34, // 6: bpmp.human.v1.GetWorkItemRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	19, // 7: bpmp.human.v1.GetWorkItemResponse.work_item:type_name -> bpmp.human.v1.WorkItem
+	34, // 8: bpmp.human.v1.ListWorkItemsRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
 	0,  // 9: bpmp.human.v1.ListWorkItemsRequest.scope:type_name -> bpmp.human.v1.WorkItemListScope
-	17, // 10: bpmp.human.v1.ListWorkItemsResponse.work_items:type_name -> bpmp.human.v1.WorkItem
-	28, // 11: bpmp.human.v1.CompleteWorkItemRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
-	29, // 12: bpmp.human.v1.CompleteWorkItemRequest.outputs:type_name -> bpmp.engine.v1.WorkflowVariable
-	28, // 13: bpmp.human.v1.DelegateWorkItemRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
-	28, // 14: bpmp.human.v1.GetCaseRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
-	21, // 15: bpmp.human.v1.GetCaseResponse.case:type_name -> bpmp.human.v1.CaseView
-	20, // 16: bpmp.human.v1.CaseView.plan_items:type_name -> bpmp.human.v1.CasePlanItem
-	28, // 17: bpmp.human.v1.ListAuditRecordsRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
-	24, // 18: bpmp.human.v1.ListAuditRecordsResponse.records:type_name -> bpmp.human.v1.AuditRecord
-	28, // 19: bpmp.human.v1.GetWorkItemHistoryRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
-	27, // 20: bpmp.human.v1.GetWorkItemHistoryResponse.entries:type_name -> bpmp.human.v1.WorkItemHistoryEntry
-	9,  // 21: bpmp.human.v1.HumanRuntimeService.GetWorkItem:input_type -> bpmp.human.v1.GetWorkItemRequest
-	11, // 22: bpmp.human.v1.HumanRuntimeService.ListWorkItems:input_type -> bpmp.human.v1.ListWorkItemsRequest
-	13, // 23: bpmp.human.v1.HumanRuntimeService.CompleteWorkItem:input_type -> bpmp.human.v1.CompleteWorkItemRequest
-	14, // 24: bpmp.human.v1.HumanRuntimeService.DelegateWorkItem:input_type -> bpmp.human.v1.DelegateWorkItemRequest
-	18, // 25: bpmp.human.v1.HumanRuntimeService.GetCase:input_type -> bpmp.human.v1.GetCaseRequest
-	22, // 26: bpmp.human.v1.HumanRuntimeService.ListAuditRecords:input_type -> bpmp.human.v1.ListAuditRecordsRequest
-	25, // 27: bpmp.human.v1.HumanRuntimeService.GetWorkItemHistory:input_type -> bpmp.human.v1.GetWorkItemHistoryRequest
-	1,  // 28: bpmp.human.v1.HumanRuntimeService.ListAssignmentGroups:input_type -> bpmp.human.v1.ListAssignmentGroupsRequest
-	5,  // 29: bpmp.human.v1.HumanRuntimeService.ListAssignmentPolicies:input_type -> bpmp.human.v1.ListAssignmentPoliciesRequest
-	7,  // 30: bpmp.human.v1.HumanRuntimeService.UpsertAssignmentPolicy:input_type -> bpmp.human.v1.UpsertAssignmentPolicyRequest
-	10, // 31: bpmp.human.v1.HumanRuntimeService.GetWorkItem:output_type -> bpmp.human.v1.GetWorkItemResponse
-	12, // 32: bpmp.human.v1.HumanRuntimeService.ListWorkItems:output_type -> bpmp.human.v1.ListWorkItemsResponse
-	15, // 33: bpmp.human.v1.HumanRuntimeService.CompleteWorkItem:output_type -> bpmp.human.v1.CompleteWorkItemResponse
-	16, // 34: bpmp.human.v1.HumanRuntimeService.DelegateWorkItem:output_type -> bpmp.human.v1.DelegateWorkItemResponse
-	19, // 35: bpmp.human.v1.HumanRuntimeService.GetCase:output_type -> bpmp.human.v1.GetCaseResponse
-	23, // 36: bpmp.human.v1.HumanRuntimeService.ListAuditRecords:output_type -> bpmp.human.v1.ListAuditRecordsResponse
-	26, // 37: bpmp.human.v1.HumanRuntimeService.GetWorkItemHistory:output_type -> bpmp.human.v1.GetWorkItemHistoryResponse
-	3,  // 38: bpmp.human.v1.HumanRuntimeService.ListAssignmentGroups:output_type -> bpmp.human.v1.ListAssignmentGroupsResponse
-	6,  // 39: bpmp.human.v1.HumanRuntimeService.ListAssignmentPolicies:output_type -> bpmp.human.v1.ListAssignmentPoliciesResponse
-	8,  // 40: bpmp.human.v1.HumanRuntimeService.UpsertAssignmentPolicy:output_type -> bpmp.human.v1.UpsertAssignmentPolicyResponse
-	31, // [31:41] is the sub-list for method output_type
-	21, // [21:31] is the sub-list for method input_type
-	21, // [21:21] is the sub-list for extension type_name
-	21, // [21:21] is the sub-list for extension extendee
-	0,  // [0:21] is the sub-list for field type_name
+	19, // 10: bpmp.human.v1.ListWorkItemsResponse.work_items:type_name -> bpmp.human.v1.WorkItem
+	34, // 11: bpmp.human.v1.CompleteWorkItemRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	35, // 12: bpmp.human.v1.CompleteWorkItemRequest.outputs:type_name -> bpmp.engine.v1.WorkflowVariable
+	34, // 13: bpmp.human.v1.DelegateWorkItemRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	34, // 14: bpmp.human.v1.GetCaseRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	23, // 15: bpmp.human.v1.GetCaseResponse.case:type_name -> bpmp.human.v1.CaseView
+	22, // 16: bpmp.human.v1.CaseView.plan_items:type_name -> bpmp.human.v1.CasePlanItem
+	34, // 17: bpmp.human.v1.ListAuditRecordsRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	26, // 18: bpmp.human.v1.ListAuditRecordsResponse.records:type_name -> bpmp.human.v1.AuditRecord
+	34, // 19: bpmp.human.v1.GetWorkItemHistoryRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	29, // 20: bpmp.human.v1.GetWorkItemHistoryResponse.entries:type_name -> bpmp.human.v1.WorkItemHistoryEntry
+	35, // 21: bpmp.human.v1.BulkWorkItemMutation.outputs:type_name -> bpmp.engine.v1.WorkflowVariable
+	1,  // 22: bpmp.human.v1.BulkMutateWorkItemsRequest.mode:type_name -> bpmp.human.v1.WorkItemBulkMode
+	2,  // 23: bpmp.human.v1.BulkMutateWorkItemsRequest.action:type_name -> bpmp.human.v1.WorkItemBulkAction
+	30, // 24: bpmp.human.v1.BulkMutateWorkItemsRequest.items:type_name -> bpmp.human.v1.BulkWorkItemMutation
+	34, // 25: bpmp.human.v1.BulkMutateWorkItemsRequest.actor_proof:type_name -> bpmp.authorization.v1.ActorProof
+	32, // 26: bpmp.human.v1.BulkMutateWorkItemsResponse.receipts:type_name -> bpmp.human.v1.BulkWorkItemReceipt
+	11, // 27: bpmp.human.v1.HumanRuntimeService.GetWorkItem:input_type -> bpmp.human.v1.GetWorkItemRequest
+	13, // 28: bpmp.human.v1.HumanRuntimeService.ListWorkItems:input_type -> bpmp.human.v1.ListWorkItemsRequest
+	15, // 29: bpmp.human.v1.HumanRuntimeService.CompleteWorkItem:input_type -> bpmp.human.v1.CompleteWorkItemRequest
+	16, // 30: bpmp.human.v1.HumanRuntimeService.DelegateWorkItem:input_type -> bpmp.human.v1.DelegateWorkItemRequest
+	20, // 31: bpmp.human.v1.HumanRuntimeService.GetCase:input_type -> bpmp.human.v1.GetCaseRequest
+	24, // 32: bpmp.human.v1.HumanRuntimeService.ListAuditRecords:input_type -> bpmp.human.v1.ListAuditRecordsRequest
+	27, // 33: bpmp.human.v1.HumanRuntimeService.GetWorkItemHistory:input_type -> bpmp.human.v1.GetWorkItemHistoryRequest
+	31, // 34: bpmp.human.v1.HumanRuntimeService.BulkMutateWorkItems:input_type -> bpmp.human.v1.BulkMutateWorkItemsRequest
+	3,  // 35: bpmp.human.v1.HumanRuntimeService.ListAssignmentGroups:input_type -> bpmp.human.v1.ListAssignmentGroupsRequest
+	7,  // 36: bpmp.human.v1.HumanRuntimeService.ListAssignmentPolicies:input_type -> bpmp.human.v1.ListAssignmentPoliciesRequest
+	9,  // 37: bpmp.human.v1.HumanRuntimeService.UpsertAssignmentPolicy:input_type -> bpmp.human.v1.UpsertAssignmentPolicyRequest
+	12, // 38: bpmp.human.v1.HumanRuntimeService.GetWorkItem:output_type -> bpmp.human.v1.GetWorkItemResponse
+	14, // 39: bpmp.human.v1.HumanRuntimeService.ListWorkItems:output_type -> bpmp.human.v1.ListWorkItemsResponse
+	17, // 40: bpmp.human.v1.HumanRuntimeService.CompleteWorkItem:output_type -> bpmp.human.v1.CompleteWorkItemResponse
+	18, // 41: bpmp.human.v1.HumanRuntimeService.DelegateWorkItem:output_type -> bpmp.human.v1.DelegateWorkItemResponse
+	21, // 42: bpmp.human.v1.HumanRuntimeService.GetCase:output_type -> bpmp.human.v1.GetCaseResponse
+	25, // 43: bpmp.human.v1.HumanRuntimeService.ListAuditRecords:output_type -> bpmp.human.v1.ListAuditRecordsResponse
+	28, // 44: bpmp.human.v1.HumanRuntimeService.GetWorkItemHistory:output_type -> bpmp.human.v1.GetWorkItemHistoryResponse
+	33, // 45: bpmp.human.v1.HumanRuntimeService.BulkMutateWorkItems:output_type -> bpmp.human.v1.BulkMutateWorkItemsResponse
+	5,  // 46: bpmp.human.v1.HumanRuntimeService.ListAssignmentGroups:output_type -> bpmp.human.v1.ListAssignmentGroupsResponse
+	8,  // 47: bpmp.human.v1.HumanRuntimeService.ListAssignmentPolicies:output_type -> bpmp.human.v1.ListAssignmentPoliciesResponse
+	10, // 48: bpmp.human.v1.HumanRuntimeService.UpsertAssignmentPolicy:output_type -> bpmp.human.v1.UpsertAssignmentPolicyResponse
+	38, // [38:49] is the sub-list for method output_type
+	27, // [27:38] is the sub-list for method input_type
+	27, // [27:27] is the sub-list for extension type_name
+	27, // [27:27] is the sub-list for extension extendee
+	0,  // [0:27] is the sub-list for field type_name
 }
 
 func init() { file_bpmp_human_v1_human_proto_init() }
@@ -2516,8 +3043,8 @@ func file_bpmp_human_v1_human_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bpmp_human_v1_human_proto_rawDesc), len(file_bpmp_human_v1_human_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   27,
+			NumEnums:      3,
+			NumMessages:   31,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

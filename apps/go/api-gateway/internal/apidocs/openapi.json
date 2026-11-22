@@ -1902,6 +1902,38 @@
         }
       }
     },
+    "/v1/work-items/{workItemID}/history": {
+      "parameters": [
+        {"name":"workItemID","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Identifier"}},
+        {"$ref":"#/components/parameters/TenantID"},
+        {"$ref":"#/components/parameters/CorrelationID"}
+      ],
+      "get": {
+        "summary":"Read the bounded work-item timeline from Engine events and Human Runtime audit",
+        "operationId":"getWorkItemHistory",
+        "tags":["Human Work"],
+        "parameters":[
+          {"name":"page_size","in":"query","required":false,"schema":{"type":"integer","minimum":1,"maximum":100}},
+          {"name":"page_token","in":"query","required":false,"schema":{"type":"string","maxLength":2048}}
+        ],
+        "responses":{"200":{"description":"Timeline page and Engine watermark"},"400":{"$ref":"#/components/responses/BadRequest"},"403":{"$ref":"#/components/responses/Forbidden"},"502":{"$ref":"#/components/responses/UpstreamUnavailable"}}
+      }
+    },
+    "/v1/work-items/bulk": {
+      "parameters":[
+        {"$ref":"#/components/parameters/TenantID"},
+        {"$ref":"#/components/parameters/CorrelationID"},
+        {"$ref":"#/components/parameters/CommandID"},
+        {"$ref":"#/components/parameters/IdempotencyKey"}
+      ],
+      "post": {
+        "summary":"Apply a bounded partial-mode work-item mutation with durable per-item receipts",
+        "operationId":"bulkMutateWorkItems",
+        "tags":["Human Work"],
+        "requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["mode","action","items"],"properties":{"mode":{"type":"string","enum":["PARTIAL","ATOMIC"]},"action":{"type":"string","enum":["CLAIM","UNCLAIM","COMPLETE","DELEGATE"]},"items":{"type":"array","minItems":1,"maxItems":20,"items":{"type":"object","required":["work_item_id","expected_version"],"properties":{"work_item_id":{"$ref":"#/components/schemas/Identifier"},"expected_version":{"type":"integer","minimum":1},"decision":{"type":"string"},"form_version_id":{"type":"string"},"outputs":{"type":"array","items":{"type":"object"}},"assignee_id":{"type":"string"},"candidate_group":{"type":"string"},"reason":{"type":"string"}}}}}}}}},
+        "responses":{"200":{"description":"Durable operation status and per-item receipts"},"400":{"$ref":"#/components/responses/BadRequest"},"403":{"$ref":"#/components/responses/Forbidden"},"409":{"description":"Idempotency conflict"},"502":{"$ref":"#/components/responses/UpstreamUnavailable"}}
+      }
+    },
     "/v1/access/catalog/versions": {
       "get": {
         "summary": "List authorization catalog versions",

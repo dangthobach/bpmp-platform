@@ -254,6 +254,7 @@ var publicOperationDefinitions = []publicOperationDefinition{
 	{PublicOperation{http.MethodGet, "/v1/authoring/forms/{formID}/versions/{versionID}", "getFormVersion"}, (*Handler).getFormVersion, false},
 	{PublicOperation{http.MethodGet, "/v1/work-items/{workItemID}", "getWorkItem"}, (*Handler).getWorkItem, false},
 	{PublicOperation{http.MethodGet, "/v1/work-items/{workItemID}/history", "getWorkItemHistory"}, (*Handler).getWorkItemHistory, false},
+	{PublicOperation{http.MethodPost, "/v1/work-items/bulk", "bulkMutateWorkItems"}, (*Handler).bulkMutateWorkItems, false},
 	{PublicOperation{http.MethodPost, "/v1/work-items/{workItemID}/complete", "completeWorkItem"}, (*Handler).completeWorkItem, false},
 	{PublicOperation{http.MethodPost, "/v1/work-items/{workItemID}/delegate", "delegateWorkItem"}, (*Handler).delegateWorkItem, false},
 	{PublicOperation{http.MethodPost, "/v1/work-items/{workItemID}/claim", "claimWorkItem"}, (*Handler).claimWorkItem, false},
@@ -845,6 +846,93 @@ func (h *Handler) getWorkItemHistory(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
+type bulkWorkItemMutationBody struct {
+	WorkItemID      string            `json:"work_item_id"`
+	ExpectedVersion int64             `json:"expected_version"`
+	Decision        string            `json:"decision"`
+	FormVersionID   string            `json:"form_version_id"`
+	Outputs         []json.RawMessage `json:"outputs"`
+	AssigneeID      string            `json:"assignee_id"`
+	CandidateGroup  string            `json:"candidate_group"`
+	Reason          string            `json:"reason"`
+}
+
+type bulkWorkItemMutationBodyRequest struct {
+	Mode   string                     `json:"mode"`
+	Action string                     `json:"action"`
+	Items  []bulkWorkItemMutationBody `json:"items"`
+}
+
+func (h *Handler) bulkMutateWorkItems(w http.ResponseWriter, r *http.Request) {
+	setCorrelationHeader(w, r)
+	scope, err := h.authenticate(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var body bulkWorkItemMutationBodyRequest
+	if err = decodeBody(w, r, &body, scope.runtimePolicy.MaxRequestBodyBytes); err != nil || len(body.Items) == 0 || len(body.Items) > 20 {
+		writeError(w, errInvalid)
+		return
+	}
+	request := &humanv1.BulkMutateWorkItemsRequest{
+		TenantId: scope.tenantID, OperationId: scope.commandID, IdempotencyKey: scope.idempotencyKey,
+		CorrelationId: scope.correlationID, ActorProof: actorProof(scope),
+	}
+	switch strings.ToUpper(body.Mode) {
+	case "PARTIAL":
+		request.Mode = humanv1.WorkItemBulkMode_WORK_ITEM_BULK_MODE_PARTIAL
+	case "ATOMIC":
+		request.Mode = humanv1.WorkItemBulkMode_WORK_ITEM_BULK_MODE_ATOMIC
+	default:
+		writeError(w, errInvalid)
+		return
+	}
+	switch strings.ToUpper(body.Action) {
+	case "CLAIM":
+		request.Action = humanv1.WorkItemBulkAction_WORK_ITEM_BULK_ACTION_CLAIM
+	case "UNCLAIM":
+		request.Action = humanv1.WorkItemBulkAction_WORK_ITEM_BULK_ACTION_UNCLAIM
+	case "COMPLETE":
+		request.Action = humanv1.WorkItemBulkAction_WORK_ITEM_BULK_ACTION_COMPLETE
+	case "DELEGATE":
+		request.Action = humanv1.WorkItemBulkAction_WORK_ITEM_BULK_ACTION_DELEGATE
+	default:
+		writeError(w, errInvalid)
+		return
+	}
+	request.Items = make([]*humanv1.BulkWorkItemMutation, 0, len(body.Items))
+	for _, input := range body.Items {
+		if !validID(input.WorkItemID) || input.ExpectedVersion < 1 {
+			writeError(w, errInvalid)
+			return
+		}
+		item := &humanv1.BulkWorkItemMutation{
+			WorkItemId: input.WorkItemID, ExpectedVersion: input.ExpectedVersion,
+			Decision: input.Decision, FormVersionId: input.FormVersionID,
+			AssigneeId: input.AssigneeID, CandidateGroup: input.CandidateGroup, Reason: input.Reason,
+		}
+		for _, rawOutput := range input.Outputs {
+			variable := &enginev1.WorkflowVariable{}
+			if err = (protojson.UnmarshalOptions{DiscardUnknown: false}).Unmarshal(rawOutput, variable); err != nil {
+				writeError(w, errInvalid)
+				return
+			}
+			item.Outputs = append(item.Outputs, variable)
+		}
+		request.Items = append(request.Items, item)
+	}
+	response, err := invokeUpstream(h, upstreamContext(r, scope), scope, humanDependency,
+		func(ctx context.Context) (*humanv1.BulkMutateWorkItemsResponse, error) {
+			return h.human.BulkMutateWorkItems(ctx, request)
+		})
+	if err != nil {
+		writeHumanRuntimeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
 func (h *Handler) getCase(w http.ResponseWriter, r *http.Request) {
 	setCorrelationHeader(w, r)
 	scope, err := h.authenticateQuery(r)
@@ -1047,6 +1135,7 @@ type delegateRequest struct {
 	ExpectedVersion int64  `json:"expected_version"`
 	AssigneeID      string `json:"assignee_id"`
 	CandidateGroup  string `json:"candidate_group"`
+	Reason          string `json:"reason"`
 }
 
 func (h *Handler) delegateWorkItem(w http.ResponseWriter, r *http.Request) {
@@ -1064,7 +1153,7 @@ func (h *Handler) delegateWorkItem(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := invokeUpstream(h, upstreamContext(r, scope), scope, humanDependency,
 		func(ctx context.Context) (*humanv1.DelegateWorkItemResponse, error) {
-			return h.human.DelegateWorkItem(ctx, &humanv1.DelegateWorkItemRequest{TenantId: scope.tenantID, WorkItemId: id, CommandId: scope.commandID, IdempotencyKey: scope.idempotencyKey, CorrelationId: scope.correlationID, ExpectedVersion: body.ExpectedVersion, AssigneeId: body.AssigneeID, CandidateGroup: body.CandidateGroup, ActorProof: actorProof(scope)})
+			return h.human.DelegateWorkItem(ctx, &humanv1.DelegateWorkItemRequest{TenantId: scope.tenantID, WorkItemId: id, CommandId: scope.commandID, IdempotencyKey: scope.idempotencyKey, CorrelationId: scope.correlationID, ExpectedVersion: body.ExpectedVersion, AssigneeId: body.AssigneeID, CandidateGroup: body.CandidateGroup, Reason: body.Reason, ActorProof: actorProof(scope)})
 		})
 	if err != nil {
 		writeHumanRuntimeError(w, err)

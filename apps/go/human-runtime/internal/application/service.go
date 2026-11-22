@@ -26,6 +26,8 @@ var (
 	ErrProjectionDependency    = errors.New("committed event projection dependency is missing")
 	ErrPolicyLimit             = errors.New("human runtime policy limit exceeded")
 	ErrAssignmentPolicy        = errors.New("assignment policy is invalid")
+	ErrBulkRequest             = errors.New("bulk mutation request is invalid or unsupported")
+	ErrBulkUnavailable         = errors.New("durable bulk receipt store is unavailable")
 )
 
 type RuntimePolicy struct {
@@ -100,7 +102,44 @@ type DelegateRequest struct {
 	Actor           ActorCredential
 	ActorGroups     map[string]struct{}
 	Assignment      domain.Assignment
+	Reason          string
 	OccurredAt      time.Time
+}
+
+type BulkAction string
+
+const (
+	BulkClaim    BulkAction = "CLAIM"
+	BulkUnclaim  BulkAction = "UNCLAIM"
+	BulkComplete BulkAction = "COMPLETE"
+	BulkDelegate BulkAction = "DELEGATE"
+)
+
+const MaxInlineBulkItems = 20
+
+type BulkItem struct {
+	WorkItemID, Decision, FormVersionID, Reason string
+	ExpectedVersion                             int64
+	Outputs                                     []*enginev1.WorkflowVariable
+	Assignment                                  domain.Assignment
+}
+
+type BulkItemReceipt struct {
+	WorkItemID, CommandID, Status, ErrorCode string
+	Retryable                                bool
+	ResultingVersion                         int64
+}
+
+type BulkOperation struct {
+	TenantID, ActorID, OperationID, IdempotencyKey, Action, Mode, CorrelationID string
+	RequestDigest                                                               []byte
+	OccurredAt                                                                  time.Time
+}
+
+type BulkReceiptStore interface {
+	BeginBulkOperation(context.Context, BulkOperation, []BulkItemReceipt) (string, []BulkItemReceipt, bool, error)
+	SaveBulkItemReceipt(context.Context, string, string, string, BulkItemReceipt, time.Time) error
+	FindBulkCommandAudit(context.Context, string, string) (action string, version int64, found bool, err error)
 }
 
 type UpsertAssignmentPolicyRequest struct {
@@ -130,13 +169,15 @@ type EngineCompleteCommand struct {
 }
 
 type CommittedCompletion struct {
-	TenantID   string
-	EventID    string
-	Sequence   uint64
-	InstanceID string
-	NodeID     string
-	Decision   string
-	OccurredAt time.Time
+	TenantID      string
+	EventID       string
+	Sequence      uint64
+	InstanceID    string
+	NodeID        string
+	Decision      string
+	CommandID     string
+	CorrelationID string
+	OccurredAt    time.Time
 }
 
 type CommittedCase struct {
@@ -185,7 +226,7 @@ type Store interface {
 	RequestCompletion(context.Context, domain.WorkItem, string, string, string) error
 	CommitCompletion(context.Context, CommittedCompletion) error
 	CommitCancellation(context.Context, CommittedCancellation) error
-	Delegate(context.Context, domain.WorkItem, string, string, string) error
+	Delegate(context.Context, domain.WorkItem, string, string, string, string) error
 	ProjectCase(context.Context, CommittedCase) (bool, error)
 	CommitCaseTransition(context.Context, CommittedCaseTransition) error
 	CommitCaseCompletion(context.Context, CommittedCaseCompletion) error
@@ -379,7 +420,148 @@ func (s *Service) Delegate(ctx context.Context, request DelegateRequest) error {
 	if err != nil {
 		return err
 	}
-	return s.store.Delegate(ctx, delegated, request.CommandID, request.CorrelationID, request.Actor.ActorID)
+	return s.store.Delegate(ctx, delegated, request.CommandID, request.CorrelationID, request.Actor.ActorID, request.Reason)
+}
+
+func (s *Service) BulkMutate(ctx context.Context, operation BulkOperation, items []BulkItem, correlationID string, actor ActorCredential, actorGroups map[string]struct{}) (string, []BulkItemReceipt, bool, error) {
+	if err := actor.Validate(); err != nil {
+		return "", nil, false, err
+	}
+	if operation.TenantID == "" || operation.ActorID != actor.ActorID || operation.OperationID == "" || operation.IdempotencyKey == "" || operation.Mode != "PARTIAL" || len(operation.RequestDigest) != sha256.Size || len(items) == 0 || len(items) > MaxInlineBulkItems {
+		return "", nil, false, ErrBulkRequest
+	}
+	if operation.OccurredAt.IsZero() || (operation.Action != string(BulkClaim) && operation.Action != string(BulkUnclaim) && operation.Action != string(BulkComplete) && operation.Action != string(BulkDelegate)) {
+		return "", nil, false, ErrBulkRequest
+	}
+	journal, ok := s.store.(BulkReceiptStore)
+	if !ok {
+		return "", nil, false, ErrBulkUnavailable
+	}
+	initial := make([]BulkItemReceipt, 0, len(items))
+	seen := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		if item.WorkItemID == "" || item.ExpectedVersion < 1 {
+			return "", nil, false, ErrBulkRequest
+		}
+		if _, exists := seen[item.WorkItemID]; exists {
+			return "", nil, false, ErrBulkRequest
+		}
+		seen[item.WorkItemID] = struct{}{}
+		switch BulkAction(operation.Action) {
+		case BulkComplete:
+			if strings.TrimSpace(item.Decision) == "" {
+				return "", nil, false, ErrBulkRequest
+			}
+		case BulkDelegate:
+			if err := item.Assignment.Validate(); err != nil || strings.TrimSpace(item.Reason) == "" {
+				return "", nil, false, ErrBulkRequest
+			}
+		case BulkUnclaim:
+			if strings.TrimSpace(item.Assignment.CandidateGroup) == "" || item.Assignment.AssigneeID != "" {
+				return "", nil, false, ErrBulkRequest
+			}
+		}
+		initial = append(initial, BulkItemReceipt{WorkItemID: item.WorkItemID, CommandID: bulkChildCommand(operation, item.WorkItemID), Status: "PENDING"})
+	}
+	operationID, stored, duplicate, err := journal.BeginBulkOperation(ctx, operation, initial)
+	if err != nil {
+		return "", nil, false, err
+	}
+	byItem := make(map[string]BulkItemReceipt, len(stored))
+	for _, receipt := range stored {
+		byItem[receipt.WorkItemID] = receipt
+	}
+	out := make([]BulkItemReceipt, 0, len(items))
+	for _, item := range items {
+		receipt := byItem[item.WorkItemID]
+		if receipt.Status == "SUCCEEDED" || (receipt.Status == "FAILED" && !receipt.Retryable) {
+			out = append(out, receipt)
+			continue
+		}
+		if action, version, found, auditErr := journal.FindBulkCommandAudit(ctx, operation.TenantID, receipt.CommandID); auditErr != nil {
+			receipt = failBulkItem(receipt, auditErr, true)
+		} else if found && ((operation.Action != string(BulkComplete) && action == "DELEGATED") || (operation.Action == string(BulkComplete) && action == "COMPLETED")) {
+			receipt.Status, receipt.ErrorCode, receipt.Retryable, receipt.ResultingVersion = "SUCCEEDED", "", false, version
+		} else {
+			err = s.runBulkItem(ctx, operation, item, receipt.CommandID, correlationID, actor, actorGroups)
+			if err != nil {
+				receipt = failBulkItem(receipt, err, isRetryableBulkError(err))
+			} else {
+				receipt.Status, receipt.ErrorCode, receipt.Retryable = "SUCCEEDED", "", false
+				receipt.ResultingVersion = item.ExpectedVersion + 1
+			}
+		}
+		if saveErr := journal.SaveBulkItemReceipt(ctx, operation.TenantID, operationID, item.WorkItemID, receipt, operation.OccurredAt); saveErr != nil {
+			return operationID, out, duplicate, fmt.Errorf("persist bulk item receipt: %w", saveErr)
+		}
+		out = append(out, receipt)
+	}
+	return operationID, out, duplicate, nil
+}
+
+func (s *Service) runBulkItem(ctx context.Context, operation BulkOperation, item BulkItem, commandID, correlationID string, actor ActorCredential, actorGroups map[string]struct{}) error {
+	switch BulkAction(operation.Action) {
+	case BulkComplete:
+		return s.Complete(ctx, CompleteRequest{
+			TenantID: operation.TenantID, WorkItemID: item.WorkItemID, CommandID: commandID,
+			IdempotencyKey: commandID, CorrelationID: correlationID, Decision: item.Decision,
+			FormVersionID: item.FormVersionID, Outputs: item.Outputs, ExpectedVersion: item.ExpectedVersion,
+			Actor: actor, ActorGroups: actorGroups, OccurredAt: operation.OccurredAt,
+		})
+	case BulkClaim, BulkUnclaim, BulkDelegate:
+		assignment := item.Assignment
+		if BulkAction(operation.Action) == BulkClaim {
+			assignment = domain.Assignment{AssigneeID: actor.ActorID}
+		}
+		return s.Delegate(ctx, DelegateRequest{
+			TenantID: operation.TenantID, WorkItemID: item.WorkItemID, CommandID: commandID,
+			IdempotencyKey: commandID, CorrelationID: correlationID, ExpectedVersion: item.ExpectedVersion,
+			Actor: actor, ActorGroups: actorGroups, Assignment: assignment, OccurredAt: operation.OccurredAt,
+			Reason: item.Reason,
+		})
+	default:
+		return ErrBulkRequest
+	}
+}
+
+func bulkChildCommand(operation BulkOperation, itemID string) string {
+	digest := sha256.Sum256([]byte(operation.TenantID + "\x00" + operation.OperationID + "\x00" + operation.Action + "\x00" + itemID))
+	return "bulk-" + hex.EncodeToString(digest[:])
+}
+
+func failBulkItem(receipt BulkItemReceipt, err error, retryable bool) BulkItemReceipt {
+	receipt.Status, receipt.ErrorCode, receipt.Retryable = "FAILED", errorCode(err), retryable
+	return receipt
+}
+
+func errorCode(err error) string {
+	switch {
+	case errors.Is(err, ErrVersionConflict):
+		return "VERSION_CONFLICT"
+	case errors.Is(err, ErrForbidden):
+		return "FORBIDDEN"
+	case errors.Is(err, ErrIdempotencyConflict):
+		return "IDEMPOTENCY_CONFLICT"
+	case errors.Is(err, ErrInvalidCompletionOutput):
+		return "INVALID_OUTPUT"
+	case errors.Is(err, ErrPolicyLimit):
+		return "POLICY_LIMIT"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "DEPENDENCY_TIMEOUT"
+	case errors.Is(err, context.Canceled):
+		return "REQUEST_CANCELLED"
+	default:
+		return "ITEM_FAILED"
+	}
+}
+
+func isRetryableBulkError(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return true
+	}
+	return !errors.Is(err, ErrVersionConflict) && !errors.Is(err, ErrForbidden) &&
+		!errors.Is(err, ErrIdempotencyConflict) && !errors.Is(err, ErrInvalidCompletionOutput) &&
+		!errors.Is(err, ErrPolicyLimit) && !errors.Is(err, ErrAssignmentPolicy) && !errors.Is(err, ErrBulkRequest)
 }
 
 func (s *Service) ProjectCommittedCompletion(ctx context.Context, event CommittedCompletion) error {

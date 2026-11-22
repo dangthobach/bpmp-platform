@@ -22,6 +22,7 @@ type HumanRuntime interface {
 	GetCase(context.Context, *humanv1.GetCaseRequest, ...grpc.CallOption) (*humanv1.GetCaseResponse, error)
 	ListAuditRecords(context.Context, *humanv1.ListAuditRecordsRequest, ...grpc.CallOption) (*humanv1.ListAuditRecordsResponse, error)
 	GetWorkItemHistory(context.Context, *humanv1.GetWorkItemHistoryRequest, ...grpc.CallOption) (*humanv1.GetWorkItemHistoryResponse, error)
+	BulkMutateWorkItems(context.Context, *humanv1.BulkMutateWorkItemsRequest, ...grpc.CallOption) (*humanv1.BulkMutateWorkItemsResponse, error)
 	ListAssignmentGroups(context.Context, *humanv1.ListAssignmentGroupsRequest, ...grpc.CallOption) (*humanv1.ListAssignmentGroupsResponse, error)
 }
 

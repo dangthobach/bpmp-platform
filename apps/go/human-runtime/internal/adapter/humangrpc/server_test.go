@@ -77,6 +77,56 @@ func (v *testVerifier) VerifyActor(_ context.Context, request application.ActorV
 
 type testStore struct{ item domain.WorkItem }
 
+type bulkTestStore struct {
+	*testStore
+	operationID string
+	digest      []byte
+	receipts    []application.BulkItemReceipt
+	audits      map[string]struct {
+		action  string
+		version int64
+	}
+	delegateCalls int
+}
+
+func (s *bulkTestStore) BeginBulkOperation(_ context.Context, operation application.BulkOperation, items []application.BulkItemReceipt) (string, []application.BulkItemReceipt, bool, error) {
+	if s.operationID != "" {
+		if string(s.digest) != string(operation.RequestDigest) {
+			return "", nil, false, application.ErrIdempotencyConflict
+		}
+		return s.operationID, append([]application.BulkItemReceipt(nil), s.receipts...), true, nil
+	}
+	s.operationID, s.digest, s.receipts = operation.OperationID, append([]byte(nil), operation.RequestDigest...), append([]application.BulkItemReceipt(nil), items...)
+	return s.operationID, append([]application.BulkItemReceipt(nil), s.receipts...), false, nil
+}
+
+func (s *bulkTestStore) SaveBulkItemReceipt(_ context.Context, _, operationID, workItemID string, receipt application.BulkItemReceipt, _ time.Time) error {
+	if operationID != s.operationID {
+		return application.ErrBulkRequest
+	}
+	for index := range s.receipts {
+		if s.receipts[index].WorkItemID == workItemID {
+			s.receipts[index] = receipt
+			return nil
+		}
+	}
+	return application.ErrBulkRequest
+}
+
+func (s *bulkTestStore) FindBulkCommandAudit(_ context.Context, _, commandID string) (string, int64, bool, error) {
+	audit, ok := s.audits[commandID]
+	return audit.action, audit.version, ok, nil
+}
+
+func (s *bulkTestStore) Delegate(ctx context.Context, item domain.WorkItem, commandID, correlationID, actorID, reason string) error {
+	s.delegateCalls++
+	s.audits[commandID] = struct {
+		action  string
+		version int64
+	}{action: "DELEGATED", version: item.Version}
+	return s.testStore.Delegate(ctx, item, commandID, correlationID, actorID, reason)
+}
+
 func (s *testStore) GetWorkItem(context.Context, string, string) (domain.WorkItem, error) {
 	return s.item, nil
 }
@@ -93,7 +143,7 @@ func (*testStore) CommitCompletion(context.Context, application.CommittedComplet
 func (*testStore) CommitCancellation(context.Context, application.CommittedCancellation) error {
 	return nil
 }
-func (s *testStore) Delegate(_ context.Context, item domain.WorkItem, _, _, _ string) error {
+func (s *testStore) Delegate(_ context.Context, item domain.WorkItem, _, _, _, _ string) error {
 	s.item = item
 	return nil
 }
@@ -266,6 +316,44 @@ func TestWorkItemHistoryRejectsCursorBoundToAnotherTask(t *testing.T) {
 	})
 	if status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("cross-task history cursor was not rejected: %v", err)
+	}
+}
+
+func TestBulkMutationPersistsAndReplaysSuccessfulItemReceipt(t *testing.T) {
+	item := domain.WorkItem{TenantID: "tenant-a", ID: "work-1", Status: domain.WorkItemActive, Assignment: domain.Assignment{AssigneeID: "alice"}, Version: 1}
+	store := &bulkTestStore{testStore: &testStore{item: item}, audits: make(map[string]struct {
+		action  string
+		version int64
+	})}
+	service, _ := application.NewService(store, &testEngine{}, testPolicy)
+	verifier := &testVerifier{actor: application.ActorIdentity{ActorID: "alice", Capabilities: map[string]struct{}{"human.task.bulk.delegate": {}}}}
+	server, _ := New(service, testQuery{item: item}, verifier, testPolicy, func() time.Time { return time.Unix(10, 0).UTC() })
+	request := &humanv1.BulkMutateWorkItemsRequest{
+		TenantId: item.TenantID, OperationId: "operation-1", IdempotencyKey: "idem-1", CorrelationId: "correlation-1",
+		Mode:       humanv1.WorkItemBulkMode_WORK_ITEM_BULK_MODE_PARTIAL,
+		Action:     humanv1.WorkItemBulkAction_WORK_ITEM_BULK_ACTION_DELEGATE,
+		ActorProof: originalJWT("signed"),
+		Items:      []*humanv1.BulkWorkItemMutation{{WorkItemId: item.ID, ExpectedVersion: 1, AssigneeId: "bob", Reason: "coverage"}},
+	}
+	response, err := server.BulkMutateWorkItems(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.GetStatus() != "SUCCEEDED" || response.GetOperationId() != "operation-1" || len(response.GetReceipts()) != 1 || response.GetReceipts()[0].GetStatus() != "SUCCEEDED" || store.delegateCalls != 1 {
+		t.Fatalf("unexpected partial bulk response: %+v calls=%d", response, store.delegateCalls)
+	}
+	response, err = server.BulkMutateWorkItems(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !response.GetDuplicate() || response.GetReceipts()[0].GetStatus() != "SUCCEEDED" || store.delegateCalls != 1 {
+		t.Fatalf("bulk replay did not return the durable item receipt: %+v calls=%d", response, store.delegateCalls)
+	}
+
+	atomicRequest := proto.Clone(request).(*humanv1.BulkMutateWorkItemsRequest)
+	atomicRequest.Mode = humanv1.WorkItemBulkMode_WORK_ITEM_BULK_MODE_ATOMIC
+	if _, err = server.BulkMutateWorkItems(context.Background(), atomicRequest); status.Code(err) != codes.FailedPrecondition || store.delegateCalls != 1 {
+		t.Fatalf("unsupported atomic mode was not rejected before effects: err=%v calls=%d", err, store.delegateCalls)
 	}
 }
 

@@ -45,7 +45,7 @@ func (benchmarkStore) CommitCompletion(context.Context, application.CommittedCom
 func (benchmarkStore) CommitCancellation(context.Context, application.CommittedCancellation) error {
 	return nil
 }
-func (benchmarkStore) Delegate(context.Context, domain.WorkItem, string, string, string) error {
+func (benchmarkStore) Delegate(context.Context, domain.WorkItem, string, string, string, string) error {
 	return nil
 }
 func (benchmarkStore) ProjectCase(context.Context, application.CommittedCase) (bool, error) {

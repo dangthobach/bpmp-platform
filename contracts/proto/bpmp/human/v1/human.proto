@@ -13,6 +13,7 @@ service HumanRuntimeService {
   rpc GetCase(GetCaseRequest) returns (GetCaseResponse);
   rpc ListAuditRecords(ListAuditRecordsRequest) returns (ListAuditRecordsResponse);
   rpc GetWorkItemHistory(GetWorkItemHistoryRequest) returns (GetWorkItemHistoryResponse);
+  rpc BulkMutateWorkItems(BulkMutateWorkItemsRequest) returns (BulkMutateWorkItemsResponse);
   rpc ListAssignmentGroups(ListAssignmentGroupsRequest) returns (ListAssignmentGroupsResponse);
   rpc ListAssignmentPolicies(ListAssignmentPoliciesRequest) returns (ListAssignmentPoliciesResponse);
   rpc UpsertAssignmentPolicy(UpsertAssignmentPolicyRequest) returns (UpsertAssignmentPolicyResponse);
@@ -136,6 +137,7 @@ message DelegateWorkItemRequest {
   string candidate_group = 7;
   bpmp.authorization.v1.ActorProof actor_proof = 8;
   string idempotency_key = 9;
+  string reason = 10;
 }
 
 message CompleteWorkItemResponse {
@@ -245,4 +247,56 @@ message WorkItemHistoryEntry {
   string correlation_id = 8;
   bytes engine_event_envelope = 9;
   bytes audit_details_json = 10;
+}
+
+enum WorkItemBulkMode {
+  WORK_ITEM_BULK_MODE_UNSPECIFIED = 0;
+  WORK_ITEM_BULK_MODE_PARTIAL = 1;
+  WORK_ITEM_BULK_MODE_ATOMIC = 2;
+}
+
+enum WorkItemBulkAction {
+  WORK_ITEM_BULK_ACTION_UNSPECIFIED = 0;
+  WORK_ITEM_BULK_ACTION_CLAIM = 1;
+  WORK_ITEM_BULK_ACTION_UNCLAIM = 2;
+  WORK_ITEM_BULK_ACTION_COMPLETE = 3;
+  WORK_ITEM_BULK_ACTION_DELEGATE = 4;
+}
+
+message BulkWorkItemMutation {
+  string work_item_id = 1;
+  int64 expected_version = 2;
+  string decision = 3;
+  string form_version_id = 4;
+  repeated bpmp.engine.v1.WorkflowVariable outputs = 5;
+  string assignee_id = 6;
+  string candidate_group = 7;
+  string reason = 8;
+}
+
+message BulkMutateWorkItemsRequest {
+  string tenant_id = 1;
+  string operation_id = 2;
+  string idempotency_key = 3;
+  string correlation_id = 4;
+  WorkItemBulkMode mode = 5;
+  WorkItemBulkAction action = 6;
+  repeated BulkWorkItemMutation items = 7;
+  bpmp.authorization.v1.ActorProof actor_proof = 8;
+}
+
+message BulkWorkItemReceipt {
+  string work_item_id = 1;
+  string command_id = 2;
+  string status = 3;
+  string error_code = 4;
+  bool retryable = 5;
+  int64 resulting_version = 6;
+}
+
+message BulkMutateWorkItemsResponse {
+  string operation_id = 1;
+  string status = 2;
+  bool duplicate = 3;
+  repeated BulkWorkItemReceipt receipts = 4;
 }

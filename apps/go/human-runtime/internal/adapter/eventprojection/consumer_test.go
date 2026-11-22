@@ -45,7 +45,7 @@ func (p *projectionStore) CommitCompletion(_ context.Context, event application.
 func (*projectionStore) CommitCancellation(context.Context, application.CommittedCancellation) error {
 	return nil
 }
-func (*projectionStore) Delegate(context.Context, domain.WorkItem, string, string, string) error {
+func (*projectionStore) Delegate(context.Context, domain.WorkItem, string, string, string, string) error {
 	return nil
 }
 func (*projectionStore) ProjectCase(context.Context, application.CommittedCase) (bool, error) {

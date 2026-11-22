@@ -1,6 +1,7 @@
 package application
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"testing"
@@ -35,9 +36,59 @@ func (*fakeStore) CommitCompletion(context.Context, CommittedCompletion) error {
 	return nil
 }
 func (*fakeStore) CommitCancellation(context.Context, CommittedCancellation) error { return nil }
-func (f *fakeStore) Delegate(_ context.Context, item domain.WorkItem, _, _, _ string) error {
+func (f *fakeStore) Delegate(_ context.Context, item domain.WorkItem, _, _, _, _ string) error {
 	f.item = item
 	return nil
+}
+
+type fakeBulkStore struct {
+	*fakeStore
+	operationID string
+	digest      []byte
+	receipts    []BulkItemReceipt
+	audits      map[string]struct {
+		action  string
+		version int64
+	}
+	delegateCalls int
+}
+
+func (f *fakeBulkStore) BeginBulkOperation(_ context.Context, operation BulkOperation, initial []BulkItemReceipt) (string, []BulkItemReceipt, bool, error) {
+	if f.operationID != "" {
+		if !bytes.Equal(f.digest, operation.RequestDigest) {
+			return "", nil, false, ErrIdempotencyConflict
+		}
+		return f.operationID, append([]BulkItemReceipt(nil), f.receipts...), true, nil
+	}
+	f.operationID, f.digest, f.receipts = operation.OperationID, append([]byte(nil), operation.RequestDigest...), append([]BulkItemReceipt(nil), initial...)
+	return f.operationID, append([]BulkItemReceipt(nil), f.receipts...), false, nil
+}
+
+func (f *fakeBulkStore) SaveBulkItemReceipt(_ context.Context, _, operationID, workItemID string, receipt BulkItemReceipt, _ time.Time) error {
+	if operationID != f.operationID {
+		return ErrBulkRequest
+	}
+	for index := range f.receipts {
+		if f.receipts[index].WorkItemID == workItemID {
+			f.receipts[index] = receipt
+			return nil
+		}
+	}
+	return ErrBulkRequest
+}
+
+func (f *fakeBulkStore) FindBulkCommandAudit(_ context.Context, _, commandID string) (string, int64, bool, error) {
+	audit, ok := f.audits[commandID]
+	return audit.action, audit.version, ok, nil
+}
+
+func (f *fakeBulkStore) Delegate(ctx context.Context, item domain.WorkItem, commandID, _, _, _ string) error {
+	f.delegateCalls++
+	f.audits[commandID] = struct {
+		action  string
+		version int64
+	}{action: "DELEGATED", version: item.Version}
+	return f.fakeStore.Delegate(ctx, item, commandID, "", "", "")
 }
 func (*fakeStore) ProjectCase(context.Context, CommittedCase) (bool, error)            { return false, nil }
 func (*fakeStore) CommitCaseTransition(context.Context, CommittedCaseTransition) error { return nil }
@@ -193,6 +244,35 @@ func TestDelegateReportsConflictWhenAssignmentChangesDuringAuthorization(t *test
 	})
 	if !errors.Is(err, ErrVersionConflict) {
 		t.Fatalf("expected a stale assignment conflict, got %v", err)
+	}
+}
+
+func TestBulkPartialReceiptReplaysWithoutRepeatingSuccessfulMutation(t *testing.T) {
+	item := domain.WorkItem{TenantID: "tenant-a", ID: "work-1", Status: domain.WorkItemActive, Assignment: domain.Assignment{AssigneeID: "alice"}, Version: 4}
+	store := &fakeBulkStore{fakeStore: &fakeStore{item: item}, audits: make(map[string]struct {
+		action  string
+		version int64
+	})}
+	service, err := NewService(store, &recordingEngine{}, testPolicyProvider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation := BulkOperation{TenantID: "tenant-a", ActorID: "alice", OperationID: "operation-1", IdempotencyKey: "idem-1", Action: string(BulkDelegate), Mode: "PARTIAL", RequestDigest: bytes.Repeat([]byte{7}, 32), OccurredAt: time.Unix(100, 0).UTC()}
+	items := []BulkItem{{WorkItemID: item.ID, ExpectedVersion: item.Version, Assignment: domain.Assignment{AssigneeID: "bob"}, Reason: "coverage"}}
+	actor := ActorCredential{ActorID: "alice", OriginalSignedToken: []byte("signed")}
+	operationID, receipts, duplicate, err := service.BulkMutate(context.Background(), operation, items, "correlation-1", actor, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if duplicate || operationID != operation.OperationID || len(receipts) != 1 || receipts[0].Status != "SUCCEEDED" || receipts[0].ResultingVersion != item.Version+1 || store.delegateCalls != 1 {
+		t.Fatalf("first bulk attempt did not persist the successful item result: id=%s duplicate=%v receipts=%+v calls=%d", operationID, duplicate, receipts, store.delegateCalls)
+	}
+	operationID, receipts, duplicate, err = service.BulkMutate(context.Background(), operation, items, "correlation-1", actor, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !duplicate || operationID != operation.OperationID || len(receipts) != 1 || receipts[0].Status != "SUCCEEDED" || store.delegateCalls != 1 {
+		t.Fatalf("replay repeated a successful mutation or lost its receipt: id=%s duplicate=%v receipts=%+v calls=%d", operationID, duplicate, receipts, store.delegateCalls)
 	}
 }
 

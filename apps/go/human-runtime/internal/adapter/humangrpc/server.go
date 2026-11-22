@@ -2,6 +2,7 @@ package humangrpc
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -138,7 +139,7 @@ func (s *Server) DelegateWorkItem(ctx context.Context, r *humanv1.DelegateWorkIt
 	if idempotencyKey == "" {
 		idempotencyKey = r.GetCommandId()
 	}
-	err = s.service.Delegate(ctx, application.DelegateRequest{TenantID: r.GetTenantId(), WorkItemID: r.GetWorkItemId(), CommandID: r.GetCommandId(), IdempotencyKey: idempotencyKey, CorrelationID: r.GetCorrelationId(), ExpectedVersion: r.GetExpectedVersion(), Actor: credential, ActorGroups: identity.Groups, Assignment: domain.Assignment{AssigneeID: r.GetAssigneeId(), CandidateGroup: r.GetCandidateGroup()}, OccurredAt: now})
+	err = s.service.Delegate(ctx, application.DelegateRequest{TenantID: r.GetTenantId(), WorkItemID: r.GetWorkItemId(), CommandID: r.GetCommandId(), IdempotencyKey: idempotencyKey, CorrelationID: r.GetCorrelationId(), ExpectedVersion: r.GetExpectedVersion(), Actor: credential, ActorGroups: identity.Groups, Assignment: domain.Assignment{AssigneeID: r.GetAssigneeId(), CandidateGroup: r.GetCandidateGroup()}, Reason: r.GetReason(), OccurredAt: now})
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -320,6 +321,108 @@ func (s *Server) GetWorkItemHistory(ctx context.Context, r *humanv1.GetWorkItemH
 	return response, nil
 }
 
+func (s *Server) BulkMutateWorkItems(ctx context.Context, r *humanv1.BulkMutateWorkItemsRequest) (*humanv1.BulkMutateWorkItemsResponse, error) {
+	now := s.now()
+	credential, identity, err := s.verify(ctx, r.GetTenantId(), r.GetOperationId(), r.GetActorProof(), now)
+	if err != nil {
+		return nil, err
+	}
+	if r.GetMode() != humanv1.WorkItemBulkMode_WORK_ITEM_BULK_MODE_PARTIAL && r.GetMode() != humanv1.WorkItemBulkMode_WORK_ITEM_BULK_MODE_ATOMIC || r.GetOperationId() == "" || r.GetIdempotencyKey() == "" || len(r.GetItems()) == 0 || len(r.GetItems()) > application.MaxInlineBulkItems {
+		return nil, status.Error(codes.InvalidArgument, "bulk mutation requires an explicit mode, operation/idempotency IDs, and 1-20 items")
+	}
+	var action application.BulkAction
+	switch r.GetAction() {
+	case humanv1.WorkItemBulkAction_WORK_ITEM_BULK_ACTION_CLAIM:
+		action = application.BulkClaim
+	case humanv1.WorkItemBulkAction_WORK_ITEM_BULK_ACTION_UNCLAIM:
+		action = application.BulkUnclaim
+	case humanv1.WorkItemBulkAction_WORK_ITEM_BULK_ACTION_COMPLETE:
+		action = application.BulkComplete
+	case humanv1.WorkItemBulkAction_WORK_ITEM_BULK_ACTION_DELEGATE:
+		action = application.BulkDelegate
+	default:
+		return nil, status.Error(codes.InvalidArgument, "bulk action is required")
+	}
+	if _, allowed := identity.Capabilities["human.task.bulk."+strings.ToLower(string(action))]; !allowed {
+		return nil, status.Error(codes.PermissionDenied, "actor lacks permission for this bulk action")
+	}
+	if r.GetMode() == humanv1.WorkItemBulkMode_WORK_ITEM_BULK_MODE_ATOMIC {
+		return nil, status.Error(codes.FailedPrecondition, "ATOMIC_SCOPE_UNSUPPORTED: no atomic Human Runtime batch boundary is enabled")
+	}
+	items := make([]application.BulkItem, 0, len(r.GetItems()))
+	seen := make(map[string]struct{}, len(r.GetItems()))
+	for _, item := range r.GetItems() {
+		if item == nil || item.GetWorkItemId() == "" || item.GetExpectedVersion() < 1 {
+			return nil, status.Error(codes.InvalidArgument, "each bulk item requires a work item ID and positive expected version")
+		}
+		if _, duplicate := seen[item.GetWorkItemId()]; duplicate {
+			return nil, status.Error(codes.InvalidArgument, "duplicate work item IDs are not allowed in a batch")
+		}
+		seen[item.GetWorkItemId()] = struct{}{}
+		bulkItem := application.BulkItem{WorkItemID: item.GetWorkItemId(), ExpectedVersion: item.GetExpectedVersion(), Decision: item.GetDecision(), FormVersionID: item.GetFormVersionId(), Outputs: item.GetOutputs(), Reason: item.GetReason(), Assignment: domain.Assignment{AssigneeID: item.GetAssigneeId(), CandidateGroup: item.GetCandidateGroup()}}
+		switch action {
+		case application.BulkClaim:
+			if item.GetAssigneeId() != "" || item.GetCandidateGroup() != "" || item.GetDecision() != "" || item.GetFormVersionId() != "" || len(item.GetOutputs()) != 0 || item.GetReason() != "" {
+				return nil, status.Error(codes.InvalidArgument, "CLAIM accepts only work item ID and expected version")
+			}
+		case application.BulkUnclaim:
+			if item.GetCandidateGroup() == "" || item.GetAssigneeId() != "" || item.GetDecision() != "" || item.GetFormVersionId() != "" || len(item.GetOutputs()) != 0 || item.GetReason() != "" {
+				return nil, status.Error(codes.InvalidArgument, "UNCLAIM requires candidate_group and no other action values")
+			}
+		case application.BulkComplete:
+			if item.GetDecision() == "" || item.GetAssigneeId() != "" || item.GetCandidateGroup() != "" || item.GetReason() != "" {
+				return nil, status.Error(codes.InvalidArgument, "COMPLETE requires decision and accepts no assignment values")
+			}
+		case application.BulkDelegate:
+			if (item.GetAssigneeId() == "") == (item.GetCandidateGroup() == "") || item.GetReason() == "" || item.GetDecision() != "" || item.GetFormVersionId() != "" || len(item.GetOutputs()) != 0 {
+				return nil, status.Error(codes.InvalidArgument, "DELEGATE requires one target and a reason")
+			}
+		}
+		items = append(items, bulkItem)
+	}
+	digestRequest := proto.Clone(r).(*humanv1.BulkMutateWorkItemsRequest)
+	digestRequest.OperationId, digestRequest.IdempotencyKey, digestRequest.CorrelationId, digestRequest.ActorProof = "", "", "", nil
+	digestBytes, err := (proto.MarshalOptions{Deterministic: true}).Marshal(digestRequest)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "bulk request cannot be canonicalized")
+	}
+	digest := sha256.Sum256(digestBytes)
+	operation := application.BulkOperation{
+		TenantID: r.GetTenantId(), ActorID: identity.ActorID, OperationID: r.GetOperationId(),
+		IdempotencyKey: r.GetIdempotencyKey(), Action: string(action), Mode: "PARTIAL", CorrelationID: r.GetCorrelationId(),
+		RequestDigest: digest[:], OccurredAt: now,
+	}
+	operationID, receipts, duplicate, err := s.service.BulkMutate(ctx, operation, items, r.GetCorrelationId(), credential, identity.Groups)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	response := &humanv1.BulkMutateWorkItemsResponse{OperationId: operationID, Duplicate: duplicate}
+	succeeded, failed, retryable := 0, 0, false
+	for _, receipt := range receipts {
+		response.Receipts = append(response.Receipts, &humanv1.BulkWorkItemReceipt{
+			WorkItemId: receipt.WorkItemID, CommandId: receipt.CommandID, Status: receipt.Status,
+			ErrorCode: receipt.ErrorCode, Retryable: receipt.Retryable, ResultingVersion: receipt.ResultingVersion,
+		})
+		if receipt.Status == "SUCCEEDED" {
+			succeeded++
+		} else if receipt.Status == "FAILED" {
+			failed++
+			retryable = retryable || receipt.Retryable
+		}
+	}
+	switch {
+	case failed == 0:
+		response.Status = "SUCCEEDED"
+	case succeeded > 0:
+		response.Status = "PARTIALLY_SUCCEEDED"
+	case retryable:
+		response.Status = "RETRYABLE"
+	default:
+		response.Status = "FAILED"
+	}
+	return response, nil
+}
+
 func (s *Server) ListAssignmentGroups(ctx context.Context, r *humanv1.ListAssignmentGroupsRequest) (*humanv1.ListAssignmentGroupsResponse, error) {
 	_, identity, err := s.verify(ctx, r.GetTenantId(), "", r.GetActorProof(), s.now())
 	if err != nil {
@@ -469,6 +572,10 @@ func toProtoWorkItem(w domain.WorkItem) *humanv1.WorkItem {
 }
 func mapError(err error) error {
 	switch {
+	case errors.Is(err, application.ErrBulkRequest):
+		return status.Error(codes.InvalidArgument, err.Error())
+	case errors.Is(err, application.ErrBulkUnavailable):
+		return status.Error(codes.Unavailable, err.Error())
 	case errors.Is(err, application.ErrActorProof):
 		return status.Error(codes.Unauthenticated, err.Error())
 	case errors.Is(err, application.ErrForbidden):

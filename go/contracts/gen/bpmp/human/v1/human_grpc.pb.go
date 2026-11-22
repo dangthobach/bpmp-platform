@@ -26,6 +26,7 @@ const (
 	HumanRuntimeService_GetCase_FullMethodName                = "/bpmp.human.v1.HumanRuntimeService/GetCase"
 	HumanRuntimeService_ListAuditRecords_FullMethodName       = "/bpmp.human.v1.HumanRuntimeService/ListAuditRecords"
 	HumanRuntimeService_GetWorkItemHistory_FullMethodName     = "/bpmp.human.v1.HumanRuntimeService/GetWorkItemHistory"
+	HumanRuntimeService_BulkMutateWorkItems_FullMethodName    = "/bpmp.human.v1.HumanRuntimeService/BulkMutateWorkItems"
 	HumanRuntimeService_ListAssignmentGroups_FullMethodName   = "/bpmp.human.v1.HumanRuntimeService/ListAssignmentGroups"
 	HumanRuntimeService_ListAssignmentPolicies_FullMethodName = "/bpmp.human.v1.HumanRuntimeService/ListAssignmentPolicies"
 	HumanRuntimeService_UpsertAssignmentPolicy_FullMethodName = "/bpmp.human.v1.HumanRuntimeService/UpsertAssignmentPolicy"
@@ -42,6 +43,7 @@ type HumanRuntimeServiceClient interface {
 	GetCase(ctx context.Context, in *GetCaseRequest, opts ...grpc.CallOption) (*GetCaseResponse, error)
 	ListAuditRecords(ctx context.Context, in *ListAuditRecordsRequest, opts ...grpc.CallOption) (*ListAuditRecordsResponse, error)
 	GetWorkItemHistory(ctx context.Context, in *GetWorkItemHistoryRequest, opts ...grpc.CallOption) (*GetWorkItemHistoryResponse, error)
+	BulkMutateWorkItems(ctx context.Context, in *BulkMutateWorkItemsRequest, opts ...grpc.CallOption) (*BulkMutateWorkItemsResponse, error)
 	ListAssignmentGroups(ctx context.Context, in *ListAssignmentGroupsRequest, opts ...grpc.CallOption) (*ListAssignmentGroupsResponse, error)
 	ListAssignmentPolicies(ctx context.Context, in *ListAssignmentPoliciesRequest, opts ...grpc.CallOption) (*ListAssignmentPoliciesResponse, error)
 	UpsertAssignmentPolicy(ctx context.Context, in *UpsertAssignmentPolicyRequest, opts ...grpc.CallOption) (*UpsertAssignmentPolicyResponse, error)
@@ -125,6 +127,16 @@ func (c *humanRuntimeServiceClient) GetWorkItemHistory(ctx context.Context, in *
 	return out, nil
 }
 
+func (c *humanRuntimeServiceClient) BulkMutateWorkItems(ctx context.Context, in *BulkMutateWorkItemsRequest, opts ...grpc.CallOption) (*BulkMutateWorkItemsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BulkMutateWorkItemsResponse)
+	err := c.cc.Invoke(ctx, HumanRuntimeService_BulkMutateWorkItems_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *humanRuntimeServiceClient) ListAssignmentGroups(ctx context.Context, in *ListAssignmentGroupsRequest, opts ...grpc.CallOption) (*ListAssignmentGroupsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListAssignmentGroupsResponse)
@@ -166,6 +178,7 @@ type HumanRuntimeServiceServer interface {
 	GetCase(context.Context, *GetCaseRequest) (*GetCaseResponse, error)
 	ListAuditRecords(context.Context, *ListAuditRecordsRequest) (*ListAuditRecordsResponse, error)
 	GetWorkItemHistory(context.Context, *GetWorkItemHistoryRequest) (*GetWorkItemHistoryResponse, error)
+	BulkMutateWorkItems(context.Context, *BulkMutateWorkItemsRequest) (*BulkMutateWorkItemsResponse, error)
 	ListAssignmentGroups(context.Context, *ListAssignmentGroupsRequest) (*ListAssignmentGroupsResponse, error)
 	ListAssignmentPolicies(context.Context, *ListAssignmentPoliciesRequest) (*ListAssignmentPoliciesResponse, error)
 	UpsertAssignmentPolicy(context.Context, *UpsertAssignmentPolicyRequest) (*UpsertAssignmentPolicyResponse, error)
@@ -199,6 +212,9 @@ func (UnimplementedHumanRuntimeServiceServer) ListAuditRecords(context.Context, 
 }
 func (UnimplementedHumanRuntimeServiceServer) GetWorkItemHistory(context.Context, *GetWorkItemHistoryRequest) (*GetWorkItemHistoryResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetWorkItemHistory not implemented")
+}
+func (UnimplementedHumanRuntimeServiceServer) BulkMutateWorkItems(context.Context, *BulkMutateWorkItemsRequest) (*BulkMutateWorkItemsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method BulkMutateWorkItems not implemented")
 }
 func (UnimplementedHumanRuntimeServiceServer) ListAssignmentGroups(context.Context, *ListAssignmentGroupsRequest) (*ListAssignmentGroupsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListAssignmentGroups not implemented")
@@ -356,6 +372,24 @@ func _HumanRuntimeService_GetWorkItemHistory_Handler(srv interface{}, ctx contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _HumanRuntimeService_BulkMutateWorkItems_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BulkMutateWorkItemsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HumanRuntimeServiceServer).BulkMutateWorkItems(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HumanRuntimeService_BulkMutateWorkItems_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HumanRuntimeServiceServer).BulkMutateWorkItems(ctx, req.(*BulkMutateWorkItemsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _HumanRuntimeService_ListAssignmentGroups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListAssignmentGroupsRequest)
 	if err := dec(in); err != nil {
@@ -444,6 +478,10 @@ var HumanRuntimeService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetWorkItemHistory",
 			Handler:    _HumanRuntimeService_GetWorkItemHistory_Handler,
+		},
+		{
+			MethodName: "BulkMutateWorkItems",
+			Handler:    _HumanRuntimeService_BulkMutateWorkItems_Handler,
 		},
 		{
 			MethodName: "ListAssignmentGroups",

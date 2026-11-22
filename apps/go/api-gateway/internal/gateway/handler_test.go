@@ -69,6 +69,7 @@ type recordingHuman struct {
 	humanv1.HumanRuntimeServiceClient
 	listRequest         *humanv1.ListWorkItemsRequest
 	historyRequest      *humanv1.GetWorkItemHistoryRequest
+	bulkRequest         *humanv1.BulkMutateWorkItemsRequest
 	policyListRequest   *humanv1.ListAssignmentPoliciesRequest
 	policyUpsertRequest *humanv1.UpsertAssignmentPolicyRequest
 	metadata            metadata.MD
@@ -78,6 +79,12 @@ func (c *recordingHuman) GetWorkItemHistory(ctx context.Context, request *humanv
 	c.historyRequest = request
 	c.metadata, _ = metadata.FromOutgoingContext(ctx)
 	return &humanv1.GetWorkItemHistoryResponse{EngineWatermark: 9}, nil
+}
+
+func (c *recordingHuman) BulkMutateWorkItems(ctx context.Context, request *humanv1.BulkMutateWorkItemsRequest, _ ...grpc.CallOption) (*humanv1.BulkMutateWorkItemsResponse, error) {
+	c.bulkRequest = request
+	c.metadata, _ = metadata.FromOutgoingContext(ctx)
+	return &humanv1.BulkMutateWorkItemsResponse{OperationId: request.GetOperationId(), Status: "SUCCEEDED"}, nil
 }
 
 type recordingProjection struct {
@@ -314,6 +321,38 @@ func TestGetWorkItemHistoryForwardsTenantActorAndCursor(t *testing.T) {
 	}
 	if human.historyRequest.GetTenantId() != "tenant-a" || human.historyRequest.GetWorkItemId() != "work-1" || human.historyRequest.GetPageSize() != 10 || human.historyRequest.GetPageToken() != "cursor-1" || string(human.historyRequest.GetActorProof().GetSignedProof()) != raw {
 		t.Fatalf("history query lost actor/scope/cursor: %+v", human.historyRequest)
+	}
+}
+
+func TestBulkMutateWorkItemsUsesAuthenticatedScopeAndStableIdempotency(t *testing.T) {
+	public, private, _ := ed25519.GenerateKey(nil)
+	now := time.Unix(1_000, 0).UTC()
+	claims := jwt.MapClaims{"iss": "issuer", "sub": "actor-1", "aud": []string{"gateway"}, "exp": now.Add(time.Hour).Unix(), "iat": now.Add(-time.Minute).Unix(), "tenant_id": "tenant-a"}
+	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
+	token.Header["kid"] = "actor-key"
+	raw, err := token.SignedString(private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	human := &recordingHuman{}
+	handler, err := NewHandler(&recordingEngine{}, human, testVerifier(t, public), &workloadSigner{id: "api-gateway", keyID: "workload-key", key: private, ttl: time.Minute}, newModelRateLimiter(10, time.Minute), staticPolicyProvider{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler.now = func() time.Time { return now }
+	request := httptest.NewRequest(http.MethodPost, "/v1/work-items/bulk", strings.NewReader(`{"mode":"PARTIAL","action":"DELEGATE","items":[{"work_item_id":"work-1","expected_version":3,"assignee_id":"bob","reason":"coverage"}]}`))
+	request.Header.Set("Authorization", "Bearer "+raw)
+	request.Header.Set("X-BPMP-Tenant-ID", "tenant-a")
+	request.Header.Set("X-Command-ID", "bulk-command-1")
+	request.Header.Set("Idempotency-Key", "bulk-idempotency-1")
+	request.Header.Set("X-Correlation-ID", "correlation-1")
+	response := httptest.NewRecorder()
+	handler.Routes().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d: %s", response.Code, response.Body.String())
+	}
+	if human.bulkRequest.GetTenantId() != "tenant-a" || human.bulkRequest.GetOperationId() != "bulk-command-1" || human.bulkRequest.GetIdempotencyKey() != "bulk-idempotency-1" || human.bulkRequest.GetMode() != humanv1.WorkItemBulkMode_WORK_ITEM_BULK_MODE_PARTIAL || human.bulkRequest.GetItems()[0].GetReason() != "coverage" || string(human.bulkRequest.GetActorProof().GetSignedProof()) != raw {
+		t.Fatalf("bulk command lost authenticated scope or stable intent: %+v", human.bulkRequest)
 	}
 }
 

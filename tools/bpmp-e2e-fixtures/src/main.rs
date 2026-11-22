@@ -40,6 +40,8 @@ const HUMAN_RUNTIME_COMPLETION_DIGEST_MIGRATION: &str =
     include_str!("../../../db/human-runtime/migrations/004_completion_payload_digest.sql");
 const HUMAN_RUNTIME_COMPLETION_COMMAND_MIGRATION: &str =
     include_str!("../../../db/human-runtime/migrations/005_completion_command_null_uniqueness.sql");
+const HUMAN_RUNTIME_BULK_RECEIPTS_MIGRATION: &str =
+    include_str!("../../../db/human-runtime/migrations/006_bulk_operation_receipts.sql");
 const CONFIGURATION_MIGRATION: &str =
     include_str!("../../../db/configuration-service/migrations/001_configuration.sql");
 const CONFIGURATION_HOT_RELOAD_MIGRATION: &str =
@@ -1882,7 +1884,7 @@ fn seeded_migration(manifest: &Manifest) -> String {
     let workflow = sql_literal(&manifest.workflow_type);
     let version = sql_literal(&manifest.workflow_version);
     format!(
-        "{MIGRATION}\n{HUMAN_RUNTIME_DELEGATION_MIGRATION}\n{HUMAN_RUNTIME_ADMIN_IDEMPOTENCY_MIGRATION}\n{HUMAN_RUNTIME_COMPLETION_DIGEST_MIGRATION}\n{HUMAN_RUNTIME_COMPLETION_COMMAND_MIGRATION}\nINSERT INTO assignment_policies(tenant_id,policy_ref,workflow_type,workflow_version,node_id,candidate_group,sla_duration_ms,escalation_policy_ref,config_version,created_at,created_by,updated_at,updated_by) VALUES('{tenant}','reviewers','{workflow}','{version}','review','reviewer',60000,'manager','config-e2e-v1',now(),'fixture',now(),'fixture');\nINSERT INTO human_tenant_security_profiles(tenant_id,encryption_key_scope,config_version) VALUES('{tenant}','{tenant}/operational','config-e2e-v1');\n",
+        "{MIGRATION}\n{HUMAN_RUNTIME_DELEGATION_MIGRATION}\n{HUMAN_RUNTIME_ADMIN_IDEMPOTENCY_MIGRATION}\n{HUMAN_RUNTIME_COMPLETION_DIGEST_MIGRATION}\n{HUMAN_RUNTIME_COMPLETION_COMMAND_MIGRATION}\n{HUMAN_RUNTIME_BULK_RECEIPTS_MIGRATION}\nINSERT INTO assignment_policies(tenant_id,policy_ref,workflow_type,workflow_version,node_id,candidate_group,sla_duration_ms,escalation_policy_ref,config_version,created_at,created_by,updated_at,updated_by) VALUES('{tenant}','reviewers','{workflow}','{version}','review','reviewer',60000,'manager','config-e2e-v1',now(),'fixture',now(),'fixture');\nINSERT INTO human_tenant_security_profiles(tenant_id,encryption_key_scope,config_version) VALUES('{tenant}','{tenant}/operational','config-e2e-v1');\n",
     )
 }
 

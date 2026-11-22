@@ -47,7 +47,8 @@ func (c *Consumer) Handle(ctx context.Context, payload []byte) error {
 		return c.service.ProjectCommittedCompletion(ctx, application.CommittedCompletion{
 			TenantID: metadata.GetTenantId(), EventID: metadata.GetEventId(), Sequence: metadata.GetSequence(),
 			InstanceID: metadata.GetInstanceId(), NodeID: event.UserTaskCompleted.GetNodeId(),
-			Decision: event.UserTaskCompleted.GetDecision(), OccurredAt: occurredAt,
+			Decision: event.UserTaskCompleted.GetDecision(), CommandID: metadata.GetCausationCommandId(),
+			CorrelationID: metadata.GetCorrelationId(), OccurredAt: occurredAt,
 		})
 	case *enginev1.EventEnvelope_UserTaskCancelled:
 		return c.service.ProjectCommittedCancellation(ctx, application.CommittedCancellation{
