@@ -95,6 +95,9 @@ func (s *Store) RetryStart(ctx context.Context, job application.StartJob, now, n
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	status := "RECONCILING"
+	if code == "START_INPUT_UNAVAILABLE" {
+		status = "PENDING"
+	}
 	if job.Attempts >= 8 {
 		status = "FAILED_MANUAL"
 	}
@@ -109,22 +112,31 @@ func (s *Store) RetryStart(ctx context.Context, job application.StartJob, now, n
 		return application.ErrLeaseLost
 	}
 	var version int64
-	err = tx.QueryRow(ctx, `UPDATE customer_cases SET orchestration_status='RECONCILING',row_version=row_version+1,
+	caseStatus := "RECONCILING"
+	eventType := "CaseWorkflowReconciling"
+	if status == "FAILED_MANUAL" {
+		caseStatus = "START_FAILED"
+		eventType = "CaseWorkflowStartFailed"
+	} else if status == "PENDING" {
+		return tx.Commit(ctx)
+	}
+	err = tx.QueryRow(ctx, `UPDATE customer_cases SET orchestration_status=$4,row_version=row_version+1,
 		updated_at=$3,updated_by='case-service:start-worker'
-		WHERE tenant_id=$1 AND id=$2 AND orchestration_status='START_PENDING' AND NOT is_deleted
-		RETURNING row_version`, job.TenantID, job.CaseID, now).Scan(&version)
+		WHERE tenant_id=$1 AND id=$2 AND orchestration_status IN ('START_PENDING','RECONCILING')
+		AND orchestration_status<>$4 AND NOT is_deleted
+		RETURNING row_version`, job.TenantID, job.CaseID, now, caseStatus).Scan(&version)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
 	if err == nil {
-		payload, marshalErr := json.Marshal(map[string]string{"orchestration_status": "RECONCILING"})
+		payload, marshalErr := json.Marshal(map[string]string{"orchestration_status": caseStatus})
 		if marshalErr != nil {
 			return marshalErr
 		}
 		_, err = tx.Exec(ctx, `INSERT INTO case_outbox
 			(tenant_id,event_id,aggregate_id,aggregate_version,event_type,schema_version,correlation_id,causation_id,occurred_at,producer,payload)
-			VALUES($1,$2,$3,$4,'CaseWorkflowReconciling',1,$5,$6,$7,'case-service',$8)`,
-			job.TenantID, uuid.New(), job.CaseID, version, job.CorrelationID, job.CommandID.String(), now, payload)
+			VALUES($1,$2,$3,$4,$5,1,$6,$7,$8,'case-service',$9)`,
+			job.TenantID, uuid.New(), job.CaseID, version, eventType, job.CorrelationID, job.CommandID.String(), now, payload)
 		if err != nil {
 			return err
 		}

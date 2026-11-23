@@ -5,20 +5,12 @@
   "expiresAt": "2099-01-01T00:00:00Z",
   "remotes": [
     {
-      "name": "task-mfe",
-      "entry": "http://127.0.0.1:4301/mf-manifest.json",
+      "name": "case-mfe",
+      "entry": "http://127.0.0.1:4303/mf-manifest.json",
       "exposedModule": "route",
       "contractVersion": "1.0",
       "minShellVersion": "1.0",
-      "requiredCapabilities": ["task.read"]
-    },
-    {
-      "name": "studio-mfe",
-      "entry": "http://127.0.0.1:4302/mf-manifest.json",
-      "exposedModule": "route",
-      "contractVersion": "1.0",
-      "minShellVersion": "1.0",
-      "requiredCapabilities": ["authoring.listProcessModel", "authz.catalog.read", "configuration.profile.read"]
+      "requiredCapabilities": ["case.read"]
     }
   ]
 }

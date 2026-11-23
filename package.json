@@ -8,8 +8,13 @@
     "apps/web/ods-shell",
     "apps/web/task-mfe",
     "apps/web/studio-mfe",
+    "apps/web/case-mfe",
     "packages/frontend/*"
   ],
+  "overrides": {
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
   "scripts": {
     "build:ods": "npm run build --workspaces --if-present",
     "typecheck:ods": "npm run typecheck --workspaces --if-present",

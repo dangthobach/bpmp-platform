@@ -22,6 +22,7 @@ node_modules/
 /apps/web/ods-shell/test-results/
 /apps/web/task-mfe/dist/
 /apps/web/studio-mfe/dist/
+/apps/web/case-mfe/dist/
 /apps/web/task-mfe/@mf-types/
 /apps/web/ods-shell/@mf-types/
 @mf-types/

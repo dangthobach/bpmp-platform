@@ -1,0 +1,20 @@
+{
+  "postgres_dsn": "postgres://case_user:replace-me@127.0.0.1:5432/case_db?sslmode=verify-full",
+  "poll_interval_ms": 250,
+  "kafka": {
+    "brokers": ["127.0.0.1:9092"],
+    "client_id": "bpmp-case-outbox",
+    "security_protocol": "TLS",
+    "ca_file": "/run/secrets/kafka-ca.pem",
+    "certificate_file": "/run/secrets/kafka-client.pem",
+    "private_key_file": "/run/secrets/kafka-client-key.pem",
+    "dial_timeout_ms": 3000,
+    "request_timeout_ms": 3000,
+    "topic": "bpmp.case.events.v1.staging",
+    "message_timeout_ms": 5000,
+    "max_inflight": 1,
+    "max_message_bytes": 1048576,
+    "required_acks": "ALL",
+    "enable_idempotence": true
+  }
+}

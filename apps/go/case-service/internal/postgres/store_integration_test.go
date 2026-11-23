@@ -12,8 +12,12 @@ import (
 	"time"
 
 	"github.com/dangthobach/bpmp-platform/apps/go/case-service/internal/application"
+	"github.com/dangthobach/bpmp-platform/apps/go/case-service/internal/kafkapublisher"
+	"github.com/dangthobach/bpmp-platform/go/platform/kafkaconfig"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/twmb/franz-go/pkg/kerr"
+	"github.com/twmb/franz-go/pkg/kmsg"
 )
 
 func TestCreateCaseIdempotencyAndTransactionalOutbox(t *testing.T) {
@@ -46,13 +50,15 @@ func TestCreateCaseIdempotencyAndTransactionalOutbox(t *testing.T) {
 	if !ok {
 		t.Fatal("resolve migration path")
 	}
-	migration := filepath.Clean(filepath.Join(filepath.Dir(filename), "../../../../../db/case-service/migrations/001_case_foundation.sql"))
-	contents, err := os.ReadFile(migration)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = pool.Exec(ctx, string(contents)); err != nil {
-		t.Fatal(err)
+	for _, name := range []string{"001_case_foundation.sql", "002_outbox_delivery.sql", "003_case_search.sql"} {
+		migration := filepath.Clean(filepath.Join(filepath.Dir(filename), "../../../../../db/case-service/migrations", name))
+		contents, readErr := os.ReadFile(migration)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if _, err = pool.Exec(ctx, string(contents)); err != nil {
+			t.Fatal(err)
+		}
 	}
 	store, err := New(pool)
 	if err != nil {
@@ -162,5 +168,157 @@ func TestCreateCaseIdempotencyAndTransactionalOutbox(t *testing.T) {
 	}
 	if eventCount != 3 {
 		t.Fatalf("expected CaseCreated, CaseWorkflowReconciling and CaseWorkflowStarted; got %d", eventCount)
+	}
+	// A leased event blocks later versions for the same Case, even if another worker is ready.
+	eventNow := time.Now().UTC().Add(2 * time.Second)
+	firstEvent, found, err := store.ClaimEvent(ctx, eventNow, 30*time.Second, uuid.New())
+	if err != nil || !found || firstEvent.AggregateVersion != 1 || firstEvent.EventType != "CaseCreated" {
+		t.Fatalf("claim first event: event=%+v found=%v err=%v", firstEvent, found, err)
+	}
+	if _, found, err = store.ClaimEvent(ctx, eventNow, 30*time.Second, uuid.New()); err != nil || found {
+		t.Fatalf("later version bypassed leased event: found=%v err=%v", found, err)
+	}
+	if err = store.RetryEvent(ctx, firstEvent, eventNow.Add(time.Second), eventNow.Add(3*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err = store.ClaimEvent(ctx, eventNow.Add(2*time.Second), 30*time.Second, uuid.New()); err != nil || found {
+		t.Fatalf("later version bypassed retry delay: found=%v err=%v", found, err)
+	}
+	retryEvent, found, err := store.ClaimEvent(ctx, eventNow.Add(4*time.Second), 30*time.Second, uuid.New())
+	if err != nil || !found || retryEvent.EventID != firstEvent.EventID || retryEvent.Attempts != 2 {
+		t.Fatalf("retry changed event identity: event=%+v found=%v err=%v", retryEvent, found, err)
+	}
+	if err = store.MarkPublished(ctx, firstEvent, eventNow.Add(5*time.Second)); !errors.Is(err, application.ErrLeaseLost) {
+		t.Fatalf("stale event worker acknowledged: %v", err)
+	}
+	if err = store.MarkPublished(ctx, retryEvent, eventNow.Add(5*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	secondEvent, found, err := store.ClaimEvent(ctx, eventNow.Add(6*time.Second), 30*time.Second, uuid.New())
+	if err != nil || !found || secondEvent.AggregateVersion != 2 {
+		t.Fatalf("second event unavailable: event=%+v found=%v err=%v", secondEvent, found, err)
+	}
+	// Exhaustion must be visible from the Case aggregate, not only the private job row.
+	failingRequest := request
+	failingRequest.IdempotencyKey = "create-failing"
+	failing, err := service.Create(ctx, failingRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE workflow_start_jobs SET attempts=7 WHERE tenant_id=$1 AND case_id=$2`, tenant, failing.Case.ID); err != nil {
+		t.Fatal(err)
+	}
+	failedJob, found, err := store.ClaimStart(ctx, eventNow.Add(7*time.Second), 30*time.Second, uuid.New())
+	if err != nil || !found || failedJob.CaseID != failing.Case.ID || failedJob.Attempts != 8 {
+		t.Fatalf("claim last start attempt: job=%+v found=%v err=%v", failedJob, found, err)
+	}
+	if err = store.RetryStart(ctx, failedJob, eventNow.Add(8*time.Second), eventNow.Add(9*time.Second), "ENGINE_OUTCOME_UNKNOWN"); err != nil {
+		t.Fatal(err)
+	}
+	failingView, err := service.Get(ctx, tenant, failing.Case.ID)
+	if err != nil || failingView.OrchestrationStatus != "START_FAILED" || failingView.Version != 2 {
+		t.Fatalf("manual review state missing: case=%+v err=%v", failingView, err)
+	}
+	var terminalEventCount int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM case_outbox WHERE tenant_id=$1 AND aggregate_id=$2
+		AND event_type='CaseWorkflowStartFailed' AND aggregate_version=2`, tenant, failing.Case.ID).Scan(&terminalEventCount); err != nil || terminalEventCount != 1 {
+		t.Fatalf("terminal event missing: count=%d err=%v", terminalEventCount, err)
+	}
+	preSubmitRequest := request
+	preSubmitRequest.IdempotencyKey = "create-authz-unavailable"
+	preSubmit, err := service.Create(ctx, preSubmitRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preSubmitJob, found, err := store.ClaimStart(ctx, eventNow.Add(10*time.Second), 30*time.Second, uuid.New())
+	if err != nil || !found || preSubmitJob.CaseID != preSubmit.Case.ID {
+		t.Fatalf("claim pre-submit job: job=%+v found=%v err=%v", preSubmitJob, found, err)
+	}
+	if err = store.RetryStart(ctx, preSubmitJob, eventNow.Add(11*time.Second), eventNow.Add(12*time.Second), "START_INPUT_UNAVAILABLE"); err != nil {
+		t.Fatal(err)
+	}
+	preSubmitView, err := service.Get(ctx, tenant, preSubmit.Case.ID)
+	if err != nil || preSubmitView.OrchestrationStatus != "START_PENDING" || preSubmitView.Version != 1 {
+		t.Fatalf("pre-submit failure falsely reconciled Engine: case=%+v err=%v", preSubmitView, err)
+	}
+	view, err := service.GetView(ctx, tenant, firstID)
+	if err != nil || view.Case.Version != 3 || view.StartStatus != "STARTED" || view.PublishedVersion != 1 || view.AsOf.IsZero() {
+		t.Fatalf("Case view lost start or delivery watermark: view=%+v err=%v", view, err)
+	}
+	if _, err = service.GetView(ctx, uuid.New(), firstID); !errors.Is(err, application.ErrNotFound) {
+		t.Fatalf("cross-tenant Case view succeeded: %v", err)
+	}
+	timeline, err := service.Timeline(ctx, tenant, firstID, 0, 10)
+	if err != nil || len(timeline) != 3 || timeline[0].AggregateVersion != 1 ||
+		timeline[1].AggregateVersion != 2 || timeline[2].AggregateVersion != 3 || timeline[0].PublishedAt == nil {
+		t.Fatalf("Case timeline is incomplete: entries=%+v err=%v", timeline, err)
+	}
+	if _, err = service.Timeline(ctx, uuid.New(), firstID, 0, 10); !errors.Is(err, application.ErrNotFound) {
+		t.Fatalf("cross-tenant timeline succeeded: %v", err)
+	}
+	seen := map[uuid.UUID]bool{}
+	var beforeAt time.Time
+	var beforeID uuid.UUID
+	for len(seen) < 3 {
+		page, searchErr := service.Search(ctx, tenant, request.CustomerRef, beforeAt, beforeID, 1)
+		if searchErr != nil || len(page.Cases) != 1 || seen[page.Cases[0].ID] {
+			t.Fatalf("Case keyset search failed: page=%+v err=%v", page, searchErr)
+		}
+		seen[page.Cases[0].ID] = true
+		if page.NextCreatedAt == nil {
+			break
+		}
+		beforeAt, beforeID = *page.NextCreatedAt, page.NextID
+	}
+	if len(seen) != 3 {
+		t.Fatalf("Case search lost a result: %v", seen)
+	}
+	otherTenantPage, err := service.Search(ctx, uuid.New(), request.CustomerRef, time.Time{}, uuid.Nil, 10)
+	if err != nil || len(otherTenantPage.Cases) != 0 {
+		t.Fatalf("cross-tenant search leaked cases: page=%+v err=%v", otherTenantPage, err)
+	}
+	if broker := os.Getenv("CASE_SERVICE_KAFKA_BROKER"); broker != "" {
+		const topic = "bpmp.case.events.v1.test"
+		producerConfig := kafkaconfig.Producer{
+			Bootstrap: kafkaconfig.Bootstrap{Brokers: []string{broker}, ClientID: "bpmp-case-outbox-pg-it",
+				SecurityProtocol: kafkaconfig.ProtocolPlaintext, DialTimeoutMS: 2000, RequestTimeoutMS: 2000},
+			Topic: topic, MessageTimeoutMS: 5000, MaxInflight: 1, MaxMessageBytes: 4096,
+			RequiredAcks: "ALL", EnableIdempotence: true,
+		}
+		client, clientErr := kafkaconfig.NewProducerClient(producerConfig)
+		if clientErr != nil {
+			t.Fatal(clientErr)
+		}
+		defer client.Close()
+		create := kmsg.NewPtrCreateTopicsRequest()
+		create.Topics = []kmsg.CreateTopicsRequestTopic{{Topic: topic, NumPartitions: 1, ReplicationFactor: 1}}
+		response, requestErr := client.Request(ctx, create)
+		if requestErr != nil {
+			t.Fatal(requestErr)
+		}
+		created := response.(*kmsg.CreateTopicsResponse)
+		if len(created.Topics) != 1 {
+			t.Fatalf("unexpected topic response: %+v", created.Topics)
+		}
+		if topicErr := kerr.ErrorForCode(created.Topics[0].ErrorCode); topicErr != nil && topicErr != kerr.TopicAlreadyExists {
+			t.Fatal(topicErr)
+		}
+		publisher, publisherErr := kafkapublisher.New(client, producerConfig)
+		if publisherErr != nil {
+			t.Fatal(publisherErr)
+		}
+		runner, runnerErr := application.NewOutboxRunner(store, publisher, time.Now, uuid.New)
+		if runnerErr != nil {
+			t.Fatal(runnerErr)
+		}
+		processed, runErr := runner.RunOnce(ctx)
+		if runErr != nil || !processed {
+			t.Fatalf("broker-backed outbox run: processed=%v err=%v", processed, runErr)
+		}
+		var publishedCount int
+		if err = pool.QueryRow(ctx, `SELECT count(*) FROM case_outbox WHERE tenant_id=$1 AND aggregate_id=$2
+			AND aggregate_version=1 AND published_at IS NOT NULL`, tenant, failing.Case.ID).Scan(&publishedCount); err != nil || publishedCount != 1 {
+			t.Fatalf("broker ACK did not mark event published: count=%d err=%v", publishedCount, err)
+		}
 	}
 }

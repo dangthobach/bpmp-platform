@@ -10,6 +10,7 @@ export default defineConfig({
     port: 4300,
     strictPort: true,
     proxy: {
+      "/v1/customer-cases": { target: "http://127.0.0.1:8085", changeOrigin: false },
       "/v1": { target: "https://localhost:8443", changeOrigin: true, secure: false },
       "/realtime": { target: "https://localhost:7601", changeOrigin: true, secure: false },
     },

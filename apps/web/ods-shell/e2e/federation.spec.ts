@@ -1,5 +1,21 @@
 import { expect, test } from "@playwright/test";
 
+test.beforeEach(async ({ page }) => {
+  await page.route("**/mfe-catalog.json", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      schemaVersion: "1", catalogVersion: "federation-e2e", generatedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      remotes: [
+        { name: "task-mfe", entry: "http://127.0.0.1:4301/mf-manifest.json", exposedModule: "route", contractVersion: "1.0", minShellVersion: "1.0", requiredCapabilities: ["task.read"] },
+        { name: "studio-mfe", entry: "http://127.0.0.1:4302/mf-manifest.json", exposedModule: "route", contractVersion: "1.0", minShellVersion: "1.0", requiredCapabilities: ["authoring.listProcessModel", "authz.catalog.read", "configuration.profile.read"] },
+        { name: "case-mfe", entry: "http://127.0.0.1:4303/mf-manifest.json", exposedModule: "route", contractVersion: "1.0", minShellVersion: "1.0", requiredCapabilities: ["case.read"] },
+      ],
+    }),
+  }));
+});
+
 test("loads the independent Task remote and completes through its idempotent BFF contract", async ({ page }) => {
   let workItemVersion = 2;
   await page.route("**/v1/work-items?*", async (route) => {
@@ -51,6 +67,7 @@ test("loads the independent Task remote and completes through its idempotent BFF
   });
 
   await page.goto("/");
+  await page.getByRole("button", { name: "task" }).click();
 
   await expect(page.getByText("ODS Platform")).toBeVisible();
   await expect(page.getByRole("heading", { name: /Worklist/i })).toBeVisible({ timeout: 15_000 });

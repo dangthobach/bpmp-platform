@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { createCallApi } from "@ods/call-api";
 import type { PlatformServices, RemoteCatalog } from "@ods/mfe-contract";
-import { ErrorPanel, LoadingPanel, OdsThemeProvider, Page, ShellHeader } from "@ods/shared-ui";
+import { Box, Button, ErrorPanel, LoadingPanel, OdsThemeProvider, Page, ShellHeader } from "@ods/shared-ui";
 import { initializeBrowserTelemetry, recordComponentError, startApiTrace } from "@ods/telemetry";
 import { loadShellConfig, type ShellConfig } from "./config";
 import { loadCatalog } from "./federation/catalog";
@@ -18,7 +18,7 @@ export function App(): ReactNode {
   const [attempt, setAttempt] = useState(0);
   const [bootstrap, setBootstrap] = useState<{ config: ShellConfig; catalog: RemoteCatalog } | null>(null);
   const [state, setState] = useState<CatalogState>({ status: "loading" });
-  const [activeRemote, setActiveRemote] = useState("task-mfe");
+  const [activeRemote, setActiveRemote] = useState("case-mfe");
   const config = bootstrap?.config;
   const platform = useMemo<PlatformServices>(() => ({
     callApi: createCallApi({
@@ -65,11 +65,12 @@ export function App(): ReactNode {
     const remotes = state.catalog.remotes;
     const selected = remotes.find((remote) => remote.name === activeRemote) ?? remotes[0];
     content = selected && config
-      ? <><nav aria-label="ODS modules" className="shell-navigation">{remotes.map((remote) => <button key={remote.name} type="button" aria-current={remote.name === selected.name ? "page" : undefined} onClick={() => setActiveRemote(remote.name)}>{remote.name.replace("-mfe", "").replaceAll("-", " ")}</button>)}</nav><RemoteSlot key={selected.name} entry={selected} runtime={federationRuntime} timeoutMs={config.remoteTimeoutMs} platform={platform} /></>
+      ? <>{remotes.length > 1 ? <Box component="nav" aria-label="ODS modules" sx={{ display: "flex", gap: 1, px: { xs: 2, md: 3 }, py: 1.5, bgcolor: "background.paper", borderBottom: "1px solid #e2e7e3" }}>{remotes.map((remote) => <Button key={remote.name} type="button" aria-current={remote.name === selected.name ? "page" : undefined} variant={remote.name === selected.name ? "contained" : "text"} onClick={() => setActiveRemote(remote.name)}>{remote.name.replace("-mfe", "").replaceAll("-", " ")}</Button>)}</Box> : null}<RemoteSlot key={selected.name} entry={selected} runtime={federationRuntime} timeoutMs={config.remoteTimeoutMs} platform={platform} /></>
       : <Page title="No module"><ErrorPanel title="No modules are configured" /></Page>;
   }
 
-  return <OdsThemeProvider><ShellHeader title="ODS Platform" />{content}</OdsThemeProvider>;
+  const localCasePreview = state.status === "ready" && state.catalog.remotes.length === 1 && state.catalog.remotes[0]?.name === "case-mfe";
+  return <OdsThemeProvider><ShellHeader title="ODS Platform" label={localCasePreview ? "Case local preview" : "ODS workspace"} />{content}</OdsThemeProvider>;
 }
 
 function reportError(error: unknown, context: { remote: string; phase: string }): void {

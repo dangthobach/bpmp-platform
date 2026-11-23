@@ -42,8 +42,8 @@ type CreateRequest struct {
 }
 
 type CreateResult struct {
-	Case      Case
-	Duplicate bool
+	Case      Case `json:"case"`
+	Duplicate bool `json:"duplicate"`
 }
 
 type CreateCommand struct {
@@ -54,9 +54,34 @@ type CreateCommand struct {
 	Now     time.Time
 }
 
+type CaseView struct {
+	Case             Case      `json:"case"`
+	StartStatus      string    `json:"start_status"`
+	StartAttempts    int       `json:"start_attempts"`
+	PublishedVersion int64     `json:"published_version"`
+	AsOf             time.Time `json:"as_of"`
+}
+
+type TimelineEntry struct {
+	EventID          uuid.UUID  `json:"event_id"`
+	AggregateVersion int64      `json:"aggregate_version"`
+	EventType        string     `json:"event_type"`
+	OccurredAt       time.Time  `json:"occurred_at"`
+	PublishedAt      *time.Time `json:"published_at,omitempty"`
+}
+
+type SearchPage struct {
+	Cases         []Case     `json:"cases"`
+	NextCreatedAt *time.Time `json:"next_created_at,omitempty"`
+	NextID        uuid.UUID  `json:"next_id,omitempty"`
+}
+
 type Repository interface {
 	Create(context.Context, CreateCommand) (CreateResult, error)
 	Get(context.Context, uuid.UUID, uuid.UUID) (Case, error)
+	GetView(context.Context, uuid.UUID, uuid.UUID) (CaseView, error)
+	Timeline(context.Context, uuid.UUID, uuid.UUID, int64, int) ([]TimelineEntry, error)
+	Search(context.Context, uuid.UUID, string, time.Time, uuid.UUID, int) (SearchPage, error)
 }
 
 type Service struct {
@@ -101,4 +126,27 @@ func (s *Service) Get(ctx context.Context, tenantID, caseID uuid.UUID) (Case, er
 		return Case{}, ErrInvalid
 	}
 	return s.repo.Get(ctx, tenantID, caseID)
+}
+
+func (s *Service) GetView(ctx context.Context, tenantID, caseID uuid.UUID) (CaseView, error) {
+	if tenantID == uuid.Nil || caseID == uuid.Nil {
+		return CaseView{}, ErrInvalid
+	}
+	return s.repo.GetView(ctx, tenantID, caseID)
+}
+
+func (s *Service) Timeline(ctx context.Context, tenantID, caseID uuid.UUID, afterVersion int64, limit int) ([]TimelineEntry, error) {
+	if tenantID == uuid.Nil || caseID == uuid.Nil || afterVersion < 0 || limit < 1 || limit > 100 {
+		return nil, ErrInvalid
+	}
+	return s.repo.Timeline(ctx, tenantID, caseID, afterVersion, limit)
+}
+
+func (s *Service) Search(ctx context.Context, tenantID uuid.UUID, customerRef string, beforeCreatedAt time.Time, beforeID uuid.UUID, limit int) (SearchPage, error) {
+	customerRef = strings.TrimSpace(customerRef)
+	if tenantID == uuid.Nil || len(customerRef) > 256 || limit < 1 || limit > 100 ||
+		(beforeCreatedAt.IsZero() != (beforeID == uuid.Nil)) {
+		return SearchPage{}, ErrInvalid
+	}
+	return s.repo.Search(ctx, tenantID, customerRef, beforeCreatedAt, beforeID, limit)
 }

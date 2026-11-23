@@ -56,12 +56,12 @@ export function Page({ title, children }: PropsWithChildren<{ title: string }>):
   return <Container maxWidth={false} sx={{ py: { xs: 2, md: 3 }, px: { xs: 2, md: 3 }, minHeight: "calc(100vh - 58px)" }}><Typography variant="h4" component="h1" sx={{ mb: 2.5, fontSize: { xs: "1.5rem", md: "1.75rem" }, fontWeight: 750, letterSpacing: "-0.035em" }}>{title}</Typography>{children}</Container>;
 }
 
-export function ShellHeader({ title }: { title: string }): ReactNode {
+export function ShellHeader({ title, label = "ODS workspace" }: { title: string; label?: string }): ReactNode {
   return <AppBar position="sticky" elevation={0} sx={{ bgcolor: "rgba(255,255,255,.96)", color: "text.primary", borderBottom: "1px solid #e2e7e3", backdropFilter: "blur(12px)" }}><Toolbar sx={{ minHeight: "58px !important", px: { xs: 2, md: 3 }, gap: 1.25 }}>
     <Box aria-hidden="true" sx={{ width: 30, height: 30, display: "grid", placeItems: "center", borderRadius: 2, bgcolor: "primary.main", color: "white", fontWeight: 800, fontSize: 13, boxShadow: "0 0 0 3px #e7f5ec" }}>B</Box>
     <Box sx={{ display: "grid", lineHeight: 1.15 }}><Typography variant="subtitle2" sx={{ fontWeight: 800, letterSpacing: ".035em" }}>{title}</Typography><Typography variant="caption" color="primary.main" sx={{ fontWeight: 650 }}>Process workspace</Typography></Box>
     <Box sx={{ flex: 1 }} />
-    <Chip label="Task workspace" size="small" variant="outlined" sx={{ borderColor: "#b9dfca", color: "primary.dark", bgcolor: "#eff9f3", fontWeight: 650 }} />
+    <Chip label={label} size="small" variant="outlined" sx={{ borderColor: "#b9dfca", color: "primary.dark", bgcolor: "#eff9f3", fontWeight: 650 }} />
   </Toolbar></AppBar>;
 }
 

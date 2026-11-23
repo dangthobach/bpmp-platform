@@ -18,6 +18,15 @@ func (r *recordingRepo) Create(_ context.Context, c CreateCommand) (CreateResult
 func (*recordingRepo) Get(context.Context, uuid.UUID, uuid.UUID) (Case, error) {
 	return Case{}, ErrNotFound
 }
+func (*recordingRepo) GetView(context.Context, uuid.UUID, uuid.UUID) (CaseView, error) {
+	return CaseView{}, ErrNotFound
+}
+func (*recordingRepo) Timeline(context.Context, uuid.UUID, uuid.UUID, int64, int) ([]TimelineEntry, error) {
+	return nil, ErrNotFound
+}
+func (*recordingRepo) Search(context.Context, uuid.UUID, string, time.Time, uuid.UUID, int) (SearchPage, error) {
+	return SearchPage{}, nil
+}
 
 func TestCreateNormalizesIntentAndRejectsInvalidScope(t *testing.T) {
 	repo := &recordingRepo{}

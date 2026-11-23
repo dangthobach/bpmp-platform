@@ -9,6 +9,7 @@ import (
 )
 
 var ErrLeaseLost = errors.New("workflow start lease was lost")
+var ErrBeforeEngineSubmit = errors.New("workflow start failed before Engine submission")
 
 type StartJob struct {
 	TenantID        uuid.UUID
@@ -66,7 +67,11 @@ func (r *StartRunner) RunOnce(ctx context.Context) (bool, error) {
 		// An error may be an ambiguous commit. Reuse the exact Engine command on retry.
 		backoff := time.Second << min(job.Attempts-1, 6)
 		retryAt := r.now().UTC()
-		if retryErr := r.repo.RetryStart(ctx, job, retryAt, retryAt.Add(backoff), "ENGINE_OUTCOME_UNKNOWN"); retryErr != nil {
+		code := "ENGINE_OUTCOME_UNKNOWN"
+		if errors.Is(err, ErrBeforeEngineSubmit) {
+			code = "START_INPUT_UNAVAILABLE"
+		}
+		if retryErr := r.repo.RetryStart(ctx, job, retryAt, retryAt.Add(backoff), code); retryErr != nil {
 			return true, errors.Join(err, retryErr)
 		}
 		return true, nil

@@ -1447,10 +1447,10 @@ INSERT INTO row_filter(permission_id,resource_type,filter_expr) VALUES
 INSERT INTO field_filter(permission_id,resource_type,allowed_fields,masked_fields) VALUES
 ('00000000-0000-4000-8000-000000000015','workflow_instance',ARRAY[]::varchar[],ARRAY['initiator_actor_id','event_actor_id']);
 UPDATE role_permission SET conditions='{{"operator":"AND","conditions":[{{"operator":"LEAF","left":{{"type":"user_attr","key":"grade"}},"op":"gte","right":{{"type":"literal","value":3}}}},{{"operator":"LEAF","left":{{"type":"relation","key":"member_of","target":"user.team"}},"op":"exists","right":{{"type":"literal","value":true}}}}]}}' WHERE role_id='00000000-0000-4000-8000-000000000003' AND permission_id='00000000-0000-4000-8000-000000000015';
-INSERT INTO relation_type(tenant_id,relation,max_fanout) VALUES ('{tenant}','member_of',100);
+INSERT INTO relation_type(tenant_id,relation,max_fanout) VALUES ('{tenant}','member_of',100) ON CONFLICT (tenant_id,relation) DO UPDATE SET max_fanout=EXCLUDED.max_fanout;
 INSERT INTO relation_tuple(tenant_id,subject,relation,object) VALUES
 ('{tenant}','user:{actor}','member_of','group:query-reviewers'),
-('{tenant}','user:00000000-0000-4000-8000-000000000099','member_of','group:query-reviewers');
+('{tenant}','user:00000000-0000-4000-8000-000000000099','member_of','group:query-reviewers') ON CONFLICT DO NOTHING;
 "#,
         tenant = manifest.tenant_id,
         actor = manifest.actor_id,
