@@ -68,6 +68,26 @@ services:
       timeout: 2s
       retries: 30
 
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.4.7
+    command:
+      - start-dev
+      - --https-port=8443
+      - --https-certificate-file=/runtime/secrets/keycloak-tls.pem
+      - --https-certificate-key-file=/runtime/secrets/keycloak-tls-key.pem
+      - --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set KEYCLOAK_ADMIN_PASSWORD}
+      KC_HOSTNAME: https://localhost:14443
+      KC_HOSTNAME_STRICT: "true"
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ./runtime:/runtime:ro
+      - ./runtime/keycloak-realm.json:/opt/keycloak/data/import/bpmp-e2e-realm.json:ro
+    ports:
+      - "127.0.0.1:${KEYCLOAK_PORT:?set KEYCLOAK_PORT}:8443"
+
   redpanda:
     image: ${REDPANDA_IMAGE:?set REDPANDA_IMAGE}
     restart: "on-failure:3"
@@ -140,6 +160,8 @@ services:
         condition: service_completed_successfully
       engine2:
         condition: service_started
+      case-local:
+        condition: service_healthy
       configuration-service:
         condition: service_healthy
     healthcheck:
@@ -212,7 +234,7 @@ services:
     volumes:
       - ./runtime:/runtime:ro
     ports:
-      - "${COCKPIT_GATEWAY_PORT:?set COCKPIT_GATEWAY_PORT}:7601"
+      - "127.0.0.1:${COCKPIT_GATEWAY_PORT:?set COCKPIT_GATEWAY_PORT}:7601"
     depends_on:
       topic-init:
         condition: service_completed_successfully
@@ -233,7 +255,7 @@ services:
       - ./runtime/cockpit-web-nginx.conf:/etc/nginx/nginx.conf:ro
       - ./runtime:/runtime:ro
     ports:
-      - "${COCKPIT_WEB_PORT:?set COCKPIT_WEB_PORT}:8080"
+      - "127.0.0.1:${COCKPIT_WEB_PORT:?set COCKPIT_WEB_PORT}:8080"
     depends_on:
       api-gateway:
         condition: service_healthy
@@ -311,7 +333,7 @@ services:
     volumes:
       - ./runtime:/runtime:ro
     ports:
-      - "${AUTHZ_APP_PORT:?set AUTHZ_APP_PORT}:9090"
+      - "127.0.0.1:${AUTHZ_APP_PORT:?set AUTHZ_APP_PORT}:9090"
     depends_on:
       authz-server:
         condition: service_healthy
@@ -331,7 +353,7 @@ services:
     volumes:
       - ./runtime:/runtime:ro
     ports:
-      - "${GOVERNANCE_PORT:?set GOVERNANCE_PORT}:7501"
+      - "127.0.0.1:${GOVERNANCE_PORT:?set GOVERNANCE_PORT}:7501"
     depends_on:
       postgres:
         condition: service_healthy
@@ -363,7 +385,7 @@ services:
     volumes:
       - ./runtime:/runtime:ro
     ports:
-      - "${GATEWAY_PORT:?set GATEWAY_PORT}:8443"
+      - "127.0.0.1:${GATEWAY_PORT:?set GATEWAY_PORT}:8443"
     depends_on:
       redis:
         condition: service_healthy
@@ -375,6 +397,8 @@ services:
         condition: service_started
       configuration-service:
         condition: service_healthy
+      keycloak:
+        condition: service_started
     healthcheck:
       test:
         - CMD
@@ -389,6 +413,191 @@ services:
       timeout: 2s
       retries: 30
       start_period: 2s
+
+  case-postgres:
+    image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE}
+    environment:
+      POSTGRES_USER: case_user
+      POSTGRES_PASSWORD: case-e2e
+      POSTGRES_DB: case_db
+    networks: [case-data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  case-migrate:
+    image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE}
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - >-
+        PGPASSWORD=case-e2e psql -h case-postgres -U case_user -d case_db
+        --set ON_ERROR_STOP=1 --command "CREATE TABLE IF NOT EXISTS case_schema_migrations
+        (version text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())";
+        for migration in /migrations/001_case_foundation.sql /migrations/002_outbox_delivery.sql
+        /migrations/003_case_search.sql /migrations/004_engine_event_inbox.sql; do
+        version=$${migration##*/};
+        if ! PGPASSWORD=case-e2e psql -h case-postgres -U case_user -d case_db -Atc
+        "SELECT 1 FROM case_schema_migrations WHERE version='$$version'" | grep -q 1; then
+        PGPASSWORD=case-e2e psql -h case-postgres -U case_user -d case_db
+        --set ON_ERROR_STOP=1 --single-transaction --file "$$migration";
+        PGPASSWORD=case-e2e psql -h case-postgres -U case_user -d case_db
+        --set ON_ERROR_STOP=1 --command "INSERT INTO case_schema_migrations(version)
+        VALUES ('$$version')"; fi; done
+    volumes:
+      - ../../db/case-service/migrations:/migrations:ro
+    networks: [case-data]
+    depends_on:
+      case-postgres:
+        condition: service_healthy
+
+  case-topic-init:
+    image: ${REDPANDA_IMAGE:?set REDPANDA_IMAGE}
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - >-
+        rpk topic create bpmp.case.events.v1.e2e --brokers redpanda:9092
+        --partitions 1 --replicas 1 ||
+        rpk topic describe bpmp.case.events.v1.e2e --brokers redpanda:9092
+        >/dev/null
+    networks: [default]
+    depends_on:
+      redpanda:
+        condition: service_healthy
+
+  case-local:
+    image: bpmp/e2e-case-service:local
+    build:
+      context: ../..
+      dockerfile: platform/e2e/Dockerfile.case-service
+    command: ["--listen", "0.0.0.0:8085"]
+    environment:
+      CASE_LOCAL_POSTGRES_DSN: postgres://case_user:case-e2e@case-postgres:5432/case_db?sslmode=disable
+      CASE_ACTOR_PROOF_KEY_ID: internal-actor-v1
+      CASE_ACTOR_PROOF_PUBLIC_KEY: /runtime/secrets/internal-actor-public.key
+      CASE_ACTOR_WORKLOAD_ID: case-service
+      CASE_SERVER_CERTIFICATE: /runtime/secrets/tls.pem
+      CASE_SERVER_PRIVATE_KEY: /runtime/secrets/tls-key.pem
+      CASE_CLIENT_CA: /runtime/secrets/ca.pem
+    volumes:
+      - ./runtime:/runtime:ro
+    networks: [default, case-data]
+    depends_on:
+      case-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--cacert", "/runtime/secrets/ca.pem", "--cert", "/runtime/secrets/tls.pem", "--key", "/runtime/secrets/tls-key.pem", "--resolve", "api-gateway:8085:127.0.0.1", "https://api-gateway:8085/healthz"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  case-outbox:
+    image: bpmp/e2e-case-service:local
+    build:
+      context: ../..
+      dockerfile: platform/e2e/Dockerfile.case-service
+    entrypoint: ["/usr/local/bin/case-outbox"]
+    command: ["--config", "/runtime/case-outbox-e2e.json"]
+    volumes:
+      - ./case-outbox-e2e.json:/runtime/case-outbox-e2e.json:ro
+    networks: [default, case-data]
+    depends_on:
+      case-migrate:
+        condition: service_completed_successfully
+      case-topic-init:
+        condition: service_completed_successfully
+
+  case-start:
+    image: bpmp/e2e-case-service:local
+    build:
+      context: ../..
+      dockerfile: platform/e2e/Dockerfile.case-service
+    entrypoint: ["/usr/local/bin/case-start"]
+    command: ["--config", "/runtime/case-start-e2e.json"]
+    volumes:
+      - ./runtime:/runtime:ro
+    networks: [default, case-data]
+    depends_on:
+      case-migrate:
+        condition: service_completed_successfully
+      authz-server:
+        condition: service_healthy
+      engine2:
+        condition: service_started
+
+  case-engine-events:
+    image: bpmp/e2e-case-service:local
+    build:
+      context: ../..
+      dockerfile: platform/e2e/Dockerfile.case-service
+    entrypoint: ["/usr/local/bin/case-engine-events"]
+    command: ["--config", "/runtime/case-engine-events-e2e.json"]
+    volumes:
+      - ./case-engine-events-e2e.json:/runtime/case-engine-events-e2e.json:ro
+    networks: [default, case-data]
+    depends_on:
+      case-migrate:
+        condition: service_completed_successfully
+      topic-init:
+        condition: service_completed_successfully
+
+  ods-shell:
+    image: bpmp/e2e-ods-dev:local
+    build:
+      context: ../..
+      dockerfile: platform/e2e/Dockerfile.ods-dev
+    command: ["npm", "run", "dev", "-w", "@ods/shell", "--", "--host", "0.0.0.0"]
+    environment:
+      ODS_API_TARGET: https://api-gateway:8443
+      ODS_CASE_API_TARGET: https://api-gateway:8443
+      ODS_REALTIME_TARGET: https://api-gateway:8443
+    ports:
+      - "127.0.0.1:4300:4300"
+    networks: [default, case-preview]
+    depends_on:
+      task-mfe-dev:
+        condition: service_started
+      case-mfe-dev:
+        condition: service_started
+
+  task-mfe-dev:
+    image: bpmp/e2e-ods-dev:local
+    build:
+      context: ../..
+      dockerfile: platform/e2e/Dockerfile.ods-dev
+    command: ["npm", "run", "dev", "-w", "@ods/task-mfe", "--", "--host", "0.0.0.0"]
+    ports:
+      - "127.0.0.1:4301:4301"
+    networks: [default]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4301/mf-manifest.json').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  case-mfe-dev:
+    image: bpmp/e2e-ods-dev:local
+    build:
+      context: ../..
+      dockerfile: platform/e2e/Dockerfile.ods-dev
+    command: ["npm", "run", "dev", "-w", "@ods/case-mfe", "--", "--host", "0.0.0.0"]
+    ports:
+      - "127.0.0.1:4303:4303"
+    networks: [case-preview]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4303/mf-manifest.json').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+networks:
+  default:
+    driver: bridge
+  case-data:
+    internal: true
+  case-preview:
+    driver: bridge
 
 volumes:
   engine1-data:

@@ -8,6 +8,8 @@
 - `docs/refactor-prototype/api-spec.openapi.json` phân biệt operation đang đăng ký với operation đề xuất. Operation đề xuất không phải API chạy được.
 - `ui-api-mapping.csv` và `interaction-inventory.csv` là quét từ mã, chưa thay cho walkthrough/browser review.
 - UI prototype là một app đơn khối. `Prototype area` trong CSV không khẳng định MFE tương ứng đã được tách hoặc deploy.
+- Bản phân loại màn hình→Shell/MFE/BFF/domain owner và thứ tự port nằm ở [ODS Prototype UI Architecture Map](../ods-prototype-ui-architecture-map.md); mapping đó không đổi `ownerReview` hoặc trạng thái API trong inventory.
+- Source audit, inventory counts, wave dependency, security risks và acceptance criteria theo journey nằm trong [ODS Prototype Porting Plan](../ods-prototype-porting-plan.md).
 
 Tại lần tạo tài liệu, inventory có 1.386 dòng: 195 API candidate, 344 local draft, 813 local UI, 20 cần review thủ công và 14 control chưa thấy handler trực tiếp. Source audit hiện xác nhận 195/195 API candidate có `contractOwner` và `contractStatus`; 20 dòng `REVIEW_REQUIRED` đã được gom thành 10 tương tác trong bảng bên dưới; 14 control có proposal riêng. Toàn bộ 1.386 dòng vẫn mang `reviewState=PENDING_SOURCE_AND_BROWSER_REVIEW`; owner review chỉ áp dụng theo action/backend mapping liên quan. Đây là routing/source triage, chưa phải phê duyệt cuối.
 

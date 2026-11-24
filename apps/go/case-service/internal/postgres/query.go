@@ -14,7 +14,7 @@ func (s *Store) GetView(ctx context.Context, tenantID, caseID uuid.UUID) (applic
 	var view application.CaseView
 	err := s.pool.QueryRow(ctx, `SELECT c.tenant_id,c.id,c.customer_ref,c.workflow_type,c.workflow_version,
 		c.business_status,c.orchestration_status,COALESCE(c.workflow_instance_id,''),c.row_version,
-		c.created_at,c.updated_at,j.status,j.attempts,
+		c.created_at,c.updated_at,j.status,j.attempts,c.engine_sequence,
 		COALESCE((SELECT max(o.aggregate_version) FROM case_outbox o WHERE o.tenant_id=c.tenant_id
 			AND o.aggregate_id=c.id AND o.published_at IS NOT NULL),0)
 		FROM customer_cases c JOIN workflow_start_jobs j ON j.tenant_id=c.tenant_id AND j.case_id=c.id
@@ -22,7 +22,7 @@ func (s *Store) GetView(ctx context.Context, tenantID, caseID uuid.UUID) (applic
 		&view.Case.TenantID, &view.Case.ID, &view.Case.CustomerRef, &view.Case.WorkflowType,
 		&view.Case.WorkflowVersion, &view.Case.BusinessStatus, &view.Case.OrchestrationStatus,
 		&view.Case.WorkflowInstanceID, &view.Case.Version, &view.Case.CreatedAt, &view.Case.UpdatedAt,
-		&view.StartStatus, &view.StartAttempts, &view.PublishedVersion)
+		&view.StartStatus, &view.StartAttempts, &view.EngineSequence, &view.PublishedVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return view, application.ErrNotFound
 	}
@@ -50,6 +50,35 @@ func (s *Store) Timeline(ctx context.Context, tenantID, caseID uuid.UUID, afterV
 		entries = append(entries, entry)
 	}
 	return entries, rows.Err()
+}
+
+func (s *Store) ProcessEvents(ctx context.Context, tenantID, caseID uuid.UUID, afterSequence int64, limit int) (application.ProcessEventPage, error) {
+	if _, err := s.Get(ctx, tenantID, caseID); err != nil {
+		return application.ProcessEventPage{}, err
+	}
+	rows, err := s.pool.Query(ctx, `SELECT event_id,engine_sequence,event_type,occurred_at
+		FROM case_engine_events WHERE tenant_id=$1 AND case_id=$2 AND engine_sequence>$3
+		ORDER BY engine_sequence LIMIT $4`, tenantID, caseID, afterSequence, limit+1)
+	if err != nil {
+		return application.ProcessEventPage{}, err
+	}
+	defer rows.Close()
+	page := application.ProcessEventPage{Events: make([]application.ProcessEvent, 0, limit)}
+	for rows.Next() {
+		var event application.ProcessEvent
+		if err = rows.Scan(&event.EventID, &event.Sequence, &event.EventType, &event.OccurredAt); err != nil {
+			return application.ProcessEventPage{}, err
+		}
+		page.Events = append(page.Events, event)
+	}
+	if err = rows.Err(); err != nil {
+		return application.ProcessEventPage{}, err
+	}
+	if len(page.Events) > limit {
+		page.Events = page.Events[:limit]
+		page.NextAfterSequence = page.Events[len(page.Events)-1].Sequence
+	}
+	return page, nil
 }
 
 func (s *Store) Search(ctx context.Context, tenantID uuid.UUID, customerRef string, beforeCreatedAt time.Time, beforeID uuid.UUID, limit int) (application.SearchPage, error) {

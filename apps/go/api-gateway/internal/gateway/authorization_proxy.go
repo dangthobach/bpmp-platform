@@ -294,6 +294,10 @@ func validAuthorizationCode(value string) bool {
 
 func actorContextAudience(path, gatewayWorkloadID string) (string, bool) {
 	switch {
+	case path == "/realtime/v1/events":
+		return "cockpit-gateway", true
+	case path == "/v1/customer-cases" || strings.HasPrefix(path, "/v1/customer-cases/"):
+		return "case-service", true
 	case strings.HasPrefix(path, "/v1/work-items"),
 		strings.HasPrefix(path, "/v1/cases/"),
 		path == "/v1/audit-records",
@@ -310,7 +314,8 @@ func actorContextAudience(path, gatewayWorkloadID string) (string, bool) {
 		return "projection-service", true
 	case strings.HasPrefix(path, "/v1/workflows/"),
 		strings.HasPrefix(path, "/v1/access/"),
-		strings.HasPrefix(path, "/v1/configuration/"):
+		strings.HasPrefix(path, "/v1/configuration/"),
+		path == "/v1/runtime/browser-configuration":
 		return gatewayWorkloadID, gatewayWorkloadID != ""
 	default:
 		return "", false

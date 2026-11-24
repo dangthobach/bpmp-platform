@@ -8,9 +8,20 @@ ALTER TABLE configuration_profiles
     DROP CONSTRAINT IF EXISTS configuration_profiles_owner_check;
 ALTER TABLE configuration_profiles
     ADD CONSTRAINT configuration_profiles_owner_check
-    CHECK (owner IN ('ENGINE','API_GATEWAY','HUMAN_RUNTIME','PROJECTION','GOVERNANCE'));
+    CHECK (owner IN (
+        'ENGINE',
+        'API_GATEWAY',
+        'HUMAN_RUNTIME',
+        'PROJECTION',
+        'GOVERNANCE',
+        'CONFIGURATION_SERVICE',
+        'COCKPIT_GATEWAY',
+        'AUTHZ_CONTROL_PLANE'
+    ));
 ALTER TABLE configuration_profiles
     DROP CONSTRAINT IF EXISTS configuration_profiles_tenant_id_name_key;
+ALTER TABLE configuration_profiles
+    DROP CONSTRAINT IF EXISTS configuration_profiles_tenant_owner_name_key;
 ALTER TABLE configuration_profiles
     ADD CONSTRAINT configuration_profiles_tenant_owner_name_key
     UNIQUE (tenant_id, owner, name);
@@ -23,7 +34,16 @@ ALTER TABLE configuration_active_scopes
     DROP CONSTRAINT IF EXISTS configuration_active_scopes_owner_check;
 ALTER TABLE configuration_active_scopes
     ADD CONSTRAINT configuration_active_scopes_owner_check
-    CHECK (owner IN ('ENGINE','API_GATEWAY','HUMAN_RUNTIME','PROJECTION','GOVERNANCE'));
+    CHECK (owner IN (
+        'ENGINE',
+        'API_GATEWAY',
+        'HUMAN_RUNTIME',
+        'PROJECTION',
+        'GOVERNANCE',
+        'CONFIGURATION_SERVICE',
+        'COCKPIT_GATEWAY',
+        'AUTHZ_CONTROL_PLANE'
+    ));
 ALTER TABLE configuration_active_scopes
     DROP CONSTRAINT IF EXISTS configuration_active_scopes_pkey;
 ALTER TABLE configuration_active_scopes

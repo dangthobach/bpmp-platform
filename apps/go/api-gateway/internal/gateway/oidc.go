@@ -27,17 +27,27 @@ const (
 	csrfCookieName      = "__Host-bpmp_csrf"
 	oidcMaxResponseSize = 1 << 20
 	oidcMaxCodeBytes    = 4096
+	oidcLoginLimit      = 10
+	oidcLoginWindow     = time.Minute
 )
 
 func WithOIDCLogin(
 	value config.OIDC,
 	client httpDoer,
 	transactions ports.OIDCTransactionStore,
+	issuerJWKS ...[]byte,
 ) HandlerOption {
 	return func(handler *Handler) error {
 		if !value.Enabled || client == nil || transactions == nil ||
-			handler.sessionStore == nil || handler.authorizationProxy == nil {
+			handler.sessionStore == nil || handler.authorizationProxy == nil || len(issuerJWKS) > 1 {
 			return errors.New("OIDC login dependencies are incomplete")
+		}
+		if len(issuerJWKS) == 1 {
+			verified, err := newOIDCVerifier(value, issuerJWKS[0])
+			if err != nil {
+				return errors.New("OIDC issuer JWKS is invalid")
+			}
+			handler.oidcVerifier = verified
 		}
 		handler.oidcConfig = value
 		handler.oidcClient = client
@@ -54,14 +64,28 @@ func (h *Handler) startOIDCLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(sessionTokens) == 1 {
-		requestmeta.WriteProblem(w, r, http.StatusConflict, "active_session_exists", "Active session exists", "End the current session before starting a new OIDC login", false)
-		return
+		token := sessionTokens[0]
+		if token == "" || len(token) > h.sessionConfig.MaxTokenBytes {
+			clearSessionCookies(w, h.sessionConfig.CookieName)
+		} else {
+			session, sessionErr := h.sessionStore.Get(r.Context(), token)
+			if sessionErr != nil && !errors.Is(sessionErr, ports.ErrBrowserSessionNotFound) {
+				writeError(w, errUpstream)
+				return
+			}
+			if sessionErr == nil && validID(session.TenantID) && validID(session.ActorID) &&
+				len(session.CSRFTokenSHA256) == sha256.Size && session.ExpiresAt.After(h.now().UTC()) {
+				requestmeta.WriteProblem(w, r, http.StatusConflict, "active_session_exists", "Active session exists", "End the current session before starting a new OIDC login", false)
+				return
+			}
+			clearSessionCookies(w, h.sessionConfig.CookieName)
+		}
 	}
 	if r.URL.RawQuery != "" {
 		query := r.URL.Query()
 		for key, values := range query {
-			if key != "tenant_id" || len(values) != 1 {
-				requestmeta.WriteProblem(w, r, http.StatusBadRequest, "invalid_oidc_request", "Invalid login request", "Only one optional tenant_id is supported", false)
+			if (key != "tenant_id" && key != "return_to") || len(values) != 1 {
+				requestmeta.WriteProblem(w, r, http.StatusBadRequest, "invalid_oidc_request", "Invalid login request", "Only tenant_id and return_to are supported", false)
 				return
 			}
 		}
@@ -71,11 +95,21 @@ func (h *Handler) startOIDCLogin(w http.ResponseWriter, r *http.Request) {
 		requestmeta.WriteProblem(w, r, http.StatusBadRequest, "invalid_oidc_request", "Invalid login request", "tenant_id is invalid", false)
 		return
 	}
+	returnTo := r.URL.Query().Get("return_to")
+	if returnTo != "" && !h.allowedOIDCReturnTarget(returnTo) {
+		requestmeta.WriteProblem(w, r, http.StatusBadRequest, "invalid_oidc_request", "Invalid login request", "return_to origin is not allowed", false)
+		return
+	}
 	clientAddress := r.RemoteAddr
 	if host, _, splitErr := net.SplitHostPort(clientAddress); splitErr == nil {
 		clientAddress = host
 	}
-	allowed, err := h.limiter.Allow(r.Context(), "oidc:"+clientAddress)
+	allowed, err := false, error(nil)
+	if limiter, dynamic := h.limiter.(dynamicRateLimiter); dynamic {
+		allowed, err = limiter.AllowPolicy(r.Context(), "oidc:"+clientAddress, oidcLoginLimit, oidcLoginWindow)
+	} else {
+		allowed, err = h.limiter.Allow(r.Context(), "oidc:"+clientAddress)
+	}
 	if err != nil {
 		writeError(w, errUpstream)
 		return
@@ -102,7 +136,7 @@ func (h *Handler) startOIDCLogin(w http.ResponseWriter, r *http.Request) {
 	now := h.now().UTC()
 	expiresAt := now.Add(time.Duration(h.oidcConfig.TransactionTTLMS) * time.Millisecond)
 	err = h.oidcTransactions.Save(r.Context(), state, ports.OIDCLoginTransaction{
-		CodeVerifier: verifier, Nonce: nonce, TenantID: tenantID, ExpiresAt: expiresAt,
+		CodeVerifier: verifier, Nonce: nonce, TenantID: tenantID, ReturnTo: returnTo, ExpiresAt: expiresAt,
 	})
 	if err != nil {
 		writeError(w, errUpstream)
@@ -169,7 +203,11 @@ func (h *Handler) completeOIDCLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errUnauthorized)
 		return
 	}
-	subject, err := h.verifier.verifyOIDCIDToken(
+	idTokenVerifier := h.oidcVerifier
+	if idTokenVerifier == nil {
+		idTokenVerifier = h.verifier
+	}
+	subject, err := idTokenVerifier.verifyOIDCIDToken(
 		token.IDToken, h.oidcConfig.Issuer, h.oidcConfig.ClientID,
 		transaction.Nonce, now,
 	)
@@ -236,7 +274,32 @@ func (h *Handler) completeOIDCLogin(w http.ResponseWriter, r *http.Request) {
 	})
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	redirect := h.oidcConfig.FrontendURL
+	if transaction.ReturnTo != "" {
+		redirect = transaction.ReturnTo
+	}
+	if redirect == "" {
+		redirect = "/"
+	}
+	http.Redirect(w, r, redirect, http.StatusSeeOther)
+}
+
+func (h *Handler) allowedOIDCReturnTarget(raw string) bool {
+	target, err := url.Parse(raw)
+	if err != nil || target.Scheme == "" || target.Host == "" || target.User != nil || target.Fragment != "" || len(raw) > 2048 {
+		return false
+	}
+	origin := target.Scheme + "://" + target.Host
+	frontend, frontendErr := url.Parse(h.oidcConfig.FrontendURL)
+	if frontendErr == nil && origin == frontend.Scheme+"://"+frontend.Host {
+		return true
+	}
+	for _, allowed := range h.oidcConfig.AllowedReturnOrigins {
+		if origin == allowed {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *Handler) exchangeOIDCCode(ctx context.Context, code, verifier string) (oidcTokenResponse, error) {
@@ -250,6 +313,11 @@ func (h *Handler) exchangeOIDCCode(ctx context.Context, code, verifier string) (
 	if err != nil {
 		return oidcTokenResponse{}, err
 	}
+	issuer, err := url.Parse(h.oidcConfig.Issuer)
+	if err != nil {
+		return oidcTokenResponse{}, errors.New("OIDC issuer is invalid")
+	}
+	request.Host = issuer.Host
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	request.Header.Set("Accept", "application/json")
 	requestmeta.InjectHTTP(ctx, request.Header)
@@ -342,6 +410,42 @@ func (h *Handler) logoutBrowserSession(w http.ResponseWriter, r *http.Request) {
 	clearSessionCookies(w, h.sessionConfig.CookieName)
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// getBrowserSession exposes only the authenticated browser identity. The opaque
+// session cookie and OIDC tokens remain server-side.
+func (h *Handler) getBrowserSession(w http.ResponseWriter, r *http.Request) {
+	setCorrelationHeader(w, r)
+	w.Header().Set("Cache-Control", "no-store")
+	tokens := h.browserSessionTokens(r)
+	if len(tokens) != 1 || tokens[0] == "" || len(tokens[0]) > h.sessionConfig.MaxTokenBytes {
+		if len(tokens) == 1 {
+			clearSessionCookies(w, h.sessionConfig.CookieName)
+		}
+		writeError(w, errUnauthorized)
+		return
+	}
+	session, err := h.sessionStore.Get(r.Context(), tokens[0])
+	if errors.Is(err, ports.ErrBrowserSessionNotFound) {
+		clearSessionCookies(w, h.sessionConfig.CookieName)
+		writeError(w, errUnauthorized)
+		return
+	}
+	if err != nil {
+		writeError(w, errUpstream)
+		return
+	}
+	if !validID(session.TenantID) || !validID(session.ActorID) ||
+		len(session.CSRFTokenSHA256) != sha256.Size || !session.ExpiresAt.After(h.now().UTC()) {
+		clearSessionCookies(w, h.sessionConfig.CookieName)
+		writeError(w, errUnauthorized)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"tenant_id":  session.TenantID,
+		"actor_id":   session.ActorID,
+		"expires_at": session.ExpiresAt.UTC().Format(time.RFC3339),
+	})
 }
 
 func randomOIDCToken(size int) (string, error) {

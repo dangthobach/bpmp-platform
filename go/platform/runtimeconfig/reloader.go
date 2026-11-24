@@ -249,7 +249,7 @@ func NewKafkaClient(config kafkaconfig.Consumer) (*kgo.Client, error) {
 		kgo.SeedBrokers(config.Brokers...),
 		kgo.ClientID(config.ClientID),
 		kgo.ConsumerGroup(config.ConsumerGroup),
-		kgo.ConsumeTopics(config.Topic),
+		kgo.ConsumeTopics(config.TopicList()...),
 		kgo.DisableAutoCommit(),
 		kgo.DialTimeout(config.DialTimeout()),
 		kgo.RequestTimeoutOverhead(config.RequestTimeout()),

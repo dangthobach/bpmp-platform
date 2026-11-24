@@ -1,24 +1,32 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { createCallApi } from "@ods/call-api";
 import type { PlatformServices, RemoteCatalog } from "@ods/mfe-contract";
-import { Box, Button, ErrorPanel, LoadingPanel, OdsThemeProvider, Page, ShellHeader } from "@ods/shared-ui";
+import { Box, ErrorPanel, LoadingPanel, OdsThemeProvider, Page } from "@ods/shared-ui";
 import { initializeBrowserTelemetry, recordComponentError, startApiTrace } from "@ods/telemetry";
 import { loadShellConfig, type ShellConfig } from "./config";
 import { loadCatalog } from "./federation/catalog";
 import { createCatalogSignatureVerifier } from "./federation/signature";
 import { federationRuntime } from "./federation/runtime";
 import { RemoteSlot } from "./federation/RemoteSlot";
+import { navigateShell, resolveRemoteForPath } from "./navigation";
+import { WorkspaceSidebar, formatRemoteName } from "./components/WorkspaceSidebar";
+import { WorkspaceNavbar } from "./components/WorkspaceNavbar";
 
 type CatalogState =
   | { status: "loading" }
   | { status: "ready"; catalog: RemoteCatalog }
   | { status: "failed"; error: Error };
+type AuthState = { status: "checking" } | { status: "authenticated" } | { status: "failed"; error: Error };
 
 export function App(): ReactNode {
   const [attempt, setAttempt] = useState(0);
   const [bootstrap, setBootstrap] = useState<{ config: ShellConfig; catalog: RemoteCatalog } | null>(null);
   const [state, setState] = useState<CatalogState>({ status: "loading" });
+  const [auth, setAuth] = useState<AuthState>({ status: "checking" });
   const [activeRemote, setActiveRemote] = useState("case-mfe");
+  const [currentPath, setCurrentPath] = useState(() => window.location.pathname);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [moduleSearch, setModuleSearch] = useState("");
   const config = bootstrap?.config;
   const platform = useMemo<PlatformServices>(() => ({
     callApi: createCallApi({
@@ -27,11 +35,36 @@ export function App(): ReactNode {
       ...(config === undefined ? {} : { startTrace: startApiTrace }),
       onProtocolError: (error) => reportError(error, { remote: "shell", phase: "api-protocol" }),
     }),
-    navigate: (path) => history.pushState({}, "", path),
+    navigate: navigateShell,
     reportError,
   }), [config?.apiTimeoutMs, config?.maxApiResponseBytes]);
 
   useEffect(() => {
+    let active = true;
+    void fetch("/auth/session", { credentials: "include", cache: "no-store", headers: { Accept: "application/json" } })
+      .then((response) => {
+        if (response.status === 401) {
+          const returnTo = encodeURIComponent(window.location.href);
+          window.location.assign(`/auth/oidc/login?return_to=${returnTo}`);
+          return;
+        }
+        if (!response.ok) throw new Error(`Session lookup failed (${response.status})`);
+        if (active) setAuth({ status: "authenticated" });
+      })
+      .catch((error: unknown) => {
+        if (active) setAuth({ status: "failed", error: error instanceof Error ? error : new Error("Session lookup failed") });
+      });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    const syncPath = () => setCurrentPath(window.location.pathname);
+    window.addEventListener("popstate", syncPath);
+    return () => window.removeEventListener("popstate", syncPath);
+  }, []);
+
+  useEffect(() => {
+    if (auth.status !== "authenticated") return;
     let active = true;
     setState({ status: "loading" });
     setBootstrap(null);
@@ -54,23 +87,55 @@ export function App(): ReactNode {
       },
     );
     return () => { active = false; };
-  }, [attempt]);
+  }, [attempt, auth.status]);
 
   let content: ReactNode;
-  if (state.status === "loading") {
+  let selectedRemoteName: string | undefined;
+  let availableRemotes: RemoteCatalog["remotes"] = [];
+  if (auth.status === "checking") {
+    content = <Page title="Signing in"><LoadingPanel label="Checking Keycloak session" /></Page>;
+  } else if (auth.status === "failed") {
+    content = <Page title="Sign in unavailable"><ErrorPanel title="Could not verify your session" detail={auth.error.message} onRetry={() => window.location.reload()} /></Page>;
+  } else if (state.status === "loading") {
     content = <Page title="Starting ODS"><LoadingPanel label="Loading application catalog" /></Page>;
   } else if (state.status === "failed") {
     content = <Page title="ODS unavailable"><ErrorPanel title="Application catalog could not be loaded" detail={state.error.message} onRetry={() => setAttempt((value) => value + 1)} /></Page>;
   } else {
     const remotes = state.catalog.remotes;
-    const selected = remotes.find((remote) => remote.name === activeRemote) ?? remotes[0];
+    availableRemotes = remotes;
+    const selected = resolveRemoteForPath(remotes, currentPath)
+      ?? remotes.find((remote) => remote.name === activeRemote)
+      ?? remotes[0];
+    selectedRemoteName = selected?.name;
     content = selected && config
-      ? <>{remotes.length > 1 ? <Box component="nav" aria-label="ODS modules" sx={{ display: "flex", gap: 1, px: { xs: 2, md: 3 }, py: 1.5, bgcolor: "background.paper", borderBottom: "1px solid #e2e7e3" }}>{remotes.map((remote) => <Button key={remote.name} type="button" aria-current={remote.name === selected.name ? "page" : undefined} variant={remote.name === selected.name ? "contained" : "text"} onClick={() => setActiveRemote(remote.name)}>{remote.name.replace("-mfe", "").replaceAll("-", " ")}</Button>)}</Box> : null}<RemoteSlot key={selected.name} entry={selected} runtime={federationRuntime} timeoutMs={config.remoteTimeoutMs} platform={platform} /></>
+      ? <RemoteSlot key={selected.name} entry={selected} runtime={federationRuntime} timeoutMs={config.remoteTimeoutMs} platform={platform} />
       : <Page title="No module"><ErrorPanel title="No modules are configured" /></Page>;
   }
 
-  const localCasePreview = state.status === "ready" && state.catalog.remotes.length === 1 && state.catalog.remotes[0]?.name === "case-mfe";
-  return <OdsThemeProvider><ShellHeader title="ODS Platform" label={localCasePreview ? "Case local preview" : "ODS workspace"} />{content}</OdsThemeProvider>;
+  const localCasePreview = state.status === "ready" && state.catalog.remotes.some((remote) => remote.name === "case-mfe");
+  const activeTitle = selectedRemoteName === undefined ? "Workspace" : formatRemoteName(selectedRemoteName);
+  return <OdsThemeProvider><Box sx={{ display: "flex", minHeight: "100vh", bgcolor: "#f5f7f5" }}>
+    <WorkspaceSidebar
+      remotes={availableRemotes}
+      filter={moduleSearch}
+      activeRemoteName={selectedRemoteName}
+      collapsed={sidebarCollapsed}
+      onSelect={(remote) => { setActiveRemote(remote.name); if (remote.routeBasePath !== undefined) navigateShell(remote.routeBasePath); }}
+      onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
+    />
+    <Box sx={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
+      <WorkspaceNavbar
+        title={activeTitle}
+        localPreview={localCasePreview}
+        canSearchModules={availableRemotes.length > 1}
+        moduleSearch={moduleSearch}
+        loading={state.status === "loading"}
+        onModuleSearch={setModuleSearch}
+        onRefresh={() => setAttempt((value) => value + 1)}
+      />
+      <Box component="main" sx={{ minWidth: 0, flex: 1 }}>{content}</Box>
+    </Box>
+  </Box></OdsThemeProvider>;
 }
 
 function reportError(error: unknown, context: { remote: string; phase: string }): void {

@@ -8,6 +8,11 @@ export default defineConfig({
     port: 4173,
     strictPort: false,
     proxy: {
+      "/auth": {
+        target: "https://localhost:8443",
+        changeOrigin: true,
+        secure: false,
+      },
       "/v1": {
         target: "https://localhost:8443",
         changeOrigin: true,

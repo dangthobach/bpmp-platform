@@ -7,11 +7,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/dangthobach/bpmp-platform/apps/go/human-runtime/internal/adapter/enginegrpc"
 	"github.com/dangthobach/bpmp-platform/apps/go/human-runtime/internal/application"
 	"github.com/dangthobach/bpmp-platform/apps/go/human-runtime/internal/domain"
 	authv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/authorization/v1"
@@ -102,6 +104,7 @@ func (s *Server) ListWorkItems(ctx context.Context, r *humanv1.ListWorkItemsRequ
 	}
 	items, next, err := s.query.ListWorkItems(ctx, r.GetTenantId(), identity.ActorID, groups, listScope, pageSize, cursor)
 	if err != nil {
+		slog.Error("query work items failed", "tenant_id", r.GetTenantId(), "scope", listScope, "error", err)
 		return nil, status.Error(codes.Internal, "query work items")
 	}
 	if next != nil {
@@ -212,6 +215,7 @@ func (s *Server) GetWorkItemHistory(ctx context.Context, r *humanv1.GetWorkItemH
 		return nil, err
 	}
 	if _, allowed := identity.Capabilities["audit.read"]; !allowed {
+		slog.Warn("work-item history access denied", "reason", "audit_read_capability_missing")
 		return nil, status.Error(codes.PermissionDenied, "actor lacks audit.read capability")
 	}
 	if s.history == nil {
@@ -235,6 +239,7 @@ func (s *Server) GetWorkItemHistory(ctx context.Context, r *humanv1.GetWorkItemH
 		return nil, status.Error(codes.DataLoss, "work item history scope is invalid")
 	}
 	if !item.CanAct(identity.ActorID, identity.Groups) {
+		slog.Warn("work-item history access denied", "reason", "actor_not_assigned")
 		return nil, status.Error(codes.PermissionDenied, "actor cannot read this work item history")
 	}
 	policy, err := s.policy.Policy(r.GetTenantId())
@@ -248,8 +253,10 @@ func (s *Server) GetWorkItemHistory(ctx context.Context, r *humanv1.GetWorkItemH
 	if pageSize > 100 {
 		pageSize = 100
 	}
-	enginePage, err := s.history.ReadHistoryPage(ctx, r.GetTenantId(), item.InstanceID, cursor.EngineAfter, uint32(pageSize))
+	engineCtx := enginegrpc.WithRuntimePolicy(ctx, policy)
+	enginePage, err := s.history.ReadHistoryPage(engineCtx, r.GetTenantId(), item.InstanceID, cursor.EngineAfter, uint32(pageSize))
 	if err != nil || enginePage == nil {
+		slog.Error("Engine history query failed", "error", err)
 		return nil, status.Error(codes.Unavailable, "Engine history query failed")
 	}
 	if cursor.EngineAfter > enginePage.GetWatermark() {

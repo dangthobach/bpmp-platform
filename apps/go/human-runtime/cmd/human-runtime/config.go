@@ -12,20 +12,21 @@ import (
 )
 
 type runtimeConfig struct {
-	ListenAddress   string                     `json:"listen_address"`
-	PostgresDSN     string                     `json:"postgres_dsn"`
-	ApplyMigrations bool                       `json:"apply_migrations"`
-	MigrationPath   string                     `json:"migration_path"`
-	EngineAddress   string                     `json:"engine_address"`
-	TLS             tlsConfig                  `json:"tls"`
-	Kafka           kafkaConfig                `json:"kafka"`
-	Identity        identityConfig             `json:"identity"`
-	Workload        workloadConfig             `json:"workload"`
-	GRPC            grpcConfig                 `json:"grpc"`
-	Health          healthConfig               `json:"health"`
-	Telemetry       telemetryConfig            `json:"telemetry"`
-	Escalation      escalationConfig           `json:"escalation"`
-	RuntimeConfig   dynamicConfigurationConfig `json:"runtime_configuration"`
+	ListenAddress               string                     `json:"listen_address"`
+	PostgresDSN                 string                     `json:"postgres_dsn"`
+	ApplyMigrations             bool                       `json:"apply_migrations"`
+	MigrationPath               string                     `json:"migration_path"`
+	WorkItemChangeMigrationPath string                     `json:"work_item_change_migration_path"`
+	EngineAddress               string                     `json:"engine_address"`
+	TLS                         tlsConfig                  `json:"tls"`
+	Kafka                       kafkaConfig                `json:"kafka"`
+	Identity                    identityConfig             `json:"identity"`
+	Workload                    workloadConfig             `json:"workload"`
+	GRPC                        grpcConfig                 `json:"grpc"`
+	Health                      healthConfig               `json:"health"`
+	Telemetry                   telemetryConfig            `json:"telemetry"`
+	Escalation                  escalationConfig           `json:"escalation"`
+	RuntimeConfig               dynamicConfigurationConfig `json:"runtime_configuration"`
 }
 
 type tlsConfig struct {
@@ -52,6 +53,7 @@ type kafkaConfig struct {
 	Brokers             []string `json:"brokers"`
 	CommittedEventTopic string   `json:"committed_event_topic"`
 	EscalationTopic     string   `json:"escalation_topic"`
+	WorkItemChangeTopic string   `json:"work_item_change_topic"`
 	ConsumerGroup       string   `json:"consumer_group"`
 }
 
@@ -124,8 +126,11 @@ func loadConfig(path string) (runtimeConfig, error) {
 }
 
 func (c runtimeConfig) validate() error {
-	if c.ListenAddress == "" || c.PostgresDSN == "" || c.EngineAddress == "" || len(c.Kafka.Brokers) == 0 || c.Kafka.CommittedEventTopic == "" || c.Kafka.EscalationTopic == "" || c.Kafka.ConsumerGroup == "" || c.Identity.JWKSPath == "" || len(c.Identity.InternalKeys) == 0 || c.Workload.ID == "" || c.Workload.SigningKeyID == "" || c.Workload.PrivateKeyPath == "" || c.Escalation.WorkerID == "" {
+	if c.ListenAddress == "" || c.PostgresDSN == "" || c.EngineAddress == "" || len(c.Kafka.Brokers) == 0 || c.Kafka.CommittedEventTopic == "" || c.Kafka.EscalationTopic == "" || c.Kafka.WorkItemChangeTopic == "" || c.Kafka.ConsumerGroup == "" || c.Identity.JWKSPath == "" || len(c.Identity.InternalKeys) == 0 || c.Workload.ID == "" || c.Workload.SigningKeyID == "" || c.Workload.PrivateKeyPath == "" || c.Escalation.WorkerID == "" {
 		return errors.New("human-runtime configuration is incomplete")
+	}
+	if c.ApplyMigrations && (c.MigrationPath == "" || c.WorkItemChangeMigrationPath == "") {
+		return errors.New("human-runtime migration paths are required when migrations are enabled")
 	}
 	if c.TLS.ConfigurationServerName == "" ||
 		c.RuntimeConfig.TenantID == "" ||
@@ -138,6 +143,7 @@ func (c runtimeConfig) validate() error {
 	}
 	if kafkaconfig.ValidateTopic(c.Kafka.CommittedEventTopic) != nil ||
 		kafkaconfig.ValidateTopic(c.Kafka.EscalationTopic) != nil ||
+		kafkaconfig.ValidateTopic(c.Kafka.WorkItemChangeTopic) != nil ||
 		kafkaconfig.ValidateConsumerGroup(c.Kafka.ConsumerGroup) != nil {
 		return errors.New("human-runtime Kafka names are invalid")
 	}

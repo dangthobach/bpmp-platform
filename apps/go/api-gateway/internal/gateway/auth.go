@@ -26,6 +26,7 @@ type authenticatedActor struct {
 	proofType          authv1.ActorProofType
 	signedProof        []byte
 	fromBrowserSession bool
+	sessionExpiresAt   time.Time
 }
 
 type HandlerOption func(*Handler) error
@@ -65,6 +66,18 @@ func newVerifier(value config.Identity) (*verifier, error) {
 		return nil, err
 	}
 	return &verifier{value: shared}, nil
+}
+
+func newOIDCVerifier(value config.OIDC, jwks []byte) (*verifier, error) {
+	verified, err := jwtauth.NewFromJWKS(jwtauth.Config{
+		Issuers: []string{value.Issuer}, Audiences: []string{value.ClientID},
+		Algorithms: []string{"RS256"}, MaxTokenBytes: 16_384, MaxJWKSKeys: 32,
+		ClockSkew: 30 * time.Second,
+	}, jwks)
+	if err != nil {
+		return nil, err
+	}
+	return &verifier{value: verified}, nil
 }
 
 func (v *verifier) verify(raw, tenantID string, now time.Time) (actorIdentity, error) {
@@ -145,7 +158,7 @@ func (h *Handler) authenticateActor(
 		tenantID: session.TenantID, actorID: session.ActorID,
 		proofType:          authv1.ActorProofType_ACTOR_PROOF_TYPE_SIGNED_INTERNAL_CONTEXT,
 		signedProof:        append([]byte(nil), session.SignedActorContext...),
-		fromBrowserSession: true,
+		fromBrowserSession: true, sessionExpiresAt: session.ExpiresAt,
 	}, nil
 }
 

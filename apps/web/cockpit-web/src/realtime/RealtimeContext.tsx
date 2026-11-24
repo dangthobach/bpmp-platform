@@ -66,7 +66,6 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
           url.searchParams.set("names", config.realtimeSignalNames.join(","));
           const headers = new Headers({
             Accept: "text/event-stream",
-            Authorization: `Bearer ${connectedIdentity.accessToken}`,
             "X-BPMP-Tenant-ID": connectedIdentity.tenantId,
             "X-Correlation-ID": crypto.randomUUID(),
           });
@@ -74,6 +73,7 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
           const response = await fetch(url, {
             method: "GET",
             headers,
+            credentials: "include",
             cache: "no-store",
             signal: controller.signal,
           });

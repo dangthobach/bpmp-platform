@@ -126,6 +126,10 @@ func withRuntimePolicy(
 	return context.WithValue(ctx, runtimePolicyContextKey{}, policy)
 }
 
+func WithRuntimePolicy(ctx context.Context, policy application.RuntimePolicy) context.Context {
+	return withRuntimePolicy(ctx, policy)
+}
+
 func RuntimePolicyFromContext(ctx context.Context) (application.RuntimePolicy, error) {
 	policy, ok := ctx.Value(runtimePolicyContextKey{}).(application.RuntimePolicy)
 	if !ok || policy.EngineCommandTimeout <= 0 {

@@ -50,12 +50,13 @@ type Producer struct {
 
 type Consumer struct {
 	Bootstrap
-	Topic            string `json:"topic"`
-	ConsumerGroup    string `json:"consumer_group"`
-	BatchSize        int    `json:"batch_size"`
-	MaxMessageBytes  int    `json:"max_message_bytes"`
-	PollTimeoutMS    int64  `json:"poll_timeout_ms"`
-	SessionTimeoutMS int64  `json:"session_timeout_ms"`
+	Topic            string   `json:"topic"`
+	Topics           []string `json:"topics,omitempty"`
+	ConsumerGroup    string   `json:"consumer_group"`
+	BatchSize        int      `json:"batch_size"`
+	MaxMessageBytes  int      `json:"max_message_bytes"`
+	PollTimeoutMS    int64    `json:"poll_timeout_ms"`
+	SessionTimeoutMS int64    `json:"session_timeout_ms"`
 }
 
 func (c Bootstrap) Validate() error {
@@ -120,7 +121,9 @@ func (c Consumer) Validate() error {
 	if err := c.Bootstrap.Validate(); err != nil {
 		return err
 	}
-	if ValidateTopic(c.Topic) != nil ||
+	topics := c.TopicList()
+	if len(topics) == 0 || len(topics) > 16 ||
+		(c.Topic != "" && len(c.Topics) > 0) ||
 		ValidateConsumerGroup(c.ConsumerGroup) != nil ||
 		c.BatchSize <= 0 ||
 		c.BatchSize > maxBatchSize ||
@@ -132,7 +135,29 @@ func (c Consumer) Validate() error {
 		c.SessionTimeoutMS > maxBootstrapTimeoutMS {
 		return ErrInvalidConfig
 	}
+	seen := make(map[string]struct{}, len(topics))
+	for _, topic := range topics {
+		if ValidateTopic(topic) != nil {
+			return ErrInvalidConfig
+		}
+		if _, duplicate := seen[topic]; duplicate {
+			return ErrInvalidConfig
+		}
+		seen[topic] = struct{}{}
+	}
 	return nil
+}
+
+// TopicList preserves the original single-topic configuration while allowing
+// a consumer to subscribe to multiple independently owned integration feeds.
+func (c Consumer) TopicList() []string {
+	if len(c.Topics) > 0 {
+		return append([]string(nil), c.Topics...)
+	}
+	if c.Topic == "" {
+		return nil
+	}
+	return []string{c.Topic}
 }
 
 func ValidateTopic(value string) error {

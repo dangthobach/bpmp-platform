@@ -3,6 +3,7 @@ package health
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"time"
 )
@@ -17,8 +18,9 @@ func Handler(timeout time.Duration, checks ...Check) http.Handler {
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), timeout)
 		defer cancel()
-		for _, check := range checks {
+		for index, check := range checks {
 			if err := check(ctx); err != nil {
+				slog.Warn("readiness check failed", "check_index", index, "error", err)
 				writeStatus(w, http.StatusServiceUnavailable, "not-ready")
 				return
 			}

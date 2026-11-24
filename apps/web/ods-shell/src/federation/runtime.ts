@@ -17,7 +17,7 @@ export const federationRuntime: FederationRuntime = {
       timeoutMs,
       `remote ${entry.name} load timed out`,
     );
-    return assertRemoteRouteModule(loaded, entry.contractVersion);
+    return assertRemoteRouteModule(loaded, entry.contractVersion, entry.routeBasePath);
   },
 };
 

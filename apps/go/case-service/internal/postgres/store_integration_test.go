@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -50,7 +51,7 @@ func TestCreateCaseIdempotencyAndTransactionalOutbox(t *testing.T) {
 	if !ok {
 		t.Fatal("resolve migration path")
 	}
-	for _, name := range []string{"001_case_foundation.sql", "002_outbox_delivery.sql", "003_case_search.sql"} {
+	for _, name := range []string{"001_case_foundation.sql", "002_outbox_delivery.sql", "003_case_search.sql", "004_engine_event_inbox.sql"} {
 		migration := filepath.Clean(filepath.Join(filepath.Dir(filename), "../../../../../db/case-service/migrations", name))
 		contents, readErr := os.ReadFile(migration)
 		if readErr != nil {
@@ -168,6 +169,83 @@ func TestCreateCaseIdempotencyAndTransactionalOutbox(t *testing.T) {
 	}
 	if eventCount != 3 {
 		t.Fatalf("expected CaseCreated, CaseWorkflowReconciling and CaseWorkflowStarted; got %d", eventCount)
+	}
+	engineEvents, err := application.NewEngineEventService(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	startedAt := time.Now().UTC()
+	startedEvent := application.EngineEvent{TenantID: tenant, InstanceID: firstID.String(), EventID: "engine-start-1",
+		WorkflowType: request.WorkflowType, WorkflowVersion: request.WorkflowVersion, Sequence: 1,
+		EventType: "workflow_started", OccurredAt: startedAt, PayloadDigest: sha256.Sum256([]byte("started"))}
+	if applied, applyErr := engineEvents.Apply(ctx, startedEvent); applyErr != nil || !applied {
+		t.Fatalf("apply Engine start event: applied=%v err=%v", applied, applyErr)
+	}
+	if applied, applyErr := engineEvents.Apply(ctx, startedEvent); applyErr != nil || applied {
+		t.Fatalf("duplicate Engine event was not deduplicated: applied=%v err=%v", applied, applyErr)
+	}
+	conflictingDuplicate := startedEvent
+	conflictingDuplicate.PayloadDigest = sha256.Sum256([]byte("changed payload"))
+	if _, applyErr := engineEvents.Apply(ctx, conflictingDuplicate); !errors.Is(applyErr, ErrEngineEventConflict) {
+		t.Fatalf("same event identity with changed payload was accepted: %v", applyErr)
+	}
+	conflictingSequence := startedEvent
+	conflictingSequence.EventID = "engine-other-at-1"
+	conflictingSequence.PayloadDigest = sha256.Sum256([]byte("second event at sequence one"))
+	if _, applyErr := engineEvents.Apply(ctx, conflictingSequence); !errors.Is(applyErr, ErrEngineEventConflict) {
+		t.Fatalf("two Engine event IDs claimed one stream sequence: %v", applyErr)
+	}
+	terminalEvent := application.EngineEvent{TenantID: tenant, InstanceID: firstID.String(), EventID: "engine-complete-3",
+		WorkflowType: request.WorkflowType, WorkflowVersion: request.WorkflowVersion, Sequence: 3,
+		EventType: "workflow_completed", OccurredAt: startedAt.Add(time.Minute), PayloadDigest: sha256.Sum256([]byte("completed"))}
+	if applied, applyErr := engineEvents.Apply(ctx, terminalEvent); applyErr != nil || !applied {
+		t.Fatalf("apply Engine completion: applied=%v err=%v", applied, applyErr)
+	}
+	lateEvent := application.EngineEvent{TenantID: tenant, InstanceID: firstID.String(), EventID: "engine-late-2",
+		WorkflowType: request.WorkflowType, WorkflowVersion: request.WorkflowVersion, Sequence: 2,
+		EventType: "user_task_activated", OccurredAt: startedAt.Add(30 * time.Second), PayloadDigest: sha256.Sum256([]byte("late"))}
+	if applied, applyErr := engineEvents.Apply(ctx, lateEvent); applyErr != nil || !applied {
+		t.Fatalf("store reordered Engine event: applied=%v err=%v", applied, applyErr)
+	}
+	engineView, err := service.GetView(ctx, tenant, firstID)
+	if err != nil || engineView.Case.OrchestrationStatus != "CLOSED" || engineView.EngineSequence != 3 {
+		t.Fatalf("out-of-order Engine event regressed Case process state: view=%+v err=%v", engineView, err)
+	}
+	if applied, applyErr := engineEvents.Apply(ctx, application.EngineEvent{TenantID: tenant, InstanceID: firstID.String(),
+		EventID: "invalid-reopen", WorkflowType: request.WorkflowType, WorkflowVersion: request.WorkflowVersion,
+		Sequence: 4, EventType: "workflow_started", OccurredAt: startedAt.Add(2 * time.Minute), PayloadDigest: sha256.Sum256([]byte("reopen"))}); applyErr != nil || !applied {
+		t.Fatalf("apply later Engine start record: applied=%v err=%v", applied, applyErr)
+	}
+	engineView, err = service.GetView(ctx, tenant, firstID)
+	if err != nil || engineView.Case.OrchestrationStatus != "CLOSED" || engineView.EngineSequence != 4 {
+		t.Fatalf("terminal Case was reopened by a later start event: view=%+v err=%v", engineView, err)
+	}
+	processPage, err := service.ProcessEvents(ctx, tenant, firstID, 0, 2)
+	if err != nil || len(processPage.Events) != 2 || processPage.Events[0].Sequence != 1 ||
+		processPage.Events[1].Sequence != 2 || processPage.NextAfterSequence != 2 {
+		t.Fatalf("Engine process timeline did not paginate in sequence order: page=%+v err=%v", processPage, err)
+	}
+	processPage, err = service.ProcessEvents(ctx, tenant, firstID, processPage.NextAfterSequence, 2)
+	if err != nil || len(processPage.Events) != 2 || processPage.Events[0].Sequence != 3 || processPage.Events[1].Sequence != 4 {
+		t.Fatalf("Engine process timeline continuation failed: page=%+v err=%v", processPage, err)
+	}
+	if _, err = service.ProcessEvents(ctx, uuid.New(), firstID, 0, 10); !errors.Is(err, application.ErrNotFound) {
+		t.Fatalf("cross-tenant process timeline succeeded: %v", err)
+	}
+	if applied, applyErr := engineEvents.Apply(ctx, application.EngineEvent{TenantID: uuid.New(), InstanceID: firstID.String(),
+		EventID: "other-tenant-event", WorkflowType: request.WorkflowType, WorkflowVersion: request.WorkflowVersion,
+		Sequence: 1, EventType: "workflow_started", OccurredAt: startedAt, PayloadDigest: sha256.Sum256([]byte("foreign"))}); applyErr != nil || applied {
+		t.Fatalf("foreign tenant event changed a Case: applied=%v err=%v", applied, applyErr)
+	}
+	if applied, applyErr := engineEvents.Apply(ctx, application.EngineEvent{TenantID: tenant, InstanceID: "non-case-instance",
+		EventID: "other-workflow-event", WorkflowType: "other-workflow", WorkflowVersion: "1",
+		Sequence: 1, EventType: "workflow_started", OccurredAt: startedAt, PayloadDigest: sha256.Sum256([]byte("other workflow"))}); applyErr != nil || applied {
+		t.Fatalf("non-Case Engine instance was not ignored: applied=%v err=%v", applied, applyErr)
+	}
+	if _, applyErr := engineEvents.Apply(ctx, application.EngineEvent{TenantID: tenant, InstanceID: firstID.String(),
+		EventID: "wrong-definition", WorkflowType: "other-workflow", WorkflowVersion: request.WorkflowVersion,
+		Sequence: 4, EventType: "workflow_completed", OccurredAt: startedAt, PayloadDigest: sha256.Sum256([]byte("wrong"))}); !errors.Is(applyErr, ErrEngineEventConflict) {
+		t.Fatalf("wrong workflow definition was accepted: %v", applyErr)
 	}
 	// A leased event blocks later versions for the same Case, even if another worker is ready.
 	eventNow := time.Now().UTC().Add(2 * time.Second)

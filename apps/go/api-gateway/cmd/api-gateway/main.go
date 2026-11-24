@@ -8,11 +8,14 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"sort"
+	"strings"
 	"syscall"
 	"time"
 
@@ -237,19 +240,55 @@ func run(path string) error {
 			authorizationClient, value.AuthorizationURL, value.AuthorizationAudience,
 		))
 	}
+	if value.CockpitGatewayURL != "" {
+		realtimeClient := &http.Client{
+			Transport: platformtelemetry.HTTPTransport(&http.Transport{
+				ForceAttemptHTTP2: true,
+				TLSClientConfig: &tls.Config{
+					MinVersion: tls.VersionTLS13, ServerName: value.UpstreamTLS.CockpitGatewayServerName,
+					RootCAs: roots, Certificates: []tls.Certificate{clientCertificate},
+				},
+				ResponseHeaderTimeout: 10 * time.Second,
+			}),
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		}
+		handlerOptions = append(handlerOptions, gateway.WithRealtimeProxy(realtimeClient, value.CockpitGatewayURL))
+	}
+	if value.CaseServiceURL != "" {
+		caseClient := &http.Client{
+			Transport: platformtelemetry.HTTPTransport(&http.Transport{
+				ForceAttemptHTTP2: true,
+				TLSClientConfig: &tls.Config{
+					MinVersion: tls.VersionTLS13, ServerName: value.UpstreamTLS.CaseServiceServerName,
+					RootCAs: roots, Certificates: []tls.Certificate{clientCertificate},
+				},
+				ResponseHeaderTimeout: 10 * time.Second,
+			}),
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		}
+		handlerOptions = append(handlerOptions, gateway.WithCaseServiceProxy(caseClient, value.CaseServiceURL))
+	}
 	if value.OIDC.Enabled {
+		oidcRoots, rootErr := certPool(value.OIDC.CAFile)
+		if rootErr != nil {
+			return fmt.Errorf("load OIDC provider CA: %w", rootErr)
+		}
 		oidcClient := &http.Client{
 			Transport: platformtelemetry.HTTPTransport(&http.Transport{
 				ForceAttemptHTTP2: true,
-				TLSClientConfig:   &tls.Config{MinVersion: tls.VersionTLS12},
+				TLSClientConfig:   &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: oidcRoots},
 			}),
 			Timeout: time.Duration(value.OIDC.OperationTimeoutMS) * time.Millisecond,
 			CheckRedirect: func(*http.Request, []*http.Request) error {
 				return http.ErrUseLastResponse
 			},
 		}
+		issuerJWKS, jwksErr := loadOIDCJWKS(ctx, oidcClient, value.OIDC.JWKSURL, value.OIDC.Issuer)
+		if jwksErr != nil {
+			return fmt.Errorf("load Keycloak JWKS: %w", jwksErr)
+		}
 		handlerOptions = append(handlerOptions,
-			gateway.WithOIDCLogin(value.OIDC, oidcClient, sessionStore),
+			gateway.WithOIDCLogin(value.OIDC, oidcClient, sessionStore, issuerJWKS),
 		)
 	}
 	handler, err := gateway.NewWithPolicy(
@@ -305,6 +344,7 @@ func run(path string) error {
 	}
 	transportHandler, err := servermiddleware.NewHTTP(servermiddleware.HTTPConfig{
 		Service: value.Telemetry.ServiceName, RequestTimeout: value.HTTP.RequestTimeout(),
+		TimeoutExempt:   func(request *http.Request) bool { return request.URL.Path == "/realtime/v1/events" },
 		SecurityHeaders: true, RateLimiter: admissionLimiter,
 	}, routes)
 	if err != nil {
@@ -335,6 +375,46 @@ func run(path string) error {
 			return nil
 		}
 		return runErr
+	}
+}
+
+func loadOIDCJWKS(ctx context.Context, client *http.Client, endpoint, issuer string) ([]byte, error) {
+	deadline, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	issuerURL, err := url.Parse(issuer)
+	if err != nil || issuerURL.Host == "" {
+		return nil, errors.New("OIDC issuer URL is invalid")
+	}
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	var lastErr error
+	for {
+		request, err := http.NewRequestWithContext(deadline, http.MethodGet, endpoint, nil)
+		if err == nil {
+			request.Host = issuerURL.Host
+			request.Header.Set("Accept", "application/json")
+			var response *http.Response
+			response, err = client.Do(request)
+			if err == nil {
+				body, readErr := io.ReadAll(io.LimitReader(response.Body, (1<<20)+1))
+				contentType := response.Header.Get("Content-Type")
+				response.Body.Close()
+				if readErr == nil && response.StatusCode == http.StatusOK &&
+					len(body) <= 1<<20 && strings.Contains(strings.ToLower(contentType), "json") {
+					return body, nil
+				}
+				lastErr = fmt.Errorf("JWKS endpoint returned status %d or an invalid bounded JSON document", response.StatusCode)
+			} else {
+				lastErr = err
+			}
+		} else {
+			lastErr = err
+		}
+		select {
+		case <-deadline.Done():
+			return nil, fmt.Errorf("JWKS endpoint did not become available: %w (last error: %v)", deadline.Err(), lastErr)
+		case <-ticker.C:
+		}
 	}
 }
 
@@ -371,8 +451,17 @@ func readOptionalSecret(path string) (string, error) {
 
 func connectionReady(connection *grpc.ClientConn) platformhealth.Check {
 	return func(context.Context) error {
-		if connection.GetState() != connectivity.Ready {
-			return fmt.Errorf("upstream connection state is %s", connection.GetState())
+		state := connection.GetState()
+		// grpc.ClientConn may enter IDLE after its idle timeout when no RPC is
+		// active. Readiness must restart connection establishment instead of
+		// leaving the whole Gateway unready until a business request happens to
+		// use this upstream.
+		if state == connectivity.Idle {
+			connection.Connect()
+			state = connection.GetState()
+		}
+		if state != connectivity.Ready {
+			return fmt.Errorf("upstream connection state is %s", state)
 		}
 		return nil
 	}

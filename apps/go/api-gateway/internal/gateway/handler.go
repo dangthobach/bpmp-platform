@@ -40,12 +40,15 @@ type Handler struct {
 	now                func() time.Time
 	configurationProxy *configurationProxy
 	authorizationProxy *authorizationProxy
+	realtimeProxy      *realtimeProxy
+	caseProxy          *caseProxy
 	policyProvider     PolicyProvider
 	upstreams          *upstreamController
 	sessionStore       ports.BrowserSessionStore
 	sessionConfig      config.BrowserSession
 	oidcConfig         config.OIDC
 	oidcClient         httpDoer
+	oidcVerifier       *verifier
 	oidcTransactions   ports.OIDCTransactionStore
 }
 
@@ -162,11 +165,20 @@ func NewHandler(
 func (h *Handler) Routes() http.Handler {
 	mux := http.NewServeMux()
 	if h.sessionStore != nil {
+		mux.HandleFunc("GET /auth/session", h.getBrowserSession)
 		mux.HandleFunc("POST /auth/session/logout", h.logoutBrowserSession)
 	}
 	if h.oidcClient != nil {
 		mux.HandleFunc("GET /auth/oidc/login", h.startOIDCLogin)
 		mux.HandleFunc("GET /auth/oidc/callback", h.completeOIDCLogin)
+	}
+	if h.realtimeProxy != nil {
+		mux.HandleFunc("GET /realtime/v1/events", h.proxyRealtime)
+	}
+	if h.caseProxy != nil {
+		mux.HandleFunc("GET /v1/customer-cases", h.proxyCase)
+		mux.HandleFunc("GET /v1/customer-cases/{rest...}", h.proxyCase)
+		mux.HandleFunc("POST /v1/customer-cases", h.proxyCase)
 	}
 	for _, definition := range publicOperationDefinitions {
 		if definition.configuration && h.configurationProxy == nil {
@@ -641,6 +653,7 @@ func PublicOperations() []PublicOperation {
 		PublicOperation{Method: http.MethodGet, Path: "/auth/oidc/login", OperationID: "startOIDCLogin"},
 		PublicOperation{Method: http.MethodGet, Path: "/auth/oidc/callback", OperationID: "completeOIDCLogin"},
 		PublicOperation{Method: http.MethodPost, Path: "/auth/session/logout", OperationID: "logoutBrowserSession"},
+		PublicOperation{Method: http.MethodGet, Path: "/auth/session", OperationID: "getBrowserSession"},
 	)
 	return operations
 }
@@ -652,6 +665,8 @@ type requestScope struct {
 	signedActorProof                                            []byte
 	capabilities                                                []string
 	occurredAt                                                  time.Time
+	sessionBound                                                bool
+	sessionExpiresAt                                            time.Time
 	runtimePolicy                                               RuntimePolicy
 }
 
@@ -708,7 +723,9 @@ func (h *Handler) authenticateRequest(r *http.Request, commandRequired bool) (re
 	if !allowed {
 		return requestScope{}, errRateLimited
 	}
-	if identity.fromBrowserSession && len(identity.signedProof) == 0 {
+	caseRoute := r.URL.Path == "/v1/customer-cases" || strings.HasPrefix(r.URL.Path, "/v1/customer-cases/")
+	contextAudienceRequired := identity.fromBrowserSession || strings.HasPrefix(r.URL.Path, "/realtime/") || caseRoute
+	if contextAudienceRequired && (identity.proofType != authv1.ActorProofType_ACTOR_PROOF_TYPE_SIGNED_INTERNAL_CONTEXT || len(identity.signedProof) == 0) {
 		audience, audienceOK := actorContextAudience(r.URL.Path, h.workload.id)
 		if !audienceOK || h.authorizationProxy == nil {
 			return requestScope{}, errUpstream
@@ -737,6 +754,7 @@ func (h *Handler) authenticateRequest(r *http.Request, commandRequired bool) (re
 		capabilities:     append([]string(nil), identity.capabilities...),
 		traceParent:      traceParent, traceState: traceState,
 		occurredAt: now, runtimePolicy: policy,
+		sessionBound: identity.fromBrowserSession, sessionExpiresAt: identity.sessionExpiresAt,
 	}, nil
 }
 
@@ -809,7 +827,7 @@ func (h *Handler) getWorkItem(w http.ResponseWriter, r *http.Request) {
 			})
 		})
 	if err != nil {
-		writeError(w, errUpstream)
+		writeHumanRuntimeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -840,7 +858,7 @@ func (h *Handler) getWorkItemHistory(w http.ResponseWriter, r *http.Request) {
 			})
 		})
 	if err != nil {
-		writeError(w, errUpstream)
+		writeHumanRuntimeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)

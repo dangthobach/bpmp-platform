@@ -406,6 +406,32 @@ describe("TaskWorklist Vertical Slice", () => {
     });
   });
 
+  it("sorts only the loaded personal page and identifies local filtering", async () => {
+    const laterTask = {
+      ...sampleWorkItems[0],
+      work_item_id: "task-later",
+      task_name: "Later Review",
+      due_at_epoch_ms: Date.now() + 10 * 60 * 60 * 1000,
+    };
+    delete laterTask.sla_deadline_epoch_ms;
+    const earlierTask = {
+      ...sampleWorkItems[0],
+      work_item_id: "task-earlier",
+      task_name: "Earlier Review",
+      due_at_epoch_ms: Date.now() + 60 * 60 * 1000,
+    };
+    delete earlierTask.sla_deadline_epoch_ms;
+    renderWorklist(createMockPlatform([laterTask, earlierTask]));
+
+    await screen.findByText("Later Review");
+    const earlier = screen.getByText("Earlier Review");
+    const later = screen.getByText("Later Review");
+    expect(earlier.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    fireEvent.change(screen.getByPlaceholderText("Search current page..."), { target: { value: "Earlier" } });
+    expect(screen.getByText("Showing 1 of 2 work items on this page, filtered locally")).toBeInTheDocument();
+  });
+
   it("uses bounded server pagination instead of materializing the whole worklist", async () => {
     const platform = createMockPlatform();
     platform.callApi = vi.fn().mockImplementation(async ({ method, path }) => {

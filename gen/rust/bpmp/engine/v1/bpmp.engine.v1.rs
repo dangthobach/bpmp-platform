@@ -387,6 +387,37 @@ pub struct CommandReceipt {
     pub duplicate: bool,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ReadHistoryPageRequest {
+    #[prost(string, tag="1")]
+    pub tenant_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub instance_id: ::prost::alloc::string::String,
+    #[prost(uint64, tag="3")]
+    pub after_sequence: u64,
+    #[prost(uint32, tag="4")]
+    pub page_size: u32,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct StoredWorkflowEvent {
+    #[prost(uint64, tag="1")]
+    pub sequence: u64,
+    /// Encoded bpmp.engine.v1.EventEnvelope; consumers can decode without a
+    /// second Engine-owned event schema.
+    #[prost(bytes="vec", tag="2")]
+    pub event_envelope: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ReadHistoryPageResponse {
+    #[prost(message, repeated, tag="1")]
+    pub events: ::prost::alloc::vec::Vec<StoredWorkflowEvent>,
+    #[prost(uint64, tag="2")]
+    pub watermark: u64,
+    #[prost(uint64, tag="3")]
+    pub next_after_sequence: u64,
+    #[prost(bool, tag="4")]
+    pub has_more: bool,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ScriptTaskActivated {
     #[prost(string, tag="1")]
     pub node_id: ::prost::alloc::string::String,

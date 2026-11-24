@@ -12,9 +12,47 @@
 
 The chart refuses tag-only images, fewer than two replicas, missing runtime JSON and unsigned catalog envelopes. Runtime configuration is mounted separately, so catalog promotion does not rebuild Shell.
 
+## Local Docker Desktop release rehearsal
+
+Use this gate when no cloud/staging cluster is available. It verifies signed-catalog promotion, digest-pinned Helm rollout, readiness failure isolation and rollback on the local Kubernetes cluster. Record it as **local release rehearsal**, never as authorized staging or production evidence. Passing it unblocks the prototype's Phase 1 implementation flow; external environment promotion remains a separate deployment gate and must not block local Phase 2 development.
+
+1. Confirm `kubectl config current-context` is `docker-desktop`, the Docker Desktop node is Ready, and the target namespace/release are dedicated to this rehearsal. Do not change Docker contexts or delete unrelated namespaces/releases.
+2. Build Shell and Task images and record their OCI manifest digests. Use the immutable digests in Helm values; do not use tags or Docker config IDs as image digests. Ensure the images are available to the Docker Desktop Kubernetes runtime.
+3. Generate a short-lived Ed25519 key outside the repository. Sign a fresh local catalog and place only its public JWK in the Shell config. Use a loopback remote origin reachable by the browser and listed exactly in `allowedRemoteOrigins`. Keep the private key outside the repo and delete it after the rehearsal.
+4. Run the catalog verifier with the generated config/catalog, then `helm lint` and `helm template` using the exact signed JSON and image digests.
+5. Install/upgrade the chart in a dedicated namespace with `helm upgrade --install --atomic --wait`. Capture revision, Ready replicas, `/`, `/mfe-catalog.json`, remote manifest, browser route load and trace/correlation smoke evidence.
+6. In a separate canary release in the same local cluster, apply a controlled invalid readiness revision. Confirm the known-good release remains healthy, record readiness failure, and run `helm rollback` on the canary. Verify restored revision, image digests, catalog version and smoke checks.
+7. Store the evidence bundle under an ignored local artifacts directory. Include commit, CI run, OCI manifest digests, catalog version/key ID, verifier output, Helm revisions, namespace/context, readiness and smoke results. Do not include private keys or credentials.
+
+Example signing commands in PowerShell (run from the repository root; keep `$evidence` outside the repository):
+
+```powershell
+$evidence = Join-Path $env:LOCALAPPDATA 'bpmp\ods-local-rehearsal'
+New-Item -ItemType Directory -Force $evidence | Out-Null
+openssl genpkey -algorithm ED25519 -out (Join-Path $evidence 'catalog-private.pem')
+$commit = git rev-parse --short HEAD
+node tools/sign-ods-catalog.mjs `
+  --config platform/ods/helm/ods-foundation/ci/shell-config.json `
+  --catalog platform/ods/helm/ods-foundation/ci/mfe-catalog.json `
+  --key (Join-Path $evidence 'catalog-private.pem') `
+  --key-id docker-desktop-local `
+  --remote-origin http://127.0.0.1:4302 `
+  --out-config (Join-Path $evidence 'shell-config.json') `
+  --out-catalog (Join-Path $evidence 'mfe-catalog.json') `
+  --version "local-rehearsal-$commit" `
+  --lifetime-hours 24
+node tools/verify-ods-catalog.mjs `
+  --config (Join-Path $evidence 'shell-config.json') `
+  --catalog (Join-Path $evidence 'mfe-catalog.json')
+```
+
+Use `helm lint`/`helm template` with `--set-file "runtime.shellConfigJSON=$($evidence.Replace('\','/'))/shell-config.json"` and the equivalent catalog path. Supply real local OCI manifest digests through a temporary values file; the checked-in CI values contain example digests and are not deployable. Remove the private key after capturing the key ID and public catalog evidence.
+
+Docker Desktop is a single-node local Kubernetes environment. This rehearsal does not prove multi-node/AZ availability, a real registry promotion, cloud secret-manager integration, production identity, or environment-owner approval. Those checks remain deployment acceptance criteria when an approved target exists.
+
 ## Authorized staging rehearsal
 
-Run this gate only in an environment whose owner has approved the target cluster, namespace, release, maintenance window and controlled readiness-failure test. The current local Docker Desktop rehearsal is not a substitute for this gate.
+Run this deployment gate only when an environment owner has approved the target cluster, namespace, release, maintenance window and controlled readiness-failure test. It is independent from the local Phase 1 release gate above; lack of a cloud account does not block prototype implementation.
 
 1. Record repository commit, hosted CI run, Shell/Task OCI manifest digests, provenance/attestation references, signed catalog version/key ID and verifier output. Never copy signing private keys into the evidence bundle.
 2. Record cluster context, namespace, Helm release, environment owner/approver and change window. Verify the target is staging and the release is isolated from production traffic.

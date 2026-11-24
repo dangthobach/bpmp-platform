@@ -1,6 +1,7 @@
 package realtime
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/dangthobach/bpmp-platform/apps/go/cockpit-gateway/subscription"
+	"github.com/dangthobach/bpmp-platform/go/platform/actorcontext"
 	"github.com/dangthobach/bpmp-platform/go/platform/jwtauth"
 	"github.com/dangthobach/bpmp-platform/go/platform/requestmeta"
 )
@@ -26,6 +28,7 @@ type Handler struct {
 	config         Config
 	hub            *subscription.Hub
 	identity       *jwtauth.Verifier
+	proofVerifier  *actorcontext.Verifier
 	allowedNames   map[string]struct{}
 	allowedOrigins map[string]struct{}
 	connections    chan struct{}
@@ -36,16 +39,17 @@ func New(
 	config Config,
 	hub *subscription.Hub,
 	identity *jwtauth.Verifier,
+	proofVerifier *actorcontext.Verifier,
 ) (*Handler, error) {
 	if config.Path == "" || len(config.AllowedSignalNames) == 0 ||
 		len(config.AllowedOrigins) == 0 || config.MaxNamesPerConnection == 0 ||
 		config.MaxSignalNamesBytes == 0 ||
 		config.MaxConnections == 0 || config.HeartbeatInterval <= 0 ||
-		hub == nil || identity == nil {
+		hub == nil || identity == nil || proofVerifier == nil {
 		return nil, errors.New("realtime HTTP configuration is invalid")
 	}
 	return &Handler{
-		config: config, hub: hub, identity: identity,
+		config: config, hub: hub, identity: identity, proofVerifier: proofVerifier,
 		allowedNames:   stringSet(config.AllowedSignalNames),
 		allowedOrigins: stringSet(config.AllowedOrigins),
 		connections:    make(chan struct{}, config.MaxConnections),
@@ -70,18 +74,44 @@ func (h *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request)
 		return
 	}
 	tenantID := request.Header.Get("X-BPMP-Tenant-ID")
-	token, ok := bearerToken(request.Header.Get("Authorization"))
-	if !ok {
-		writeError(response, http.StatusUnauthorized, "authentication_required")
-		return
-	}
-	if _, err := h.identity.Verify(token, tenantID, h.now()); err != nil {
+	var capabilities []string
+	proofHeaders := request.Header.Values("X-BPMP-Signed-Actor-Context")
+	if len(proofHeaders) > 1 || (len(proofHeaders) == 1 && request.Header.Get("Authorization") != "") {
 		writeError(response, http.StatusUnauthorized, "authentication_invalid")
 		return
+	}
+	if len(proofHeaders) == 1 {
+		proof, decodeErr := base64.StdEncoding.Strict().DecodeString(proofHeaders[0])
+		if decodeErr != nil {
+			writeError(response, http.StatusUnauthorized, "authentication_invalid")
+			return
+		}
+		identity, verifyErr := h.proofVerifier.Verify(proof, tenantID, "", h.now())
+		if verifyErr != nil {
+			writeError(response, http.StatusUnauthorized, "authentication_invalid")
+			return
+		}
+		capabilities = identity.Capabilities
+	} else {
+		token, ok := bearerToken(request.Header.Get("Authorization"))
+		if !ok {
+			writeError(response, http.StatusUnauthorized, "authentication_required")
+			return
+		}
+		identity, verifyErr := h.identity.Verify(token, tenantID, h.now())
+		if verifyErr != nil {
+			writeError(response, http.StatusUnauthorized, "authentication_invalid")
+			return
+		}
+		capabilities = identity.Capabilities
 	}
 	names, err := h.signalNames(request.URL.Query().Get("names"))
 	if err != nil {
 		writeError(response, http.StatusBadRequest, "signal_names_invalid")
+		return
+	}
+	if !authorizedSignals(names, capabilities) {
+		writeError(response, http.StatusForbidden, "subscription_forbidden")
 		return
 	}
 	select {
@@ -125,6 +155,12 @@ func (h *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request)
 	if resumeReset {
 		writeSSE(response, "", "resync-required", []byte(`{"reason":"cursor_unavailable"}`))
 	}
+	// Send an immediate SSE comment so browsers and intermediaries observe
+	// body activity as soon as the stream is established, before the periodic
+	// heartbeat. It carries no business data and does not advance the cursor.
+	if _, err := fmt.Fprint(response, ": connected\n\n"); err != nil {
+		return
+	}
 	flusher.Flush()
 
 	signals, interrupted := merge(request, subscriptions)
@@ -140,7 +176,7 @@ func (h *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request)
 			if !open {
 				return
 			}
-			if err := writeSSE(response, signal.Cursor, signal.Name, signal.Payload); err != nil {
+			if err := writeSSE(response, signal.Cursor, signal.Name, []byte(`{"invalidate":true}`)); err != nil {
 				return
 			}
 			flusher.Flush()
@@ -151,6 +187,30 @@ func (h *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request)
 			flusher.Flush()
 		}
 	}
+}
+
+func authorizedSignals(names, capabilities []string) bool {
+	required := map[string][]string{
+		"work-item.changed": {"task.read"},
+		"case.changed":      {"case.read"},
+		"audit.changed":     {"audit.read"},
+		"workflow.changed":  {"workflow.query.own", "workflow.query.all", "task.read"},
+	}
+	for _, name := range names {
+		allowed := false
+		for _, capability := range required[name] {
+			for _, granted := range capabilities {
+				if granted == capability {
+					allowed = true
+					break
+				}
+			}
+		}
+		if !allowed {
+			return false
+		}
+	}
+	return true
 }
 
 func merge(

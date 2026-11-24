@@ -5,6 +5,20 @@ package bpmp.human.v1;
 import "bpmp/authorization/v1/authorization.proto";
 import "bpmp/engine/v1/engine.proto";
 
+// WorkItemChangedEvent is a payload-safe invalidation signal emitted from the
+// Human Runtime transactional outbox after a work-item projection mutation.
+// Consumers must refetch authoritative query state rather than use this event
+// as a work-item snapshot.
+message WorkItemChangedEvent {
+  string event_id = 1;
+  string tenant_id = 2;
+  string work_item_id = 3;
+  int64 version = 4;
+  string action = 5;
+  uint64 occurred_at_epoch_ms = 6;
+  string correlation_id = 7;
+}
+
 service HumanRuntimeService {
   rpc GetWorkItem(GetWorkItemRequest) returns (GetWorkItemResponse);
   rpc ListWorkItems(ListWorkItemsRequest) returns (ListWorkItemsResponse);

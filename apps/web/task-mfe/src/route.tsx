@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import useSWR from "swr";
+import useSWR, { useSWRConfig } from "swr";
 import type { RemoteRouteModule, RemoteRouteProps } from "@ods/mfe-contract";
 import {
   Box,
@@ -53,6 +53,7 @@ interface WorkItemResponse { work_item: WorkItem }
 interface PublishedFormVersion { id: string; schema_json: string; ui_schema_json?: string }
 interface PublishedFormResponse { form: { form_key: string; name: string }; published_version: PublishedFormVersion }
 type FormOutputValue = string | number | boolean | FormOutputValue[];
+type WorklistSort = "due_soon" | "task_name" | "status";
 interface TaskFormField {
   type: "string" | "integer" | "boolean" | "array";
   title?: string;
@@ -131,9 +132,13 @@ interface WorkItemHistoryPage {
 }
 
 export function TaskWorklist({ platform }: RemoteRouteProps) {
+  const { mutate: mutateCache } = useSWRConfig();
+  const [realtimeStatus, setRealtimeStatus] = useState<"connecting" | "connected" | "reconnecting" | "forbidden">("connecting");
+  const lastRealtimeEventID = useRef("");
   const [activeTab, setActiveTab] = useState<"personal" | "group">("personal");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
+  const [worklistSort, setWorklistSort] = useState<WorklistSort>("due_soon");
   const [pageToken, setPageToken] = useState("");
   const [previousPageTokens, setPreviousPageTokens] = useState<string[]>([]);
   const [selectedTask, setSelectedTask] = useState<WorkItem | null>(null);
@@ -173,6 +178,104 @@ export function TaskWorklist({ platform }: RemoteRouteProps) {
     setLastReconciledAt(new Date());
     return result.data;
   }, { shouldRetryOnError: false, revalidateOnFocus: true });
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const revalidateTaskViews = () => {
+      void mutateCache(
+        (key) => typeof key === "string" && (
+          key.startsWith("task-mfe:worklist:") || key.startsWith("task-mfe:detail:") || key.startsWith("task-mfe:history:")
+        ),
+        undefined,
+        { revalidate: true },
+      );
+    };
+    const wait = (milliseconds: number) => new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeout);
+        controller.signal.removeEventListener("abort", finish);
+        resolve();
+      };
+      const timeout = window.setTimeout(finish, milliseconds);
+      controller.signal.addEventListener("abort", finish, { once: true });
+    });
+    const redirectToLogin = () => {
+      const returnTo = encodeURIComponent(window.location.href);
+      window.location.assign(`/auth/oidc/login?return_to=${returnTo}`);
+    };
+    const run = async () => {
+      let retryMs = 500;
+      while (!controller.signal.aborted) {
+        try {
+          const sessionResponse = await fetch("/auth/session", {
+            credentials: "include", cache: "no-store", headers: { Accept: "application/json" }, signal: controller.signal,
+          });
+          if (sessionResponse.status === 401) { redirectToLogin(); return; }
+          if (!sessionResponse.ok) throw new Error(`Session lookup failed (${sessionResponse.status})`);
+          const session = await sessionResponse.json() as { tenant_id?: unknown };
+          if (typeof session.tenant_id !== "string" || !session.tenant_id) throw new Error("Session tenant is missing");
+          const headers = new Headers({
+            Accept: "text/event-stream", "X-BPMP-Tenant-ID": session.tenant_id, "X-Correlation-ID": crypto.randomUUID(),
+          });
+          if (lastRealtimeEventID.current) headers.set("Last-Event-ID", lastRealtimeEventID.current);
+          const response = await fetch("/realtime/v1/events?names=work-item.changed", {
+            method: "GET", headers, credentials: "include", cache: "no-store", signal: controller.signal,
+          });
+          if (response.status === 401) {
+            // A rejected realtime proof does not mean the browser session ended.
+            // Re-check the cookie session before starting a new OIDC transaction;
+            // otherwise a healthy SSO session is sent to active_session_exists.
+            const sessionCheck = await fetch("/auth/session", {
+              credentials: "include", cache: "no-store", headers: { Accept: "application/json" }, signal: controller.signal,
+            });
+            if (sessionCheck.status === 401) { redirectToLogin(); return; }
+            if (!sessionCheck.ok) throw new Error(`Session revalidation failed (${sessionCheck.status})`);
+            throw new Error("Realtime authentication was rejected while the browser session remains active");
+          }
+          if (response.status === 403) { setRealtimeStatus("forbidden"); return; }
+          if (!response.ok || !response.body) throw new Error(`Realtime stream failed (${response.status})`);
+          setRealtimeStatus("connected");
+          retryMs = 500;
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+          while (!controller.signal.aborted) {
+            const chunk = await reader.read();
+            if (chunk.done) break;
+            buffer += decoder.decode(chunk.value, { stream: true });
+            let boundary = buffer.indexOf("\n\n");
+            while (boundary >= 0) {
+              const frame = buffer.slice(0, boundary);
+              buffer = buffer.slice(boundary + 2);
+              let eventName = "message";
+              for (const line of frame.split(/\r?\n/)) {
+                if (line.startsWith("id:")) lastRealtimeEventID.current = line.slice(3).trimStart();
+                else if (line.startsWith("event:")) eventName = line.slice(6).trimStart();
+              }
+              if (eventName === "work-item.changed") revalidateTaskViews();
+              else if (eventName === "resync-required") {
+                lastRealtimeEventID.current = "";
+                revalidateTaskViews();
+              }
+              boundary = buffer.indexOf("\n\n");
+            }
+          }
+          if (!controller.signal.aborted) setRealtimeStatus("reconnecting");
+        } catch (error) {
+          if (controller.signal.aborted) return;
+          platform.reportError(error, { remote: "task-mfe", phase: "realtime" });
+          setRealtimeStatus("reconnecting");
+        }
+        await wait(retryMs);
+        retryMs = Math.min(retryMs * 2, 15_000);
+      }
+    };
+    void run();
+    return () => controller.abort();
+  }, [mutateCache, platform]);
 
   const detailQuery = useSWR<WorkItemResponse>(selectedTaskId ? `task-mfe:detail:${selectedTaskId}` : null, async () => {
     if (!selectedTaskId) throw new Error("No work item selected");
@@ -425,9 +528,24 @@ export function TaskWorklist({ platform }: RemoteRouteProps) {
     return true;
   });
 
-  const listItems: SimpleListItem[] = filteredItems.map((item, index) => {
+  const sortedItems = [...filteredItems].sort((left, right) => {
+    const leftID = left.work_item_id || left.id || "";
+    const rightID = right.work_item_id || right.id || "";
+    if (worklistSort === "task_name") {
+      return (left.task_name || left.node_id || "").localeCompare(right.task_name || right.node_id || "")
+        || leftID.localeCompare(rightID);
+    }
+    if (worklistSort === "status") {
+      return (left.status || "").localeCompare(right.status || "") || leftID.localeCompare(rightID);
+    }
+    const leftDeadline = left.sla_deadline_epoch_ms ?? left.due_at_epoch_ms ?? Number.MAX_SAFE_INTEGER;
+    const rightDeadline = right.sla_deadline_epoch_ms ?? right.due_at_epoch_ms ?? Number.MAX_SAFE_INTEGER;
+    return leftDeadline - rightDeadline || leftID.localeCompare(rightID);
+  });
+
+  const listItems: SimpleListItem[] = sortedItems.map((item, index) => {
     const id = item.work_item_id || item.id || `unknown-${index}`;
-    const deadline = item.sla_deadline_epoch_ms || item.due_at_epoch_ms;
+    const deadline = item.sla_deadline_epoch_ms ?? item.due_at_epoch_ms;
     const primary = item.task_name || item.node_id || "Unnamed task";
     const secondary = `${item.workflow_type || "Workflow"} • Status: ${item.status || "UNKNOWN"} • Assignee: ${item.assignee_id || "Unassigned (Group: " + (item.candidate_group || "None") + ")"}`;
 
@@ -478,6 +596,8 @@ export function TaskWorklist({ platform }: RemoteRouteProps) {
   return (
     <Page title="Task Worklist">
       <Stack spacing={2}>
+        <Chip size="small" color={realtimeStatus === "connected" ? "success" : realtimeStatus === "forbidden" ? "error" : "default"}
+          label={realtimeStatus === "connected" ? "Realtime connected" : realtimeStatus === "forbidden" ? "Realtime unavailable: task.read required" : "Realtime reconnecting"} />
         <StalenessIndicator
           {...(lastReconciledAt ? { lastSyncedAt: lastReconciledAt } : {})}
           onRefresh={() => { void query.mutate(); }}
@@ -532,14 +652,15 @@ export function TaskWorklist({ platform }: RemoteRouteProps) {
               </Button>
             </Stack>
 
-            <Stack direction="row" spacing={1.5} sx={{ minWidth: 280 }}>
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ width: { xs: "100%", sm: "auto" }, minWidth: { sm: 280 } }}>
               <TextField
                 size="small"
                 placeholder="Search current page..."
+                fullWidth
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
-              <FormControl size="small" sx={{ minWidth: 110 }}>
+              <FormControl size="small" sx={{ minWidth: 135 }}>
                 <InputLabel>Status</InputLabel>
                 <Select
                   value={statusFilter}
@@ -551,6 +672,14 @@ export function TaskWorklist({ platform }: RemoteRouteProps) {
                   <MenuItem value="COMPLETION_REQUESTED">Completion Requested</MenuItem>
                 </Select>
               </FormControl>
+              <FormControl size="small" sx={{ minWidth: 150 }}>
+                <InputLabel>Sort by</InputLabel>
+                <Select value={worklistSort} label="Sort by" onChange={(e) => setWorklistSort(e.target.value as WorklistSort)}>
+                  <MenuItem value="due_soon">Due soon</MenuItem>
+                  <MenuItem value="task_name">Task name</MenuItem>
+                  <MenuItem value="status">Status</MenuItem>
+                </Select>
+              </FormControl>
             </Stack>
           </Stack>
         </Paper>
@@ -559,7 +688,7 @@ export function TaskWorklist({ platform }: RemoteRouteProps) {
           <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" alignItems={{ xs: "flex-start", sm: "center" }} sx={{ px: 0.5, pb: 1.5, gap: 0.5 }}>
             <Box>
               <Typography variant="subtitle2" sx={{ fontWeight: 750 }}>{activeTab === "personal" ? "Assigned to me" : "Available to my groups"}</Typography>
-              <Typography variant="caption" color="text.secondary">Showing {filteredItems.length} of {allItems.length} work items on this page</Typography>
+              <Typography variant="caption" color="text.secondary">Showing {sortedItems.length} of {allItems.length} work items on this page{searchQuery.trim() || statusFilter !== "ALL" ? ", filtered locally" : ""}</Typography>
             </Box>
             <Chip size="small" variant="outlined" label={query.isValidating ? "Synchronizing" : "Projection-backed"} sx={{ color: query.isValidating ? "#8a5b00" : "primary.dark", borderColor: query.isValidating ? "#f1d28a" : "#b9dfca", bgcolor: query.isValidating ? "#fff8e6" : "#eff9f3" }} />
           </Stack>

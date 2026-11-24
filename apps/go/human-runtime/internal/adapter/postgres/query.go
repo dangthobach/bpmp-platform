@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"time"
 
@@ -87,13 +88,22 @@ func (s *Store) ListWorkItems(ctx context.Context, tenantID, actorID string, gro
 	if limit <= 0 {
 		return nil, nil, errors.New("work-item query limit must be normalized")
 	}
-	assignmentFilter := "(assignee_id=$2 OR candidate_group=ANY($3))"
+	arguments := []any{tenantID}
+	assignmentFilter := ""
+	cursorParameter := 2
 	switch scope {
 	case application.WorkItemListScopeAll:
+		arguments = append(arguments, actorID, groups)
+		assignmentFilter = "(assignee_id=$2 OR candidate_group=ANY($3::text[]))"
+		cursorParameter = 4
 	case application.WorkItemListScopeAssignedToMe:
+		arguments = append(arguments, actorID)
 		assignmentFilter = "assignee_id=$2"
+		cursorParameter = 3
 	case application.WorkItemListScopeGroupQueue:
-		assignmentFilter = "candidate_group=ANY($3)"
+		arguments = append(arguments, groups)
+		assignmentFilter = "candidate_group=ANY($2::text[])"
+		cursorParameter = 3
 	default:
 		return nil, nil, errors.New("work-item list scope is invalid")
 	}
@@ -103,9 +113,15 @@ func (s *Store) ListWorkItems(ctx context.Context, tenantID, actorID string, gro
 		cursorTime = cursor.UpdatedAt
 		cursorID = cursor.WorkItemID
 	}
-	rows, err := s.pool.Query(ctx, workItemSelect+` WHERE tenant_id=$1 AND NOT is_deleted AND status IN ('ACTIVE','COMPLETION_REQUESTED')
-	        AND `+assignmentFilter+` AND (updated_at,work_item_id)<($4,$5)
-        ORDER BY updated_at DESC,work_item_id DESC LIMIT $6`, tenantID, actorID, groups, cursorTime, cursorID, limit+1)
+	updatedAtParameter := cursorParameter
+	workItemIDParameter := cursorParameter + 1
+	limitParameter := cursorParameter + 2
+	query := fmt.Sprintf(`%s WHERE tenant_id=$1 AND NOT is_deleted AND status IN ('ACTIVE','COMPLETION_REQUESTED')
+	        AND %s AND (updated_at,work_item_id)<($%d::timestamptz,$%d::text)
+        ORDER BY updated_at DESC,work_item_id DESC LIMIT $%d`, workItemSelect, assignmentFilter,
+		updatedAtParameter, workItemIDParameter, limitParameter)
+	arguments = append(arguments, cursorTime, cursorID, limit+1)
+	rows, err := s.pool.Query(ctx, query, arguments...)
 	if err != nil {
 		return nil, nil, err
 	}

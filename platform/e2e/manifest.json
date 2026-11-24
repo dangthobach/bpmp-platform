@@ -5,6 +5,12 @@
   "actor_id": "00000000-0000-4000-8000-000000000002",
   "actor_issuer": "bpmp-e2e-issuer",
   "actor_audience": "bpmp-e2e",
+  "oidc_issuer": "https://localhost:14443/realms/bpmp-e2e",
+  "oidc_authorization_endpoint": "https://localhost:14443/realms/bpmp-e2e/protocol/openid-connect/auth",
+  "oidc_token_endpoint": "https://keycloak:8443/realms/bpmp-e2e/protocol/openid-connect/token",
+  "oidc_jwks_url": "https://keycloak:8443/realms/bpmp-e2e/protocol/openid-connect/certs",
+  "oidc_client_id": "bpmp-cockpit-e2e",
+  "oidc_redirect_uri": "https://localhost:18443/auth/oidc/callback",
   "kafka": {
     "brokers": ["redpanda:9092"],
     "security_protocol": "PLAINTEXT",
@@ -17,6 +23,7 @@
       "engine_committed_events": "bpmp.engine.committed-events.v1.e2e",
       "configuration_publications": "bpmp.configuration.publications.v1.e2e",
       "human_escalations": "bpmp.human.escalations.v1.e2e",
+      "human_work_item_changes": "bpmp.human.work-item-changes.v1.e2e",
       "tenant_lifecycle": "bpmp.tenant.lifecycle.v1.e2e",
       "tenant_configuration_readiness": "bpmp.tenant.configuration-readiness.v1.e2e"
     },
@@ -61,6 +68,7 @@
   "cockpit_gateway_listen_address": "0.0.0.0:7601",
   "cockpit_gateway_health_address": "0.0.0.0:7602",
   "cockpit_web_public_origin": "http://localhost:14173",
+  "ods_shell_public_origin": "http://localhost:4300",
   "governance_listen_address": "0.0.0.0:7501",
   "governance_health_address": "0.0.0.0:7502",
   "gateway_listen_address": "0.0.0.0:8443",
@@ -68,5 +76,5 @@
   "configuration_listen_address": "0.0.0.0:7301",
   "configuration_grpc_url": "https://configuration-service:7302",
   "configuration_grpc_listen_address": "0.0.0.0:7302",
-  "tls_dns_names": ["localhost", "engine1", "engine2", "engine3", "human-runtime", "api-gateway", "configuration-service", "projection-service", "governance-service", "cockpit-gateway", "authz-server", "authz-app"]
+  "tls_dns_names": ["localhost", "engine1", "engine2", "engine3", "human-runtime", "api-gateway", "configuration-service", "projection-service", "governance-service", "cockpit-gateway", "authz-server", "authz-app", "keycloak"]
 }

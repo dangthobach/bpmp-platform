@@ -16,6 +16,8 @@ import (
 
 	"github.com/dangthobach/bpmp-platform/apps/go/human-runtime/internal/application"
 	"github.com/dangthobach/bpmp-platform/apps/go/human-runtime/internal/domain"
+	humanv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/human/v1"
+	"google.golang.org/protobuf/proto"
 )
 
 type Store struct{ pool *pgxpool.Pool }
@@ -466,6 +468,21 @@ func appendAudit(ctx context.Context, tx pgx.Tx, tenantID, auditID, workItemID, 
 		return err
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO human_audit_log(tenant_id,audit_id,work_item_id,case_id,actor_id,action,occurred_at,command_id,correlation_id,from_version,to_version,details) VALUES($1,$2,NULLIF($3,''),NULLIF($4,''),$5,$6,$7,NULLIF($8,''),NULLIF($9,''),NULLIF($10,0),$11,$12) ON CONFLICT DO NOTHING`, tenantID, auditID, workItemID, caseID, actorID, action, at, commandID, correlationID, fromVersion, toVersion, payload)
+	if err != nil || workItemID == "" || toVersion <= 0 {
+		return err
+	}
+	event, err := proto.Marshal(&humanv1.WorkItemChangedEvent{
+		EventId: auditID, TenantId: tenantID, WorkItemId: workItemID,
+		Version: toVersion, Action: action, OccurredAtEpochMs: uint64(at.UnixMilli()),
+		CorrelationId: correlationID,
+	})
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO human_work_item_change_outbox
+		(tenant_id,event_id,work_item_id,version,action,occurred_at,correlation_id,payload,available_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$6) ON CONFLICT DO NOTHING`,
+		tenantID, auditID, workItemID, toVersion, action, at, correlationID, event)
 	return err
 }
 

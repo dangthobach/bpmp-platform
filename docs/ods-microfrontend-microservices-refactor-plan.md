@@ -153,6 +153,7 @@ Shell chỉ sở hữu:
 
 - Bootstrap OIDC/PKCE/BFF session và logout.
 - Global layout, navigation, tenant/context selector và capability-driven route discovery.
+- Presentational `WorkspaceSidebar` và `WorkspaceNavbar`: catalog routes, active breadcrumb, search routes, collapse control, catalog refresh and preview status. Tenant, identity, notification and capability state must be supplied by an approved session/context contract; Shell must not synthesize them.
 - Runtime MFE catalog, remote loader, timeout, retry và compatibility checks.
 - Shared providers: theme, locale, telemetry, API client, feature flags và realtime connection.
 - Top-level ErrorBoundary, fallback UI và remote health telemetry.
@@ -180,6 +181,7 @@ Mỗi remote chỉ expose một public surface nhỏ. Không import source file 
 - Không share mọi dependency. Formik/Yup/SWR/Axios chỉ share khi version policy và runtime test chứng minh an toàn.
 - Remote export `mount`/route descriptor theo contract version, không truy cập trực tiếp global mutable state của Shell.
 - Catalog có `contractVersion`, `minShellVersion`, `integrity`, `enabledTenants`, `requiredCapabilities` và rollback target.
+- Catalog khai báo `routeBasePath` cho từng remote; trường này nằm trong payload ký khi được khai báo. Shell chọn remote theo longest path match, giữ deep link/history và kiểm tra route public do remote export khớp route đã ký.
 - CSP chỉ cho phép CDN/asset origins đã pin; không nạp URL remote tùy ý do tenant/client gửi lên.
 - CI chạy host-remote compatibility matrix cho current, previous và canary version.
 
@@ -490,6 +492,18 @@ Exit criteria:
 - Duplicate/reordered event, retry và concurrent claim tests pass.
 - P95 và error budget đạt baseline dưới representative load.
 
+### Local execution note (2026-11-25)
+
+Docker Desktop now carries Human Runtime assignment changes through a
+transactional PostgreSQL outbox, a leased Kafka publisher, Cockpit Gateway's
+Engine + Human Runtime topic consumer, and payload-free SSE invalidation. The
+Task MFE then refetches through the authenticated BFF. Browser acceptance
+observed the Group Worklist change from 4 to 3 after claim without manual
+reconciliation, then return to 4 after delegate. This closes the live
+claim/delegate invalidation slice, not the Phase 2 exit criteria. Representative
+latency/projection freshness, cross-tenant denial, live replay-gap/restart
+recovery, and the Unit Worklist query/cursor owner contract remain open.
+
 ### Phase 3 - Case domain (5-8 tuần)
 
 Deliverables:
@@ -504,6 +518,20 @@ Exit criteria:
 - Không cross-service SQL.
 - Create Case retry không sinh duplicate case/workflow.
 - Case 360 thể hiện rõ projection version/staleness.
+
+### Local execution note (2026-11-25)
+
+The Docker Desktop slice now runs the authenticated Shell → API Gateway Case
+BFF → Case Service path and a durable Case start worker that obtains fresh
+Authz proof, starts the workflow through Engine mTLS, then consumes committed
+Engine events into the Case inbox/projection. Local browser evidence includes
+an authenticated BFF create that progressed from `START_PENDING` to `STARTED`,
+with Case version/delivered version 2 and Engine sequence/applied sequence 2 in
+Case 360. This is implementation evidence, not a Phase 3 exit claim. The E2E
+workflow metadata resolver is still a local fixture; live replay of the same
+authenticated create key, retention/replay, and migration reconciliation
+acceptance remain open. These local gates proceed without staging/cloud
+availability.
 
 ### Phase 4 - Document và integrations (6-10 tuần)
 

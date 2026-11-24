@@ -5,7 +5,17 @@
   "expiresAt": "2099-01-01T00:00:00Z",
   "remotes": [
     {
+      "name": "task-mfe",
+      "routeBasePath": "/tasks",
+      "entry": "http://127.0.0.1:4301/mf-manifest.json",
+      "exposedModule": "route",
+      "contractVersion": "1.0",
+      "minShellVersion": "1.0",
+      "requiredCapabilities": ["task.read"]
+    },
+    {
       "name": "case-mfe",
+      "routeBasePath": "/cases",
       "entry": "http://127.0.0.1:4303/mf-manifest.json",
       "exposedModule": "route",
       "contractVersion": "1.0",

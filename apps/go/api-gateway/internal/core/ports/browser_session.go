@@ -27,6 +27,7 @@ type OIDCLoginTransaction struct {
 	CodeVerifier string
 	Nonce        string
 	TenantID     string
+	ReturnTo     string
 	ExpiresAt    time.Time
 }
 

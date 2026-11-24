@@ -58,7 +58,20 @@ import {
 
 export interface RequestIdentity {
   tenantId: string;
-  accessToken: string;
+}
+
+function csrfToken(): string {
+  const prefix = "__Host-bpmp_csrf=";
+  const value = document.cookie.split(";").map((part) => part.trim())
+    .find((part) => part.startsWith(prefix));
+  return value ? decodeURIComponent(value.slice(prefix.length)) : "";
+}
+
+function addSessionCsrf(headers: Headers, method: string) {
+  if (method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {
+    const token = csrfToken();
+    if (token) headers.set("X-CSRF-Token", token);
+  }
 }
 
 const browserConfigurationSchema = z.object({
@@ -732,10 +745,10 @@ export class BpmpApiClient {
     const method = options.method ?? "GET";
     const headers = new Headers({
       Accept: "application/json",
-      Authorization: `Bearer ${identity.accessToken}`,
       "X-BPMP-Tenant-ID": identity.tenantId,
       "X-Correlation-ID": correlationId,
     });
+    addSessionCsrf(headers, method);
     if (method !== "GET") {
       headers.set("Content-Type", "application/json");
       headers.set("X-Command-ID", commandId);
@@ -745,6 +758,7 @@ export class BpmpApiClient {
       const requestInit: RequestInit = {
         method,
         headers,
+        credentials: "include",
         signal: controller.signal,
       };
       if (options.body !== undefined) {
@@ -795,10 +809,10 @@ export class BpmpApiClient {
     const method = options.method ?? "GET";
     const headers = new Headers({
       Accept: "application/json",
-      Authorization: `Bearer ${identity.accessToken}`,
       "X-Request-ID": requestId,
       "X-Tenant-ID": identity.tenantId,
     });
+    addSessionCsrf(headers, method);
     if (options.body !== undefined) headers.set("Content-Type", "application/json");
     try {
       const response = await fetch(
@@ -806,6 +820,7 @@ export class BpmpApiClient {
         {
           method,
           headers,
+          credentials: "include",
           signal: controller.signal,
           ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
         },
@@ -875,10 +890,10 @@ export class BpmpApiClient {
     const correlationId = crypto.randomUUID();
     const headers = new Headers({
       Accept: "application/json",
-      Authorization: `Bearer ${identity.accessToken}`,
       "X-BPMP-Tenant-ID": identity.tenantId,
       "X-Correlation-ID": correlationId,
     });
+    addSessionCsrf(headers, options.method ?? "GET");
     if (options.body !== undefined) {
       headers.set("Content-Type", "application/json");
       headers.set("X-Command-ID", crypto.randomUUID());
@@ -890,6 +905,7 @@ export class BpmpApiClient {
         {
           method: options.method ?? "GET",
           headers,
+          credentials: "include",
           signal: controller.signal,
           ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
         },

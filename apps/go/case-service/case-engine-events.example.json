@@ -1,0 +1,16 @@
+{
+  "postgres_dsn": "postgres://case_user:replace-me@127.0.0.1:5432/case_db?sslmode=verify-full",
+  "kafka": {
+    "brokers": ["127.0.0.1:19092"],
+    "client_id": "bpmp-case-engine-events-projection",
+    "security_protocol": "PLAINTEXT",
+    "dial_timeout_ms": 3000,
+    "request_timeout_ms": 3000,
+    "topic": "bpmp.engine.committed-events.v1.e2e",
+    "consumer_group": "bpmp.case.engine-events.v1.e2e",
+    "batch_size": 100,
+    "max_message_bytes": 1048576,
+    "poll_timeout_ms": 1000,
+    "session_timeout_ms": 30000
+  }
+}

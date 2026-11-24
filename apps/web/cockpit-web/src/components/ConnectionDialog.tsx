@@ -1,60 +1,30 @@
-import { useState, type FormEvent } from "react";
+import { useState } from "react";
 import { KeyRound } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
-import { validateSessionInput } from "../auth/sessionValidation";
 import { Button } from "./Button";
 
 export function ConnectionDialog() {
-  const { identity, connect } = useAuth();
-  const [tenantId, setTenantId] = useState("");
-  const [accessToken, setAccessToken] = useState("");
-  const [error, setError] = useState("");
+  const { identity, loading, connect } = useAuth();
+  const [starting, setStarting] = useState(false);
   if (identity) return null;
-
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    const tenant = tenantId.trim();
-    const token = accessToken.trim();
-    const validationError = validateSessionInput(tenant, token);
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
-    setError("");
-    connect({ tenantId: tenant, accessToken: token });
-  }
 
   return (
     <div className="connection-screen">
-      <form className="connection-panel" onSubmit={submit}>
+      <section className="connection-panel" aria-busy={loading || starting}>
         <div className="connection-panel__mark">
           <KeyRound size={20} aria-hidden="true" />
         </div>
-        <h1>Connect to BPMP</h1>
-        <div className="field">
-          <label htmlFor="tenant">Tenant ID</label>
-          <input
-            id="tenant"
-            value={tenantId}
-            onChange={(event) => setTenantId(event.target.value)}
-            autoComplete="organization"
-            required
-          />
-        </div>
-        <div className="field">
-          <label htmlFor="token">Access token</label>
-          <textarea
-            id="token"
-            value={accessToken}
-            onChange={(event) => setAccessToken(event.target.value)}
-            rows={5}
-            autoComplete="off"
-            required
-          />
-        </div>
-        {error ? <p className="form-error" role="alert">{error}</p> : null}
-        <Button type="submit" variant="primary">Connect</Button>
-      </form>
+        <h1>Sign in to BPMP</h1>
+        <p>Continue with your organization account through Keycloak.</p>
+        <Button
+          type="button"
+          variant="primary"
+          disabled={loading || starting}
+          onClick={() => { setStarting(true); connect(); }}
+        >
+          {loading ? "Checking session…" : "Continue with SSO"}
+        </Button>
+      </section>
     </div>
   );
 }

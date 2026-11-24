@@ -1,0 +1,7 @@
+go 1.25.12
+
+use (
+	./apps/go/case-service
+	./go/contracts
+	./go/platform
+)

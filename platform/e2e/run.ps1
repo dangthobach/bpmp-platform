@@ -704,7 +704,8 @@ url = "https://localhost:$cockpitGatewayPort/realtime/v1/events?names=workflow.c
         if (
             $realtimeContent -match "event: workflow.changed" -and
             $realtimeContent -match "event: work-item.changed" -and
-            $realtimeContent -match [regex]::Escape($instance)
+            $realtimeContent -match '"invalidate":true' -and
+            $realtimeContent -notmatch '"instanceId"'
         ) {
             break
         }
@@ -713,7 +714,8 @@ url = "https://localhost:$cockpitGatewayPort/realtime/v1/events?names=workflow.c
     if (
         $realtimeContent -notmatch "event: workflow.changed" -or
         $realtimeContent -notmatch "event: work-item.changed" -or
-        $realtimeContent -notmatch [regex]::Escape($instance)
+        $realtimeContent -notmatch '"invalidate":true' -or
+        $realtimeContent -match '"instanceId"'
     ) {
         throw "Cockpit Gateway did not fan out the committed workflow event"
     }
@@ -953,6 +955,11 @@ url = "https://localhost:$cockpitGatewayPort/realtime/v1/events?names=workflow.c
     $null = Invoke-JsonRequestEventually -Path "/v1/process-instances/completed/query" -Headers $restoredHeaders -Body $completedQuery
     Write-Host "Signed Kafka revoke, ACK checkpoints, replay, broker DLQ and durable fail-closed recovery probes passed"
 
+    if ($KeepRunning) {
+        Invoke-TimedPhase -Name "Restore the full stack for interactive testing" -Action {
+            Invoke-Compose up -d --wait --wait-timeout $StartupTimeoutSeconds
+        }
+    }
     Write-Host "Broker-backed E2E passed with Projection, Governance and leader failover: config=$($configuration.id) governance=$governanceRequestId instance=$instance work_item=$workItem human_inbox=$inboxCount projection_inbox=$projectionInboxCount"
 } finally {
     if ($null -ne $realtimeProcess -and -not $realtimeProcess.HasExited) {

@@ -1,0 +1,21 @@
+FROM golang:1.25.12-bookworm AS builder
+WORKDIR /workspace
+COPY platform/e2e/case.go.work ./go.work
+COPY go/contracts ./go/contracts
+COPY go/platform ./go/platform
+COPY apps/go/case-service ./apps/go/case-service
+WORKDIR /workspace/apps/go/case-service
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -trimpath -o /out/case-local ./cmd/case-local && \
+    CGO_ENABLED=0 go build -trimpath -o /out/case-start ./cmd/case-start && \
+    CGO_ENABLED=0 go build -trimpath -o /out/case-outbox ./cmd/case-outbox && \
+    CGO_ENABLED=0 go build -trimpath -o /out/case-engine-events ./cmd/case-engine-events
+
+FROM alpine:3.22
+RUN apk add --no-cache ca-certificates curl wget
+COPY --from=builder /out/case-local /usr/local/bin/case-local
+COPY --from=builder /out/case-start /usr/local/bin/case-start
+COPY --from=builder /out/case-outbox /usr/local/bin/case-outbox
+COPY --from=builder /out/case-engine-events /usr/local/bin/case-engine-events
+USER 65532:65532
+ENTRYPOINT ["/usr/local/bin/case-local"]

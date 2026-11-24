@@ -13,15 +13,16 @@ import (
 )
 
 type config struct {
-	ListenAddress string               `json:"listen_address"`
-	HealthAddress string               `json:"health_address"`
-	TLS           tlsConfig            `json:"tls"`
-	Identity      identityConfig       `json:"identity"`
-	HTTP          httpConfig           `json:"http"`
-	Realtime      realtimeConfig       `json:"realtime"`
-	Health        healthConfig         `json:"health"`
-	Telemetry     telemetryConfig      `json:"telemetry"`
-	Kafka         kafkaconfig.Consumer `json:"kafka"`
+	ListenAddress   string               `json:"listen_address"`
+	HealthAddress   string               `json:"health_address"`
+	TLS             tlsConfig            `json:"tls"`
+	Identity        identityConfig       `json:"identity"`
+	HTTP            httpConfig           `json:"http"`
+	Realtime        realtimeConfig       `json:"realtime"`
+	Health          healthConfig         `json:"health"`
+	Telemetry       telemetryConfig      `json:"telemetry"`
+	Kafka           kafkaconfig.Consumer `json:"kafka"`
+	HumanEventTopic string               `json:"human_event_topic"`
 }
 
 type tlsConfig struct {
@@ -30,13 +31,16 @@ type tlsConfig struct {
 }
 
 type identityConfig struct {
-	JWKSPath         string   `json:"jwks_path"`
-	Issuers          []string `json:"issuers"`
-	Audiences        []string `json:"audiences"`
-	Algorithms       []string `json:"algorithms"`
-	MaxTokenBytes    int      `json:"max_token_bytes"`
-	MaxJWKSKeys      int      `json:"max_jwks_keys"`
-	ClockSkewSeconds int64    `json:"clock_skew_seconds"`
+	JWKSPath             string   `json:"jwks_path"`
+	Issuers              []string `json:"issuers"`
+	Audiences            []string `json:"audiences"`
+	Algorithms           []string `json:"algorithms"`
+	MaxTokenBytes        int      `json:"max_token_bytes"`
+	MaxJWKSKeys          int      `json:"max_jwks_keys"`
+	ClockSkewSeconds     int64    `json:"clock_skew_seconds"`
+	InternalProofKeyID   string   `json:"internal_proof_key_id"`
+	InternalProofKeyPath string   `json:"internal_proof_key_path"`
+	InternalWorkloadID   string   `json:"internal_workload_id"`
 }
 
 type httpConfig struct {
@@ -103,6 +107,8 @@ func (c config) Validate() error {
 		len(c.Identity.Audiences) == 0 || len(c.Identity.Algorithms) == 0 ||
 		c.Identity.MaxTokenBytes <= 0 || c.Identity.MaxJWKSKeys <= 0 ||
 		c.Identity.ClockSkewSeconds < 0 ||
+		c.Identity.InternalProofKeyID == "" || c.Identity.InternalProofKeyPath == "" ||
+		c.Identity.InternalWorkloadID == "" ||
 		c.HTTP.ReadHeaderTimeoutMS <= 0 || c.HTTP.RequestTimeoutMS <= 0 ||
 		c.HTTP.IdleTimeoutMS <= 0 ||
 		c.HTTP.ShutdownTimeoutMS <= 0 || c.HTTP.MaxHeaderBytes <= 0 ||
@@ -121,7 +127,8 @@ func (c config) Validate() error {
 		c.Telemetry.ServiceName == "" || c.Telemetry.ServiceVersion == "" ||
 		c.Telemetry.Endpoint == "" || c.Telemetry.SampleRatio < 0 ||
 		c.Telemetry.SampleRatio > 1 || c.Telemetry.ExportTimeoutMS <= 0 ||
-		c.Kafka.Validate() != nil {
+		c.Kafka.Validate() != nil ||
+		kafkaconfig.ValidateTopic(c.HumanEventTopic) != nil {
 		return errors.New("cockpit gateway configuration is invalid")
 	}
 	if c.Realtime.MaxNamesPerConnection >
@@ -132,6 +139,9 @@ func (c config) Validate() error {
 	}
 	if err := uniqueNonEmpty(c.Realtime.AllowedSignalNames); err != nil {
 		return err
+	}
+	if len(c.Kafka.TopicList()) != 2 || c.Kafka.TopicList()[1] != c.HumanEventTopic {
+		return errors.New("cockpit gateway must consume Engine and Human Runtime feeds in that order")
 	}
 	if err := validOrigins(c.HTTP.AllowedOrigins); err != nil {
 		return err

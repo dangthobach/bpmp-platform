@@ -1,0 +1,18 @@
+FROM node:22.22.0-bookworm-slim
+WORKDIR /workspace
+COPY package.json package-lock.json ./
+COPY tsconfig.ods.json ./tsconfig.ods.json
+COPY apps/web/ods-shell/package.json ./apps/web/ods-shell/package.json
+COPY apps/web/task-mfe/package.json ./apps/web/task-mfe/package.json
+COPY apps/web/studio-mfe/package.json ./apps/web/studio-mfe/package.json
+COPY apps/web/case-mfe/package.json ./apps/web/case-mfe/package.json
+COPY packages/frontend/call-api/package.json ./packages/frontend/call-api/package.json
+COPY packages/frontend/mfe-contract/package.json ./packages/frontend/mfe-contract/package.json
+COPY packages/frontend/shared-ui/package.json ./packages/frontend/shared-ui/package.json
+COPY packages/frontend/telemetry/package.json ./packages/frontend/telemetry/package.json
+RUN npm ci
+COPY apps/web/ods-shell ./apps/web/ods-shell
+COPY apps/web/task-mfe ./apps/web/task-mfe
+COPY apps/web/case-mfe ./apps/web/case-mfe
+COPY packages/frontend ./packages/frontend
+EXPOSE 4300 4301 4303

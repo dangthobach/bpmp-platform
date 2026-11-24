@@ -8,12 +8,34 @@ test.beforeEach(async ({ page }) => {
       schemaVersion: "1", catalogVersion: "federation-e2e", generatedAt: new Date().toISOString(),
       expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
       remotes: [
-        { name: "task-mfe", entry: "http://127.0.0.1:4301/mf-manifest.json", exposedModule: "route", contractVersion: "1.0", minShellVersion: "1.0", requiredCapabilities: ["task.read"] },
-        { name: "studio-mfe", entry: "http://127.0.0.1:4302/mf-manifest.json", exposedModule: "route", contractVersion: "1.0", minShellVersion: "1.0", requiredCapabilities: ["authoring.listProcessModel", "authz.catalog.read", "configuration.profile.read"] },
-        { name: "case-mfe", entry: "http://127.0.0.1:4303/mf-manifest.json", exposedModule: "route", contractVersion: "1.0", minShellVersion: "1.0", requiredCapabilities: ["case.read"] },
+        { name: "task-mfe", routeBasePath: "/tasks", entry: "http://127.0.0.1:4301/mf-manifest.json", exposedModule: "route", contractVersion: "1.0", minShellVersion: "1.0", requiredCapabilities: ["task.read"] },
+        { name: "studio-mfe", routeBasePath: "/studio", entry: "http://127.0.0.1:4302/mf-manifest.json", exposedModule: "route", contractVersion: "1.0", minShellVersion: "1.0", requiredCapabilities: ["authoring.listProcessModel", "authz.catalog.read", "configuration.profile.read"] },
+        { name: "case-mfe", routeBasePath: "/cases", entry: "http://127.0.0.1:4303/mf-manifest.json", exposedModule: "route", contractVersion: "1.0", minShellVersion: "1.0", requiredCapabilities: ["case.read"] },
       ],
     }),
   }));
+});
+
+test("resolves deep links and keeps sidebar navigation in browser history", async ({ page }) => {
+  await page.route("**/v1/authoring/process-models?page_size=50", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ models: [], next_page_token: "" }),
+  }));
+  await page.goto("/studio");
+  await expect(page.getByRole("button", { name: "studio", exact: true })).toHaveAttribute("aria-current", "page");
+
+  await page.getByRole("button", { name: "task", exact: true }).click();
+  await expect(page).toHaveURL(/\/tasks$/);
+  await expect(page.getByRole("button", { name: "task", exact: true })).toHaveAttribute("aria-current", "page");
+
+  await page.goBack();
+  await expect(page).toHaveURL(/\/studio$/);
+  await expect(page.getByRole("button", { name: "studio", exact: true })).toHaveAttribute("aria-current", "page");
+
+  await page.goForward();
+  await expect(page).toHaveURL(/\/tasks$/);
+  await expect(page.getByRole("button", { name: "task", exact: true })).toHaveAttribute("aria-current", "page");
 });
 
 test("loads the independent Task remote and completes through its idempotent BFF contract", async ({ page }) => {
@@ -69,7 +91,7 @@ test("loads the independent Task remote and completes through its idempotent BFF
   await page.goto("/");
   await page.getByRole("button", { name: "task" }).click();
 
-  await expect(page.getByText("ODS Platform")).toBeVisible();
+  await expect(page.getByText("BPMP Platform").first()).toBeVisible();
   await expect(page.getByRole("heading", { name: /Worklist/i })).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText("Federated review task")).toBeVisible();
   await page.getByRole("button", { name: "Complete" }).click();
@@ -102,7 +124,7 @@ test("a missing remote manifest does not take down the Shell", async ({ page }) 
 
   await page.goto("/");
 
-  await expect(page.getByText("ODS Platform")).toBeVisible();
+  await expect(page.getByText("BPMP Platform").first()).toBeVisible();
   await expect(page.getByRole("heading", { name: "Module unavailable" })).toBeVisible();
   await expect(page.getByText("Could not load task-mfe")).toBeVisible();
   await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();

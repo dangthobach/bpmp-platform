@@ -1,0 +1,17 @@
+{
+  "postgres_dsn": "postgres://case_user:case-e2e@case-postgres:5432/case_db?sslmode=disable",
+  "poll_interval_ms": 250,
+  "kafka": {
+    "brokers": ["redpanda:9092"],
+    "client_id": "bpmp-case-events-outbox",
+    "security_protocol": "PLAINTEXT",
+    "dial_timeout_ms": 3000,
+    "request_timeout_ms": 3000,
+    "topic": "bpmp.case.events.v1.e2e",
+    "message_timeout_ms": 5000,
+    "max_inflight": 1,
+    "max_message_bytes": 1048576,
+    "required_acks": "ALL",
+    "enable_idempotence": true
+  }
+}

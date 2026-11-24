@@ -68,6 +68,7 @@ function validateCatalog(value, config, now) {
   const shellVersion = parseComparableVersion(config.shellVersion, "shell version");
   parseComparableVersion(config.remoteContractVersion, "remote contract version");
   const names = new Set();
+  const routeBasePaths = new Set();
   for (const remote of value.remotes) {
     if (!record(remote) || !/^[a-z][a-z0-9-]{1,63}$/.test(remote.name)
       || typeof remote.entry !== "string" || typeof remote.exposedModule !== "string"
@@ -77,6 +78,11 @@ function validateCatalog(value, config, now) {
     const entry = new URL(remote.entry);
     if (!allowedOrigins.has(entry.origin) || !entry.pathname.endsWith("/mf-manifest.json")) fail(`remote ${remote.name} is not allowlisted`);
     if (names.has(remote.name)) fail(`duplicate remote ${remote.name}`);
+    if (remote.routeBasePath !== undefined) {
+      if (!isRouteBasePath(remote.routeBasePath)) fail(`remote ${remote.name} has an invalid routeBasePath`);
+      if (routeBasePaths.has(remote.routeBasePath)) fail(`duplicate remote route ${remote.routeBasePath}`);
+      routeBasePaths.add(remote.routeBasePath);
+    }
     parseComparableVersion(remote.contractVersion, `remote ${remote.name} contract version`);
     const minimumShellVersion = parseComparableVersion(remote.minShellVersion, `remote ${remote.name} minimum shell version`);
     if (remote.contractVersion !== config.remoteContractVersion) fail(`remote ${remote.name} contract is incompatible`);
@@ -98,6 +104,7 @@ function validateCatalog(value, config, now) {
       minShellVersion: remote.minShellVersion,
       name: remote.name,
       requiredCapabilities: [...remote.requiredCapabilities],
+      ...(remote.routeBasePath === undefined ? {} : { routeBasePath: remote.routeBasePath }),
     })),
     schemaVersion: value.schemaVersion,
   };
@@ -113,6 +120,17 @@ function validateCatalog(value, config, now) {
     valid = false;
   }
   if (!valid) fail("catalog signature is invalid");
+}
+
+function isRouteBasePath(value) {
+  if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//")
+    || value.includes("?") || value.includes("#") || (value.length > 1 && value.endsWith("/"))) return false;
+  try {
+    const parsed = new URL(value, "https://ods.invalid");
+    return parsed.origin === "https://ods.invalid" && parsed.pathname === value && parsed.search === "" && parsed.hash === "";
+  } catch {
+    return false;
+  }
 }
 
 function parseComparableVersion(value, field) {

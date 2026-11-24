@@ -92,12 +92,8 @@ func run(configPath string) error {
 		return fmt.Errorf("ping PostgreSQL: %w", err)
 	}
 	if config.ApplyMigrations {
-		migration, readErr := os.ReadFile(config.MigrationPath)
-		if readErr != nil {
-			return readErr
-		}
-		if _, err = pool.Exec(ctx, string(migration)); err != nil {
-			return fmt.Errorf("apply migration: %w", err)
+		if err = applyMigration(ctx, pool, config.MigrationPath, config.WorkItemChangeMigrationPath); err != nil {
+			return err
 		}
 	}
 	store, err := postgresadapter.NewStore(pool)
@@ -283,6 +279,24 @@ func run(configPath string) error {
 	if err != nil {
 		return err
 	}
+	workItemChangePublisher, err := kafkapublisher.NewWorkItemChangePublisher(
+		kafkaClient, config.Kafka.WorkItemChangeTopic,
+	)
+	if err != nil {
+		return err
+	}
+	hostname, err := os.Hostname()
+	if err != nil {
+		return fmt.Errorf("resolve work-item change worker identity: %w", err)
+	}
+	workItemChangeWorker, err := application.NewWorkItemChangeWorker(
+		store, workItemChangePublisher,
+		fmt.Sprintf("%s-changes-%s-%d", config.Escalation.WorkerID, hostname, os.Getpid()), 64,
+		30*time.Second, time.Second,
+	)
+	if err != nil {
+		return err
+	}
 
 	listener, err := net.Listen("tcp", config.ListenAddress)
 	if err != nil {
@@ -341,6 +355,7 @@ func run(configPath string) error {
 	errorsChannel := make(chan error, 5)
 	go func() { errorsChannel <- consumer.Run(ctx) }()
 	go func() { errorsChannel <- runEscalations(ctx, escalationWorker, policyProvider) }()
+	go func() { errorsChannel <- runWorkItemChanges(ctx, workItemChangeWorker) }()
 	go func() { errorsChannel <- configurationReloader.Run(ctx) }()
 	go func() { errorsChannel <- grpcServer.Serve(listener) }()
 	go func() { errorsChannel <- healthServer.ListenAndServe() }()
@@ -363,6 +378,90 @@ func run(configPath string) error {
 		}
 		return runErr
 	}
+}
+
+const humanRuntimeMigrationVersion = "human-runtime-consolidated-v1"
+const humanWorkItemChangeMigrationVersion = "human-work-item-change-outbox-v1"
+
+// applyMigration serializes local startup, records a durable version marker,
+// and recognizes the fully bootstrapped E2E schema created before the marker
+// existed. A partial schema fails closed instead of replaying DDL over data.
+func applyMigration(ctx context.Context, pool *pgxpool.Pool, path, workItemChangePath string) error {
+	migration, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read Human Runtime migration: %w", err)
+	}
+	workItemChangeMigration, err := os.ReadFile(workItemChangePath)
+	if err != nil {
+		return fmt.Errorf("read Human Runtime work-item change migration: %w", err)
+	}
+	connection, err := pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire migration connection: %w", err)
+	}
+	defer connection.Release()
+	if _, err = connection.Exec(ctx, "SELECT pg_advisory_lock(71134001)"); err != nil {
+		return fmt.Errorf("lock Human Runtime migrations: %w", err)
+	}
+	defer func() {
+		unlockCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_, _ = connection.Exec(unlockCtx, "SELECT pg_advisory_unlock(71134001)")
+	}()
+	if _, err = connection.Exec(ctx, `
+		CREATE SCHEMA IF NOT EXISTS human_runtime;
+		CREATE TABLE IF NOT EXISTS human_runtime.schema_migrations (
+			version text PRIMARY KEY,
+			applied_at timestamptz NOT NULL DEFAULT now()
+		)`); err != nil {
+		return fmt.Errorf("initialize Human Runtime migration ledger: %w", err)
+	}
+	var applied bool
+	if err = connection.QueryRow(ctx,
+		"SELECT EXISTS (SELECT 1 FROM human_runtime.schema_migrations WHERE version=$1)",
+		humanRuntimeMigrationVersion,
+	).Scan(&applied); err != nil {
+		return fmt.Errorf("read Human Runtime migration ledger: %w", err)
+	}
+	if !applied {
+		var existing, complete bool
+		if err = connection.QueryRow(ctx, `
+			SELECT to_regclass('human_runtime.assignment_policies') IS NOT NULL,
+			       to_regclass('human_runtime.human_bulk_item_receipts') IS NOT NULL`).Scan(&existing, &complete); err != nil {
+			return fmt.Errorf("inspect existing Human Runtime schema: %w", err)
+		}
+		if existing {
+			if !complete {
+				return errors.New("Human Runtime schema exists without the consolidated migration marker and is incomplete; refusing to replay destructive DDL")
+			}
+		} else if _, err = connection.Exec(ctx, string(migration)); err != nil {
+			return fmt.Errorf("apply Human Runtime migration: %w", err)
+		}
+		if _, err = connection.Exec(ctx,
+			"INSERT INTO human_runtime.schema_migrations(version) VALUES ($1) ON CONFLICT DO NOTHING",
+			humanRuntimeMigrationVersion,
+		); err != nil {
+			return fmt.Errorf("record Human Runtime migration: %w", err)
+		}
+	}
+	if err = connection.QueryRow(ctx,
+		"SELECT EXISTS (SELECT 1 FROM human_runtime.schema_migrations WHERE version=$1)",
+		humanWorkItemChangeMigrationVersion,
+	).Scan(&applied); err != nil {
+		return fmt.Errorf("read Human Runtime work-item change migration ledger: %w", err)
+	}
+	if !applied {
+		if _, err = connection.Exec(ctx, string(workItemChangeMigration)); err != nil {
+			return fmt.Errorf("apply Human Runtime work-item change migration: %w", err)
+		}
+		if _, err = connection.Exec(ctx,
+			"INSERT INTO human_runtime.schema_migrations(version) VALUES ($1) ON CONFLICT DO NOTHING",
+			humanWorkItemChangeMigrationVersion,
+		); err != nil {
+			return fmt.Errorf("record Human Runtime work-item change migration: %w", err)
+		}
+	}
+	return nil
 }
 
 func dynamicReliabilityInterceptor() (grpc.UnaryClientInterceptor, error) {
@@ -404,6 +503,21 @@ func runEscalations(
 			timer.Stop()
 			return nil
 		case now := <-timer.C:
+			if _, err := worker.RunOnce(ctx, now.UTC()); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+func runWorkItemChanges(ctx context.Context, worker *application.WorkItemChangeWorker) error {
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case now := <-ticker.C:
 			if _, err := worker.RunOnce(ctx, now.UTC()); err != nil {
 				return err
 			}

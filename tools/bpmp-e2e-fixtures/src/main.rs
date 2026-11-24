@@ -42,6 +42,8 @@ const HUMAN_RUNTIME_COMPLETION_COMMAND_MIGRATION: &str =
     include_str!("../../../db/human-runtime/migrations/005_completion_command_null_uniqueness.sql");
 const HUMAN_RUNTIME_BULK_RECEIPTS_MIGRATION: &str =
     include_str!("../../../db/human-runtime/migrations/006_bulk_operation_receipts.sql");
+const HUMAN_RUNTIME_WORK_ITEM_CHANGE_OUTBOX_MIGRATION: &str =
+    include_str!("../../../db/human-runtime/migrations/007_work_item_change_outbox.sql");
 const CONFIGURATION_MIGRATION: &str =
     include_str!("../../../db/configuration-service/migrations/001_configuration.sql");
 const CONFIGURATION_HOT_RELOAD_MIGRATION: &str =
@@ -94,6 +96,12 @@ struct Manifest {
     actor_id: String,
     actor_issuer: String,
     actor_audience: String,
+    oidc_issuer: String,
+    oidc_authorization_endpoint: String,
+    oidc_token_endpoint: String,
+    oidc_jwks_url: String,
+    oidc_client_id: String,
+    oidc_redirect_uri: String,
     kafka: KafkaTopology,
     postgres_dsn: String,
     configuration_postgres_dsn: String,
@@ -117,6 +125,7 @@ struct Manifest {
     cockpit_gateway_listen_address: String,
     cockpit_gateway_health_address: String,
     cockpit_web_public_origin: String,
+    ods_shell_public_origin: String,
     governance_listen_address: String,
     governance_health_address: String,
     gateway_listen_address: String,
@@ -156,6 +165,7 @@ struct KafkaTopics {
     engine_committed_events: String,
     configuration_publications: String,
     human_escalations: String,
+    human_work_item_changes: String,
     tenant_lifecycle: String,
     tenant_configuration_readiness: String,
 }
@@ -208,10 +218,17 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
     fs::create_dir_all(&secrets)?;
 
     let tls = generate_tls(&manifest.tls_dns_names)?;
+    let keycloak_tls = generate_keycloak_tls()?;
     let tls_certificate_sha256_hex = tls.certificate_sha256_hex.clone();
     write(&secrets.join("ca.pem"), tls.ca)?;
     write(&secrets.join("tls.pem"), tls.certificate)?;
     write(&secrets.join("tls-key.pem"), tls.private_key)?;
+    write(&secrets.join("keycloak-ca.pem"), keycloak_tls.ca)?;
+    write(&secrets.join("keycloak-tls.pem"), keycloak_tls.certificate)?;
+    write(
+        &secrets.join("keycloak-tls-key.pem"),
+        keycloak_tls.private_key,
+    )?;
     write(&secrets.join("vault-token"), b"e2e-vault-token")?;
 
     let wir_key = derive_key(manifest, "wir");
@@ -237,6 +254,9 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
     )?;
 
     let gateway_workload = write_auth_key(manifest, output, "gateway-workload")?;
+    let gateway_workload_public = fs::read(output.join(&gateway_workload.public_path))?;
+    let case_workload = write_auth_key(manifest, output, "case-service-workload")?;
+    let case_workload_public = fs::read(output.join(&case_workload.public_path))?;
     let human_workload = write_auth_key(manifest, output, "human-workload")?;
     let internal_actor = write_auth_key(manifest, output, "internal-actor")?;
     let internal_workload = write_auth_key(manifest, output, "internal-workload")?;
@@ -277,13 +297,23 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
     let jwt_key = SigningKey::from_bytes(&derive_key(manifest, "jwt"));
     let jwt_private = jwt_key.to_pkcs8_der()?;
     let jwt_public = jwt_key.verifying_key().to_bytes();
+    let actor_jwk = json!({
+        "kty": "OKP", "crv": "Ed25519", "alg": "EdDSA", "use": "sig",
+        "kid": "actor-jwt-v1",
+        "x": base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(jwt_public)
+    });
     write_json(
         &output.join("jwks.json"),
-        &json!({"keys": [{
-            "kty": "OKP", "crv": "Ed25519", "alg": "EdDSA", "use": "sig",
-            "kid": "actor-jwt-v1",
-            "x": base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(jwt_public)
-        }]}),
+        &json!({"keys": [actor_jwk.clone()]}),
+    )?;
+    let gateway_workload_jwk = json!({
+        "kty": "OKP", "crv": "Ed25519", "alg": "EdDSA", "use": "sig",
+        "kid": gateway_workload.id,
+        "x": base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(gateway_workload_public)
+    });
+    write_json(
+        &output.join("authz-jwks.json"),
+        &json!({"keys": [actor_jwk, gateway_workload_jwk, json!({"kty":"OKP","crv":"Ed25519","alg":"EdDSA","use":"sig","kid":case_workload.id,"x":base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(case_workload_public)})]}),
     )?;
     let mut header = Header::new(Algorithm::EdDSA);
     header.kid = Some("actor-jwt-v1".into());
@@ -301,6 +331,7 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
                 "configuration.read",
                 "configuration.manage",
                 "workflow.query.all",
+                "task.read",
                 "authz.catalog.read",
                 "authz.catalog.write",
                 "authz.catalog.publish",
@@ -424,6 +455,15 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
         &output.join("workflow-config.json"),
         &workflow_configuration(manifest),
     )?;
+    write_json(&output.join("case-workflow-metadata-e2e.json"), &json!({"workflows":[{"tenant_id":manifest.tenant_id,"workflow_type":manifest.workflow_type,"workflow_version":manifest.workflow_version,"start_node_id":"start","encryption_key_scope":format!("{}/operational",manifest.tenant_id)}]}))?;
+    write_json(&output.join("case-start-e2e.json"), &json!({
+        "postgres_dsn":"postgres://case_user:case-e2e@case-postgres:5432/case_db?sslmode=disable",
+        "engine_address":manifest.engine_public_addresses[1],"engine_server_name":"engine2",
+        "authorization_url":"https://authz-server:8443","authorization_server_name":"authz-server","authorization_audience":manifest.actor_audience,
+        "workload_id":"case-service","workload_key_id":case_workload.id,"workload_private_key":format!("{mount}/{}",case_workload.private_path),
+        "tls_certificate":format!("{mount}/secrets/tls.pem"),"tls_private_key":format!("{mount}/secrets/tls-key.pem"),"tls_ca":format!("{mount}/secrets/ca.pem"),
+        "metadata_path":format!("{mount}/case-workflow-metadata-e2e.json"),"poll_interval_ms":250
+    }))?;
     for index in 0..3 {
         write_json(
             &output.join(format!("engine-{}.json", index + 1)),
@@ -436,6 +476,7 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
                     &human_workload,
                     &internal_actor,
                     &internal_workload,
+                    &case_workload,
                 ],
                 &tls_certificate_sha256_hex,
             ),
@@ -456,6 +497,10 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
         &gateway_config(manifest, mount, &gateway_workload),
     )?;
     write_json(
+        &output.join("keycloak-realm.json"),
+        &keycloak_realm(manifest),
+    )?;
+    write_json(
         &output.join("configuration-service.json"),
         &configuration_config(manifest, mount, &tls_certificate_sha256_hex),
     )?;
@@ -470,7 +515,7 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
     )?;
     write_json(
         &output.join("cockpit-gateway.json"),
-        &cockpit_gateway_config(manifest, mount),
+        &cockpit_gateway_config(manifest, mount, &internal_actor),
     )?;
     write_json(
         &output.join("cockpit-web-config.json"),
@@ -484,7 +529,7 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
         &output.join("authz-server.env"),
         format!(
         "{}QUERY_REVOKE_KAFKA_CONFIG={mount}/authz-revoke-kafka.json\nAUTHZ_POLICY_SIGNING_KEY_ID=policy-key-v1\nAUTHZ_POLICY_SIGNING_KEY_PATH={mount}/secrets/policy-private.key\nAUTHZ_OWNER_MANIFEST_KEY_IDS={{\"bpmp-engine\":[\"bpmp-engine-manifest-k1\"],\"projection-service\":[\"projection-service-manifest-k1\"]}}\nHTTPS_PORT=8443\nHTTPS_CERTIFICATE_PATH={mount}/secrets/tls.pem\nHTTPS_PRIVATE_KEY_PATH={mount}/secrets/tls-key.pem\nHTTPS_CLIENT_CA_PATH={mount}/secrets/ca.pem\n",
-            authz_server_env(manifest)
+            authz_server_env(manifest, mount, &internal_actor)
         )
         .as_bytes(),
     )?;
@@ -503,6 +548,10 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
     write(
         &output.join("human-runtime.sql"),
         schema_migration("human_runtime", &seeded_migration(manifest)),
+    )?;
+    write(
+        &output.join("human-runtime-change-outbox.sql"),
+        format!("CREATE SCHEMA IF NOT EXISTS human_runtime;\nSET search_path TO human_runtime, public;\n{HUMAN_RUNTIME_WORK_ITEM_CHANGE_OUTBOX_MIGRATION}").as_bytes(),
     )?;
     write(
         &output.join("configuration-service.sql"),
@@ -528,7 +577,7 @@ fn generate(manifest: &Manifest, output: &Path) -> Result<()> {
     )?;
     write(
         &output.join("key-lifecycle-nginx.conf"),
-        b"events {}\nhttp { server { listen 8080; location = / { return 200 'ok'; } location = /jwks.json { alias /runtime/jwks.json; default_type application/json; } location = /barrier { return 204; } location = /shred { return 204; } } }\n",
+        b"events {}\nhttp { server { listen 8080; location = / { return 200 'ok'; } location = /jwks.json { alias /runtime/jwks.json; default_type application/json; } location = /authz-jwks.json { alias /runtime/authz-jwks.json; default_type application/json; } location = /barrier { return 204; } location = /shred { return 204; } } }\n",
     )?;
     write(
         &output.join("kafka-topics.sh"),
@@ -578,6 +627,10 @@ struct TlsMaterial {
     certificate: Vec<u8>,
     private_key: Vec<u8>,
     certificate_sha256_hex: String,
+}
+
+fn generate_keycloak_tls() -> Result<TlsMaterial> {
+    generate_tls(&["localhost".into(), "keycloak".into()])
 }
 
 fn generate_tls(dns_names: &[String]) -> Result<TlsMaterial> {
@@ -868,7 +921,7 @@ fn engine_config(
         },
         "authorization": {
             "actor_keys": [verification(keys[2])],
-            "workload_keys": [verification(keys[0]), verification(keys[1]), verification(keys[3])],
+            "workload_keys": [verification(keys[0]), verification(keys[1]), verification(keys[3]), verification(keys[4])],
             "policy_keys": [{"key_id": "policy-key-v1", "path": path("secrets/policy-public.key")}],
             "policy_bundles": [path("policy.bundle")], "jwks": path("jwks.json"),
             "jwt_issuers": [manifest.actor_issuer], "jwt_audiences": [manifest.actor_audience], "jwt_algorithms": ["EdDSA"],
@@ -958,9 +1011,11 @@ fn human_config(
     json!({
         "listen_address": manifest.human_listen_address, "postgres_dsn": manifest.postgres_dsn,
         "apply_migrations": true, "migration_path": path("human-runtime.sql"),
+        "work_item_change_migration_path": path("human-runtime-change-outbox.sql"),
         "engine_address": manifest.engine_public_addresses[1],
         "tls": {"server_certificate": path("secrets/tls.pem"), "server_private_key": path("secrets/tls-key.pem"), "client_certificate": path("secrets/tls.pem"), "client_private_key": path("secrets/tls-key.pem"), "client_ca": path("secrets/ca.pem"), "engine_ca": path("secrets/ca.pem"), "engine_server_name": "engine2", "configuration_server_name": "configuration-service"},
         "kafka": {"brokers": manifest.kafka.brokers, "committed_event_topic": manifest.kafka.topics.engine_committed_events, "escalation_topic": manifest.kafka.topics.human_escalations, "consumer_group": manifest.kafka.consumer_groups.human_committed_events},
+        "work_item_change_topic": manifest.kafka.topics.human_work_item_changes,
         "identity": {"jwks_path": path("jwks.json"), "internal_keys": {(internal.id.clone()): path(&internal.public_path)}, "issuers": [manifest.actor_issuer], "audiences": [manifest.actor_audience], "allowed_jwt_methods": ["EdDSA"], "workload_id": "human-runtime", "max_proof_bytes": 16384, "max_jwks_keys": 16, "max_roles": 32, "max_capabilities": 64, "clock_skew_ms": 30000},
         "workload": {"id": "human-runtime", "signing_key_id": workload.id, "private_key_path": path(&workload.private_path), "proof_ttl_ms": 60000},
         "grpc": {
@@ -973,6 +1028,7 @@ fn human_config(
                 "/bpmp.human.v1.HumanRuntimeService/CompleteWorkItem",
                 "/bpmp.human.v1.HumanRuntimeService/DelegateWorkItem",
                 "/bpmp.human.v1.HumanRuntimeService/GetCase",
+                "/bpmp.human.v1.HumanRuntimeService/GetWorkItemHistory",
                 "/bpmp.human.v1.HumanRuntimeService/ListAuditRecords",
                 "/grpc.reflection.v1.ServerReflection/ServerReflectionInfo",
                 "/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo"
@@ -1015,9 +1071,11 @@ fn gateway_config(manifest: &Manifest, mount: &str, workload: &AuthKey) -> Value
         "projection_address": manifest.projection_address,
         "configuration_url": manifest.configuration_url,
         "public_tls": {"certificate": path("secrets/tls.pem"), "private_key": path("secrets/tls-key.pem")},
-        "upstream_tls": {"certificate": path("secrets/tls.pem"), "private_key": path("secrets/tls-key.pem"), "ca": path("secrets/ca.pem"), "engine_server_name": "engine2", "human_server_name": "human-runtime", "projection_server_name": "projection-service", "configuration_server_name": "configuration-service", "authorization_server_name":"authz-server"},
+        "upstream_tls": {"certificate": path("secrets/tls.pem"), "private_key": path("secrets/tls-key.pem"), "ca": path("secrets/ca.pem"), "engine_server_name": "engine2", "human_server_name": "human-runtime", "projection_server_name": "projection-service", "configuration_server_name": "configuration-service", "authorization_server_name":"authz-server", "cockpit_gateway_server_name":"cockpit-gateway", "case_service_server_name":"api-gateway"},
         "authorization_url":"https://authz-server:8443",
         "authorization_audience":manifest.actor_audience,
+        "cockpit_gateway_url":"https://cockpit-gateway:7601",
+        "case_service_url":"https://case-local:8085",
         "identity": {"jwks_path": path("jwks.json"), "issuers": [manifest.actor_issuer], "audiences": [manifest.actor_audience], "algorithms": ["EdDSA"], "max_token_bytes": 16384, "max_jwks_keys": 16, "clock_skew_seconds": 30},
         "workload": {"id": "api-gateway", "signing_key_id": workload.id, "private_key_path": path(&workload.private_path), "proof_ttl_ms": 60000},
         "rate_limit": {"redis_address": manifest.redis_address, "redis_username": "", "redis_password_file": "", "redis_database": 0, "redis_key_prefix": "bpmp:e2e", "operation_timeout_ms": 1000},
@@ -1050,7 +1108,63 @@ fn gateway_config(manifest: &Manifest, mount: &str, workload: &AuthKey) -> Value
                 "poll_timeout_ms": 250,
                 "session_timeout_ms": 6000
             }
+        },
+        "browser_session": {
+            "enabled": true,
+            "cookie_name": "__Host-bpmp_session",
+            "csrf_header_name": "X-CSRF-Token",
+            "redis_key_prefix": "bpmp:e2e:browser-session",
+            "operation_timeout_ms": 1000,
+            "max_token_bytes": 256,
+            "max_record_bytes": 8192
+        },
+        "oidc": {
+            "enabled": true,
+            "issuer": manifest.oidc_issuer,
+            "authorization_endpoint": manifest.oidc_authorization_endpoint,
+            "token_endpoint": manifest.oidc_token_endpoint,
+            "jwks_url": manifest.oidc_jwks_url,
+            "ca_file": path("secrets/keycloak-ca.pem"),
+            "client_id": manifest.oidc_client_id,
+            "redirect_uri": manifest.oidc_redirect_uri,
+            "frontend_url": manifest.cockpit_web_public_origin,
+            "allowed_return_origins": [manifest.ods_shell_public_origin],
+            "scopes": ["openid", "profile", "email"],
+            "operation_timeout_ms": 5000,
+            "transaction_ttl_ms": 300000,
+            "session_ttl_ms": 28800000
         }
+    })
+}
+
+fn keycloak_realm(manifest: &Manifest) -> Value {
+    json!({
+        "realm": "bpmp-e2e",
+        "enabled": true,
+        "displayName": "BPMP Local E2E",
+        "sslRequired": "external",
+        "registrationAllowed": false,
+        "loginWithEmailAllowed": true,
+        "clients": [{
+            "clientId": manifest.oidc_client_id,
+            "name": "BPMP Cockpit local",
+            "enabled": true,
+            "publicClient": true,
+            "standardFlowEnabled": true,
+            "directAccessGrantsEnabled": false,
+            "redirectUris": [manifest.oidc_redirect_uri],
+            "webOrigins": [manifest.cockpit_web_public_origin],
+            "attributes": {"pkce.code.challenge.method": "S256"},
+            "protocol": "openid-connect"
+        }],
+        "users": [{
+            "id": manifest.actor_id,
+            "username": "e2e-user",
+            "email": "e2e-user@bpmp.local",
+            "enabled": true,
+            "emailVerified": true,
+            "credentials": [{"type": "password", "value": "bpmp-e2e-password", "temporary": false}]
+        }]
     })
 }
 
@@ -1176,7 +1290,7 @@ fn projection_config(
     })
 }
 
-fn cockpit_gateway_config(manifest: &Manifest, mount: &str) -> Value {
+fn cockpit_gateway_config(manifest: &Manifest, mount: &str, internal_actor: &AuthKey) -> Value {
     let path = |name: &str| format!("{mount}/{name}");
     json!({
         "listen_address": manifest.cockpit_gateway_listen_address,
@@ -1192,7 +1306,10 @@ fn cockpit_gateway_config(manifest: &Manifest, mount: &str) -> Value {
             "algorithms": ["EdDSA"],
             "max_token_bytes": 16384,
             "max_jwks_keys": 16,
-            "clock_skew_seconds": 30
+            "clock_skew_seconds": 30,
+            "internal_proof_key_id": internal_actor.id,
+            "internal_proof_key_path": path(&internal_actor.public_path),
+            "internal_workload_id": "cockpit-gateway"
         },
         "http": {
             "read_header_timeout_ms": 5000,
@@ -1204,6 +1321,7 @@ fn cockpit_gateway_config(manifest: &Manifest, mount: &str) -> Value {
             "admission_burst": 200,
             "allowed_origins": [
                 manifest.cockpit_web_public_origin,
+                manifest.ods_shell_public_origin,
                 "https://localhost:4173"
             ]
         },
@@ -1225,6 +1343,7 @@ fn cockpit_gateway_config(manifest: &Manifest, mount: &str) -> Value {
             "heartbeat_interval_ms": 15000
         },
         "health": {"readiness_timeout_ms": 1000, "max_header_bytes": 32768},
+        "human_event_topic": manifest.kafka.topics.human_work_item_changes,
         "telemetry": {
             "service_name": "cockpit-gateway-e2e",
             "service_version": "e2e",
@@ -1239,7 +1358,7 @@ fn cockpit_gateway_config(manifest: &Manifest, mount: &str) -> Value {
             "security_protocol": manifest.kafka.security_protocol,
             "dial_timeout_ms": 3000,
             "request_timeout_ms": 3000,
-            "topic": manifest.kafka.topics.engine_committed_events,
+            "topics": [manifest.kafka.topics.engine_committed_events, manifest.kafka.topics.human_work_item_changes],
             "consumer_group": manifest.kafka.consumer_groups.cockpit_committed_events,
             "batch_size": 64,
             "max_message_bytes": 1_048_576,
@@ -1285,6 +1404,18 @@ http {
     location = /livez { default_type application/json; return 200 '{"status":"live"}'; }
     location = /readyz { default_type application/json; return 200 '{"status":"ready"}'; }
 
+    location /auth/ {
+      set $api_gateway https://api-gateway:8443;
+      proxy_pass $api_gateway;
+      proxy_ssl_server_name on;
+      proxy_ssl_name api-gateway;
+      proxy_ssl_trusted_certificate /runtime/secrets/ca.pem;
+      proxy_ssl_verify on;
+      proxy_set_header Host api-gateway;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
     location /v1/ {
       set $api_gateway https://api-gateway:8443;
       proxy_pass $api_gateway;
@@ -1306,16 +1437,19 @@ http {
     }
 
     location /realtime/ {
-      set $cockpit_gateway https://cockpit-gateway:7601;
-      proxy_pass $cockpit_gateway;
+      set $api_gateway https://api-gateway:8443;
+      proxy_pass $api_gateway;
       proxy_ssl_server_name on;
-      proxy_ssl_name cockpit-gateway;
+      proxy_ssl_name api-gateway;
       proxy_ssl_trusted_certificate /runtime/secrets/ca.pem;
       proxy_ssl_verify on;
       proxy_buffering off;
+      proxy_request_buffering off;
       proxy_cache off;
       proxy_read_timeout 1h;
-      proxy_set_header Host cockpit-gateway;
+      proxy_set_header Host api-gateway;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     }
 
     location / {
@@ -1327,9 +1461,9 @@ http {
     .to_owned()
 }
 
-fn authz_server_env(manifest: &Manifest) -> String {
+fn authz_server_env(manifest: &Manifest, mount: &str, actor_context_signer: &AuthKey) -> String {
     format!(
-        "SERVICE_NAME=authz-server-e2e\nHOST=0.0.0.0\nPORT=8080\nGRPC_PORT=50051\nSERVER_REQUEST_TIMEOUT_MS=5000\nSERVER_MAX_BODY_BYTES=1048576\nRATE_LIMIT_RPS=1000\nRATE_LIMIT_BURST=2000\nDATABASE_URL={}\nDB_MAX_CONNECTIONS=16\nDB_MIN_CONNECTIONS=1\nJWT_JWKS_URL=http://key-lifecycle:8080/jwks.json\nJWT_AUDIENCE={}\nFAIL_MODE=DENY\nKAFKA_BROKERS={}\nKAFKA_CLIENT_ID=bpmp-authz-control-plane-e2e\nKAFKA_SECURITY_PROTOCOL={}\nTENANT_LIFECYCLE_TOPIC={}\nAUTHZ_POLICY_BUNDLE_TOPIC={}\nAUTHZ_POLICY_BUNDLE_ACK_TOPIC={}\nAUTHZ_POLICY_BUNDLE_ACK_CONSUMER_GROUP={}\nTENANT_READINESS_TOPIC={}\nTENANT_READINESS_CONSUMER_GROUP=bpmp.authz.tenant-readiness.v1.e2e\nTENANT_LIFECYCLE_WORKER_ID=authz-e2e-1\nTENANT_LIFECYCLE_BATCH_SIZE=64\nTENANT_LIFECYCLE_LEASE_MS=5000\nTENANT_LIFECYCLE_POLL_MS=250\nKAFKA_MAX_MESSAGE_BYTES=1048576\n",
+        "SERVICE_NAME=authz-server-e2e\nHOST=0.0.0.0\nPORT=8080\nGRPC_PORT=50051\nSERVER_REQUEST_TIMEOUT_MS=5000\nSERVER_MAX_BODY_BYTES=1048576\nRATE_LIMIT_RPS=1000\nRATE_LIMIT_BURST=2000\nDATABASE_URL={}\nDB_MAX_CONNECTIONS=16\nDB_MIN_CONNECTIONS=1\nJWT_JWKS_URL=http://key-lifecycle:8080/authz-jwks.json\nJWT_AUDIENCE={}\nFAIL_MODE=DENY\nKAFKA_BROKERS={}\nKAFKA_CLIENT_ID=bpmp-authz-control-plane-e2e\nKAFKA_SECURITY_PROTOCOL={}\nTENANT_LIFECYCLE_TOPIC={}\nAUTHZ_POLICY_BUNDLE_TOPIC={}\nAUTHZ_POLICY_BUNDLE_ACK_TOPIC={}\nAUTHZ_POLICY_BUNDLE_ACK_CONSUMER_GROUP={}\nTENANT_READINESS_TOPIC={}\nTENANT_READINESS_CONSUMER_GROUP=bpmp.authz.tenant-readiness.v1.e2e\nTENANT_LIFECYCLE_WORKER_ID=authz-e2e-1\nTENANT_LIFECYCLE_BATCH_SIZE=64\nTENANT_LIFECYCLE_LEASE_MS=5000\nTENANT_LIFECYCLE_POLL_MS=250\nKAFKA_MAX_MESSAGE_BYTES=1048576\nAUTHZ_ACTOR_CONTEXT_SIGNING_KEY_ID={}\nAUTHZ_ACTOR_CONTEXT_SIGNING_KEY_PATH={}/{}\nAUTHZ_ACTOR_CONTEXT_AUDIENCES=api-gateway,human-runtime,authoring-service,projection-service,cockpit-gateway,case-service\n",
         manifest.authz_postgres_dsn,
         manifest.actor_audience,
         manifest.kafka.brokers.join(","),
@@ -1345,12 +1479,15 @@ fn authz_server_env(manifest: &Manifest) -> String {
             .consumer_groups
             .authorization_policy_bundle_acknowledgements,
         manifest.kafka.topics.tenant_configuration_readiness,
+        actor_context_signer.id,
+        mount,
+        actor_context_signer.private_path,
     )
 }
 
 fn authz_app_env(manifest: &Manifest, mount: &str) -> String {
     format!(
-        "SERVICE_NAME=authz-app-e2e\nHOST=0.0.0.0\nPORT=9090\nHTTPS_PORT=9443\nHTTPS_CERTIFICATE_PATH={mount}/secrets/tls.pem\nHTTPS_PRIVATE_KEY_PATH={mount}/secrets/tls-key.pem\nHTTPS_CLIENT_CA_PATH={mount}/secrets/ca.pem\nBRANCH_SCOPE_WORKLOAD_KEYS_FILE={mount}/branch-scope-workload-keys.json\nSERVER_REQUEST_TIMEOUT_MS=5000\nSERVER_MAX_BODY_BYTES=1048576\nRATE_LIMIT_RPS=1000\nRATE_LIMIT_BURST=2000\nDATABASE_URL={}\nDB_MAX_CONNECTIONS=16\nDB_MIN_CONNECTIONS=1\nAUTHZ_PDP_URL=http://authz-server:8080\nAUTHZ_SERVICE_TOKEN_FILE=/runtime/secrets/authz-app.jwt\nAUTHZ_TIMEOUT_MS=2000\nAUTHZ_CACHE_CAPACITY=10000\nAUTHZ_CACHE_TTL_SECS=5\nJWT_JWKS_URL=http://key-lifecycle:8080/jwks.json\nJWT_AUDIENCE={}\nKAFKA_BROKERS={}\nOUTBOX_POLL_INTERVAL_MS=250\nOUTBOX_BATCH_SIZE=64\n",
+        "SERVICE_NAME=authz-app-e2e\nHOST=0.0.0.0\nPORT=9090\nHTTPS_PORT=9443\nHTTPS_CERTIFICATE_PATH={mount}/secrets/tls.pem\nHTTPS_PRIVATE_KEY_PATH={mount}/secrets/tls-key.pem\nHTTPS_CLIENT_CA_PATH={mount}/secrets/ca.pem\nBRANCH_SCOPE_WORKLOAD_KEYS_FILE={mount}/branch-scope-workload-keys.json\nSERVER_REQUEST_TIMEOUT_MS=5000\nSERVER_MAX_BODY_BYTES=1048576\nRATE_LIMIT_RPS=1000\nRATE_LIMIT_BURST=2000\nDATABASE_URL={}\nDB_MAX_CONNECTIONS=16\nDB_MIN_CONNECTIONS=1\nAUTHZ_PDP_URL=http://authz-server:8080\nAUTHZ_SERVICE_TOKEN_FILE=/runtime/secrets/authz-app.jwt\nAUTHZ_TIMEOUT_MS=2000\nAUTHZ_CACHE_CAPACITY=10000\nAUTHZ_CACHE_TTL_SECS=5\nJWT_JWKS_URL=http://key-lifecycle:8080/authz-jwks.json\nJWT_AUDIENCE={}\nKAFKA_BROKERS={}\nOUTBOX_POLL_INTERVAL_MS=250\nOUTBOX_BATCH_SIZE=64\n",
         manifest.authz_app_postgres_dsn,
         manifest.actor_audience,
         manifest.kafka.brokers.join(","),
@@ -1412,10 +1549,19 @@ INSERT INTO user_account (id, tenant_id, username, external_id)
 VALUES ('{actor}', '{tenant}', 'e2e-user', '{actor}')
 ON CONFLICT (id) DO NOTHING;
 
+UPDATE user_account SET idp_issuer='{oidc_issuer}', idp_subject='{actor}' WHERE id='{actor}';
+
 UPDATE tenant SET config=config || '{{"query_max_permissions":128}}'::jsonb WHERE id='{tenant}';
 
 INSERT INTO role (id, tenant_id, code, name)
 VALUES ('00000000-0000-4000-8000-000000000003', '{tenant}', 'organization-admin', 'Organization administrator')
+ON CONFLICT (id) DO NOTHING;
+
+-- The Keycloak-backed OIDC actor must receive the same least-privilege
+-- reviewer group used by the approval workflow assignment policy. The direct
+-- actor JWT fixture already carries this role; keep both auth paths aligned.
+INSERT INTO role (id, tenant_id, code, name)
+VALUES ('00000000-0000-4000-8000-000000000004', '{tenant}', 'reviewer', 'Workflow reviewer')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO permission (id, tenant_id, code, resource_type, action, scope) VALUES
@@ -1433,6 +1579,26 @@ ON CONFLICT DO NOTHING;
 
 INSERT INTO user_role (user_id, role_id, tenant_id)
 VALUES ('{actor}', '00000000-0000-4000-8000-000000000003', '{tenant}')
+ON CONFLICT DO NOTHING;
+
+INSERT INTO user_role (user_id, role_id, tenant_id)
+VALUES ('{actor}', '00000000-0000-4000-8000-000000000004', '{tenant}')
+ON CONFLICT DO NOTHING;
+
+INSERT INTO permission (id, tenant_id, code, resource_type, action, scope) VALUES
+('00000000-0000-4000-8000-000000000016', '{tenant}', 'task.read', 'task', 'read', 'all'),
+('00000000-0000-4000-8000-000000000017', '{tenant}', 'case.read', 'case', 'read', 'all'),
+('00000000-0000-4000-8000-000000000018', '{tenant}', 'case.create', 'case', 'create', 'all'),
+('00000000-0000-4000-8000-000000000019', '{tenant}', 'audit.read', 'audit', 'read', 'all'),
+('00000000-0000-4000-8000-000000000020', '{tenant}', 'authz.catalog.read', 'authz', 'catalog.read', 'all'),
+('00000000-0000-4000-8000-000000000021', '{tenant}', 'identity.user.read', 'identity', 'user.read', 'all')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO role_permission (role_id, permission_id)
+SELECT '00000000-0000-4000-8000-000000000003', id
+FROM permission
+WHERE tenant_id = '{tenant}' AND id BETWEEN
+'00000000-0000-4000-8000-000000000016' AND '00000000-0000-4000-8000-000000000021'
 ON CONFLICT DO NOTHING;
 
 UPDATE user_account SET attributes=jsonb_build_object('actor_id',id::text,'grade',4,'team','group:query-reviewers') WHERE id='{actor}';
@@ -1454,6 +1620,7 @@ INSERT INTO relation_tuple(tenant_id,subject,relation,object) VALUES
 "#,
         tenant = manifest.tenant_id,
         actor = manifest.actor_id,
+        oidc_issuer = sql_literal(&manifest.oidc_issuer),
         owner_manifest_sql = owner_manifest_sql,
     ))
 }
@@ -1674,12 +1841,12 @@ fn seeded_configuration_migration(manifest: &Manifest) -> Result<String> {
         write!(
             &mut migration,
             "INSERT INTO configuration_profiles(id,tenant_id,owner,name,scope_type,scope_reference,aggregate_version,is_deleted,created_at,created_by,updated_at,updated_by) VALUES\
-             ('{profile_id}','{tenant}','{owner}','E2E {owner_slug} policy','TENANT','{tenant}',2,false,now(),'fixture',now(),'fixture');\n\
+             ('{profile_id}','{tenant}','{owner}','E2E {owner_slug} policy','TENANT','{tenant}',2,false,now(),'fixture',now(),'fixture') ON CONFLICT (id) DO NOTHING;\n\
              INSERT INTO configuration_versions(id,profile_id,tenant_id,ordinal,config_version,policy_version,schema_version,status,values_json,content_hash,reason,created_at,created_by,published_at,published_by) VALUES\
-             ('{version_id}','{profile_id}','{tenant}',1,'config-{owner_slug}-e2e-v1','{policy_version}',1,'PUBLISHED','{values}'::jsonb,decode('{hash}','hex'),'fixture bootstrap',now(),'fixture',now(),'fixture');\n\
-             UPDATE configuration_profiles SET current_published_version_id='{version_id}' WHERE id='{profile_id}';\n\
+             ('{version_id}','{profile_id}','{tenant}',1,'config-{owner_slug}-e2e-v1','{policy_version}',1,'PUBLISHED','{values}'::jsonb,decode('{hash}','hex'),'fixture bootstrap',now(),'fixture',now(),'fixture') ON CONFLICT (id) DO NOTHING;\n\
+             UPDATE configuration_profiles SET current_published_version_id=COALESCE(current_published_version_id,'{version_id}') WHERE id='{profile_id}';\n\
              INSERT INTO configuration_active_scopes(tenant_id,owner,scope_type,scope_reference,profile_id,version_id,updated_at) VALUES\
-             ('{tenant}','{owner}','TENANT','{tenant}','{profile_id}','{version_id}',now());\n"
+             ('{tenant}','{owner}','TENANT','{tenant}','{profile_id}','{version_id}',now()) ON CONFLICT (tenant_id,owner,scope_type,scope_reference) DO NOTHING;\n"
         )?;
     }
     Ok(migration)
@@ -1884,7 +2051,7 @@ fn seeded_migration(manifest: &Manifest) -> String {
     let workflow = sql_literal(&manifest.workflow_type);
     let version = sql_literal(&manifest.workflow_version);
     format!(
-        "{MIGRATION}\n{HUMAN_RUNTIME_DELEGATION_MIGRATION}\n{HUMAN_RUNTIME_ADMIN_IDEMPOTENCY_MIGRATION}\n{HUMAN_RUNTIME_COMPLETION_DIGEST_MIGRATION}\n{HUMAN_RUNTIME_COMPLETION_COMMAND_MIGRATION}\n{HUMAN_RUNTIME_BULK_RECEIPTS_MIGRATION}\nINSERT INTO assignment_policies(tenant_id,policy_ref,workflow_type,workflow_version,node_id,candidate_group,sla_duration_ms,escalation_policy_ref,config_version,created_at,created_by,updated_at,updated_by) VALUES('{tenant}','reviewers','{workflow}','{version}','review','reviewer',60000,'manager','config-e2e-v1',now(),'fixture',now(),'fixture');\nINSERT INTO human_tenant_security_profiles(tenant_id,encryption_key_scope,config_version) VALUES('{tenant}','{tenant}/operational','config-e2e-v1');\n",
+        "{MIGRATION}\n{HUMAN_RUNTIME_DELEGATION_MIGRATION}\n{HUMAN_RUNTIME_ADMIN_IDEMPOTENCY_MIGRATION}\n{HUMAN_RUNTIME_COMPLETION_DIGEST_MIGRATION}\n{HUMAN_RUNTIME_COMPLETION_COMMAND_MIGRATION}\n{HUMAN_RUNTIME_BULK_RECEIPTS_MIGRATION}\n{HUMAN_RUNTIME_WORK_ITEM_CHANGE_OUTBOX_MIGRATION}\nINSERT INTO assignment_policies(tenant_id,policy_ref,workflow_type,workflow_version,node_id,candidate_group,sla_duration_ms,escalation_policy_ref,config_version,created_at,created_by,updated_at,updated_by) VALUES('{tenant}','reviewers','{workflow}','{version}','review','reviewer',60000,'manager', 'config-e2e-v1',now(),'fixture',now(),'fixture');\nINSERT INTO human_tenant_security_profiles(tenant_id,encryption_key_scope,config_version) VALUES('{tenant}','{tenant}/operational','config-e2e-v1');\n",
     )
 }
 
@@ -1906,6 +2073,7 @@ fn validate_manifest(manifest: &Manifest) -> Result<()> {
         &manifest.kafka.topics.engine_committed_events,
         &manifest.kafka.topics.configuration_publications,
         &manifest.kafka.topics.human_escalations,
+        &manifest.kafka.topics.human_work_item_changes,
         &manifest.kafka.topics.tenant_lifecycle,
         &manifest.kafka.topics.tenant_configuration_readiness,
         &manifest.kafka.topics.authorization_query_revocations,
@@ -2037,6 +2205,7 @@ fn validate_manifest(manifest: &Manifest) -> Result<()> {
         || manifest.cockpit_gateway_listen_address.trim().is_empty()
         || manifest.cockpit_gateway_health_address.trim().is_empty()
         || manifest.cockpit_web_public_origin.trim().is_empty()
+        || manifest.ods_shell_public_origin.trim().is_empty()
         || manifest.projection_address.trim().is_empty()
     {
         anyhow::bail!(
@@ -2052,6 +2221,7 @@ fn kafka_topics_script(manifest: &Manifest) -> String {
         &manifest.kafka.topics.engine_committed_events,
         &manifest.kafka.topics.configuration_publications,
         &manifest.kafka.topics.human_escalations,
+        &manifest.kafka.topics.human_work_item_changes,
         &manifest.kafka.topics.tenant_lifecycle,
         &manifest.kafka.topics.tenant_configuration_readiness,
         &manifest.kafka.topics.authorization_query_revocations,

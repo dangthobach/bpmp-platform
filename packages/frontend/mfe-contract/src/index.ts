@@ -26,6 +26,7 @@ export interface RemoteCatalogEntry {
   name: string;
   entry: string;
   exposedModule: string;
+  routeBasePath?: string;
   contractVersion: string;
   minShellVersion: string;
   requiredCapabilities: string[];
@@ -56,10 +57,15 @@ export function parseRemoteCatalog(value: unknown, allowedOrigins: ReadonlySet<s
   if (Number.isNaN(Date.parse(value.generatedAt))) throw new TypeError("invalid catalog timestamp");
   if (Number.isNaN(Date.parse(value.expiresAt))) throw new TypeError("invalid catalog expiry");
   const names = new Set<string>();
+  const routeBasePaths = new Set<string>();
   const remotes = value.remotes.map((remote, index) => parseRemote(remote, index, allowedOrigins));
   for (const remote of remotes) {
     if (names.has(remote.name)) throw new TypeError(`duplicate remote name: ${remote.name}`);
     names.add(remote.name);
+    if (remote.routeBasePath !== undefined) {
+      if (routeBasePaths.has(remote.routeBasePath)) throw new TypeError(`duplicate remote route: ${remote.routeBasePath}`);
+      routeBasePaths.add(remote.routeBasePath);
+    }
   }
   const catalog: RemoteCatalog = {
     schemaVersion: "1",
@@ -87,17 +93,21 @@ export function catalogSigningBytes(catalog: RemoteCatalog): Uint8Array {
       minShellVersion: remote.minShellVersion,
       name: remote.name,
       requiredCapabilities: [...remote.requiredCapabilities],
+      ...(remote.routeBasePath === undefined ? {} : { routeBasePath: remote.routeBasePath }),
     })),
     schemaVersion: catalog.schemaVersion,
   };
   return new TextEncoder().encode(JSON.stringify(payload));
 }
 
-export function assertRemoteRouteModule(value: unknown, expectedContract: string): RemoteRouteModule {
+export function assertRemoteRouteModule(value: unknown, expectedContract: string, expectedPath?: string): RemoteRouteModule {
   if (!isRecord(value) || value.contractVersion !== expectedContract || !isRecord(value.route)
     || typeof value.route.path !== "string" || !value.route.path.startsWith("/")
     || typeof value.route.title !== "string" || typeof value.route.Component !== "function") {
     throw new TypeError("remote route contract is incompatible");
+  }
+  if (expectedPath !== undefined && value.route.path !== expectedPath) {
+    throw new TypeError("remote route path does not match the signed catalog route");
   }
   return value as unknown as RemoteRouteModule;
 }
@@ -130,6 +140,13 @@ function parseRemote(value: unknown, index: number, allowedOrigins: ReadonlySet<
   const entry = new URL(value.entry as string, globalThis.location?.origin ?? "http://localhost");
   if (!allowedOrigins.has(entry.origin)) throw new TypeError(`remote origin is not allowed: ${entry.origin}`);
   if (!entry.pathname.endsWith("/mf-manifest.json")) throw new TypeError("remote must use mf-manifest.json");
+  let routeBasePath: string | undefined;
+  if (value.routeBasePath !== undefined) {
+    if (typeof value.routeBasePath !== "string" || !isRouteBasePath(value.routeBasePath)) {
+      throw new TypeError(`remote[${index}].routeBasePath must be an absolute path without query or fragment`);
+    }
+    routeBasePath = value.routeBasePath;
+  }
   if (!Array.isArray(value.requiredCapabilities)
     || value.requiredCapabilities.some((item) => typeof item !== "string")) {
     throw new TypeError("requiredCapabilities must be a string array");
@@ -144,8 +161,20 @@ function parseRemote(value: unknown, index: number, allowedOrigins: ReadonlySet<
     minShellVersion: value.minShellVersion as string,
     requiredCapabilities: [...value.requiredCapabilities] as string[],
   };
+  if (routeBasePath !== undefined) remote.routeBasePath = routeBasePath;
   if (typeof value.integrity === "string") remote.integrity = value.integrity;
   return remote;
+}
+
+function isRouteBasePath(value: string): boolean {
+  if (!value.startsWith("/") || value.startsWith("//") || value.includes("?") || value.includes("#")) return false;
+  if (value.length > 1 && value.endsWith("/")) return false;
+  try {
+    const parsed = new URL(value, "https://ods.invalid");
+    return parsed.origin === "https://ods.invalid" && parsed.pathname === value && parsed.search === "" && parsed.hash === "";
+  } catch {
+    return false;
+  }
 }
 
 function parseComparableVersion(value: string, field: string): readonly [number, number, number] {

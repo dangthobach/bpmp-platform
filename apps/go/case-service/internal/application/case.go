@@ -59,7 +59,44 @@ type CaseView struct {
 	StartStatus      string    `json:"start_status"`
 	StartAttempts    int       `json:"start_attempts"`
 	PublishedVersion int64     `json:"published_version"`
+	EngineSequence   int64     `json:"engine_sequence"`
 	AsOf             time.Time `json:"as_of"`
+}
+
+type EngineEvent struct {
+	TenantID        uuid.UUID
+	InstanceID      string
+	EventID         string
+	WorkflowType    string
+	WorkflowVersion string
+	Sequence        int64
+	EventType       string
+	NodeID          string
+	OccurredAt      time.Time
+	PayloadDigest   [32]byte
+}
+
+type EngineEventRepository interface {
+	ApplyEngineEvent(context.Context, EngineEvent) (bool, error)
+}
+
+type EngineEventService struct{ repo EngineEventRepository }
+
+func NewEngineEventService(repo EngineEventRepository) (*EngineEventService, error) {
+	if repo == nil {
+		return nil, ErrInvalid
+	}
+	return &EngineEventService{repo: repo}, nil
+}
+
+func (s *EngineEventService) Apply(ctx context.Context, event EngineEvent) (bool, error) {
+	if event.TenantID == uuid.Nil || event.InstanceID == "" || len(event.InstanceID) > 256 || event.EventID == "" || len(event.EventID) > 256 ||
+		event.WorkflowType == "" || len(event.WorkflowType) > 128 || event.WorkflowVersion == "" || len(event.WorkflowVersion) > 128 ||
+		event.Sequence < 1 || event.EventType == "" || len(event.EventType) > 128 ||
+		event.OccurredAt.IsZero() || event.PayloadDigest == ([32]byte{}) || len(event.NodeID) > 256 {
+		return false, ErrInvalid
+	}
+	return s.repo.ApplyEngineEvent(ctx, event)
 }
 
 type TimelineEntry struct {
@@ -68,6 +105,18 @@ type TimelineEntry struct {
 	EventType        string     `json:"event_type"`
 	OccurredAt       time.Time  `json:"occurred_at"`
 	PublishedAt      *time.Time `json:"published_at,omitempty"`
+}
+
+type ProcessEvent struct {
+	EventID    string    `json:"event_id"`
+	Sequence   int64     `json:"sequence"`
+	EventType  string    `json:"event_type"`
+	OccurredAt time.Time `json:"occurred_at"`
+}
+
+type ProcessEventPage struct {
+	Events            []ProcessEvent `json:"events"`
+	NextAfterSequence int64          `json:"next_after_sequence,omitempty"`
 }
 
 type SearchPage struct {
@@ -81,6 +130,7 @@ type Repository interface {
 	Get(context.Context, uuid.UUID, uuid.UUID) (Case, error)
 	GetView(context.Context, uuid.UUID, uuid.UUID) (CaseView, error)
 	Timeline(context.Context, uuid.UUID, uuid.UUID, int64, int) ([]TimelineEntry, error)
+	ProcessEvents(context.Context, uuid.UUID, uuid.UUID, int64, int) (ProcessEventPage, error)
 	Search(context.Context, uuid.UUID, string, time.Time, uuid.UUID, int) (SearchPage, error)
 }
 
@@ -140,6 +190,13 @@ func (s *Service) Timeline(ctx context.Context, tenantID, caseID uuid.UUID, afte
 		return nil, ErrInvalid
 	}
 	return s.repo.Timeline(ctx, tenantID, caseID, afterVersion, limit)
+}
+
+func (s *Service) ProcessEvents(ctx context.Context, tenantID, caseID uuid.UUID, afterSequence int64, limit int) (ProcessEventPage, error) {
+	if tenantID == uuid.Nil || caseID == uuid.Nil || afterSequence < 0 || limit < 1 || limit > 100 {
+		return ProcessEventPage{}, ErrInvalid
+	}
+	return s.repo.ProcessEvents(ctx, tenantID, caseID, afterSequence, limit)
 }
 
 func (s *Service) Search(ctx context.Context, tenantID uuid.UUID, customerRef string, beforeCreatedAt time.Time, beforeID uuid.UUID, limit int) (SearchPage, error) {

@@ -27,6 +27,7 @@ const catalog = {
     name: "task-mfe",
     entry: "https://assets.example/task/v1/mf-manifest.json",
     exposedModule: "route",
+    routeBasePath: "/tasks",
     contractVersion: "1.0",
     minShellVersion: "1.0",
     requiredCapabilities: ["task.read"],

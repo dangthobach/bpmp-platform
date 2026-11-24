@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/tls"
 	"errors"
 	"flag"
@@ -15,6 +16,7 @@ import (
 	"github.com/dangthobach/bpmp-platform/apps/go/cockpit-gateway/internal/eventstream"
 	"github.com/dangthobach/bpmp-platform/apps/go/cockpit-gateway/internal/realtime"
 	"github.com/dangthobach/bpmp-platform/apps/go/cockpit-gateway/subscription"
+	"github.com/dangthobach/bpmp-platform/go/platform/actorcontext"
 	"github.com/dangthobach/bpmp-platform/go/platform/health"
 	"github.com/dangthobach/bpmp-platform/go/platform/jwtauth"
 	"github.com/dangthobach/bpmp-platform/go/platform/runtimeconfig"
@@ -74,6 +76,19 @@ func run(configPath string) error {
 	if err != nil {
 		return err
 	}
+	internalProofKey, err := os.ReadFile(value.Identity.InternalProofKeyPath)
+	if err != nil || len(internalProofKey) != ed25519.PublicKeySize {
+		return errors.New("cockpit internal actor proof key is invalid")
+	}
+	proofVerifier, err := actorcontext.New(actorcontext.Config{
+		WorkloadID: value.Identity.InternalWorkloadID,
+		MaxBytes:   value.Identity.MaxTokenBytes, MaxRoles: 256, MaxCaps: 512,
+		ClockSkew: milliseconds(value.Identity.ClockSkewSeconds * 1000),
+		Keys:      map[string]ed25519.PublicKey{value.Identity.InternalProofKeyID: ed25519.PublicKey(internalProofKey)},
+	})
+	if err != nil {
+		return err
+	}
 	hub, err := subscription.New(subscription.Config{
 		MaxSubscriptions: value.Realtime.MaxSubscriptions,
 		BufferSize:       value.Realtime.OutboundBufferSize,
@@ -88,7 +103,7 @@ func run(configPath string) error {
 		return err
 	}
 	defer eventKafka.Close()
-	consumer, err := eventstream.NewConsumer(eventKafka, hub, value.Kafka.BatchSize)
+	consumer, err := eventstream.NewConsumer(eventKafka, hub, value.Kafka.BatchSize, value.HumanEventTopic)
 	if err != nil {
 		return err
 	}
@@ -100,7 +115,7 @@ func run(configPath string) error {
 		MaxSignalNamesBytes:   value.Realtime.MaxSignalNamesBytes,
 		MaxConnections:        value.Realtime.MaxConnections,
 		HeartbeatInterval:     milliseconds(value.Realtime.HeartbeatIntervalMS),
-	}, hub, identity)
+	}, hub, identity, proofVerifier)
 	if err != nil {
 		return err
 	}

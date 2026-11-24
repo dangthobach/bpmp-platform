@@ -64,6 +64,7 @@ type oidcTransactionRecord struct {
 	CodeVerifier  string `json:"code_verifier"`
 	Nonce         string `json:"nonce"`
 	TenantID      string `json:"tenant_id,omitempty"`
+	ReturnTo      string `json:"return_to,omitempty"`
 	ExpiresAtMS   int64  `json:"expires_at_epoch_ms"`
 }
 
@@ -165,6 +166,7 @@ func (s *Store) Save(ctx context.Context, state string, transaction ports.OIDCLo
 	value := oidcTransactionRecord{
 		SchemaVersion: 1, CodeVerifier: transaction.CodeVerifier,
 		Nonce: transaction.Nonce, TenantID: transaction.TenantID,
+		ReturnTo:    transaction.ReturnTo,
 		ExpiresAtMS: transaction.ExpiresAt.UnixMilli(),
 	}
 	data, err := json.Marshal(value)
@@ -215,7 +217,7 @@ func (s *Store) Consume(ctx context.Context, state string) (ports.OIDCLoginTrans
 	}
 	return ports.OIDCLoginTransaction{
 		CodeVerifier: value.CodeVerifier, Nonce: value.Nonce,
-		TenantID: value.TenantID, ExpiresAt: time.UnixMilli(value.ExpiresAtMS).UTC(),
+		TenantID: value.TenantID, ReturnTo: value.ReturnTo, ExpiresAt: time.UnixMilli(value.ExpiresAtMS).UTC(),
 	}, nil
 }
 

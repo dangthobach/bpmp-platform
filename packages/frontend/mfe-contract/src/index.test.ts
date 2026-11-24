@@ -10,6 +10,7 @@ const validCatalog = {
     name: "task-mfe",
     entry: "https://assets.example/task/v1/mf-manifest.json",
     exposedModule: "route",
+    routeBasePath: "/tasks",
     contractVersion: "1.0",
     minShellVersion: "1.0",
     requiredCapabilities: ["task.read"],
@@ -40,6 +41,20 @@ describe("parseRemoteCatalog", () => {
       new Set(["https://assets.example"]),
     )).toThrow("numeric major.minor");
   });
+
+  it.each(["tasks", "//evil.example/tasks", "/tasks?admin=1", "/tasks/#section", "/tasks/"])("rejects unsafe route base %s", (routeBasePath) => {
+    expect(() => parseRemoteCatalog(
+      { ...validCatalog, remotes: [{ ...validCatalog.remotes[0], routeBasePath }] },
+      new Set(["https://assets.example"]),
+    )).toThrow("routeBasePath");
+  });
+
+  it("rejects duplicate route roots", () => {
+    expect(() => parseRemoteCatalog(
+      { ...validCatalog, remotes: [validCatalog.remotes[0], { ...validCatalog.remotes[0], name: "case-mfe" }] },
+      new Set(["https://assets.example"]),
+    )).toThrow("duplicate remote route");
+  });
 });
 
 describe("assertRemoteRouteModule", () => {
@@ -48,5 +63,12 @@ describe("assertRemoteRouteModule", () => {
       contractVersion: "1.0",
       route: { path: "tasks", title: "Tasks", Component: "not-a-component" },
     }, "1.0")).toThrow("incompatible");
+  });
+
+  it("rejects a route that differs from the signed catalog path", () => {
+    expect(() => assertRemoteRouteModule({
+      contractVersion: "1.0",
+      route: { path: "/other", title: "Tasks", Component: () => null },
+    }, "1.0", "/tasks")).toThrow("signed catalog route");
   });
 });

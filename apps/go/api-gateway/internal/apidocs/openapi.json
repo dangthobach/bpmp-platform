@@ -100,6 +100,15 @@
         "responses": {"204":{"description":"Session destroyed"},"403":{"description":"CSRF validation failed"},"502":{"description":"Session store unavailable"}}
       }
     },
+    "/auth/session": {
+      "get": {
+        "summary": "Resolve the current server-managed browser session",
+        "operationId": "getBrowserSession",
+        "tags": ["Authentication"],
+        "security": [{"bffSession":[]}],
+        "responses": {"200":{"description":"Tenant and actor identity for the current session"},"401":{"description":"No active browser session"},"502":{"description":"Session store unavailable"}}
+      }
+    },
     "/v1/runtime/browser-configuration": {
       "parameters": [
         {

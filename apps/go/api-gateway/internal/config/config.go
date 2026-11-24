@@ -23,6 +23,8 @@ type Config struct {
 	ConfigurationURL      string         `json:"configuration_url"`
 	AuthorizationURL      string         `json:"authorization_url"`
 	AuthorizationAudience string         `json:"authorization_audience"`
+	CockpitGatewayURL     string         `json:"cockpit_gateway_url"`
+	CaseServiceURL        string         `json:"case_service_url"`
 	PublicTLS             PublicTLS      `json:"public_tls"`
 	UpstreamTLS           UpstreamTLS    `json:"upstream_tls"`
 	Identity              Identity       `json:"identity"`
@@ -43,15 +45,17 @@ type PublicTLS struct {
 	PrivateKey  string `json:"private_key"`
 }
 type UpstreamTLS struct {
-	Certificate             string `json:"certificate"`
-	PrivateKey              string `json:"private_key"`
-	CA                      string `json:"ca"`
-	EngineServerName        string `json:"engine_server_name"`
-	HumanServerName         string `json:"human_server_name"`
-	ProjectionServerName    string `json:"projection_server_name"`
-	ConfigurationServerName string `json:"configuration_server_name"`
-	AuthorizationServerName string `json:"authorization_server_name"`
-	AuthoringServerName     string `json:"authoring_server_name"`
+	Certificate              string `json:"certificate"`
+	PrivateKey               string `json:"private_key"`
+	CA                       string `json:"ca"`
+	EngineServerName         string `json:"engine_server_name"`
+	HumanServerName          string `json:"human_server_name"`
+	ProjectionServerName     string `json:"projection_server_name"`
+	ConfigurationServerName  string `json:"configuration_server_name"`
+	AuthorizationServerName  string `json:"authorization_server_name"`
+	CockpitGatewayServerName string `json:"cockpit_gateway_server_name"`
+	CaseServiceServerName    string `json:"case_service_server_name"`
+	AuthoringServerName      string `json:"authoring_server_name"`
 }
 type Identity struct {
 	JWKSPath         string   `json:"jwks_path"`
@@ -90,8 +94,12 @@ type OIDC struct {
 	Issuer                string   `json:"issuer"`
 	AuthorizationEndpoint string   `json:"authorization_endpoint"`
 	TokenEndpoint         string   `json:"token_endpoint"`
+	JWKSURL               string   `json:"jwks_url"`
+	CAFile                string   `json:"ca_file"`
 	ClientID              string   `json:"client_id"`
 	RedirectURI           string   `json:"redirect_uri"`
+	FrontendURL           string   `json:"frontend_url"`
+	AllowedReturnOrigins  []string `json:"allowed_return_origins"`
 	Scopes                []string `json:"scopes"`
 	OperationTimeoutMS    int64    `json:"operation_timeout_ms"`
 	TransactionTTLMS      int64    `json:"transaction_ttl_ms"`
@@ -202,7 +210,7 @@ func (c Config) Validate() error {
 	if err := c.BrowserSession.Validate(); err != nil {
 		return err
 	}
-	if err := c.OIDC.Validate(c.BrowserSession, c.Identity); err != nil {
+	if err := c.OIDC.Validate(c.BrowserSession); err != nil {
 		return err
 	}
 	if c.OIDC.Enabled && (c.AuthorizationURL == "" || c.AuthorizationAudience == "" || c.UpstreamTLS.AuthorizationServerName == "") {
@@ -214,6 +222,18 @@ func (c Config) Validate() error {
 			return errors.New("API Gateway authorization proxy configuration is invalid")
 		}
 	}
+	if c.CockpitGatewayURL != "" || c.UpstreamTLS.CockpitGatewayServerName != "" {
+		endpoint, parseErr := url.Parse(c.CockpitGatewayURL)
+		if parseErr != nil || endpoint.Scheme != "https" || endpoint.Host == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" || c.UpstreamTLS.CockpitGatewayServerName == "" {
+			return errors.New("API Gateway Cockpit realtime configuration is invalid")
+		}
+	}
+	if c.CaseServiceURL != "" || c.UpstreamTLS.CaseServiceServerName != "" {
+		endpoint, parseErr := url.Parse(c.CaseServiceURL)
+		if parseErr != nil || endpoint.Scheme != "https" || endpoint.Host == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" || c.UpstreamTLS.CaseServiceServerName == "" {
+			return errors.New("API Gateway Case Service configuration is invalid")
+		}
+	}
 	if c.AuthoringAddress != "" || c.UpstreamTLS.AuthoringServerName != "" {
 		if c.AuthoringAddress == "" || c.UpstreamTLS.AuthoringServerName == "" {
 			return errors.New("API Gateway Authoring upstream configuration is incomplete")
@@ -222,7 +242,7 @@ func (c Config) Validate() error {
 	return nil
 }
 
-func (c OIDC) Validate(session BrowserSession, identity Identity) error {
+func (c OIDC) Validate(session BrowserSession) error {
 	if !c.Enabled {
 		return nil
 	}
@@ -235,7 +255,7 @@ func (c OIDC) Validate(session BrowserSession, identity Identity) error {
 	issuer, issuerErr := url.Parse(c.Issuer)
 	if !session.Enabled || c.Issuer == "" || len(c.Issuer) > 512 || issuerErr != nil ||
 		issuer.Scheme != "https" || issuer.Host == "" || issuer.RawQuery != "" ||
-		!endpoint(c.Issuer) || !endpoint(c.AuthorizationEndpoint) || !endpoint(c.TokenEndpoint) ||
+		!endpoint(c.Issuer) || !endpoint(c.AuthorizationEndpoint) || !endpoint(c.TokenEndpoint) || !endpoint(c.JWKSURL) || c.CAFile == "" ||
 		redirectErr != nil || redirect.Scheme != "https" || redirect.Host == "" ||
 		redirect.User != nil || redirect.RawQuery != "" || redirect.Fragment != "" ||
 		c.ClientID == "" || len(c.ClientID) > 256 ||
@@ -244,15 +264,16 @@ func (c OIDC) Validate(session BrowserSession, identity Identity) error {
 		c.SessionTTLMS < 60_000 || c.SessionTTLMS > 28_800_000 {
 		return errors.New("api-gateway OIDC configuration is invalid")
 	}
-	trustedIssuer := false
-	for _, issuer := range identity.Issuers {
-		if issuer == c.Issuer {
-			trustedIssuer = true
-			break
-		}
+	frontend, frontendErr := url.Parse(c.FrontendURL)
+	localHTTPFrontend := frontendErr == nil && frontend.Scheme == "http" &&
+		(frontend.Hostname() == "localhost" || frontend.Hostname() == "127.0.0.1")
+	if c.FrontendURL != "" && (frontendErr != nil || (!localHTTPFrontend && frontend.Scheme != "https") ||
+		frontend.Host == "" || frontend.User != nil || frontend.RawQuery != "" || frontend.Fragment != "" ||
+		(frontend.Path != "" && frontend.Path != "/") || frontend.Hostname() != redirect.Hostname()) {
+		return errors.New("api-gateway OIDC frontend URL is invalid")
 	}
-	if !trustedIssuer || len(c.Scopes) == 0 {
-		return errors.New("api-gateway OIDC issuer or scopes are invalid")
+	if len(c.Scopes) == 0 {
+		return errors.New("api-gateway OIDC scopes are invalid")
 	}
 	seen := make(map[string]struct{}, len(c.Scopes))
 	openid := false
@@ -268,6 +289,13 @@ func (c OIDC) Validate(session BrowserSession, identity Identity) error {
 	}
 	if !openid {
 		return errors.New("api-gateway OIDC scopes must include openid")
+	}
+	for _, rawOrigin := range c.AllowedReturnOrigins {
+		origin, originErr := url.Parse(rawOrigin)
+		localhostHTTP := originErr == nil && origin.Scheme == "http" && (origin.Hostname() == "localhost" || origin.Hostname() == "127.0.0.1")
+		if originErr != nil || origin.Host == "" || origin.User != nil || origin.Path != "" || origin.RawQuery != "" || origin.Fragment != "" || (origin.Scheme != "https" && !localhostHTTP) {
+			return errors.New("api-gateway OIDC allowed return origin is invalid")
+		}
 	}
 	return nil
 }
