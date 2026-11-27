@@ -1,3 +1,4 @@
+pub mod attributes;
 pub mod catalog;
 pub mod identity;
 pub mod identity_profile;
@@ -41,6 +42,19 @@ pub fn admin_routes() -> Router<AppState> {
             post(rbac::assign_role).delete(rbac::revoke_role),
         )
         .route("/users", get(identity::list_users))
+        .route(
+            "/users/by-attribute",
+            get(attributes::find_users_by_attribute),
+        )
+        .route(
+            "/users/:user_id/attributes",
+            get(attributes::get_user_attributes).put(attributes::replace_user_attributes),
+        )
+        .route(
+            "/attribute-definitions",
+            get(attributes::list_attribute_definitions)
+                .post(attributes::upsert_attribute_definition),
+        )
         .route(
             "/identity/resolve-subject",
             post(identity_resolve::resolve_subject),

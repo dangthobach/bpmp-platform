@@ -12,13 +12,11 @@ use crate::application::ports::authz_port::{AuthzPort, ResourceRef, SqlFilter, S
 
 pub struct SdkAuthzAdapter {
     client: Arc<dyn AuthzClient>,
-    /// Failure policy when PDP is unreachable. Default: DENY.
-    fail_open: bool,
 }
 
 impl SdkAuthzAdapter {
-    pub fn new(client: Arc<dyn AuthzClient>, fail_open: bool) -> Self {
-        Self { client, fail_open }
+    pub fn new(client: Arc<dyn AuthzClient>) -> Self {
+        Self { client }
     }
 }
 
@@ -50,12 +48,7 @@ impl AuthzPort for SdkAuthzAdapter {
             }),
             Err(e) => {
                 metrics::counter!("authz_app_pdp_errors_total", "code" => e.code()).increment(1);
-                if self.fail_open {
-                    tracing::warn!(error = %e, "PDP unreachable — fail-open");
-                    Ok(())
-                } else {
-                    Err(AppError::AuthzUnavailable(e.to_string()))
-                }
+                Err(AppError::AuthzUnavailable(e.to_string()))
             }
         }
     }

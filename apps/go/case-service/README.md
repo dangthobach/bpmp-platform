@@ -85,11 +85,12 @@ acceptance showed existing Cases at `ACTIVE`, start jobs `STARTED`, and Case
 360 reporting Engine sequence 2 with both lifecycle events applied. This is a
 Docker Desktop fixture acceptance, not cloud/staging evidence.
 
-The worker currently resolves `start_node_id` and `encryption_key_scope` from
-`runtime/case-workflow-metadata-e2e.json`, an immutable local fixture generated
-for the E2E workflow. Replace this provider with the authoritative workflow
-owner API before production deployment; never query another service's
-database. The E2E TLS identity reuses the already-trusted certificate because
+The worker supports authoritative owner metadata resolution via either:
+- **Authoring + Configuration gRPC mTLS** (`authoring_address` + `configuration_address` + `platform_reference` + `environment_reference`): resolves `start_node_id` from the unique `ACTIVE` runtime deployment's immutable BPMN XML via `AuthoringService` and `encryption_key_scope` via `ConfigurationResolverService.ResolveConfiguration` (`CONFIGURATION_OWNER_ENGINE`).
+- **HTTPS Workflow Metadata Owner API** (`metadata_url` + `metadata_server_name` + `metadata_audience`): resolves both fields over mTLS using a short-lived EdDSA service JWT and verifies tenant/workflow bindings.
+- **Local E2E fixture fallback** (`metadata_path`, e.g. `runtime/case-workflow-metadata-e2e.json`): explicit local-only fallback when owner APIs are not configured; configuring multiple sources fails closed.
+
+Bounded operational retention (`application.RetentionRunner` / `postgres.Store.PurgeExpiredRetention`) purges expired published `case_outbox` rows, expired `case_inbox` rows outside the replay window, and expired `case_create_receipts` in bounded batches while strictly preserving unpublished outbox rows, `customer_cases`, `case_engine_events`, and `workflow_start_jobs`. `ReconciliationSummary` reports active/pending/reconciling/start-failed/closed Case counts, unpublished outbox backlog, stale pending start jobs, and inbox depth. The E2E TLS identity reuses the already-trusted certificate because
 the fixture CA private key is unavailable; issue a named `case-local` server
 certificate and approved client trust configuration for a production-like
 deployment.

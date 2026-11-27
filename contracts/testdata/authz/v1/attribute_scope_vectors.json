@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "description": "Cross-language golden vectors for Dynamic User Attributes and AttributeScopePredicate evaluation (WP0.6 + WP3.7). Rust bpmp-authz-engine is the oracle.",
+  "cases": [
+    {
+      "name": "multi_workflow_allow_eq_in_lte",
+      "actor_attributes": {
+        "regions": ["DN", "HN"],
+        "loan.approval_limit": ["50000000"]
+      },
+      "resource_attributes": {
+        "workflow_type": ["loan_approval"],
+        "region": ["HN"],
+        "amount": ["30000000"]
+      },
+      "predicates": [
+        {
+          "resource_attribute": "workflow_type",
+          "operator": "EQ",
+          "value_source": "LITERAL",
+          "literal_values": ["loan_approval"]
+        },
+        {
+          "resource_attribute": "region",
+          "operator": "IN",
+          "value_source": "ACTOR_ATTRIBUTE",
+          "actor_attribute_key": "regions"
+        },
+        {
+          "resource_attribute": "amount",
+          "operator": "LTE",
+          "value_source": "ACTOR_ATTRIBUTE",
+          "actor_attribute_key": "loan.approval_limit"
+        }
+      ],
+      "expected_decision": "ALLOW"
+    },
+    {
+      "name": "multi_workflow_deny_amount_over_limit",
+      "actor_attributes": {
+        "regions": ["HN"],
+        "loan.approval_limit": ["50000000"]
+      },
+      "resource_attributes": {
+        "workflow_type": ["loan_approval"],
+        "region": ["HN"],
+        "amount": ["80000000"]
+      },
+      "predicates": [
+        {
+          "resource_attribute": "amount",
+          "operator": "LTE",
+          "value_source": "ACTOR_ATTRIBUTE",
+          "actor_attribute_key": "loan.approval_limit"
+        }
+      ],
+      "expected_decision": "DENY",
+      "expected_deny_reason": "NO_MATCHING_GRANT"
+    },
+    {
+      "name": "missing_actor_attribute_fails_closed",
+      "actor_attributes": {},
+      "resource_attributes": {
+        "region": ["HN"]
+      },
+      "predicates": [
+        {
+          "resource_attribute": "region",
+          "operator": "IN",
+          "value_source": "ACTOR_ATTRIBUTE",
+          "actor_attribute_key": "regions"
+        }
+      ],
+      "expected_decision": "DENY",
+      "expected_deny_reason": "NO_MATCHING_GRANT"
+    },
+    {
+      "name": "missing_resource_attribute_fails_closed",
+      "actor_attributes": {
+        "regions": ["HN"]
+      },
+      "resource_attributes": {},
+      "predicates": [
+        {
+          "resource_attribute": "region",
+          "operator": "IN",
+          "value_source": "ACTOR_ATTRIBUTE",
+          "actor_attribute_key": "regions"
+        }
+      ],
+      "expected_decision": "DENY",
+      "expected_deny_reason": "NO_MATCHING_GRANT"
+    },
+    {
+      "name": "contains_any_matches_overlapping_product_lines",
+      "actor_attributes": {
+        "product_lines": ["AUTO", "MORTGAGE"]
+      },
+      "resource_attributes": {
+        "product_lines": ["CARD", "MORTGAGE"]
+      },
+      "predicates": [
+        {
+          "resource_attribute": "product_lines",
+          "operator": "CONTAINS_ANY",
+          "value_source": "ACTOR_ATTRIBUTE",
+          "actor_attribute_key": "product_lines"
+        }
+      ],
+      "expected_decision": "ALLOW"
+    }
+  ]
+}

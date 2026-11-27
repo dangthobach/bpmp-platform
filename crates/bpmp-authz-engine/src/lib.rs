@@ -5,6 +5,7 @@
 //! signed bundle and inject evaluation time plus current revocation floors.
 
 use bpmp_authz_contracts::authorization::v1::{
+    ActorAttribute, AttributeScopeOperator, AttributeScopePredicate, AttributeValueSource,
     AuthorizationPolicyBundle, AuthorizationPolicyEffect, AuthorizationPolicyGrant,
     AuthorizationResourceDefinition, AuthorizationResourceGrant,
 };
@@ -41,6 +42,8 @@ pub struct ResourceAuthorizationInput<'a> {
     pub resource_owner_actor_id: Option<&'a str>,
     pub resource_branch_path: &'a [String],
     pub resource_queue_id: Option<&'a str>,
+    pub actor_attributes: &'a [ActorAttribute],
+    pub resource_attributes: &'a [ActorAttribute],
 }
 
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
@@ -218,7 +221,8 @@ fn resource_grant_matches(
     let narrower_scope = !grant.branch_scope_ids.is_empty()
         || !grant.queue_scope_ids.is_empty()
         || grant.own_scope
-        || !grant.resource_scope_ids.is_empty();
+        || !grant.resource_scope_ids.is_empty()
+        || !grant.attribute_predicates.is_empty();
     if grant.tenant_scope == narrower_scope {
         return false;
     }
@@ -254,6 +258,11 @@ fn resource_grant_matches(
             .resource_scope_ids
             .iter()
             .any(|scope| scope == input.resource_id);
+    let attributes_match = attribute_predicates_match(
+        &grant.attribute_predicates,
+        input.actor_attributes,
+        input.resource_attributes,
+    );
     subject_matches
         && capabilities_match
         && resource_matches
@@ -261,6 +270,77 @@ fn resource_grant_matches(
         && queue_matches
         && own_matches
         && resource_scope_matches
+        && attributes_match
+}
+
+fn attribute_predicates_match(
+    predicates: &[AttributeScopePredicate],
+    actor_attributes: &[ActorAttribute],
+    resource_attributes: &[ActorAttribute],
+) -> bool {
+    predicates.iter().all(|predicate| {
+        let Some(res_values) = find_attribute_values(resource_attributes, &predicate.resource_attribute)
+        else {
+            return false;
+        };
+        if res_values.is_empty() {
+            return false;
+        }
+        let expected_values: &[String] = match AttributeValueSource::try_from(predicate.value_source) {
+            Ok(AttributeValueSource::Literal) => &predicate.literal_values,
+            Ok(AttributeValueSource::ActorAttribute) => {
+                match find_attribute_values(actor_attributes, &predicate.actor_attribute_key) {
+                    Some(values) => values,
+                    None => return false,
+                }
+            }
+            Ok(AttributeValueSource::Unspecified) | Err(_) => return false,
+        };
+        if expected_values.is_empty() {
+            return false;
+        }
+        match AttributeScopeOperator::try_from(predicate.operator) {
+            Ok(AttributeScopeOperator::Eq) => {
+                res_values.len() == 1
+                    && expected_values.len() == 1
+                    && res_values[0] == expected_values[0]
+            }
+            Ok(AttributeScopeOperator::In) => res_values
+                .iter()
+                .all(|res| expected_values.iter().any(|exp| exp == res)),
+            Ok(AttributeScopeOperator::ContainsAny) => res_values
+                .iter()
+                .any(|res| expected_values.iter().any(|exp| exp == res)),
+            Ok(AttributeScopeOperator::Gte) => {
+                parse_single_i64(res_values)
+                    .zip(parse_single_i64(expected_values))
+                    .is_some_and(|(lhs, rhs)| lhs >= rhs)
+            }
+            Ok(AttributeScopeOperator::Lte) => {
+                parse_single_i64(res_values)
+                    .zip(parse_single_i64(expected_values))
+                    .is_some_and(|(lhs, rhs)| lhs <= rhs)
+            }
+            Ok(AttributeScopeOperator::Unspecified) | Err(_) => false,
+        }
+    })
+}
+
+fn find_attribute_values<'a>(attributes: &'a [ActorAttribute], key: &str) -> Option<&'a [String]> {
+    if key.is_empty() {
+        return None;
+    }
+    attributes
+        .iter()
+        .find(|attr| attr.key == key)
+        .map(|attr| attr.values.as_slice())
+}
+
+fn parse_single_i64(values: &[String]) -> Option<i64> {
+    if values.len() != 1 {
+        return None;
+    }
+    values[0].parse::<i64>().ok()
 }
 
 impl AuthorizationDecision {
@@ -563,5 +643,221 @@ mod tests {
                 "pure evaluator must not depend on {forbidden}"
             );
         }
+    }
+
+    fn attr(key: &str, values: &[&str]) -> ActorAttribute {
+        ActorAttribute {
+            key: key.into(),
+            values: values.iter().map(|v| (*v).into()).collect(),
+        }
+    }
+
+    fn resource_bundle(grants: Vec<AuthorizationResourceGrant>) -> AuthorizationPolicyBundle {
+        AuthorizationPolicyBundle {
+            schema_version: 1,
+            tenant_id: "tenant-a".into(),
+            bundle_sequence: 10,
+            policy_version: "policy-v10".into(),
+            revoke_epoch: 1,
+            valid_from_epoch_ms: 100,
+            expires_at_epoch_ms: 1_000,
+            grants: Vec::new(),
+            actor_revoke_epochs: Vec::new(),
+            signing_key_id: "key-1".into(),
+            content_hash: Vec::new(),
+            signature: Vec::new(),
+            catalog_version: 1,
+            resource_grants: grants,
+            resource_catalog: vec![AuthorizationResourceDefinition {
+                owner_id: "projection-service".into(),
+                manifest_version: "1.0.0".into(),
+                manifest_digest: vec![1; 32],
+                resource_type: "workflow_instance".into(),
+                action: "read".into(),
+                capability: "workflow.instance.read".into(),
+                supported_scope_types: vec!["branch".into(), "attribute".into()],
+                readable_fields: vec!["id".into(), "status".into(), "amount".into()],
+                writable_fields: Vec::new(),
+                supported_attribute_scopes: Vec::new(),
+            }],
+        }
+    }
+
+    #[test]
+    fn dynamic_attribute_scope_supports_multi_workflow_predicates() {
+        let grant = AuthorizationResourceGrant {
+            grant_id: "credit-officer-scope".into(),
+            actor_ids: Vec::new(),
+            roles: vec!["credit_officer".into()],
+            required_capabilities: vec!["workflow.instance.read".into()],
+            resource_type: "workflow_instance".into(),
+            action: "read".into(),
+            effect: AuthorizationPolicyEffect::Allow.into(),
+            priority: 0,
+            branch_scope_ids: Vec::new(),
+            branch_includes_descendants: false,
+            queue_scope_ids: Vec::new(),
+            readable_fields: vec!["id".into(), "amount".into()],
+            writable_fields: Vec::new(),
+            own_scope: false,
+            resource_scope_ids: Vec::new(),
+            owner_id: "projection-service".into(),
+            tenant_scope: false,
+            masked_fields: Vec::new(),
+            attribute_predicates: vec![
+                AttributeScopePredicate {
+                    resource_attribute: "workflow_type".into(),
+                    operator: AttributeScopeOperator::Eq.into(),
+                    value_source: AttributeValueSource::Literal.into(),
+                    literal_values: vec!["loan_approval".into()],
+                    actor_attribute_key: String::new(),
+                },
+                AttributeScopePredicate {
+                    resource_attribute: "region".into(),
+                    operator: AttributeScopeOperator::In.into(),
+                    value_source: AttributeValueSource::ActorAttribute.into(),
+                    literal_values: Vec::new(),
+                    actor_attribute_key: "regions".into(),
+                },
+                AttributeScopePredicate {
+                    resource_attribute: "amount".into(),
+                    operator: AttributeScopeOperator::Lte.into(),
+                    value_source: AttributeValueSource::ActorAttribute.into(),
+                    literal_values: Vec::new(),
+                    actor_attribute_key: "loan.approval_limit".into(),
+                },
+            ],
+        };
+        let policy = resource_bundle(vec![grant]);
+        let roles = ["credit_officer".to_owned()];
+        let caps = ["workflow.instance.read".to_owned()];
+        let actor_attrs = [
+            attr("loan.approval_limit", &["50000000"]),
+            attr("regions", &["HN", "DN"]),
+        ];
+        let allowed_resource_attrs = [
+            attr("workflow_type", &["loan_approval"]),
+            attr("region", &["HN"]),
+            attr("amount", &["30000000"]),
+        ];
+        let base_input = ResourceAuthorizationInput {
+            tenant_id: "tenant-a",
+            actor_id: "actor-1",
+            roles: &roles,
+            capabilities: &caps,
+            actor_proof_revoke_epoch: 1,
+            evaluated_at_epoch_ms: 500,
+            owner_id: "projection-service",
+            resource_type: "workflow_instance",
+            action: "read",
+            resource_id: "wf-1",
+            resource_owner_actor_id: None,
+            resource_branch_path: &[],
+            resource_queue_id: None,
+            actor_attributes: &actor_attrs,
+            resource_attributes: &allowed_resource_attrs,
+        };
+
+        // 1. All predicates satisfied -> Allow
+        let allow_decision = evaluate_resource(&policy, &base_input, RevocationSnapshot::default());
+        assert_eq!(allow_decision.decision, DecisionType::Allow);
+        assert_eq!(allow_decision.readable_fields, ["amount", "id"]);
+
+        // 2. Exceeds approval_limit -> Deny
+        let over_limit_attrs = [
+            attr("workflow_type", &["loan_approval"]),
+            attr("region", &["HN"]),
+            attr("amount", &["80000000"]),
+        ];
+        let mut over_limit_input = base_input.clone();
+        over_limit_input.resource_attributes = &over_limit_attrs;
+        let deny_limit = evaluate_resource(&policy, &over_limit_input, RevocationSnapshot::default());
+        assert_eq!(deny_limit.decision, DecisionType::Deny);
+        assert_eq!(deny_limit.deny_reason, Some(DenyReason::NoMatchingGrant));
+
+        // 3. Missing actor attribute -> Fail-closed Deny
+        let mut missing_actor_attr = base_input.clone();
+        missing_actor_attr.actor_attributes = &[];
+        let deny_missing = evaluate_resource(&policy, &missing_actor_attr, RevocationSnapshot::default());
+        assert_eq!(deny_missing.decision, DecisionType::Deny);
+
+        // 4. Non-numeric amount on LTE -> Fail-closed Deny
+        let bad_amount_attrs = [
+            attr("workflow_type", &["loan_approval"]),
+            attr("region", &["HN"]),
+            attr("amount", &["not-a-number"]),
+        ];
+        let mut bad_amount_input = base_input;
+        bad_amount_input.resource_attributes = &bad_amount_attrs;
+        let deny_bad = evaluate_resource(&policy, &bad_amount_input, RevocationSnapshot::default());
+        assert_eq!(deny_bad.decision, DecisionType::Deny);
+    }
+
+    #[test]
+    fn explicit_deny_with_attribute_predicate_overrides_allow() {
+        let allow_grant = AuthorizationResourceGrant {
+            grant_id: "allow-region".into(),
+            actor_ids: vec!["actor-1".into()],
+            roles: Vec::new(),
+            required_capabilities: vec!["workflow.instance.read".into()],
+            resource_type: "workflow_instance".into(),
+            action: "read".into(),
+            effect: AuthorizationPolicyEffect::Allow.into(),
+            priority: 0,
+            branch_scope_ids: Vec::new(),
+            branch_includes_descendants: false,
+            queue_scope_ids: Vec::new(),
+            readable_fields: vec!["id".into()],
+            writable_fields: Vec::new(),
+            own_scope: false,
+            resource_scope_ids: Vec::new(),
+            owner_id: "projection-service".into(),
+            tenant_scope: false,
+            masked_fields: Vec::new(),
+            attribute_predicates: vec![AttributeScopePredicate {
+                resource_attribute: "region".into(),
+                operator: AttributeScopeOperator::In.into(),
+                value_source: AttributeValueSource::ActorAttribute.into(),
+                literal_values: Vec::new(),
+                actor_attribute_key: "regions".into(),
+            }],
+        };
+        let deny_grant = AuthorizationResourceGrant {
+            grant_id: "deny-vip".into(),
+            effect: AuthorizationPolicyEffect::Deny.into(),
+            attribute_predicates: vec![AttributeScopePredicate {
+                resource_attribute: "risk_tier".into(),
+                operator: AttributeScopeOperator::Eq.into(),
+                value_source: AttributeValueSource::Literal.into(),
+                literal_values: vec!["RESTRICTED".into()],
+                actor_attribute_key: String::new(),
+            }],
+            ..allow_grant.clone()
+        };
+        let policy = resource_bundle(vec![allow_grant, deny_grant]);
+        let caps = ["workflow.instance.read".to_owned()];
+        let actor_attrs = [attr("regions", &["HN"])];
+        let resource_attrs = [attr("region", &["HN"]), attr("risk_tier", &["RESTRICTED"])];
+        let input = ResourceAuthorizationInput {
+            tenant_id: "tenant-a",
+            actor_id: "actor-1",
+            roles: &[],
+            capabilities: &caps,
+            actor_proof_revoke_epoch: 1,
+            evaluated_at_epoch_ms: 500,
+            owner_id: "projection-service",
+            resource_type: "workflow_instance",
+            action: "read",
+            resource_id: "wf-vip",
+            resource_owner_actor_id: None,
+            resource_branch_path: &[],
+            resource_queue_id: None,
+            actor_attributes: &actor_attrs,
+            resource_attributes: &resource_attrs,
+        };
+        let decision = evaluate_resource(&policy, &input, RevocationSnapshot::default());
+        assert_eq!(decision.decision, DecisionType::Deny);
+        assert_eq!(decision.deny_reason, Some(DenyReason::ExplicitDeny));
+        assert_eq!(decision.matched_grant_ids, ["deny-vip"]);
     }
 }

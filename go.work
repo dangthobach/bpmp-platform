@@ -2,11 +2,15 @@ go 1.27.3
 
 use (
 	./apps/go/api-gateway
+	./apps/go/audit-projection
 	./apps/go/authoring-service
 	./apps/go/case-service
 	./apps/go/cockpit-gateway
 	./apps/go/configuration-service
+	./apps/go/document-adapter
 	./apps/go/human-runtime
+	./apps/go/integration-hub
+	./apps/go/master-data-service
 	./apps/go/notification-service
 	./apps/go/projection-service
 	./go/contracts

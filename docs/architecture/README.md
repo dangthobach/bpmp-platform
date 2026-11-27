@@ -82,8 +82,12 @@ through RocksDB/Raft.
 | Task MFE | `apps/web/task-mfe` | Task presentation and command intent | No backend authority | Current vertical slice |
 | Case MFE | `apps/web/case-mfe` | Case presentation and command intent | No backend authority | Current Phase 3 vertical slice; deployment remains separately gated |
 | Process Copilot | Not present | AI drafts and analysis only | Service-local store if introduced | Planned |
-| Document and Integration services | Not present | ODS domain ownership described by ADR-011 | Separate PostgreSQL per real bounded context | Planned |
-| Notification service | Not present (target `apps/go/notification-service`, `apps/web/notification-mfe`) | Versioned templates/releases, preview, dynamic providers, circuit breakers, workflow trigger rules, deliveries and audit (ADR-013) | Dedicated Notification PostgreSQL (`notification_db`) | Planned; design accepted in ADR-013 |
+| Document adapter | `apps/go/document-adapter` | Streaming upload sessions (<=50 MiB), quarantine, AV HMAC callback inbox, signed download URLs, legal hold, OCR trigger | Document PostgreSQL (`document_db`) + CSP object adapter | Current Phase 4 implementation; local Docker Compose mTLS/Postgres/Kafka verified; live external CSP/AV pending DOM-04 |
+| Integration hub | `apps/go/integration-hub` | External endpoint registry, secret refs, SSRF/egress guard, per-endpoint circuit breaker/bulkhead, delivery/reconcile/compensation ledger, HMAC callback inbox | Integration PostgreSQL (`integration_db`) | Current Phase 4 implementation; local Docker Compose mTLS/Postgres/Kafka verified; live T24/AML/RPA pending DOM-07 |
+| Master data service | `apps/go/master-data-service` | Immutable versioned datasets/publications, CAS, rollback-as-new-generation, pinned snapshot resolution, consumer ACK/lag | Master Data PostgreSQL (`mdm_db`) + bounded cache | Current Phase 5 implementation; local Docker Compose mTLS/Postgres/Kafka verified; DOM-08 owner sign-off pending |
+| Audit projection | `apps/go/audit-projection` | Rebuildable redacted audit search projection consuming committed owner events from Kafka; retention/legal-hold purge | Audit Projection PostgreSQL (`audit_db`) | Current Phase 5 implementation; live MDM/Case Kafka → Postgres verified |
+| Notification service | `apps/go/notification-service`, `apps/web/notification-mfe` | Versioned templates/releases, preview, dynamic providers, circuit breakers, workflow trigger rules, deliveries and audit (ADR-013) | Dedicated Notification PostgreSQL (`notification_db`) | Current Phase 5 implementation; Go suite & MFE verified |
+| Document / Integration / Admin / Monitoring MFEs | `apps/web/{document,integration,admin,monitoring}-mfe` | Independent Module Federation remotes for `/documents`, `/integrations`, `/admin`, `/monitoring` | No backend authority | Current Phase 4/5 implementations; typecheck, unit tests & production builds verified |
 
 ## Consistency boundaries
 

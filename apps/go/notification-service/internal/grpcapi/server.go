@@ -30,6 +30,9 @@ func NewServer(service *application.Service, proofVerifier *actorcontext.Verifie
 	if service == nil {
 		return nil, errors.New("application service is required")
 	}
+	if proofVerifier == nil {
+		return nil, errors.New("actor proof verifier is required")
+	}
 	return &Server{
 		service:       service,
 		proofVerifier: proofVerifier,
@@ -54,7 +57,7 @@ func (s *Server) verifyActor(tenantID, commandID string, proof *authv1.ActorProo
 		return actorcontext.Identity{}, status.Error(codes.InvalidArgument, "tenant_id is required")
 	}
 	if s.proofVerifier == nil {
-		return actorcontext.Identity{TenantID: tenantID, ActorID: "workload", Capabilities: requiredCaps}, nil
+		return actorcontext.Identity{}, status.Error(codes.Unauthenticated, "actor proof verifier is not configured")
 	}
 	if proof == nil || proof.GetType() != authv1.ActorProofType_ACTOR_PROOF_TYPE_SIGNED_INTERNAL_CONTEXT || len(proof.GetSignedProof()) == 0 {
 		return actorcontext.Identity{}, status.Error(codes.Unauthenticated, "signed internal actor proof is required")

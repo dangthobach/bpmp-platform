@@ -1117,6 +1117,7 @@ fn resource_grants(snapshot: &Value) -> Result<Vec<AuthorizationResourceGrant>, 
                 readable_fields: grant.readable_fields,
                 writable_fields: grant.writable_fields,
                 masked_fields: grant.masked_fields,
+                attribute_predicates: Vec::new(),
             })
         })
         .collect()
@@ -1141,6 +1142,7 @@ fn resource_catalog(snapshot: &Value) -> Result<Vec<AuthorizationResourceDefinit
                 supported_scope_types: entry.supported_scope_types,
                 readable_fields: entry.readable_fields,
                 writable_fields: entry.writable_fields,
+                supported_attribute_scopes: Vec::new(),
             })
         })
         .collect()

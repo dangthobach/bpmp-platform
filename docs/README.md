@@ -44,6 +44,8 @@ documents are linked from the root (`SECURITY.md`, `CONTRIBUTING.md`, and
 
 ## Query and authorization
 
+- [Authz and multi-tenant refactor plan](authz-refactor-plan.md) — Draft v2, including Dynamic User Attributes and cross-plan alignment with Notification.
+- [Notification service refactor plan](notification-refactor-plan.md) — proposed PR roadmap aligned with Authz.
 - [Typed query PDP and revocation](query-pdp.md)
 - [Query authorization progress](query-authorization-progress.md)
 - [Signed query revoke Kafka feed](query-revoke-kafka.md)
@@ -56,6 +58,8 @@ documents are linked from the root (`SECURITY.md`, `CONTRIBUTING.md`, and
 - [Prototype porting plan](ods-prototype-porting-plan.md) — implementation plan; current phase status is maintained in the progress ledger.
 - [ODS browser session contract](ods-browser-session-contract.md)
 - [ODS release and rollback](ods-release-and-rollback.md)
+- [ODS operations and on-call runbook](ods-operations-runbook.md)
+- [ODS cutover, DR drills and decommission](ods-cutover-dr-and-decommission.md)
 
 ## Prototype-driven architecture proposal
 

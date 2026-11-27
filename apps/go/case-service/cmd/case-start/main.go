@@ -19,7 +19,11 @@ import (
 	"github.com/dangthobach/bpmp-platform/apps/go/case-service/internal/application"
 	"github.com/dangthobach/bpmp-platform/apps/go/case-service/internal/engineadapter"
 	"github.com/dangthobach/bpmp-platform/apps/go/case-service/internal/postgres"
+	authoringv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/authoring/v1"
+	authv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/authorization/v1"
+	configv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/configuration/v1"
 	enginev1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/engine/v1"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
@@ -39,7 +43,19 @@ type config struct {
 	TLSCertificate          string `json:"tls_certificate"`
 	TLSPrivateKey           string `json:"tls_private_key"`
 	TLSCA                   string `json:"tls_ca"`
+	// MetadataPath is a local-only E2E fixture fallback; production deployments
+	// must configure either AuthoringAddress+ConfigurationAddress or MetadataURL.
 	MetadataPath            string `json:"metadata_path"`
+	MetadataURL             string `json:"metadata_url"`
+	MetadataServerName      string `json:"metadata_server_name"`
+	MetadataAudience        string `json:"metadata_audience"`
+	AuthoringAddress        string `json:"authoring_address"`
+	AuthoringServerName     string `json:"authoring_server_name"`
+	AuthoringAudience       string `json:"authoring_audience"`
+	ConfigurationAddress    string `json:"configuration_address"`
+	ConfigurationServerName string `json:"configuration_server_name"`
+	PlatformReference       string `json:"platform_reference"`
+	EnvironmentReference    string `json:"environment_reference"`
 	PollIntervalMS          int64  `json:"poll_interval_ms"`
 }
 
@@ -90,24 +106,21 @@ func run(path string) error {
 	if cfg.PostgresDSN == "" || cfg.EngineAddress == "" || cfg.EngineServerName == "" || cfg.AuthorizationURL == "" || cfg.AuthorizationServerName == "" || cfg.AuthorizationAudience == "" || cfg.WorkloadID != "case-service" || cfg.WorkloadKeyID == "" || cfg.PollIntervalMS < 50 || cfg.PollIntervalMS > 5000 {
 		return errors.New("Case start worker configuration is invalid")
 	}
-	metadataBytes, err := os.ReadFile(cfg.MetadataPath)
-	if err != nil {
-		return err
+	hasOwnerGRPC := cfg.AuthoringAddress != "" || cfg.ConfigurationAddress != ""
+	hasOwnerHTTP := cfg.MetadataURL != ""
+	hasFixture := cfg.MetadataPath != ""
+	modes := 0
+	if hasOwnerGRPC {
+		modes++
 	}
-	var document metadataDocument
-	if err = json.Unmarshal(metadataBytes, &document); err != nil || len(document.Workflows) == 0 {
-		return errors.New("Case fixture workflow metadata is invalid")
+	if hasOwnerHTTP {
+		modes++
 	}
-	metadata := make(metadataProvider, len(document.Workflows))
-	for _, item := range document.Workflows {
-		if item.TenantID == "" || item.WorkflowType == "" || item.WorkflowVersion == "" || item.StartNodeID == "" || item.EncryptionKeyScope == "" {
-			return errors.New("Case fixture workflow metadata entry is incomplete")
-		}
-		key := item.TenantID + "\x00" + item.WorkflowType + "\x00" + item.WorkflowVersion
-		if _, exists := metadata[key]; exists {
-			return errors.New("duplicate Case fixture workflow metadata")
-		}
-		metadata[key] = item
+	if hasFixture {
+		modes++
+	}
+	if modes != 1 {
+		return errors.New("Case start worker requires exactly one workflow metadata source (authoring+configuration gRPC, metadata_url HTTPS, or local metadata_path fixture)")
 	}
 	privateKeyBytes, err := os.ReadFile(cfg.WorkloadPrivateKey)
 	if err != nil || len(privateKeyBytes) != ed25519.SeedSize {
@@ -125,6 +138,80 @@ func run(path string) error {
 	roots := x509.NewCertPool()
 	if !roots.AppendCertsFromPEM(caBytes) {
 		return errors.New("Case worker TLS CA is invalid")
+	}
+	var metadata engineadapter.WorkflowMetadata
+	switch {
+	case hasOwnerGRPC:
+		if cfg.AuthoringAddress == "" || cfg.AuthoringServerName == "" || cfg.AuthoringAudience == "" ||
+			cfg.ConfigurationAddress == "" || cfg.ConfigurationServerName == "" ||
+			cfg.PlatformReference == "" || cfg.EnvironmentReference == "" {
+			return errors.New("Case owner gRPC metadata configuration is incomplete")
+		}
+		authoringConn, dialErr := grpc.NewClient(cfg.AuthoringAddress, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, ServerName: cfg.AuthoringServerName, RootCAs: roots, Certificates: []tls.Certificate{certificate}})))
+		if dialErr != nil {
+			return dialErr
+		}
+		defer authoringConn.Close()
+		configConn, dialErr := grpc.NewClient(cfg.ConfigurationAddress, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, ServerName: cfg.ConfigurationServerName, RootCAs: roots, Certificates: []tls.Certificate{certificate}})))
+		if dialErr != nil {
+			return dialErr
+		}
+		defer configConn.Close()
+		proofForJob := func(_ context.Context, job application.StartJob) (*authv1.ActorProof, error) {
+			now := time.Now().UTC()
+			token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, jwt.MapClaims{
+				"sub":          cfg.WorkloadID,
+				"tenant_id":    job.TenantID.String(),
+				"capabilities": []string{"authoring.deployment.read", "authoring.model.read"},
+				"aud":          []string{cfg.AuthoringAudience},
+				"iat":          now.Unix(),
+				"exp":          now.Add(time.Minute).Unix(),
+			})
+			token.Header["kid"] = cfg.WorkloadKeyID
+			signed, signErr := token.SignedString(privateKey)
+			if signErr != nil {
+				return nil, signErr
+			}
+			return &authv1.ActorProof{Type: authv1.ActorProofType_ACTOR_PROOF_TYPE_ORIGINAL_JWT, SignedProof: []byte(signed)}, nil
+		}
+		metadata, err = engineadapter.NewOwnerAPIMetadataProvider(
+			authoringv1.NewAuthoringServiceClient(authoringConn),
+			configv1.NewConfigurationResolverServiceClient(configConn),
+			cfg.PlatformReference, cfg.EnvironmentReference, proofForJob,
+		)
+		if err != nil {
+			return err
+		}
+	case hasOwnerHTTP:
+		if cfg.MetadataServerName == "" || cfg.MetadataAudience == "" {
+			return errors.New("Case owner HTTPS metadata configuration is incomplete")
+		}
+		metaClient := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS13, ServerName: cfg.MetadataServerName, RootCAs: roots, Certificates: []tls.Certificate{certificate}}}, Timeout: 5 * time.Second}
+		metadata, err = engineadapter.NewHTTPMetadataProvider(metaClient, cfg.MetadataURL, cfg.MetadataAudience, cfg.WorkloadID, cfg.WorkloadKeyID, privateKey, time.Now)
+		if err != nil {
+			return err
+		}
+	default:
+		metadataBytes, readErr := os.ReadFile(cfg.MetadataPath)
+		if readErr != nil {
+			return readErr
+		}
+		var document metadataDocument
+		if err = json.Unmarshal(metadataBytes, &document); err != nil || len(document.Workflows) == 0 {
+			return errors.New("Case fixture workflow metadata is invalid")
+		}
+		fixture := make(metadataProvider, len(document.Workflows))
+		for _, item := range document.Workflows {
+			if item.TenantID == "" || item.WorkflowType == "" || item.WorkflowVersion == "" || item.StartNodeID == "" || item.EncryptionKeyScope == "" {
+				return errors.New("Case fixture workflow metadata entry is incomplete")
+			}
+			key := item.TenantID + "\x00" + item.WorkflowType + "\x00" + item.WorkflowVersion
+			if _, exists := fixture[key]; exists {
+				return errors.New("duplicate Case fixture workflow metadata")
+			}
+			fixture[key] = item
+		}
+		metadata = fixture
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

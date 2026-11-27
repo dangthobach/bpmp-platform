@@ -26,6 +26,10 @@ type Config struct {
 	CockpitGatewayURL      string         `json:"cockpit_gateway_url"`
 	CaseServiceURL         string         `json:"case_service_url"`
 	NotificationServiceURL string         `json:"notification_service_url"`
+	DocumentAdapterURL     string         `json:"document_adapter_url"`
+	IntegrationHubURL      string         `json:"integration_hub_url"`
+	MasterDataURL          string         `json:"master_data_url"`
+	AuditProjectionURL     string         `json:"audit_projection_url"`
 	PublicTLS              PublicTLS      `json:"public_tls"`
 	UpstreamTLS           UpstreamTLS    `json:"upstream_tls"`
 	Identity              Identity       `json:"identity"`
@@ -57,6 +61,10 @@ type UpstreamTLS struct {
 	CockpitGatewayServerName      string `json:"cockpit_gateway_server_name"`
 	CaseServiceServerName         string `json:"case_service_server_name"`
 	NotificationServiceServerName string `json:"notification_service_server_name"`
+	DocumentAdapterServerName     string `json:"document_adapter_server_name"`
+	IntegrationHubServerName      string `json:"integration_hub_server_name"`
+	MasterDataServerName          string `json:"master_data_server_name"`
+	AuditProjectionServerName     string `json:"audit_projection_server_name"`
 	AuthoringServerName           string `json:"authoring_server_name"`
 }
 type Identity struct {
@@ -240,6 +248,23 @@ func (c Config) Validate() error {
 		endpoint, parseErr := url.Parse(c.NotificationServiceURL)
 		if parseErr != nil || endpoint.Scheme != "https" || endpoint.Host == "" || endpoint.User != nil || endpoint.Path != "" || endpoint.RawQuery != "" || endpoint.Fragment != "" || c.UpstreamTLS.NotificationServiceServerName == "" {
 			return errors.New("API Gateway Notification Service configuration is invalid")
+		}
+	}
+	for _, pair := range []struct {
+		name       string
+		rawURL     string
+		serverName string
+	}{
+		{"Document Adapter", c.DocumentAdapterURL, c.UpstreamTLS.DocumentAdapterServerName},
+		{"Integration Hub", c.IntegrationHubURL, c.UpstreamTLS.IntegrationHubServerName},
+		{"Master Data Service", c.MasterDataURL, c.UpstreamTLS.MasterDataServerName},
+		{"Audit Projection Service", c.AuditProjectionURL, c.UpstreamTLS.AuditProjectionServerName},
+	} {
+		if pair.rawURL != "" || pair.serverName != "" {
+			endpoint, parseErr := url.Parse(pair.rawURL)
+			if parseErr != nil || endpoint.Scheme != "https" || endpoint.Host == "" || endpoint.User != nil || endpoint.Path != "" || endpoint.RawQuery != "" || endpoint.Fragment != "" || pair.serverName == "" {
+				return errors.New("API Gateway " + pair.name + " configuration is invalid")
+			}
 		}
 	}
 	if c.AuthoringAddress != "" || c.UpstreamTLS.AuthoringServerName != "" {

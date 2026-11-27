@@ -2406,6 +2406,7 @@ impl DispatchCredentialProvider {
                 signing_key_id: String::new(),
                 content_hash: Vec::new(),
                 signature: Vec::new(),
+                attributes: Vec::new(),
             },
             &self.actor_key_id,
             &self.actor_signer,

@@ -25,8 +25,9 @@ pub struct Tenant {
 /// Per-tenant configuration that drives AuthZ engine behavior.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TenantConfig {
-    /// What to do when policy bundle is unavailable.
-    /// "DENY" (default, banking) or "OPEN" (internal tools).
+    /// Deprecated: fail-closed (DENY) is always enforced. Retained for
+    /// expand/contract compatibility with existing JSONB rows.
+    #[serde(default)]
     pub fail_mode: FailMode,
 
     /// Maximum ReBAC traversal depth for this tenant.
@@ -47,12 +48,13 @@ impl Default for TenantConfig {
 }
 
 /// Fail mode determines AuthZ behavior when the policy engine cannot evaluate.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum FailMode {
     /// Deny all access when policy unavailable (banking default).
+    #[default]
     Deny,
-    /// Allow access when policy unavailable (internal tools).
+    /// Deprecated: retained only for deserializing legacy rows; treated as Deny.
     Open,
 }
 

@@ -5,7 +5,12 @@ const repositoryRoot = resolve(import.meta.dirname, "..");
 const sourceRoots = [
   resolve(repositoryRoot, "apps/web/ods-shell/src"),
   resolve(repositoryRoot, "apps/web/task-mfe/src"),
+  resolve(repositoryRoot, "apps/web/case-mfe/src"),
   resolve(repositoryRoot, "apps/web/notification-mfe/src"),
+  resolve(repositoryRoot, "apps/web/document-mfe/src"),
+  resolve(repositoryRoot, "apps/web/integration-mfe/src"),
+  resolve(repositoryRoot, "apps/web/admin-mfe/src"),
+  resolve(repositoryRoot, "apps/web/monitoring-mfe/src"),
 ];
 
 const violations = [];

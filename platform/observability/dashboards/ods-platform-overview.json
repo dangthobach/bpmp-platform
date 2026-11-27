@@ -1,0 +1,62 @@
+{
+  "title": "BPMP ODS Platform Overview (RED / USE / Outbox / Raft / MFE)",
+  "schemaVersion": 39,
+  "version": 1,
+  "tags": ["bpmp", "ods", "slo"],
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Portal Gateway & Domain BFF Request Rate (RPS)",
+      "targets": [{ "expr": "sum by (service) (rate(http_server_requests_total[5m]))" }]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "5xx Error Rate (%) by Service",
+      "targets": [{ "expr": "100 * sum by (service) (rate(http_server_requests_total{status=~\"5..\"}[5m])) / clamp_min(sum by (service) (rate(http_server_requests_total[5m])), 1)" }]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "p95 Latency (s) by Service",
+      "targets": [{ "expr": "histogram_quantile(0.95, sum by (le, service) (rate(http_server_request_duration_seconds_bucket[5m])))" }]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Outbox Age & Projection Lag (s)",
+      "targets": [
+        { "expr": "max by (service) (ods_outbox_oldest_unpublished_seconds)" },
+        { "expr": "max by (service) (ods_projection_lag_seconds)" }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "BPMP Engine Raft Quorum & KMS Status",
+      "targets": [
+        { "expr": "min(bpmp_engine_raft_has_quorum)" },
+        { "expr": "sum(increase(bpmp_kms_operation_failures_total[15m]))" }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Integration Hub Circuit Breaker & Document Quarantine Backlog",
+      "targets": [
+        { "expr": "sum(integration_circuit_breaker_state)" },
+        { "expr": "sum(document_quarantine_pending_count)" }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "MFE Remote Load Time p95 & Render Error Rate",
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum by (le, remote_name) (rate(ods_mfe_load_duration_seconds_bucket[5m])))" },
+        { "expr": "sum by (remote_name) (rate(ods_mfe_render_errors_total[5m]))" }
+      ]
+    }
+  ]
+}

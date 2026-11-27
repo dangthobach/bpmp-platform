@@ -282,6 +282,35 @@ func run(path string) error {
 		}
 		handlerOptions = append(handlerOptions, gateway.WithNotificationServiceProxy(notificationClient, value.NotificationServiceURL))
 	}
+	newMTLSHTTPClient := func(serverName string) *http.Client {
+		return &http.Client{
+			Transport: platformtelemetry.HTTPTransport(&http.Transport{
+				ForceAttemptHTTP2:     true,
+				MaxIdleConnsPerHost:   64,
+				IdleConnTimeout:       60 * time.Second,
+				ResponseHeaderTimeout: 10 * time.Second,
+				TLSClientConfig: &tls.Config{
+					MinVersion:   tls.VersionTLS13,
+					ServerName:   serverName,
+					RootCAs:      roots,
+					Certificates: []tls.Certificate{clientCertificate},
+				},
+			}),
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		}
+	}
+	if value.DocumentAdapterURL != "" {
+		handlerOptions = append(handlerOptions, gateway.WithDocumentAdapterProxy(newMTLSHTTPClient(value.UpstreamTLS.DocumentAdapterServerName), value.DocumentAdapterURL))
+	}
+	if value.IntegrationHubURL != "" {
+		handlerOptions = append(handlerOptions, gateway.WithIntegrationHubProxy(newMTLSHTTPClient(value.UpstreamTLS.IntegrationHubServerName), value.IntegrationHubURL))
+	}
+	if value.MasterDataURL != "" {
+		handlerOptions = append(handlerOptions, gateway.WithMasterDataProxy(newMTLSHTTPClient(value.UpstreamTLS.MasterDataServerName), value.MasterDataURL))
+	}
+	if value.AuditProjectionURL != "" {
+		handlerOptions = append(handlerOptions, gateway.WithAuditProjectionProxy(newMTLSHTTPClient(value.UpstreamTLS.AuditProjectionServerName), value.AuditProjectionURL))
+	}
 	if value.OIDC.Enabled {
 		oidcRoots, rootErr := certPool(value.OIDC.CAFile)
 		if rootErr != nil {

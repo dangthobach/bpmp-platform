@@ -1,7 +1,8 @@
 use bpmp_adapter_identity_jwt::JwtIdentityVerifier;
 use bpmp_adapter_policy_bundle::VerifiedAuthorizationStore;
 use bpmp_authz_contracts::{
-    ActorProofCodec, AuthorizationKeyring, AuthorizationProofLimits, WorkloadProofCodec,
+    authorization::v1::ActorAttribute, ActorProofCodec, AuthorizationKeyring,
+    AuthorizationProofLimits, WorkloadProofCodec,
 };
 use bpmp_authz_engine::{AuthorizationInput, DecisionType, ResourceAuthorizationInput};
 use bpmp_domain_core::{ActorId, PolicyVersion};
@@ -18,6 +19,7 @@ struct VerifiedActor {
     capabilities: Vec<String>,
     revoke_epoch: u64,
     audience_workload_id: Option<String>,
+    attributes: Vec<ActorAttribute>,
 }
 
 struct VerifiedRequestIdentity {
@@ -105,6 +107,8 @@ impl AuthorizationProviderPort for EmbeddedAuthorizationProvider {
                             .then_some(actor.actor_id.as_str()),
                         resource_branch_path: resource.branch_path,
                         resource_queue_id: resource.queue_id,
+                        actor_attributes: &actor.attributes,
+                        resource_attributes: &[],
                     })
             })
             .transpose()
@@ -244,6 +248,7 @@ impl EmbeddedAuthorizationProvider {
                     capabilities: actor.capabilities,
                     revoke_epoch: actor.revoke_epoch,
                     audience_workload_id: Some(actor.audience_workload_id),
+                    attributes: actor.attributes,
                 })
             }
             ActorProofKind::OriginalJwt => {
@@ -263,6 +268,7 @@ impl EmbeddedAuthorizationProvider {
                     capabilities: claims.capabilities,
                     revoke_epoch: claims.revoke_epoch,
                     audience_workload_id: None,
+                    attributes: Vec::new(),
                 })
             }
         }

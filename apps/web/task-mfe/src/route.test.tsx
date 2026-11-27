@@ -494,4 +494,45 @@ describe("TaskWorklist Vertical Slice", () => {
     await waitFor(() => expect(screen.getByText("Upstream unavailable")).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
   });
+
+  it("refetches the worklist when SSE emits resync-required after a replay gap", async () => {
+    const platform = createMockPlatform();
+    const encoder = new TextEncoder();
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url === "/auth/session") {
+        return new Response(JSON.stringify({ tenant_id: "tenant-a", actor_id: "officer-alice" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.startsWith("/realtime/v1/events")) {
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(encoder.encode(": connected\n\n"));
+            controller.enqueue(encoder.encode('event: resync-required\ndata: {"reason":"cursor_unavailable"}\n\n'));
+          },
+        });
+        return new Response(stream, {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    try {
+      renderWorklist(platform);
+      await waitFor(() => expect(screen.getByText("Personal Review Application")).toBeInTheDocument());
+      await waitFor(() => {
+        const listCalls = (platform.callApi as ReturnType<typeof vi.fn>).mock.calls
+          .map(([request]) => request)
+          .filter((request) => request.method === "GET" && request.path.startsWith("/v1/work-items"));
+        expect(listCalls.length).toBeGreaterThanOrEqual(2);
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });

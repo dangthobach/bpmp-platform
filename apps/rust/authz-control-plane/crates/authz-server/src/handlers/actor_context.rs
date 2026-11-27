@@ -14,10 +14,12 @@ use axum::{
 };
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use bpmp_authz_contracts::{
-    authorization::v1::SignedActorContext, ActorProofCodec, AUTHORIZATION_PROOF_SCHEMA_VERSION,
+    authorization::v1::{ActorAttribute, SignedActorContext},
+    ActorProofCodec, AUTHORIZATION_PROOF_SCHEMA_VERSION,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
+use std::collections::BTreeMap;
 use uuid::Uuid;
 
 #[derive(Debug, Deserialize)]
@@ -38,6 +40,7 @@ pub struct IssueActorContextResponse {
     pub expires_at_epoch_ms: u64,
     pub roles: Vec<String>,
     pub capabilities: Vec<String>,
+    pub attributes: BTreeMap<String, Vec<String>>,
     pub signed_actor_context: String,
 }
 
@@ -151,6 +154,36 @@ pub async fn issue(
         return Err(AuthzError::ActorContextIssuerUnavailable.into());
     }
 
+    // Load active dynamic user attributes via PK `(tenant_id, user_id, attribute_key, value_text)`,
+    // which returns rows in canonical sorted order.
+    let attr_rows = sqlx::query(
+        r#"SELECT ua.attribute_key, ua.value_text
+           FROM user_attribute ua
+           JOIN tenant_attribute_definition tad
+             ON tad.tenant_id = ua.tenant_id
+            AND tad.attribute_key = ua.attribute_key
+            AND tad.is_active
+           WHERE ua.tenant_id = $1 AND ua.user_id = $2
+           ORDER BY ua.attribute_key, ua.value_text"#,
+    )
+    .bind(request.tenant_id)
+    .bind(actor_id)
+    .fetch_all(&state.pool)
+    .await?;
+    let mut attributes_map: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for attr_row in attr_rows {
+        let key: String = attr_row.try_get("attribute_key")?;
+        let val: String = attr_row.try_get("value_text")?;
+        attributes_map.entry(key).or_default().push(val);
+    }
+    let proto_attributes: Vec<ActorAttribute> = attributes_map
+        .iter()
+        .map(|(key, values)| ActorAttribute {
+            key: key.clone(),
+            values: values.clone(),
+        })
+        .collect();
+
     let issued_at_epoch_ms = u64::try_from(chrono::Utc::now().timestamp_millis())
         .map_err(|_| AuthzError::Internal("system clock is before Unix epoch".into()))?;
     let expires_at_epoch_ms = issued_at_epoch_ms
@@ -170,6 +203,7 @@ pub async fn issue(
         signing_key_id: String::new(),
         content_hash: Vec::new(),
         signature: Vec::new(),
+        attributes: proto_attributes,
     };
     let signed_actor_context = ActorProofCodec::seal(
         proof,
@@ -188,6 +222,7 @@ pub async fn issue(
         expires_at_epoch_ms,
         roles,
         capabilities,
+        attributes: attributes_map,
         signed_actor_context: STANDARD.encode(signed_actor_context),
     }))
 }

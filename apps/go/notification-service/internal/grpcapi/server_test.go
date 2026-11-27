@@ -165,3 +165,27 @@ func TestGRPCServicesEnforceActorProofAndDispatchEndToEnd(t *testing.T) {
 		t.Fatalf("expected 1 unread message, got %+v err=%v", inboxRes, err)
 	}
 }
+
+func TestNewServerRejectsNilProofVerifier(t *testing.T) {
+	key := bytes.Repeat([]byte{0x55}, 32)
+	ring, err := crypto.NewKeyRing("k1", map[string][]byte{"k1": key}, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc, err := application.NewService(application.NewMemoryStore(), queue.NewMemoryQueue(), ring, renderer.NewEngine(renderer.DefaultRenderLimits()), nil, application.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := NewServer(svc, nil); err == nil {
+		t.Fatal("expected NewServer to reject nil proof verifier (fail-closed)")
+	}
+}
+
+func TestVerifyActorFailsClosedWithoutVerifier(t *testing.T) {
+	srv := &Server{}
+	_, err := srv.verifyActor("00000000-0000-0000-0000-000000000010", "cmd-1", nil, "notification.manage")
+	if status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("expected Unauthenticated when verifier is nil, got %v", err)
+	}
+}

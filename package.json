@@ -10,6 +10,10 @@
     "apps/web/studio-mfe",
     "apps/web/case-mfe",
     "apps/web/notification-mfe",
+    "apps/web/document-mfe",
+    "apps/web/integration-mfe",
+    "apps/web/admin-mfe",
+    "apps/web/monitoring-mfe",
     "packages/frontend/*"
   ],
   "overrides": {

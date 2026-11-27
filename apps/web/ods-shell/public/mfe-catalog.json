@@ -30,6 +30,42 @@
       "contractVersion": "1.0",
       "minShellVersion": "1.0",
       "requiredCapabilities": ["notification.read"]
+    },
+    {
+      "name": "document-mfe",
+      "routeBasePath": "/documents",
+      "entry": "http://127.0.0.1:4305/mf-manifest.json",
+      "exposedModule": "route",
+      "contractVersion": "1.0",
+      "minShellVersion": "1.0",
+      "requiredCapabilities": ["document.read"]
+    },
+    {
+      "name": "integration-mfe",
+      "routeBasePath": "/integrations",
+      "entry": "http://127.0.0.1:4306/mf-manifest.json",
+      "exposedModule": "route",
+      "contractVersion": "1.0",
+      "minShellVersion": "1.0",
+      "requiredCapabilities": ["integration.endpoint.read"]
+    },
+    {
+      "name": "admin-mfe",
+      "routeBasePath": "/admin",
+      "entry": "http://127.0.0.1:4307/mf-manifest.json",
+      "exposedModule": "route",
+      "contractVersion": "1.0",
+      "minShellVersion": "1.0",
+      "requiredCapabilities": ["mdm.read"]
+    },
+    {
+      "name": "monitoring-mfe",
+      "routeBasePath": "/monitoring",
+      "entry": "http://127.0.0.1:4308/mf-manifest.json",
+      "exposedModule": "route",
+      "contractVersion": "1.0",
+      "minShellVersion": "1.0",
+      "requiredCapabilities": ["process.read"]
     }
   ]
 }

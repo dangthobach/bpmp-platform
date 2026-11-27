@@ -1,0 +1,10 @@
+go 1.27.3
+
+use (
+	./apps/go/audit-projection
+	./apps/go/document-adapter
+	./apps/go/integration-hub
+	./apps/go/master-data-service
+	./go/contracts
+	./go/platform
+)

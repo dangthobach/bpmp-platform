@@ -45,7 +45,7 @@ impl AppContainer {
         })?;
         let cached = CachedAuthzClient::new(http, cfg.authz_cache_capacity, cfg.authz_cache_ttl());
         let authz_client: Arc<dyn AuthzClient> = Arc::new(cached);
-        let authz: Arc<dyn AuthzPort> = Arc::new(SdkAuthzAdapter::new(authz_client.clone(), false));
+        let authz: Arc<dyn AuthzPort> = Arc::new(SdkAuthzAdapter::new(authz_client.clone()));
         let uow_factory: Arc<dyn UnitOfWorkFactory> =
             Arc::new(PgUnitOfWorkFactory::new(pool.clone()));
         let branch_scope_workload_verifier = cfg

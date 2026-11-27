@@ -169,10 +169,7 @@ pub async fn run(config: ServerConfig) -> Result<()> {
 
     let emergency_revoke = Arc::new(EmergencyRevokeCache::default());
 
-    let fail_mode = match config.fail_mode.as_str() {
-        "OPEN" => FailMode::Open,
-        _ => FailMode::Deny,
-    };
+    let fail_mode = resolve_fail_mode(&config.fail_mode);
 
     // Warm up high-performance fast paths from the database.
     // On failure (e.g. fresh DB), fall back to empty engines so the server
@@ -430,4 +427,27 @@ async fn connect_and_migrate(config: &ServerConfig) -> Result<PgPool> {
 
     run_migrations(&pool).await?;
     Ok(pool)
+}
+
+fn resolve_fail_mode(raw: &str) -> FailMode {
+    if raw.trim().eq_ignore_ascii_case("OPEN") {
+        tracing::warn!(
+            configured_fail_mode = raw,
+            "FAIL_MODE=OPEN is deprecated and unsupported (fail-closed enforced); treating as DENY"
+        );
+    }
+    FailMode::Deny
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_fail_mode_always_enforces_deny() {
+        assert_eq!(resolve_fail_mode("OPEN"), FailMode::Deny);
+        assert_eq!(resolve_fail_mode("open"), FailMode::Deny);
+        assert_eq!(resolve_fail_mode("DENY"), FailMode::Deny);
+        assert_eq!(resolve_fail_mode(""), FailMode::Deny);
+    }
 }

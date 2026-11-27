@@ -766,6 +766,7 @@ fn signed_policy(
             resource_scope_ids: Vec::new(),
             owner_id: "projection-service".into(),
             tenant_scope: !own_scope,
+            attribute_predicates: Vec::new(),
         },
     )
     .collect();
@@ -782,6 +783,7 @@ fn signed_policy(
             supported_scope_types: vec!["own".into(), "resource".into()],
             readable_fields: readable_fields.clone(),
             writable_fields: Vec::new(),
+            supported_attribute_scopes: Vec::new(),
         })
         .collect();
     let bundle = AuthorizationPolicyBundle {

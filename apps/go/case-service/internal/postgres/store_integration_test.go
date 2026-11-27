@@ -400,3 +400,170 @@ func TestCreateCaseIdempotencyAndTransactionalOutbox(t *testing.T) {
 		}
 	}
 }
+
+func TestCaseRetentionAndReconciliation(t *testing.T) {
+	dsn := os.Getenv("CASE_SERVICE_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("CASE_SERVICE_POSTGRES_DSN is not configured")
+	}
+	ctx := context.Background()
+	admin, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Close()
+	schema := "case_ret_it_" + uuid.NewString()[:8]
+	if _, err = admin.Exec(ctx, "CREATE SCHEMA "+schema); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _, _ = admin.Exec(ctx, "DROP SCHEMA "+schema+" CASCADE") }()
+
+	config, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.ConnConfig.RuntimeParams["search_path"] = schema
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	_, filename, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve migration path")
+	}
+	for _, name := range []string{"001_case_foundation.sql", "002_outbox_delivery.sql", "003_case_search.sql", "004_engine_event_inbox.sql"} {
+		migration := filepath.Clean(filepath.Join(filepath.Dir(filename), "../../../../../db/case-service/migrations", name))
+		contents, readErr := os.ReadFile(migration)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if _, err = pool.Exec(ctx, string(contents)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	store, err := New(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	oldTime := now.Add(-15 * 24 * time.Hour)
+	recentTime := now.Add(-2 * time.Hour)
+	clock := oldTime
+	service, err := application.NewService(store, func() time.Time { return clock }, uuid.New)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engineEvents, err := application.NewEngineEventService(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tenant := uuid.New()
+	oldCase, err := service.Create(ctx, application.CreateRequest{
+		TenantID: tenant, ActorID: "alice", IdempotencyKey: "old-key-1", CorrelationID: "corr-old",
+		CustomerRef: "cust-old", WorkflowType: "approval", WorkflowVersion: "1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Mark oldCase outbox as published 15 days ago.
+	if _, err = pool.Exec(ctx, `UPDATE case_outbox SET next_attempt_at=$1 WHERE tenant_id=$2 AND aggregate_id=$3`, oldTime, tenant, oldCase.Case.ID); err != nil {
+		t.Fatal(err)
+	}
+	claimedOld, found, err := store.ClaimEvent(ctx, oldTime.Add(time.Second), 30*time.Second, uuid.New())
+	if err != nil || !found {
+		t.Fatalf("claim old outbox: found=%v err=%v", found, err)
+	}
+	if err = store.MarkPublished(ctx, claimedOld, oldTime.Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	// Apply an Engine inbox event and age it beyond the 7-day replay window.
+	if applied, applyErr := engineEvents.Apply(ctx, application.EngineEvent{
+		TenantID: tenant, InstanceID: oldCase.Case.ID.String(), EventID: "eng-old-1",
+		WorkflowType: "approval", WorkflowVersion: "1", Sequence: 1, EventType: "workflow_started",
+		OccurredAt: oldTime, PayloadDigest: sha256.Sum256([]byte("old-start")),
+	}); applyErr != nil || !applied {
+		t.Fatalf("apply old engine event: applied=%v err=%v", applied, applyErr)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE case_inbox SET applied_at=$1 WHERE tenant_id=$2 AND event_id='eng-old-1'`, oldTime, tenant); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a recent case whose outbox remains UNPUBLISHED and whose inbox/receipt are within window.
+	clock = recentTime
+	recentCase, err := service.Create(ctx, application.CreateRequest{
+		TenantID: tenant, ActorID: "alice", IdempotencyKey: "recent-key-1", CorrelationID: "corr-recent",
+		CustomerRef: "cust-recent", WorkflowType: "approval", WorkflowVersion: "1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applied, applyErr := engineEvents.Apply(ctx, application.EngineEvent{
+		TenantID: tenant, InstanceID: recentCase.Case.ID.String(), EventID: "eng-recent-1",
+		WorkflowType: "approval", WorkflowVersion: "1", Sequence: 1, EventType: "workflow_started",
+		OccurredAt: recentTime, PayloadDigest: sha256.Sum256([]byte("recent-start")),
+	}); applyErr != nil || !applied {
+		t.Fatalf("apply recent engine event: applied=%v err=%v", applied, applyErr)
+	}
+
+	policy := application.RetentionPolicy{
+		PublishedOutboxRetention: 24 * time.Hour,
+		InboxReplayWindow:        7 * 24 * time.Hour,
+		CreateReceiptRetention:   7 * 24 * time.Hour,
+		MaxBatchSize:             100,
+	}
+	runner, err := application.NewRetentionRunner(store, policy, func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reportBefore, err := runner.InspectReconciliation(ctx, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reportBefore.ActiveCases != 2 || reportBefore.UnpublishedOutbox != 1 || reportBefore.StalePendingStartJobs != 2 || reportBefore.InboxCount != 2 {
+		t.Fatalf("unexpected reconciliation summary before retention: %+v", reportBefore)
+	}
+
+	stats, err := runner.RunOnce(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.PublishedOutboxDeleted != 1 || stats.InboxDeleted != 1 || stats.CreateReceiptsDeleted != 1 {
+		t.Fatalf("retention did not purge exact expired rows: %+v", stats)
+	}
+
+	// Unpublished outbox row and recent inbox/receipt MUST be preserved; customer_cases & case_engine_events untouched.
+	var remainingOutbox, remainingInbox, remainingReceipts, remainingCases, remainingEngineEvents int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM case_outbox WHERE tenant_id=$1`, tenant).Scan(&remainingOutbox); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM case_inbox WHERE tenant_id=$1`, tenant).Scan(&remainingInbox); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM case_create_receipts WHERE tenant_id=$1`, tenant).Scan(&remainingReceipts); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM customer_cases WHERE tenant_id=$1`, tenant).Scan(&remainingCases); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM case_engine_events WHERE tenant_id=$1`, tenant).Scan(&remainingEngineEvents); err != nil {
+		t.Fatal(err)
+	}
+	if remainingOutbox != 1 || remainingInbox != 1 || remainingReceipts != 1 || remainingCases != 2 || remainingEngineEvents != 2 {
+		t.Fatalf("retention violated safety invariants: outbox=%d inbox=%d receipts=%d cases=%d engine_events=%d",
+			remainingOutbox, remainingInbox, remainingReceipts, remainingCases, remainingEngineEvents)
+	}
+
+	// In-window inbox event still deduplicates replays cleanly.
+	if applied, applyErr := engineEvents.Apply(ctx, application.EngineEvent{
+		TenantID: tenant, InstanceID: recentCase.Case.ID.String(), EventID: "eng-recent-1",
+		WorkflowType: "approval", WorkflowVersion: "1", Sequence: 1, EventType: "workflow_started",
+		OccurredAt: recentTime, PayloadDigest: sha256.Sum256([]byte("recent-start")),
+	}); applyErr != nil || applied {
+		t.Fatalf("retained inbox event failed to deduplicate replay: applied=%v err=%v", applied, applyErr)
+	}
+}

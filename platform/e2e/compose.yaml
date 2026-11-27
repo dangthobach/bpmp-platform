@@ -560,6 +560,14 @@ services:
         condition: service_started
       case-mfe-dev:
         condition: service_started
+      document-mfe-dev:
+        condition: service_started
+      integration-mfe-dev:
+        condition: service_started
+      admin-mfe-dev:
+        condition: service_started
+      monitoring-mfe-dev:
+        condition: service_started
 
   task-mfe-dev:
     image: bpmp/e2e-ods-dev:local
@@ -591,6 +599,305 @@ services:
       timeout: 3s
       retries: 30
 
+  # ---- Phase 4 & 5 isolated data stores, migrations, Kafka topics, mTLS services & MFEs ----
+
+  ods-phase45-topic-init:
+    image: ${REDPANDA_IMAGE:?set REDPANDA_IMAGE}
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - >-
+        for topic in bpmp.document.events.v1.e2e bpmp.integration.events.v1.e2e bpmp.mdm.events.v1.e2e; do
+          rpk topic create "$$topic" --brokers redpanda:9092 --partitions 1 --replicas 1 ||
+          rpk topic describe "$$topic" --brokers redpanda:9092 >/dev/null;
+        done
+    networks: [default]
+    depends_on:
+      redpanda:
+        condition: service_healthy
+
+  document-postgres:
+    image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE}
+    environment:
+      POSTGRES_USER: document_user
+      POSTGRES_PASSWORD: document-e2e
+      POSTGRES_DB: document_db
+    networks: [document-data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  document-migrate:
+    image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE}
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - >-
+        PGPASSWORD=document-e2e psql -h document-postgres -U document_user -d document_db
+        --set ON_ERROR_STOP=1 --file /migrations/001_document_adapter.sql
+    volumes:
+      - ../../db/document-adapter/migrations:/migrations:ro
+    networks: [document-data]
+    depends_on:
+      document-postgres:
+        condition: service_healthy
+
+  document-adapter:
+    image: bpmp/e2e-ods-phase45:local
+    build:
+      context: ../..
+      dockerfile: platform/e2e/Dockerfile.ods-phase45
+    entrypoint: ["/usr/local/bin/document-adapter"]
+    environment:
+      DOCUMENT_ADAPTER_ADDR: 0.0.0.0:8084
+      DOCUMENT_POSTGRES_DSN: postgres://document_user:document-e2e@document-postgres:5432/document_db?sslmode=disable
+      DOCUMENT_KAFKA_BROKERS: redpanda:9092
+      DOCUMENT_KAFKA_TOPIC: bpmp.document.events.v1.e2e
+      DOCUMENT_SERVER_CERTIFICATE: /runtime/secrets/tls.pem
+      DOCUMENT_SERVER_PRIVATE_KEY: /runtime/secrets/tls-key.pem
+      DOCUMENT_CLIENT_CA: /runtime/secrets/ca.pem
+    volumes:
+      - ./runtime:/runtime:ro
+    networks: [default, document-data]
+    depends_on:
+      document-migrate:
+        condition: service_completed_successfully
+      ods-phase45-topic-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--cacert", "/runtime/secrets/ca.pem", "--cert", "/runtime/secrets/tls.pem", "--key", "/runtime/secrets/tls-key.pem", "--resolve", "api-gateway:8084:127.0.0.1", "https://api-gateway:8084/readyz"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  integration-postgres:
+    image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE}
+    environment:
+      POSTGRES_USER: integration_user
+      POSTGRES_PASSWORD: integration-e2e
+      POSTGRES_DB: integration_db
+    networks: [integration-data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  integration-migrate:
+    image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE}
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - >-
+        PGPASSWORD=integration-e2e psql -h integration-postgres -U integration_user -d integration_db
+        --set ON_ERROR_STOP=1 --file /migrations/001_integration_hub.sql
+    volumes:
+      - ../../db/integration-hub/migrations:/migrations:ro
+    networks: [integration-data]
+    depends_on:
+      integration-postgres:
+        condition: service_healthy
+
+  integration-hub:
+    image: bpmp/e2e-ods-phase45:local
+    build:
+      context: ../..
+      dockerfile: platform/e2e/Dockerfile.ods-phase45
+    entrypoint: ["/usr/local/bin/integration-hub"]
+    environment:
+      INTEGRATION_HUB_ADDR: 0.0.0.0:8088
+      INTEGRATION_POSTGRES_DSN: postgres://integration_user:integration-e2e@integration-postgres:5432/integration_db?sslmode=disable
+      INTEGRATION_KAFKA_BROKERS: redpanda:9092
+      INTEGRATION_KAFKA_TOPIC: bpmp.integration.events.v1.e2e
+      INTEGRATION_SERVER_CERTIFICATE: /runtime/secrets/tls.pem
+      INTEGRATION_SERVER_PRIVATE_KEY: /runtime/secrets/tls-key.pem
+      INTEGRATION_CLIENT_CA: /runtime/secrets/ca.pem
+    volumes:
+      - ./runtime:/runtime:ro
+    networks: [default, integration-data]
+    depends_on:
+      integration-migrate:
+        condition: service_completed_successfully
+      ods-phase45-topic-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--cacert", "/runtime/secrets/ca.pem", "--cert", "/runtime/secrets/tls.pem", "--key", "/runtime/secrets/tls-key.pem", "--resolve", "api-gateway:8088:127.0.0.1", "https://api-gateway:8088/readyz"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  mdm-postgres:
+    image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE}
+    environment:
+      POSTGRES_USER: mdm_user
+      POSTGRES_PASSWORD: mdm-e2e
+      POSTGRES_DB: mdm_db
+    networks: [mdm-data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  mdm-migrate:
+    image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE}
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - >-
+        PGPASSWORD=mdm-e2e psql -h mdm-postgres -U mdm_user -d mdm_db
+        --set ON_ERROR_STOP=1 --file /migrations/001_master_data.sql
+    volumes:
+      - ../../db/master-data-service/migrations:/migrations:ro
+    networks: [mdm-data]
+    depends_on:
+      mdm-postgres:
+        condition: service_healthy
+
+  master-data-service:
+    image: bpmp/e2e-ods-phase45:local
+    build:
+      context: ../..
+      dockerfile: platform/e2e/Dockerfile.ods-phase45
+    entrypoint: ["/usr/local/bin/master-data-service"]
+    environment:
+      MDM_SERVICE_ADDR: 0.0.0.0:8086
+      MDM_POSTGRES_DSN: postgres://mdm_user:mdm-e2e@mdm-postgres:5432/mdm_db?sslmode=disable
+      MDM_KAFKA_BROKERS: redpanda:9092
+      MDM_KAFKA_TOPIC: bpmp.mdm.events.v1.e2e
+      MDM_SERVER_CERTIFICATE: /runtime/secrets/tls.pem
+      MDM_SERVER_PRIVATE_KEY: /runtime/secrets/tls-key.pem
+      MDM_CLIENT_CA: /runtime/secrets/ca.pem
+    volumes:
+      - ./runtime:/runtime:ro
+    networks: [default, mdm-data]
+    depends_on:
+      mdm-migrate:
+        condition: service_completed_successfully
+      ods-phase45-topic-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--cacert", "/runtime/secrets/ca.pem", "--cert", "/runtime/secrets/tls.pem", "--key", "/runtime/secrets/tls-key.pem", "--resolve", "api-gateway:8086:127.0.0.1", "https://api-gateway:8086/readyz"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  audit-postgres:
+    image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE}
+    environment:
+      POSTGRES_USER: audit_user
+      POSTGRES_PASSWORD: audit-e2e
+      POSTGRES_DB: audit_db
+    networks: [audit-data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  audit-migrate:
+    image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE}
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - >-
+        PGPASSWORD=audit-e2e psql -h audit-postgres -U audit_user -d audit_db
+        --set ON_ERROR_STOP=1 --file /migrations/001_audit_projection.sql
+    volumes:
+      - ../../db/audit-projection/migrations:/migrations:ro
+    networks: [audit-data]
+    depends_on:
+      audit-postgres:
+        condition: service_healthy
+
+  audit-projection:
+    image: bpmp/e2e-ods-phase45:local
+    build:
+      context: ../..
+      dockerfile: platform/e2e/Dockerfile.ods-phase45
+    entrypoint: ["/usr/local/bin/audit-projection"]
+    environment:
+      AUDIT_PROJECTION_ADDR: 0.0.0.0:8087
+      AUDIT_POSTGRES_DSN: postgres://audit_user:audit-e2e@audit-postgres:5432/audit_db?sslmode=disable
+      AUDIT_KAFKA_BROKERS: redpanda:9092
+      AUDIT_KAFKA_TOPICS: bpmp.case.events.v1.e2e,bpmp.document.events.v1.e2e,bpmp.integration.events.v1.e2e,bpmp.mdm.events.v1.e2e
+      AUDIT_KAFKA_GROUP: bpmp.audit-projection.v1.e2e
+      AUDIT_SERVER_CERTIFICATE: /runtime/secrets/tls.pem
+      AUDIT_SERVER_PRIVATE_KEY: /runtime/secrets/tls-key.pem
+      AUDIT_CLIENT_CA: /runtime/secrets/ca.pem
+    volumes:
+      - ./runtime:/runtime:ro
+    networks: [default, audit-data]
+    depends_on:
+      audit-migrate:
+        condition: service_completed_successfully
+      case-topic-init:
+        condition: service_completed_successfully
+      ods-phase45-topic-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--cacert", "/runtime/secrets/ca.pem", "--cert", "/runtime/secrets/tls.pem", "--key", "/runtime/secrets/tls-key.pem", "--resolve", "api-gateway:8087:127.0.0.1", "https://api-gateway:8087/readyz"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  document-mfe-dev:
+    image: bpmp/e2e-ods-dev:local
+    build:
+      context: ../..
+      dockerfile: platform/e2e/Dockerfile.ods-dev
+    command: ["npm", "run", "dev", "-w", "@ods/document-mfe", "--", "--host", "0.0.0.0"]
+    ports:
+      - "127.0.0.1:4305:4305"
+    networks: [default]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4305/mf-manifest.json').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  integration-mfe-dev:
+    image: bpmp/e2e-ods-dev:local
+    build:
+      context: ../..
+      dockerfile: platform/e2e/Dockerfile.ods-dev
+    command: ["npm", "run", "dev", "-w", "@ods/integration-mfe", "--", "--host", "0.0.0.0"]
+    ports:
+      - "127.0.0.1:4306:4306"
+    networks: [default]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4306/mf-manifest.json').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  admin-mfe-dev:
+    image: bpmp/e2e-ods-dev:local
+    build:
+      context: ../..
+      dockerfile: platform/e2e/Dockerfile.ods-dev
+    command: ["npm", "run", "dev", "-w", "@ods/admin-mfe", "--", "--host", "0.0.0.0"]
+    ports:
+      - "127.0.0.1:4307:4307"
+    networks: [default]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4307/mf-manifest.json').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  monitoring-mfe-dev:
+    image: bpmp/e2e-ods-dev:local
+    build:
+      context: ../..
+      dockerfile: platform/e2e/Dockerfile.ods-dev
+    command: ["npm", "run", "dev", "-w", "@ods/monitoring-mfe", "--", "--host", "0.0.0.0"]
+    ports:
+      - "127.0.0.1:4308:4308"
+    networks: [default]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4308/mf-manifest.json').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
 networks:
   default:
     driver: bridge
@@ -598,6 +905,14 @@ networks:
     internal: true
   case-preview:
     driver: bridge
+  document-data:
+    internal: true
+  integration-data:
+    internal: true
+  mdm-data:
+    internal: true
+  audit-data:
+    internal: true
 
 volumes:
   engine1-data:

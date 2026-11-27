@@ -41,8 +41,12 @@ type Handler struct {
 	configurationProxy *configurationProxy
 	authorizationProxy *authorizationProxy
 	realtimeProxy      *realtimeProxy
-	caseProxy          *caseProxy
-	notificationProxy  *notificationProxy
+	caseProxy            *caseProxy
+	notificationProxy    *notificationProxy
+	documentProxy        *httpsOriginProxy
+	integrationProxy     *httpsOriginProxy
+	masterDataProxy      *httpsOriginProxy
+	auditProjectionProxy *httpsOriginProxy
 	policyProvider     PolicyProvider
 	upstreams          *upstreamController
 	sessionStore       ports.BrowserSessionStore
@@ -186,6 +190,28 @@ func (h *Handler) Routes() http.Handler {
 			mux.HandleFunc(method+" /v1/notifications", h.proxyNotification)
 			mux.HandleFunc(method+" /v1/notifications/{rest...}", h.proxyNotification)
 		}
+	}
+	if h.documentProxy != nil {
+		for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodDelete} {
+			mux.HandleFunc(method+" /v1/documents", h.proxyDocument)
+			mux.HandleFunc(method+" /v1/documents/{rest...}", h.proxyDocument)
+		}
+	}
+	if h.integrationProxy != nil {
+		for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodPatch, http.MethodDelete} {
+			mux.HandleFunc(method+" /v1/admin/endpoints", h.proxyIntegration)
+			mux.HandleFunc(method+" /v1/admin/endpoints/{rest...}", h.proxyIntegration)
+			mux.HandleFunc(method+" /v1/admin/integration/{rest...}", h.proxyIntegration)
+		}
+	}
+	if h.masterDataProxy != nil {
+		for _, method := range []string{http.MethodGet, http.MethodPost} {
+			mux.HandleFunc(method+" /v1/mdm/{rest...}", h.proxyMasterData)
+		}
+	}
+	if h.auditProjectionProxy != nil {
+		mux.HandleFunc("GET /v1/audit/entries", h.proxyAuditProjection)
+		mux.HandleFunc("POST /v1/audit/rebuild", h.proxyAuditProjection)
 	}
 	for _, definition := range publicOperationDefinitions {
 		if definition.configuration && h.configurationProxy == nil {

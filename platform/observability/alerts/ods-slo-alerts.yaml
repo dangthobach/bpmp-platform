@@ -1,0 +1,89 @@
+groups:
+  - name: ods-slo-and-reliability
+    interval: 30s
+    rules:
+      - alert: ODSHighErrorRate
+        expr: |
+          (
+            sum by (service) (rate(http_server_requests_total{status=~"5.."}[5m]))
+            /
+            clamp_min(sum by (service) (rate(http_server_requests_total[5m])), 1)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          phase: "5"
+        annotations:
+          summary: "ODS service {{ $labels.service }} 5xx error rate > 5%"
+          runbook: "docs/ods-operations-runbook.md#high-error-rate"
+
+      - alert: ODSHighLatencyP95
+        expr: |
+          histogram_quantile(0.95, sum by (le, service) (rate(http_server_request_duration_seconds_bucket[5m]))) > 5
+        for: 5m
+        labels:
+          severity: warning
+          phase: "5"
+        annotations:
+          summary: "ODS service {{ $labels.service }} p95 latency > 5s"
+          runbook: "docs/ods-operations-runbook.md#high-latency"
+
+      - alert: ODSPodRestartLoop
+        expr: increase(kube_pod_container_status_restarts_total{namespace=~"bpmp.*|ods.*"}[1h]) > 3
+        for: 5m
+        labels:
+          severity: critical
+          phase: "5"
+        annotations:
+          summary: "Pod {{ $labels.pod }} restarted > 3 times in 1h"
+          runbook: "docs/ods-operations-runbook.md#pod-restarts"
+
+      - alert: BPMPEngineQuorumLoss
+        expr: min(bpmp_engine_raft_has_quorum) == 0
+        for: 1m
+        labels:
+          severity: page
+          phase: "5"
+        annotations:
+          summary: "BPMP Engine Raft quorum lost"
+          runbook: "docs/ods-cutover-dr-and-decommission.md#raft-recovery"
+
+      - alert: ODSOutboxOrProjectionLagHigh
+        expr: max by (service) (ods_outbox_oldest_unpublished_seconds) > 60 or max by (service) (ods_projection_lag_seconds) > 60
+        for: 5m
+        labels:
+          severity: warning
+          phase: "5"
+        annotations:
+          summary: "Outbox or projection lag > 60s on {{ $labels.service }}"
+          runbook: "docs/ods-operations-runbook.md#projection-lag"
+
+      - alert: BPMPKMSFailClosed
+        expr: increase(bpmp_kms_operation_failures_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: page
+          phase: "5"
+        annotations:
+          summary: "KMS/DEK failure detected (fail-closed active; no plaintext fallback)"
+          runbook: "docs/vault-kms-operations.md"
+
+      - alert: IntegrationCircuitBreakerOpen
+        expr: max by (endpoint_id) (integration_circuit_breaker_state) == 1
+        for: 3m
+        labels:
+          severity: warning
+          phase: "5"
+        annotations:
+          summary: "Integration Hub circuit breaker OPEN for endpoint {{ $labels.endpoint_id }}"
+          runbook: "docs/ods-operations-runbook.md#integration-circuit-open"
+
+      - alert: RocksDBDiskPressure
+        expr: (node_filesystem_avail_bytes{mountpoint="/var/lib/bpmp-engine"} / node_filesystem_size_bytes{mountpoint="/var/lib/bpmp-engine"}) < 0.15
+        for: 5m
+        labels:
+          severity: critical
+          phase: "5"
+        annotations:
+          summary: "BPMP Engine RocksDB volume free space < 15%"
+          runbook: "docs/rocksdb-operations.md"

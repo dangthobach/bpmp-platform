@@ -295,3 +295,171 @@ func TestNotificationInAppDeliversOnlyToVerifiedRecipientAndIgnoresClientSpoofin
 		t.Fatalf("user-b replay leaked user-a hints: %s", replayBodyB)
 	}
 }
+
+func TestWorkItemChangedCrossTenantIsolationAndDenial(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0).UTC()
+	handler, hub, private := newRealtimeTestSetup(t, now)
+
+	proofTenantA := signTestActorContext(t, private, now, "tenant-a", "user-a", []string{"task.read"})
+	proofTenantB := signTestActorContext(t, private, now, "tenant-b", "user-b", []string{"task.read"})
+
+	// Cross-tenant header spoofing: tenant-a proof with X-BPMP-Tenant-ID: tenant-b must be denied.
+	spoofReq := httptest.NewRequest(http.MethodGet, "/realtime/v1/events?names=work-item.changed", nil)
+	spoofReq.Header.Set("X-BPMP-Tenant-ID", "tenant-b")
+	spoofReq.Header.Set("X-BPMP-Signed-Actor-Context", proofTenantA)
+	spoofRec := httptest.NewRecorder()
+	handler.ServeHTTP(spoofRec, spoofReq)
+	if spoofRec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for cross-tenant proof mismatch, got %d: %s", spoofRec.Code, spoofRec.Body.String())
+	}
+
+	// Open valid streams for tenant-a and tenant-b.
+	ctxA, cancelA := context.WithCancel(context.Background())
+	defer cancelA()
+	reqA := httptest.NewRequest(http.MethodGet, "/realtime/v1/events?names=work-item.changed", nil).WithContext(ctxA)
+	reqA.Header.Set("X-BPMP-Tenant-ID", "tenant-a")
+	reqA.Header.Set("X-BPMP-Signed-Actor-Context", proofTenantA)
+	recA := newSSERecorder()
+
+	ctxB, cancelB := context.WithCancel(context.Background())
+	defer cancelB()
+	reqB := httptest.NewRequest(http.MethodGet, "/realtime/v1/events?names=work-item.changed", nil).WithContext(ctxB)
+	reqB.Header.Set("X-BPMP-Tenant-ID", "tenant-b")
+	reqB.Header.Set("X-BPMP-Signed-Actor-Context", proofTenantB)
+	recB := newSSERecorder()
+
+	doneA, doneB := make(chan struct{}), make(chan struct{})
+	go func() { defer close(doneA); handler.ServeHTTP(recA, reqA) }()
+	go func() { defer close(doneB); handler.ServeHTTP(recB, reqB) }()
+	<-recA.flushed
+	<-recB.flushed
+
+	hub.PublishToIndexedSubscribers(subscription.Signal{
+		Cursor:   "hr-a:0:1",
+		TenantID: "tenant-a",
+		Name:     "work-item.changed",
+	})
+	hub.PublishToIndexedSubscribers(subscription.Signal{
+		Cursor:   "hr-b:0:1",
+		TenantID: "tenant-b",
+		Name:     "work-item.changed",
+	})
+
+	<-recA.flushed
+	<-recB.flushed
+	cancelA()
+	cancelB()
+	<-doneA
+	<-doneB
+
+	bodyA, bodyB := recA.String(), recB.String()
+	if !strings.Contains(bodyA, "id: hr-a:0:1\nevent: work-item.changed\ndata: {\"invalidate\":true}\n") {
+		t.Fatalf("tenant-a missed its payload-free invalidation: %s", bodyA)
+	}
+	if strings.Contains(bodyA, "hr-b:0:1") {
+		t.Fatalf("tenant-a received tenant-b signal: %s", bodyA)
+	}
+	if !strings.Contains(bodyB, "id: hr-b:0:1\nevent: work-item.changed\ndata: {\"invalidate\":true}\n") {
+		t.Fatalf("tenant-b missed its payload-free invalidation: %s", bodyB)
+	}
+	if strings.Contains(bodyB, "hr-a:0:1") {
+		t.Fatalf("tenant-b received tenant-a signal: %s", bodyB)
+	}
+
+	// Cross-tenant cursor replay: tenant-b reconnecting with tenant-a's Last-Event-ID must get resync-required, never tenant-a events.
+	ctxCross, cancelCross := context.WithCancel(context.Background())
+	defer cancelCross()
+	reqCross := httptest.NewRequest(http.MethodGet, "/realtime/v1/events?names=work-item.changed", nil).WithContext(ctxCross)
+	reqCross.Header.Set("X-BPMP-Tenant-ID", "tenant-b")
+	reqCross.Header.Set("X-BPMP-Signed-Actor-Context", proofTenantB)
+	reqCross.Header.Set("Last-Event-ID", "hr-a:0:1")
+	recCross := newSSERecorder()
+	doneCross := make(chan struct{})
+	go func() { defer close(doneCross); handler.ServeHTTP(recCross, reqCross) }()
+	<-recCross.flushed
+	cancelCross()
+	<-doneCross
+
+	crossBody := recCross.String()
+	if !strings.Contains(crossBody, "event: resync-required\ndata: {\"reason\":\"cursor_unavailable\"}\n") {
+		t.Fatalf("expected resync-required for foreign tenant cursor, got: %s", crossBody)
+	}
+	if strings.Contains(crossBody, "hr-a:0:1") {
+		t.Fatalf("foreign tenant cursor leaked tenant-a signal: %s", crossBody)
+	}
+}
+
+func TestWorkItemChangedReplayGapAndRestartRecovery(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0).UTC()
+	handler, hub, private := newRealtimeTestSetup(t, now)
+	proof := signTestActorContext(t, private, now, "tenant-a", "user-a", []string{"task.read"})
+
+	// Publish 20 events (> ReplaySize=16) so hr:0:1 is evicted from the replay ring.
+	for seq := 1; seq <= 20; seq++ {
+		hub.PublishToIndexedSubscribers(subscription.Signal{
+			Cursor:   "hr:0:" + string(rune('a'-1+seq)),
+			TenantID: "tenant-a",
+			Name:     "work-item.changed",
+		})
+	}
+
+	// Reconnect with evicted cursor -> must emit resync-required and continue delivering new live signals.
+	ctxGap, cancelGap := context.WithCancel(context.Background())
+	defer cancelGap()
+	reqGap := httptest.NewRequest(http.MethodGet, "/realtime/v1/events?names=work-item.changed", nil).WithContext(ctxGap)
+	reqGap.Header.Set("X-BPMP-Tenant-ID", "tenant-a")
+	reqGap.Header.Set("X-BPMP-Signed-Actor-Context", proof)
+	reqGap.Header.Set("Last-Event-ID", "hr:0:a")
+	recGap := newSSERecorder()
+	doneGap := make(chan struct{})
+	go func() { defer close(doneGap); handler.ServeHTTP(recGap, reqGap) }()
+	<-recGap.flushed
+
+	hub.PublishToIndexedSubscribers(subscription.Signal{
+		Cursor:   "hr:0:live-after-gap",
+		TenantID: "tenant-a",
+		Name:     "work-item.changed",
+	})
+	<-recGap.flushed
+	cancelGap()
+	<-doneGap
+
+	gapBody := recGap.String()
+	if !strings.Contains(gapBody, "event: resync-required\ndata: {\"reason\":\"cursor_unavailable\"}\n") {
+		t.Fatalf("evicted cursor did not emit resync-required: %s", gapBody)
+	}
+	if !strings.Contains(gapBody, "id: hr:0:live-after-gap\nevent: work-item.changed\n") {
+		t.Fatalf("live signal after replay gap was not delivered: %s", gapBody)
+	}
+
+	// Simulate Cockpit Gateway restart: fresh hub has empty replay state, client reconnects with pre-restart cursor.
+	restartedHandler, restartedHub, restartedPrivate := newRealtimeTestSetup(t, now)
+	restartedProof := signTestActorContext(t, restartedPrivate, now, "tenant-a", "user-a", []string{"task.read"})
+	ctxRestart, cancelRestart := context.WithCancel(context.Background())
+	defer cancelRestart()
+	reqRestart := httptest.NewRequest(http.MethodGet, "/realtime/v1/events?names=work-item.changed", nil).WithContext(ctxRestart)
+	reqRestart.Header.Set("X-BPMP-Tenant-ID", "tenant-a")
+	reqRestart.Header.Set("X-BPMP-Signed-Actor-Context", restartedProof)
+	reqRestart.Header.Set("Last-Event-ID", "hr:0:live-after-gap")
+	recRestart := newSSERecorder()
+	doneRestart := make(chan struct{})
+	go func() { defer close(doneRestart); restartedHandler.ServeHTTP(recRestart, reqRestart) }()
+	<-recRestart.flushed
+
+	restartedHub.PublishToIndexedSubscribers(subscription.Signal{
+		Cursor:   "hr:0:post-restart",
+		TenantID: "tenant-a",
+		Name:     "work-item.changed",
+	})
+	<-recRestart.flushed
+	cancelRestart()
+	<-doneRestart
+
+	restartBody := recRestart.String()
+	if !strings.Contains(restartBody, "event: resync-required\ndata: {\"reason\":\"cursor_unavailable\"}\n") {
+		t.Fatalf("post-restart reconnect did not emit resync-required: %s", restartBody)
+	}
+	if !strings.Contains(restartBody, "id: hr:0:post-restart\nevent: work-item.changed\n") {
+		t.Fatalf("post-restart live signal was not delivered: %s", restartBody)
+	}
+}

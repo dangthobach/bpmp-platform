@@ -6,7 +6,8 @@ use thiserror::Error;
 
 use crate::Ed25519Signer;
 use crate::authorization::v1::{
-    AuthorizationPolicyBundle, AuthorizationPolicyEffect, AuthorizationRevokeEpochUpdate,
+    AttributeScopeOperator, AttributeValueSource, AttributeValueType, AuthorizationPolicyBundle,
+    AuthorizationPolicyEffect, AuthorizationRevokeEpochUpdate,
 };
 use crate::signing::Ed25519Verifier;
 
@@ -248,6 +249,28 @@ fn canonicalize_bundle(bundle: &mut AuthorizationPolicyBundle) {
         grant.readable_fields.dedup();
         grant.writable_fields.sort_unstable();
         grant.writable_fields.dedup();
+        grant.masked_fields.sort_unstable();
+        grant.masked_fields.dedup();
+        for predicate in &mut grant.attribute_predicates {
+            predicate.literal_values.sort_unstable();
+            predicate.literal_values.dedup();
+        }
+        grant.attribute_predicates.sort_unstable_by(|left, right| {
+            (
+                &left.resource_attribute,
+                left.operator,
+                left.value_source,
+                &left.actor_attribute_key,
+                &left.literal_values,
+            )
+                .cmp(&(
+                    &right.resource_attribute,
+                    right.operator,
+                    right.value_source,
+                    &right.actor_attribute_key,
+                    &right.literal_values,
+                ))
+        });
     }
     bundle
         .resource_grants
@@ -259,6 +282,13 @@ fn canonicalize_bundle(bundle: &mut AuthorizationPolicyBundle) {
         definition.readable_fields.dedup();
         definition.writable_fields.sort_unstable();
         definition.writable_fields.dedup();
+        for attr_scope in &mut definition.supported_attribute_scopes {
+            attr_scope.supported_operators.sort_unstable();
+            attr_scope.supported_operators.dedup();
+        }
+        definition
+            .supported_attribute_scopes
+            .sort_unstable_by(|left, right| left.attribute_key.cmp(&right.attribute_key));
     }
     bundle.resource_catalog.sort_unstable_by(|left, right| {
         (
@@ -359,6 +389,33 @@ fn validate_bundle(
         validate_nonempty_values("resource_scope_ids", &grant.resource_scope_ids)?;
         validate_nonempty_values("readable_fields", &grant.readable_fields)?;
         validate_nonempty_values("writable_fields", &grant.writable_fields)?;
+        for predicate in &grant.attribute_predicates {
+            validate_nonempty("attribute_predicate.resource_attribute", &predicate.resource_attribute)?;
+            let operator = AttributeScopeOperator::try_from(predicate.operator)
+                .map_err(|_| AuthorizationArtifactError::InvalidField("attribute_predicate.operator"))?;
+            if operator == AttributeScopeOperator::Unspecified {
+                return Err(AuthorizationArtifactError::InvalidField("attribute_predicate.operator"));
+            }
+            let source = AttributeValueSource::try_from(predicate.value_source)
+                .map_err(|_| AuthorizationArtifactError::InvalidField("attribute_predicate.value_source"))?;
+            match source {
+                AttributeValueSource::Literal => {
+                    if predicate.literal_values.is_empty() || !predicate.actor_attribute_key.is_empty() {
+                        return Err(AuthorizationArtifactError::InvalidField("attribute_predicate.literal_values"));
+                    }
+                    validate_nonempty_values("attribute_predicate.literal_values", &predicate.literal_values)?;
+                }
+                AttributeValueSource::ActorAttribute => {
+                    validate_nonempty("attribute_predicate.actor_attribute_key", &predicate.actor_attribute_key)?;
+                    if !predicate.literal_values.is_empty() {
+                        return Err(AuthorizationArtifactError::InvalidField("attribute_predicate.literal_values"));
+                    }
+                }
+                AttributeValueSource::Unspecified => {
+                    return Err(AuthorizationArtifactError::InvalidField("attribute_predicate.value_source"));
+                }
+            }
+        }
         let effect = AuthorizationPolicyEffect::try_from(grant.effect)
             .map_err(|_| AuthorizationArtifactError::InvalidPolicyEffect(grant.effect))?;
         if effect == AuthorizationPolicyEffect::Unspecified {
@@ -398,6 +455,29 @@ fn validate_bundle(
         validate_nonempty_values("supported_scope_types", &definition.supported_scope_types)?;
         validate_nonempty_values("readable_fields", &definition.readable_fields)?;
         validate_nonempty_values("writable_fields", &definition.writable_fields)?;
+        for pair in definition.supported_attribute_scopes.windows(2) {
+            if pair[0].attribute_key == pair[1].attribute_key {
+                return Err(AuthorizationArtifactError::InvalidField(
+                    "duplicate supported_attribute_scopes",
+                ));
+            }
+        }
+        for attr_scope in &definition.supported_attribute_scopes {
+            validate_nonempty("supported_attribute_scopes.attribute_key", &attr_scope.attribute_key)?;
+            let value_type = AttributeValueType::try_from(attr_scope.value_type).map_err(|_| {
+                AuthorizationArtifactError::InvalidField("supported_attribute_scopes.value_type")
+            })?;
+            if value_type == AttributeValueType::Unspecified {
+                return Err(AuthorizationArtifactError::InvalidField(
+                    "supported_attribute_scopes.value_type",
+                ));
+            }
+            if attr_scope.supported_operators.is_empty() {
+                return Err(AuthorizationArtifactError::InvalidField(
+                    "supported_attribute_scopes.supported_operators",
+                ));
+            }
+        }
     }
     for grant in &bundle.resource_grants {
         let supported = bundle.resource_catalog.iter().any(|definition| {

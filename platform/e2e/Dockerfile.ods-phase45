@@ -1,0 +1,24 @@
+FROM golang:1.27.3-bookworm AS builder
+WORKDIR /workspace
+COPY platform/e2e/ods-phase45.go.work ./go.work
+COPY go/contracts ./go/contracts
+COPY go/platform ./go/platform
+COPY apps/go/document-adapter ./apps/go/document-adapter
+COPY apps/go/integration-hub ./apps/go/integration-hub
+COPY apps/go/master-data-service ./apps/go/master-data-service
+COPY apps/go/audit-projection ./apps/go/audit-projection
+
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -trimpath -o /out/document-adapter ./apps/go/document-adapter/cmd/document-adapter && \
+    CGO_ENABLED=0 go build -trimpath -o /out/integration-hub ./apps/go/integration-hub/cmd/integration-hub && \
+    CGO_ENABLED=0 go build -trimpath -o /out/master-data-service ./apps/go/master-data-service/cmd/master-data-service && \
+    CGO_ENABLED=0 go build -trimpath -o /out/audit-projection ./apps/go/audit-projection/cmd/audit-projection
+
+FROM alpine:3.22
+RUN apk add --no-cache ca-certificates curl wget
+COPY --from=builder /out/document-adapter /usr/local/bin/document-adapter
+COPY --from=builder /out/integration-hub /usr/local/bin/integration-hub
+COPY --from=builder /out/master-data-service /usr/local/bin/master-data-service
+COPY --from=builder /out/audit-projection /usr/local/bin/audit-projection
+USER 65532:65532
+ENTRYPOINT ["/usr/local/bin/document-adapter"]

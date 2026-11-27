@@ -23,6 +23,11 @@ message WorkloadProof {
   bytes signed_proof = 1;
 }
 
+message ActorAttribute {
+  string key = 1;
+  repeated string values = 2;
+}
+
 message SignedActorContext {
   uint32 schema_version = 1;
   string tenant_id = 2;
@@ -37,6 +42,9 @@ message SignedActorContext {
   string signing_key_id = 11;
   bytes content_hash = 12;
   bytes signature = 13;
+  // Canonical sorted (by key, with sorted unique values) dynamic actor attributes
+  // used by local evaluators for multi-workflow data-scope filtering.
+  repeated ActorAttribute attributes = 14;
 }
 
 message SignedWorkloadContext {
@@ -154,6 +162,43 @@ message AuthorizationPolicyBundle {
   repeated AuthorizationResourceDefinition resource_catalog = 15;
 }
 
+enum AttributeValueType {
+  ATTRIBUTE_VALUE_TYPE_UNSPECIFIED = 0;
+  ATTRIBUTE_VALUE_TYPE_STRING = 1;
+  ATTRIBUTE_VALUE_TYPE_STRING_LIST = 2;
+  ATTRIBUTE_VALUE_TYPE_INT64 = 3;
+  ATTRIBUTE_VALUE_TYPE_BOOL = 4;
+}
+
+enum AttributeScopeOperator {
+  ATTRIBUTE_SCOPE_OPERATOR_UNSPECIFIED = 0;
+  ATTRIBUTE_SCOPE_OPERATOR_EQ = 1;
+  ATTRIBUTE_SCOPE_OPERATOR_IN = 2;
+  ATTRIBUTE_SCOPE_OPERATOR_CONTAINS_ANY = 3;
+  ATTRIBUTE_SCOPE_OPERATOR_GTE = 4;
+  ATTRIBUTE_SCOPE_OPERATOR_LTE = 5;
+}
+
+enum AttributeValueSource {
+  ATTRIBUTE_VALUE_SOURCE_UNSPECIFIED = 0;
+  ATTRIBUTE_VALUE_SOURCE_LITERAL = 1;
+  ATTRIBUTE_VALUE_SOURCE_ACTOR_ATTRIBUTE = 2;
+}
+
+message ResourceAttributeScope {
+  string attribute_key = 1;
+  AttributeValueType value_type = 2;
+  repeated AttributeScopeOperator supported_operators = 3;
+}
+
+message AttributeScopePredicate {
+  string resource_attribute = 1;
+  AttributeScopeOperator operator = 2;
+  AttributeValueSource value_source = 3;
+  repeated string literal_values = 4;
+  string actor_attribute_key = 5;
+}
+
 message AuthorizationResourceDefinition {
   string owner_id = 1;
   string manifest_version = 2;
@@ -164,6 +209,9 @@ message AuthorizationResourceDefinition {
   repeated string supported_scope_types = 7;
   repeated string readable_fields = 8;
   repeated string writable_fields = 9;
+  // Attribute keys and operators that this resource owner knows how to enforce
+  // and compile into indexed row predicates.
+  repeated ResourceAttributeScope supported_attribute_scopes = 10;
 }
 
 // Kafka envelope around the already signed canonical policy bundle. Consumers
@@ -216,6 +264,9 @@ message AuthorizationResourceGrant {
   bool tenant_scope = 17;
   // Fields hidden from query responses for this grant.
   repeated string masked_fields = 18;
+  // Dynamic attribute predicates intersected (AND) with other narrow scopes.
+  // Mutually exclusive with tenant_scope = true.
+  repeated AttributeScopePredicate attribute_predicates = 19;
 }
 
 message AuthorizationRevokeEpochUpdate {
