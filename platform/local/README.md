@@ -4,9 +4,11 @@ This Compose project provides persistent local infrastructure for service
 development:
 
 - one PostgreSQL database and credential boundary for each of Human Runtime,
-  Configuration Service, Projection Service, Governance Service and Authz;
+  Configuration Service, Projection Service, Governance Service, Authz and
+  Notification Service;
 - Redpanda as the Kafka-compatible broker;
 - Redis for API Gateway rate limiting;
+- Mailpit as a local SMTP sink and HTTP inspection UI for Notification Service;
 - an OTLP collector with a debug trace exporter;
 - one-shot, checksum-tracked DDL jobs and idempotent Kafka topic provisioning.
 
@@ -76,9 +78,12 @@ Every value is configurable in the ignored `.env` file.
 | Projection PostgreSQL | `localhost:15434` |
 | Governance PostgreSQL | `localhost:15435` |
 | Authz PostgreSQL | `localhost:15436` |
+| Notification PostgreSQL | `localhost:15437` |
 | Kafka | `localhost:19092` |
 | Redpanda Admin API | `localhost:19644` |
 | Redis | `localhost:16379` |
+| Mailpit SMTP | `localhost:11025` |
+| Mailpit HTTP UI | `localhost:18025` |
 | OTLP gRPC | `localhost:14317` |
 
 Containers on the Compose network use `redpanda:9092`, `redis:6379` and the

@@ -238,8 +238,7 @@ def build():
         ('/v1/admin/permissions','Permission','Authz','code:id resourceType:id action:id mandatoryAudit:b'),
         ('/v1/admin/queues','Queue','Human','key:id name:s processKey:id'),
         ('/v1/admin/service-accounts','ServiceAccount','Identity','name:s workloadRef:id'),
-        ('/v1/admin/endpoints','Endpoint','Integration','key:id name:s url:uri httpMethod:id authType:id secretRef?:id'),
-        ('/v1/admin/notification-templates','NotificationTemplate','Notification','key:id name:s channel:id locale:id body:s variableSchema:json')):
+        ('/v1/admin/endpoints','Endpoint','Integration','key:id name:s url:uri httpMethod:id authType:id secretRef?:id')):
         resource(base,noun,owner,fields)
         add('POST',base+'/batch-actions','batch'+noun+'Actions',owner,'items:[@TargetBatchItem]',output='TargetBatchResult',cas=False)
     for action in ('lock','unlock','revoke-sessions'):
@@ -258,6 +257,66 @@ def build():
     add('POST','/v1/admin/access-audit/query','queryAccessAudit','Audit','filter:json cursor?:s pageSize?:i',output='TargetQueryResult',cas=False)
     add('POST','/v1/admin/access-audit/exports','createAccessAuditExport','Audit','filter:json fields:[id]',output='TargetJob',cas=False)
     add('POST','/v1/notifications/preferences','updateNotificationPreferences','Notification','expectedVersion:i channels:json',cas=True)
+
+    # ADR-013 Notification Service bounded context: templates/versions/releases, validation, batch actions,
+    # variable mapping, trigger rules, preview, test-send, producer applications, dynamic provider profiles,
+    # circuit-breaker overrides/transitions/probe/mock-simulate, deliveries, metrics, audit, manual send & inbox.
+    schema('TargetNotificationPreview', 'channel:id locale:id subject?:s html?:s text?:s smsEncoding?:id smsCharCount?:i smsSegments?:i htmlBytes?:i renderedWithSampleData:b warnings:[s]')
+    schema('TargetNotificationSendReceipt', 'requestId?:id status:id replayed?:b deliveries?:[json] plan?:json')
+    schema('TargetProviderHealth', 'providerId:id providerKey:id channel:id driverKind:id operationalState:id breakerState:id healthStatus?:id errorRateBps:i slowCallRateBps?:i slowCallThresholdMs?:i slowCallRateThresholdBps?:i rollingWindowMs?:i windowRequests:i windowFailures:i bufferedCalls?:i failedCalls?:i slowCalls?:i cooldownRemainingMs?:i avgLatencyMs?:i successRateBps?:i sent24h?:i fallbackProvider?:id activeOverride?:id overrideExpiresAt?:time')
+    schema('TargetNotificationDelivery', 'id:id requestId:id templateVersionId:id channel:id lane:id status:id correlationId?:id recipientSubjectRef?:id maskedAddress:s selectedProviderId?:id attemptCount:i resendOfDeliveryId?:id trace?:[json] createdAt:time completedAt?:time')
+    schema('TargetTemplateDiagnostic', 'code:id severity:id target:id line:i column:i message:s quickFix?:json')
+    schema('TargetTemplateValidation', 'valid:b diagnostics:[@TargetTemplateDiagnostic]')
+    schema('TargetVariableMapping', 'links:[json] processes:[json]')
+    schema('TargetBreakerTransition', 'fromState:id toState:id reason:s occurredAt:time actorRef?:id')
+    add('GET','/v1/notifications/templates','listTemplates','Notification',output='TargetVersion',collection=True,priority='P0',capability='notification.template.read',note='Supports query filters channel, tag, status, q; returns tags[], channels[], active_release, usage_24h.')
+    add('POST','/v1/notifications/templates','createTemplate','Notification','templateKey:id applicationId:id categoryId:id name:s defaultLocale:id tags?:[s]',priority='P0',cas=False,capability='notification.template.write')
+    add('GET','/v1/notifications/templates/tags','listTemplateTags','Notification',output='TargetQueryResult',priority='P0',capability='notification.template.read')
+    add('POST','/v1/notifications/templates/validate','validateTemplateDraft','Notification','syntax:id variableSchema:json variants:[json]',output='TargetTemplateValidation',priority='P0',cas=False,command=False,capability='notification.template.validate',note='Authoritative server-side template validation for handlebars/v1 and gotmpl/v1 drafts.')
+    add('POST','/v1/notifications/templates/batch-actions','batchTemplateActions','Notification','action:id ids:[id] status?:id tagMode?:id tags?:[s] reason?:s',output='TargetBatchResult',priority='P0',cas=False,command=True,capability='notification.template.batch',note='Supports SET_STATUS, TAGS (add|remove|replace), and soft DELETE with per-item results.')
+    add('POST','/v1/notifications/templates/{templateID}/restore','restoreTemplate','Notification','expectedVersion:i reason?:s',priority='P0',capability='notification.template.write',note='Restores a soft-deleted notification template.')
+    add('GET','/v1/notifications/templates/{templateID}/versions','listTemplateVersions','Notification',output='TargetVersion',collection=True,priority='P0',capability='notification.template.read',note='Includes change_note, created_by, and release_ordinal metadata.')
+    add('PUT','/v1/notifications/templates/{templateID}/versions/draft','saveTemplateVersionDraft','Notification','expectedVersion:i versionId?:id schemaMajor:i syntax:id layoutVersionId?:id variableSchema:json variants:[json] changeNote?:s',priority='P0',capability='notification.template.write')
+    add('POST','/v1/notifications/templates/{templateID}/versions/{versionID}/publish','publishTemplateVersion','Notification','expectedVersion:i approvalId?:id',priority='P0',capability='notification.template.publish',note='Published template versions are immutable; breaking variableSchema changes require a new schemaMajor.')
+    add('GET','/v1/notifications/templates/{templateID}/releases','listTemplateReleases','Notification',output='TargetQueryResult',priority='P0',capability='notification.template.read')
+    add('POST','/v1/notifications/templates/{templateID}/releases','activateTemplateRelease','Notification','expectedVersion:i schemaMajor:i templateVersionId:id activateAt?:time',priority='P0',capability='notification.release.activate',note='Advances monotonic release ordinal for (tenant, template, schemaMajor).')
+    add('POST','/v1/notifications/templates/{templateID}/releases/rollback','rollbackTemplateRelease','Notification','expectedVersion:i schemaMajor:i templateVersionId:id reason:s',priority='P0',capability='notification.release.rollback',note='Creates a new release record with ordinal + 1 pointing to a prior immutable version.')
+    add('GET','/v1/notifications/variable-mapping','getNotificationVariableMapping','Notification',output='TargetVariableMapping',priority='P0',capability='notification.variable_mapping.read',note='Computes Process Context -> Template -> Variable dependency graph and OK/WARN/CRITICAL diagnostics.')
+    add('GET','/v1/notifications/trigger-rules','listNotificationTriggerRules','Notification',output='TargetQueryResult',priority='P0',capability='notification.rule.read')
+    add('POST','/v1/notifications/trigger-rules','createNotificationTriggerRule','Notification','ruleKey:id processKey:id triggerKind:id templateKey:id schemaMajor:i mappingExpr?:json',priority='P0',cas=False,capability='notification.rule.write')
+    add('PUT','/v1/notifications/trigger-rules/{ruleID}/revisions','saveNotificationTriggerRuleRevision','Notification','expectedVersion:i templateKey:id schemaMajor:i exportedVariables?:[json] mappingExpr?:json',priority='P0',capability='notification.rule.write',note='Saves a draft trigger-rule revision without implicit publication.')
+    add('POST','/v1/notifications/trigger-rules/{ruleID}/revisions/{revisionID}/activate','activateNotificationTriggerRuleRevision','Notification','expectedVersion:i reason?:s',priority='P0',capability='notification.rule.activate')
+    add('POST','/v1/notifications/trigger-rules/{ruleID}/simulate','simulateNotificationTriggerRule','Notification','eventPayload:json',output='TargetValidation',priority='P0',cas=False,command=False,capability='notification.rule.read')
+    add('POST','/v1/notifications/preview','previewNotification','Notification','mode:id templateVersionId?:id deliveryId?:id channel:id locale:id draftVariableSchema?:json draftVariant?:json sampleData?:json',output='TargetNotificationPreview',priority='P0',cas=False,capability='notification.preview.render',note='Supports DRAFT, PUBLISHED_VERSION, and DELIVERY_REPLAY (records DELIVERY_PAYLOAD_INSPECTED audit evidence when decrypting retained payload).')
+    add('POST','/v1/notifications/test-send','sendTestNotification','Notification','templateVersionId:id channel:id locale:id verifiedRecipientAddress:s sampleData:json',output='TargetNotificationSendReceipt',priority='P0',cas=False,command=True,capability='notification.operations.test_send',note='Guarded to verified actor contact or tenant test allowlist; flagged is_test=true and excluded from business metrics.')
+    add('GET','/v1/notifications/applications','listNotificationApplications','Notification',output='TargetQueryResult',priority='P0',capability='notification.application.read',note='Includes owner_team, default_sender_identity, usage_today, quota{per_minute, per_day}, and status.')
+    add('POST','/v1/notifications/applications','createNotificationApplication','Notification','applicationKey:id name:s ownerTeam?:s defaultSenderIdentity?:s callbackUrl?:uri authMode:id principalRef:s allowedNamespaces:[s] allowedChannels:[id] defaultLane:id quotaConfig:json',priority='P0',cas=False,capability='notification.application.write')
+    add('PATCH','/v1/notifications/applications/{applicationID}','updateNotificationApplication','Notification','expectedVersion:i name?:s ownerTeam?:s defaultSenderIdentity?:s callbackUrl?:uri status?:id allowedNamespaces?:[s] allowedChannels?:[id] defaultLane?:id quotaConfig?:json',priority='P0',capability='notification.application.write')
+    add('POST','/v1/notifications/applications/{applicationID}/keys/rotate','rotateNotificationApplicationKey','Notification','expectedVersion:i gracePeriodSeconds:i reason:s',priority='P0',capability='notification.application.rotate_key',note='Returns one-time plaintext API key secret; only prefix and Argon2id/SHA-256 hash are stored.')
+    add('POST','/v1/notifications/applications/{applicationID}/keys/{keyID}/revoke','revokeNotificationApplicationKey','Notification','expectedVersion:i reason:s',priority='P0',capability='notification.application.rotate_key')
+    add('GET','/v1/notifications/providers','listNotificationProviders','Notification',output='TargetQueryResult',priority='P0',capability='notification.provider.read')
+    add('POST','/v1/notifications/providers','createNotificationProvider','Notification','providerKey:id name:s channel:id driverKind:id preset?:id config:json',priority='P0',cas=False,capability='notification.provider.write')
+    add('PUT','/v1/notifications/providers/{providerID}/revisions','saveNotificationProviderRevision','Notification','expectedVersion:i driverKind:id config:json credentialsRef?:s',priority='P0',capability='notification.provider.write')
+    add('POST','/v1/notifications/providers/{providerID}/revisions/{revisionID}/activate','activateNotificationProviderRevision','Notification','expectedVersion:i reason?:s',priority='P0',capability='notification.provider.activate')
+    add('POST','/v1/notifications/providers/{providerID}/test-connection','probeNotificationProvider','Notification','expectedVersion:i',output='TargetValidation',priority='P0',capability='notification.provider.probe')
+    add('GET','/v1/notifications/providers/health','listNotificationProviderHealth','Notification',output='TargetProviderHealth',collection=True,priority='P0',capability='notification.provider.read')
+    add('GET','/v1/notifications/providers/{providerID}/circuit-breaker/transitions','listNotificationBreakerTransitions','Notification',output='TargetBreakerTransition',collection=True,priority='P0',capability='notification.provider.read')
+    add('POST','/v1/notifications/providers/{providerID}/circuit-breaker/override','setNotificationBreakerOverride','Notification','overrideMode:id reason:s ttlMs:i',output='TargetProviderHealth',priority='P0',cas=False,command=True,capability='notification.breaker.override',note='Supports FORCE_OPEN, FORCE_CLOSE, DRAINING with mandatory reason and bounded ttlMs; audited and broadcast via invalidation stream.')
+    add('DELETE','/v1/notifications/providers/{providerID}/circuit-breaker/override','clearNotificationBreakerOverride','Notification','reason:s',priority='P0',cas=False,command=True,capability='notification.breaker.override')
+    add('POST','/v1/notifications/providers/{providerID}/circuit-breaker/probe','probeNotificationBreaker','Notification','reason?:s',output='TargetProviderHealth',priority='P0',cas=False,command=True,capability='notification.breaker.probe',note='Clears manual override and transitions circuit breaker into HALF_OPEN probe state.')
+    add('POST','/v1/notifications/providers/{providerID}/circuit-breaker/simulate-failure','simulateNotificationBreakerFailure','Notification','failureRateBps:i durationMs?:i reason?:s',output='TargetProviderHealth',priority='P1',cas=False,command=True,capability='notification.breaker.override',note='Permitted only for mock driver providers in non-production environments (D8).')
+    add('GET','/v1/notifications/routing-policies','listNotificationRoutingPolicies','Notification',output='TargetQueryResult',priority='P1',capability='notification.routing.read')
+    add('PUT','/v1/notifications/routing-policies/{policyID}','saveNotificationRoutingPolicy','Notification','expectedVersion:i channel:id tiers:[json]',priority='P1',capability='notification.routing.write')
+    add('GET','/v1/notifications/deliveries','listNotificationDeliveries','Notification',output='TargetNotificationDelivery',collection=True,priority='P0',capability='notification.delivery.read',note='Keyset-paginated by (before_created_at, before_id); returns masked_address by default; exact-hash lookup only for full recipient address.')
+    add('GET','/v1/notifications/deliveries/{deliveryID}','getNotificationDelivery','Notification',output='TargetNotificationDelivery',priority='P0',capability='notification.delivery.read')
+    add('POST','/v1/notifications/deliveries/{deliveryID}/resend','resendNotificationDelivery','Notification','reason?:s',output='TargetNotificationDelivery',priority='P0',cas=False,command=True,capability='notification.delivery.resend',note='Creates a new child delivery with resend_of_delivery_id when payload is within retention TTL and contains no secret variables.')
+    add('POST','/v1/notifications/metrics/query','queryNotificationMetrics','Notification','filter:json windowHours?:i groupBy?:id',output='TargetQueryResult',priority='P0',cas=False,capability='notification.metrics.read',note='Zero PII; supports 1h/24h/7d windows, groupBy channel|lane|provider|status_class, and p50/p95/p99 latency from histogram.')
+    add('GET','/v1/notifications/audit','listNotificationAuditEvidence','Notification',output='TargetQueryResult',priority='P0',capability='notification.audit.read',note='Supports filters resource_type, severity, q; includes actor_display, actor_role, client_ip, severity, resource_type, details.')
+    add('POST','/v1/notifications/send','submitNotification','Notification','templateKey:id schemaMajor:i categoryKey:id laneOverride?:id priority?:i dryRun?:b locale?:id recipients:[json] data:json sendAt?:time expiresAt?:time',output='TargetNotificationSendReceipt',priority='P0',cas=False,command=True,capability='notification.operations.send',note='Validates schema, persists request/deliveries/River job in one transaction, and returns ACCEPTED receipt without waiting on providers. When dryRun=true (capability notification.operations.plan), returns routing/quota/breaker plan without writing DB or enqueuing.')
+    add('GET','/v1/notifications/requests/{requestID}','getNotificationRequest','Notification',output='TargetNotificationSendReceipt',priority='P0',capability='notification.delivery.read')
+    add('GET','/v1/notifications/inbox','listInAppNotifications','Notification',output='TargetQueryResult',priority='P0',capability='notification.inbox.read')
+    add('POST','/v1/notifications/inbox/read','markInAppNotificationsRead','Notification','messageIds:[id]',priority='P0',cas=False,command=True,capability='notification.inbox.write')
+    add('GET','/v1/notifications/preferences','getNotificationPreferences','Notification',output='TargetQueryResult',priority='P0',capability='notification.preference.read')
 
     # MDM models/datasets are administrative entities; releases are immutable.
     for noun,path,fields in (
@@ -369,8 +428,10 @@ def build():
                    'baseVersionId','targetVersionId','targetModelVersionId','templateVersionId','approvalId',
                    'documentId','documentVersionId','serviceOfferingVersionId','datasetId','releaseId',
                    'bundleId','sourceBundleId','reportVersionId','artifactId','validationReportId',
-                   'compatibilityReportId','processVersionId','masterDataBundleId','policyId','queueId'}
-    uuid_arrays = {'roleIds','permissionIds','datasetIds','datasetReleases'}
+                   'compatibilityReportId','processVersionId','masterDataBundleId','policyId','queueId',
+                   'applicationId','categoryId','layoutVersionId','versionId','deliveryId','requestId',
+                   'providerId','resendOfDeliveryId'}
+    uuid_arrays = {'roleIds','permissionIds','datasetIds','datasetReleases','messageIds'}
     for name, body in schemas.items():
         if not name.startswith(('Target','target')):
             continue

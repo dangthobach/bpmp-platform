@@ -58,7 +58,7 @@ flowchart TB
 | Case | Planned trong ADR-011 | Customer/request/business lifecycle, comments, document references, workflow-start saga; không sở hữu task decision |
 | Document | Planned | Upload/object storage, scan, version, access/retention; Case giữ reference, không blob |
 | Integration | Planned | Endpoint/credential refs, probes, callbacks, delivery retries; outbound worker không được quyết định transition |
-| Notification | Planned | Template/subscription/delivery; lỗi gửi không rollback workflow đã commit |
+| Notification | Planned trong ADR-011, chốt ranh giới tại [ADR-013](../adr/ADR-013-notification-service.md) | Template/layout version bất biến, preview an toàn, dynamic provider/routing/circuit breaker, workflow trigger rules và delivery theo lane; lỗi gửi không rollback workflow đã commit; [thiết kế Notification](appendix/notification-service.md) |
 | MDM | Planned Master Data context trong ADR-011 | Model/dataset admin, immutable publications; consumer-local replicas + batched resolve; [thiết kế MDM](appendix/mdm-service.md). Không network lookup trong deterministic core. |
 | Configuration | Go service có | Config version/scope/publication; không chứa mọi aggregate nghiệp vụ |
 | Projection / Analytics | Go projection có | Query, saved views/export; thêm read models facts/metrics. Không triển khai analytics microservice mới nếu chưa có nhu cầu tải riêng |
@@ -123,6 +123,10 @@ Camunda/Flowable trong prototype chỉ là lựa chọn UI. Mặc định thiế
 ## MDM và business data path
 
 MDM là proposal; xem [phụ lục MDM](appendix/mdm-service.md) khi triển khai capability này. Engine chỉ nhận resolved evidence tường minh để replay không phụ thuộc MDM online.
+
+## Notification và tích hợp lỏng (loose coupling)
+
+Thiết kế chi tiết nằm ở [phụ lục Notification](appendix/notification-service.md) theo [ADR-013](../adr/ADR-013-notification-service.md). Producer chỉ gửi `template_key@schema_major` và payload dữ liệu qua transactional outbox hoặc `SubmitNotification` nhận receipt tức thì; kênh gửi, provider, template variant và định tuyến failover nằm trọn trong Notification. Gửi thông báo sau bước workflow dùng trigger rule đọc `bpmp.engine.committed-events`, không sửa Engine/WIR.
 
 ## Database ownership và Reporting
 

@@ -241,6 +241,8 @@ func validSnapshot(
 		return snapshot.GetCockpitGateway() != nil
 	case configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_AUTHZ_CONTROL_PLANE:
 		return snapshot.GetAuthzControlPlane() != nil
+	case configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_NOTIFICATION:
+		return snapshot.GetNotification() != nil
 	default:
 		return false
 	}

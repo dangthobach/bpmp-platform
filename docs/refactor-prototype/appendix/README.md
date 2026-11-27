@@ -7,7 +7,8 @@ Các tài liệu ở đây giữ thiết kế chuyên biệt để không lặp 
 - `authorization` không được rút gọn: nguồn chuẩn vẫn là `../authorization-and-data-access.md`.
 - `functional-analysis.md`, `runtime-ui-api-mapping.md`, `ui-prototype-integration.md`: phân tích prototype và tình trạng UI/API.
 - `component-system.md`: MFE, component boundary và reuse.
-- `mdm-service.md`, `databases-and-reporting.md`: proposal capability tương lai.
+- `mdm-service.md`, `notification-service.md`, `databases-and-reporting.md`: proposal capability tương lai (xem thêm `../../adr/ADR-013-notification-service.md` cho Notification).
 - `entity-conventions.md`, `backend-operations.md`: implementation conventions chi tiết.
 
 Các proposal không tự động trở thành contract đã phát hành. Kiểm tra trạng thái trong API catalog và code owner trước khi triển khai.
+- `notification-prototype-review.md`: đối chiếu prototype Notification UI với API/DBML và các quyết định D1-D9.

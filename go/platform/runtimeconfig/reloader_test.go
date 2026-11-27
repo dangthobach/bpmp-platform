@@ -229,6 +229,35 @@ func TestBootstrapBoundsUnavailableResolver(t *testing.T) {
 	}
 }
 
+func TestReloaderInstallsNotificationOwnerSnapshot(t *testing.T) {
+	cache, err := NewCache(configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_NOTIFICATION)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := testReloaderConfig()
+	cfg.Owner = configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_NOTIFICATION
+	resolver := &fakeResolver{snapshot: notificationSnapshot(2)}
+	consumer := &fakeConsumer{}
+	reloader, err := New(cfg, resolver, consumer, cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := proto.Marshal(publication(configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_NOTIFICATION))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = reloader.HandleRecord(context.Background(), &kgo.Record{Value: payload}); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := cache.Get("tenant-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.GetNotification().GetProviderCallTimeoutMs() != 5000 || resolver.calls != 1 || consumer.commits != 1 {
+		t.Fatalf("notification publication was not installed cleanly: loaded=%+v calls=%d commits=%d", loaded, resolver.calls, consumer.commits)
+	}
+}
+
 func mustGatewayCache(t *testing.T) *Cache {
 	t.Helper()
 	cache, err := NewCache(configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_API_GATEWAY)

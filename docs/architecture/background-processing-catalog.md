@@ -1,7 +1,7 @@
 # BPMP Background Processing Catalog
 
 - Status: Current implementation inventory
-- Last verified: 2026-10-30
+- Last source review: 2026-11-25
 - Scope: explicit long-running consumers, publishers, schedulers, lease workers,
   and configuration reloaders started by repository deployables
 
@@ -97,6 +97,24 @@ The deployment job queue and the event outbox are separate mechanisms. Current
 worker recovery is backed by the job row/lease and Engine receipt, not by replay
 of the outbox. PostgreSQL integration proves row creation, not publication.
 
+## Case Service
+
+The Case deployable is in Phase 3 implementation. Its local Docker Compose path
+has exercised the outbox publisher, workflow-start runner and Engine-event
+consumer; this is not production or staging qualification.
+
+| Worker | Trigger/input | Durable state and identity | Bounds/retry | Recovery and failure |
+|---|---|---|---|---|
+| Case outbox publisher | Ordered Case outbox rows | Case PostgreSQL event ID, aggregate version and lease | Bounded polling, message deadline, retries and Kafka ACK | Reuses event ID; marks published only after broker ACK; consumer dedup is required for ACK/DB-update ambiguity |
+| Workflow-start runner | Durable Case start jobs | Case ID as Engine instance/command identity; PostgreSQL lease/fencing | Bounded retry and attempt limit; fresh actor/workload proof per attempt | Reclaims expired jobs; ambiguous Engine outcome remains reconcilable; local metadata currently comes from an immutable E2E fixture |
+| Engine event consumer | Committed Engine Protobuf topic | Case PostgreSQL inbox, digest, sequence and process-state projection | Bounded message size and topic consumer policy | Commits DB transaction before Kafka offset; duplicate is no-op; changed digest/sequence conflict fails closed |
+
+Current limits: local fixture metadata is not an authoritative workflow catalog;
+same-key browser replay, long-window retention/replay/restore, production TLS,
+and authorized staging acceptance remain open. See
+`docs/ods-refactor-progress.md` and `apps/go/case-service/README.md` for the
+latest local evidence and exact gates.
+
 ## Governance Service
 
 | Worker | Trigger/input | Durable state and identity | Bounds/retry | Recovery and failure |
@@ -126,7 +144,7 @@ multiple Authz replicas may run the job concurrently.
 
 | Worker/activity | Trigger/input | State and identity | Bounds/retry | Recovery and failure |
 |---|---|---|---|---|
-| Committed-event consumer | Engine committed-event topic | Kafka group and bounded in-memory event stream/fan-out | Fetch/message/queue bounds | Restart resumes from group offset; clients reconcile from read APIs |
+| Committed-event consumer | Engine committed-event topic plus Human Runtime assignment-change topic | Per-topic Kafka groups and bounded in-memory event stream/fan-out | Fetch/message/queue bounds | Restart resumes from group offsets; payload-free SSE invalidations make clients reconcile from read APIs |
 | SSE heartbeat | Per-connection ticker | Ephemeral authenticated connection/cursor | Configured heartbeat and write deadlines | Slow/disconnected client is removed; heartbeat is not a durability mechanism |
 
 SSE messages are hints. A reconnect or missed message is repaired by refetching
@@ -134,12 +152,12 @@ Projection/Human APIs, not by treating the gateway as an authoritative model.
 
 ## Planned workers (not current)
 
-The ODS plan describes Case workflow-start saga, Document upload/scan callbacks,
-Integration Hub inbox/outbox, notification, and future Process Copilot workers.
-They are not part of the current runtime catalog. A planned worker becomes
-current only when its deployable, versioned contract, authoritative store,
-lease/checkpoint design, configuration, telemetry, runbook, and executable
-failure evidence exist.
+Document upload/scan callbacks, Integration Hub inbox/outbox, notification,
+and future Process Copilot workers remain planned. Case workers are listed above
+as an implementation-in-progress local vertical slice, not as a production-
+qualified runtime. A planned worker becomes current only when its deployable,
+versioned contract, authoritative store, lease/checkpoint design, configuration,
+telemetry, runbook, and executable failure evidence exist.
 
 ## Operational signals
 
@@ -162,8 +180,12 @@ Every alert needs a linked recovery or escalation procedure before production.
 
 ## Proposed reporting workers (not current)
 
-Future reporting ingest, dimension sync, aggregate correction, export and reconciliation workers are specified with ownership, durable state, bounds and recovery in [Reporting design, section 8](../refactor-prototype/databases-and-reporting.md). They are not running workers in the current inventory. Implementation must add entry points, metrics, fencing and executable crash/recovery evidence here.
+Future reporting ingest, dimension sync, aggregate correction, export and reconciliation workers are specified with ownership, durable state, bounds and recovery in [Reporting design, section 8](../refactor-prototype/appendix/databases-and-reporting.md). They are not running workers in the current inventory. Implementation must add entry points, metrics, fencing and executable crash/recovery evidence here.
+
+## Proposed notification workers (not current)
+
+Future Notification workers (`notification-intake` over producer request and Engine committed-event streams, lane-isolated `notification-dispatcher` River workers for `transactional`/`normal`/`bulk`, `notification-scheduler` for outbox relay, scheduled activations, hourly rollups and TTL partition cleanup, per-replica release/breaker invalidation consumers, and the `NotificationPolicy` configuration reloader) are specified in [ADR-013](../adr/ADR-013-notification-service.md) and [Notification Service design](../refactor-prototype/appendix/notification-service.md). None are running in the current inventory; add them above with executable crash/recovery evidence when the first vertical slice lands.
 
 ## Required scheduled retention workers (target)
 
-Every outbox/log owner must implement configured periodic cleanup according to [backend standards](../refactor-prototype/backend-operations.md): terminal/ACK eligibility, local-reader checkpoint floor, archive/hold policy, bounded batch/lease/fencing, restart recovery and cleanup metrics. Engine pruning must respect all local readers and authoritative Raft/storage rules. This is a target requirement, not evidence that these workers are currently running.
+Every outbox/log owner must implement configured periodic cleanup according to [backend standards](../refactor-prototype/appendix/backend-operations.md): terminal/ACK eligibility, local-reader checkpoint floor, archive/hold policy, bounded batch/lease/fencing, restart recovery and cleanup metrics. Engine pruning must respect all local readers and authoritative Raft/storage rules. This is a target requirement, not evidence that these workers are currently running.

@@ -1,7 +1,7 @@
 # BPMP Architecture Documentation
 
 - Status: Current architecture index
-- Last verified: 2026-10-30
+- Last source-tree review: 2026-11-25
 - Scope: deployables, trust boundaries, consistency boundaries, workflows, and
   production background processing present in this repository
 
@@ -74,13 +74,16 @@ through RocksDB/Raft.
 | Human runtime | `apps/go/human-runtime` | Work-item projection, assignment, delegation, SLA escalation | Human PostgreSQL | Current |
 | Configuration service | `apps/go/configuration-service` | Immutable configuration versions, resolution, publication, rollback, audit | Configuration PostgreSQL | Current |
 | Projection service | `apps/go/projection-service` | Rebuildable read model, query authorization, saved queries, exports | Projection PostgreSQL | Current |
+| Case service | `apps/go/case-service` | Tenant-scoped Case aggregate, start saga, event inbox and process-state read model | Case PostgreSQL | Current Phase 3 implementation; local E2E path exists, production owner metadata/retention/TLS gates remain |
 | Governance service | `apps/rust/governance-service` | Approval workflow, revocation barrier, KMS lifecycle orchestration | Governance PostgreSQL | Current; production KMS hardening remains gated |
 | Cockpit gateway | `apps/go/cockpit-gateway` | Kafka-to-SSE fan-out and cursor lifecycle | Ephemeral connection state | Current |
 | Cockpit web | `apps/web/cockpit-web` | Existing operations UI | Browser session state only | Current, legacy surface during ODS migration |
 | ODS shell | `apps/web/ods-shell` | ODS navigation, federation host, isolation | No backend authority | Current Phase 1 foundation |
 | Task MFE | `apps/web/task-mfe` | Task presentation and command intent | No backend authority | Current vertical slice |
+| Case MFE | `apps/web/case-mfe` | Case presentation and command intent | No backend authority | Current Phase 3 vertical slice; deployment remains separately gated |
 | Process Copilot | Not present | AI drafts and analysis only | Service-local store if introduced | Planned |
-| Case, Document, Integration services | Not present | ODS domain ownership described by ADR-011 | Separate PostgreSQL per real bounded context | Planned |
+| Document and Integration services | Not present | ODS domain ownership described by ADR-011 | Separate PostgreSQL per real bounded context | Planned |
+| Notification service | Not present (target `apps/go/notification-service`, `apps/web/notification-mfe`) | Versioned templates/releases, preview, dynamic providers, circuit breakers, workflow trigger rules, deliveries and audit (ADR-013) | Dedicated Notification PostgreSQL (`notification_db`) | Planned; design accepted in ADR-013 |
 
 ## Consistency boundaries
 
@@ -121,6 +124,9 @@ worker may interpret WIR or make an authoritative workflow transition.
 | `docs/ods-microfrontend-microservices-refactor-plan.md` | Mixed: target plan | Future services are not current simply because they appear in this plan |
 | `docs/ods-refactor-progress.md` | Current evidence snapshot | Use with the plan to distinguish delivered from planned work |
 | `docs/repository-gap-remediation.md` | Current evidence snapshot | Not a statement that all roadmap work is complete |
+| `docs/bpmn-element-coverage.md` | Current executable-profile matrix | Separates compiler recognition from complete runtime behavior |
+| `docs/requirement-1-compliance.md` | Compliance evidence snapshot | Test results retain their execution date; later code changes require rerunning the stated gate |
+| `docs/300k-ccu-readiness.md` | Capacity review | Dated implementation corrections supersede older findings; this is not a capacity certification |
 
 ## Required update rule
 
@@ -133,12 +139,16 @@ are documented.
 
 ## MDM target extension
 
-[MDM Service design](../refactor-prototype/mdm-service.md) is a proposed expansion of the Master Data context in ADR-011: centralized model/record administration, scoped immutable publications and consumer-local reads. No MDM deployable or new background worker is implemented by this documentation change.
+[MDM Service design](../refactor-prototype/appendix/mdm-service.md) is a proposed expansion of the Master Data context in ADR-011: centralized model/record administration, scoped immutable publications and consumer-local reads. No MDM deployable or new background worker is implemented by this documentation change.
+
+## Notification target extension
+
+[ADR-013](../adr/ADR-013-notification-service.md) and the [Notification Service design](../refactor-prototype/appendix/notification-service.md) specify the Notification bounded context: immutable template versions (`channel × locale` variants) and monotonic releases, safe AST-restricted preview/rendering, configurable protocol drivers, per-provider circuit breakers with expiring audited overrides, River lane queues behind `DispatchQueue`, and CEL workflow trigger rules over `bpmp.engine.committed-events`. Contracts, topics and migrations are deferred to the first vertical slice.
 
 ## Database and reporting target extension
 
-[Service–database matrix and Reporting](../refactor-prototype/databases-and-reporting.md) distinguishes current stores from proposed databases and describes source ownership, asynchronous ingestion, query APIs, scale gates and recovery. Existing Projection query/export ownership remains current; a separate Report/OLAP deployment is proposed, not implemented.
+[Service–database matrix and Reporting](../refactor-prototype/appendix/databases-and-reporting.md) distinguishes current stores from proposed databases and describes source ownership, asynchronous ingestion, query APIs, scale gates and recovery. Existing Projection query/export ownership remains current; a separate Report/OLAP deployment is proposed, not implemented.
 
 ## Backend implementation requirements
 
-[UUID, healthz/metrics and scheduled retention standards](../refactor-prototype/backend-operations.md) define required target behavior for every backend deployable and outbox/log owner. Existing endpoints, metrics formats and cleanup workers still require per-service implementation evidence; this proposal does not certify fleet-wide compliance.
+[UUID, healthz/metrics and scheduled retention standards](../refactor-prototype/appendix/backend-operations.md) define required target behavior for every backend deployable and outbox/log owner. Existing endpoints, metrics formats and cleanup workers still require per-service implementation evidence; this proposal does not certify fleet-wide compliance.

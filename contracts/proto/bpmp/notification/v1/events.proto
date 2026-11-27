@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+package bpmp.notification.v1;
+
+import "bpmp/notification/v1/admin.proto";
+import "bpmp/notification/v1/notification.proto";
+
+message NotificationRequestCommand {
+  uint32 schema_version = 1;
+  string event_id = 2;
+  string tenant_id = 3;
+  string application_key = 4;
+  string idempotency_key = 5;
+  string correlation_id = 6;
+  string causation_id = 7;
+  string template_key = 8;
+  uint32 schema_major = 9;
+  uint64 pinned_version = 10;
+  string category_key = 11;
+  NotificationLane lane = 12;
+  string locale = 13;
+  bytes data_json = 14;
+  repeated RecipientTarget recipients = 15;
+  int64 send_at_epoch_ms = 16;
+  int64 expires_at_epoch_ms = 17;
+  int64 occurred_at_epoch_ms = 18;
+  uint32 priority = 19;
+}
+
+message NotificationDeliveryEvent {
+  uint32 schema_version = 1;
+  string event_id = 2;
+  string tenant_id = 3;
+  string request_id = 4;
+  string delivery_id = 5;
+  string application_id = 6;
+  string template_key = 7;
+  uint32 schema_major = 8;
+  string template_version_id = 9;
+  NotificationChannel channel = 10;
+  NotificationLane lane = 11;
+  DeliveryStatus status = 12;
+  string provider_id = 13;
+  string error_code = 14;
+  string correlation_id = 15;
+  int64 occurred_at_epoch_ms = 16;
+}
+
+message InAppNotificationHint {
+  uint32 schema_version = 1;
+  string event_id = 2;
+  string tenant_id = 3;
+  string recipient_subject_ref = 4;
+  string delivery_id = 5;
+  string message_id = 6;
+  string category_key = 7;
+  uint64 sequence = 8;
+  int64 occurred_at_epoch_ms = 9;
+}
+
+enum InvalidationArtifactKind {
+  INVALIDATION_ARTIFACT_KIND_UNSPECIFIED = 0;
+  INVALIDATION_ARTIFACT_KIND_TEMPLATE_RELEASE = 1;
+  INVALIDATION_ARTIFACT_KIND_LAYOUT_RELEASE = 2;
+  INVALIDATION_ARTIFACT_KIND_PROVIDER_RELEASE = 3;
+  INVALIDATION_ARTIFACT_KIND_ROUTING_RELEASE = 4;
+  INVALIDATION_ARTIFACT_KIND_TRIGGER_RULE_RELEASE = 5;
+  INVALIDATION_ARTIFACT_KIND_BREAKER_OVERRIDE = 6;
+}
+
+message NotificationCacheInvalidationEvent {
+  uint32 schema_version = 1;
+  string event_id = 2;
+  string tenant_id = 3;
+  InvalidationArtifactKind artifact_kind = 4;
+  string artifact_id = 5;
+  uint64 ordinal = 6;
+  BreakerOverrideMode override_mode = 7;
+  int64 expires_at_epoch_ms = 8;
+  int64 occurred_at_epoch_ms = 9;
+}

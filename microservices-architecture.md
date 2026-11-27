@@ -226,7 +226,7 @@ Version dưới đây là baseline khởi tạo, không phải lý do để tự
 | Layer | Baseline | Policy |
 |---|---|---|
 | Rust toolchain | Rust 1.96.1, Edition 2024 cho production; 1.97.0 chỉ ở candidate CI lane | Chỉ promote 1.97 sau compiler qualification hoặc patch 1.97.x được phê duyệt |
-| Go toolchain | Go 1.26.5 | Pin trong `go.mod`/CI image |
+| Go toolchain | Go 1.27.3 | Pin trong `go.mod`/CI image |
 | Rust async/RPC/HTTP | Tokio 1.52.x, tonic 0.14.x, axum stable compatible | Pin qua `Cargo.lock`; không để wildcard |
 | WASM | Wasmtime 36.0.x LTS cho production; đánh giá 45.x ở benchmark branch | Ưu tiên LTS 24 tháng thay vì monthly release hỗ trợ ngắn |
 | Consensus | openraft stable compatible với pinned Rust | Pin exact; model-check + chaos trước upgrade |

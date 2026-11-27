@@ -1,0 +1,567 @@
+syntax = "proto3";
+
+package bpmp.notification.v1;
+
+import "bpmp/authorization/v1/authorization.proto";
+import "bpmp/notification/v1/notification.proto";
+
+enum TemplateVersionStatus {
+  TEMPLATE_VERSION_STATUS_UNSPECIFIED = 0;
+  TEMPLATE_VERSION_STATUS_DRAFT = 1;
+  TEMPLATE_VERSION_STATUS_IN_REVIEW = 2;
+  TEMPLATE_VERSION_STATUS_PUBLISHED = 3;
+  TEMPLATE_VERSION_STATUS_DEPRECATED = 4;
+  TEMPLATE_VERSION_STATUS_RETIRED = 5;
+}
+
+enum VariantKind {
+  VARIANT_KIND_UNSPECIFIED = 0;
+  VARIANT_KIND_INLINE = 1;
+  VARIANT_KIND_PROVIDER_TEMPLATE = 2;
+}
+
+enum PreviewMode {
+  PREVIEW_MODE_UNSPECIFIED = 0;
+  PREVIEW_MODE_DRAFT = 1;
+  PREVIEW_MODE_PUBLISHED_VERSION = 2;
+  PREVIEW_MODE_DELIVERY_REPLAY = 3;
+}
+
+enum BreakerState {
+  BREAKER_STATE_UNSPECIFIED = 0;
+  BREAKER_STATE_CLOSED = 1;
+  BREAKER_STATE_OPEN = 2;
+  BREAKER_STATE_HALF_OPEN = 3;
+}
+
+enum BreakerOverrideMode {
+  BREAKER_OVERRIDE_MODE_UNSPECIFIED = 0;
+  BREAKER_OVERRIDE_MODE_FORCE_OPEN = 1;
+  BREAKER_OVERRIDE_MODE_FORCE_CLOSE = 2;
+  BREAKER_OVERRIDE_MODE_DRAINING = 3;
+}
+
+message TemplateVariantSpec {
+  string id = 1;
+  NotificationChannel channel = 2;
+  string locale = 3;
+  VariantKind variant_kind = 4;
+  string subject_tmpl = 5;
+  string html_tmpl = 6;
+  string text_tmpl = 7;
+  string mjml_source = 8;
+  string provider_template_id = 9;
+  bytes param_mapping_json = 10;
+  string variant_hash = 11;
+}
+
+message TemplateSummary {
+  string id = 1;
+  string tenant_id = 2;
+  string template_key = 3;
+  string application_id = 4;
+  string category_id = 5;
+  string name = 6;
+  string default_locale = 7;
+  string status = 8;
+  uint64 row_version = 9;
+  int64 updated_at_epoch_ms = 10;
+  repeated string tags = 11;
+  repeated NotificationChannel channels = 12;
+  uint64 active_release_ordinal = 13;
+  uint64 usage_24h = 14;
+}
+
+message TemplateVersionDetail {
+  string id = 1;
+  string template_id = 2;
+  uint64 version = 3;
+  uint32 schema_major = 4;
+  string syntax = 5;
+  string layout_version_id = 6;
+  bytes variable_schema_json = 7;
+  string content_hash = 8;
+  string source_commit = 9;
+  TemplateVersionStatus status = 10;
+  int64 published_at_epoch_ms = 11;
+  repeated TemplateVariantSpec variants = 12;
+  string change_note = 13;
+  uint64 release_ordinal = 14;
+  string created_by = 15;
+}
+
+message TemplateReleaseRecord {
+  string id = 1;
+  string template_id = 2;
+  uint32 schema_major = 3;
+  string template_version_id = 4;
+  uint64 ordinal = 5;
+  uint64 previous_ordinal = 6;
+  int64 activate_at_epoch_ms = 7;
+  int64 activated_at_epoch_ms = 8;
+  string status = 9;
+}
+
+message CreateTemplateRequest {
+  string tenant_id = 1;
+  string template_key = 2;
+  string application_id = 3;
+  string category_id = 4;
+  string name = 5;
+  string default_locale = 6;
+  string command_id = 7;
+  string idempotency_key = 8;
+  bpmp.authorization.v1.ActorProof actor_proof = 9;
+}
+
+message CreateTemplateResponse {
+  TemplateSummary template = 1;
+  bool replayed = 2;
+}
+
+message ListTemplatesRequest {
+  string tenant_id = 1;
+  string application_id = 2;
+  uint32 page_size = 3;
+  string page_token = 4;
+  bpmp.authorization.v1.ActorProof actor_proof = 5;
+  NotificationChannel channel = 6;
+  string tag = 7;
+  string status = 8;
+  string query = 9;
+}
+
+message ListTemplatesResponse {
+  repeated TemplateSummary templates = 1;
+  string next_page_token = 2;
+}
+
+message SaveTemplateVersionDraftRequest {
+  string tenant_id = 1;
+  string template_id = 2;
+  string version_id = 3;
+  uint32 schema_major = 4;
+  string syntax = 5;
+  string layout_version_id = 6;
+  bytes variable_schema_json = 7;
+  repeated TemplateVariantSpec variants = 8;
+  string source_commit = 9;
+  uint64 expected_row_version = 10;
+  string command_id = 11;
+  string idempotency_key = 12;
+  bpmp.authorization.v1.ActorProof actor_proof = 13;
+  string change_note = 14;
+}
+
+message SaveTemplateVersionDraftResponse {
+  TemplateVersionDetail version = 1;
+}
+
+message PublishTemplateVersionRequest {
+  string tenant_id = 1;
+  string template_id = 2;
+  string version_id = 3;
+  string approval_ref = 4;
+  string command_id = 5;
+  string idempotency_key = 6;
+  bpmp.authorization.v1.ActorProof actor_proof = 7;
+}
+
+message PublishTemplateVersionResponse {
+  TemplateVersionDetail version = 1;
+  bool replayed = 2;
+}
+
+message ActivateTemplateReleaseRequest {
+  string tenant_id = 1;
+  string template_id = 2;
+  uint32 schema_major = 3;
+  string template_version_id = 4;
+  int64 activate_at_epoch_ms = 5;
+  string command_id = 6;
+  string idempotency_key = 7;
+  bpmp.authorization.v1.ActorProof actor_proof = 8;
+}
+
+message ActivateTemplateReleaseResponse {
+  TemplateReleaseRecord release = 1;
+  bool replayed = 2;
+}
+
+message RenderPreviewRequest {
+  string tenant_id = 1;
+  PreviewMode mode = 2;
+  string template_version_id = 3;
+  string delivery_id = 4;
+  NotificationChannel channel = 5;
+  string locale = 6;
+  bytes draft_variable_schema_json = 7;
+  TemplateVariantSpec draft_variant = 8;
+  bytes sample_data_json = 9;
+  bpmp.authorization.v1.ActorProof actor_proof = 10;
+}
+
+message RenderPreviewResponse {
+  NotificationChannel channel = 1;
+  string locale = 2;
+  string subject = 3;
+  string html = 4;
+  string text = 5;
+  string sms_encoding = 6;
+  uint32 sms_char_count = 7;
+  uint32 sms_segments = 8;
+  uint32 html_bytes = 9;
+  bool rendered_with_sample_data = 10;
+  repeated string warnings = 11;
+}
+
+message SendTestNotificationRequest {
+  string tenant_id = 1;
+  string template_version_id = 2;
+  NotificationChannel channel = 3;
+  string locale = 4;
+  string verified_recipient_address = 5;
+  bytes sample_data_json = 6;
+  string command_id = 7;
+  string idempotency_key = 8;
+  bpmp.authorization.v1.ActorProof actor_proof = 9;
+}
+
+message SendTestNotificationResponse {
+  string request_id = 1;
+  string delivery_id = 2;
+  DeliveryStatus status = 3;
+}
+
+message ProviderHealthRecord {
+  string provider_id = 1;
+  string provider_key = 2;
+  NotificationChannel channel = 3;
+  string driver_kind = 4;
+  string operational_state = 5;
+  BreakerState breaker_state = 6;
+  uint32 error_rate_bps = 7;
+  uint32 window_requests = 8;
+  uint32 window_failures = 9;
+  BreakerOverrideMode active_override = 10;
+  int64 override_expires_at_epoch_ms = 11;
+  int64 last_transition_at_epoch_ms = 12;
+  uint32 avg_latency_ms = 13;
+  uint32 success_rate_bps = 14;
+  uint64 sent_24h = 15;
+  uint32 buffered_calls = 16;
+  uint32 failed_calls = 17;
+  uint32 slow_calls = 18;
+  uint64 cooldown_remaining_ms = 19;
+  string fallback_provider = 20;
+}
+
+message ListProviderHealthRequest {
+  string tenant_id = 1;
+  bpmp.authorization.v1.ActorProof actor_proof = 2;
+}
+
+message ListProviderHealthResponse {
+  repeated ProviderHealthRecord providers = 1;
+}
+
+message SetBreakerOverrideRequest {
+  string tenant_id = 1;
+  string provider_id = 2;
+  BreakerOverrideMode override_mode = 3;
+  string reason = 4;
+  uint64 ttl_ms = 5;
+  string command_id = 6;
+  string idempotency_key = 7;
+  bpmp.authorization.v1.ActorProof actor_proof = 8;
+}
+
+message SetBreakerOverrideResponse {
+  ProviderHealthRecord provider = 1;
+}
+
+message DeliveryMonitoringRecord {
+  string id = 1;
+  string request_id = 2;
+  string template_version_id = 3;
+  NotificationChannel channel = 4;
+  NotificationLane lane = 5;
+  DeliveryStatus status = 6;
+  string recipient_subject_ref = 7;
+  string masked_address = 8;
+  string selected_provider_id = 9;
+  string content_hash = 10;
+  uint32 attempt_count = 11;
+  string resend_of_delivery_id = 12;
+  int64 created_at_epoch_ms = 13;
+  int64 completed_at_epoch_ms = 14;
+}
+
+message QueryDeliveriesRequest {
+  string tenant_id = 1;
+  string application_id = 2;
+  string template_id = 3;
+  NotificationChannel channel = 4;
+  DeliveryStatus status = 5;
+  string correlation_id = 6;
+  string recipient_subject_ref = 7;
+  uint32 limit = 8;
+  int64 before_created_at_epoch_ms = 9;
+  string before_id = 10;
+  bpmp.authorization.v1.ActorProof actor_proof = 11;
+}
+
+message QueryDeliveriesResponse {
+  repeated DeliveryMonitoringRecord deliveries = 1;
+  int64 next_before_created_at_epoch_ms = 2;
+  string next_before_id = 3;
+}
+
+message ResendDeliveryRequest {
+  string tenant_id = 1;
+  string delivery_id = 2;
+  string command_id = 3;
+  string idempotency_key = 4;
+  bpmp.authorization.v1.ActorProof actor_proof = 5;
+}
+
+message ResendDeliveryResponse {
+  DeliveryMonitoringRecord delivery = 1;
+  bool replayed = 2;
+}
+
+message TemplateDiagnostic {
+  string code = 1;
+  string severity = 2;
+  string target = 3;
+  uint32 line = 4;
+  uint32 column = 5;
+  string message = 6;
+  string quick_fix_label = 7;
+  uint32 quick_fix_start = 8;
+  uint32 quick_fix_end = 9;
+  string quick_fix_replacement = 10;
+}
+
+message ValidateTemplateRequest {
+  string tenant_id = 1;
+  string syntax = 2;
+  bytes variable_schema_json = 3;
+  string subject_tmpl = 4;
+  string html_tmpl = 5;
+  string text_tmpl = 6;
+  bpmp.authorization.v1.ActorProof actor_proof = 7;
+}
+
+message ValidateTemplateResponse {
+  bool valid = 1;
+  repeated TemplateDiagnostic diagnostics = 2;
+}
+
+message BatchTemplateActionResult {
+  string id = 1;
+  bool ok = 2;
+  string error = 3;
+}
+
+message BatchTemplateActionsRequest {
+  string tenant_id = 1;
+  string action = 2;
+  repeated string ids = 3;
+  string status = 4;
+  string tag_mode = 5;
+  repeated string tags = 6;
+  string command_id = 7;
+  string idempotency_key = 8;
+  bpmp.authorization.v1.ActorProof actor_proof = 9;
+}
+
+message BatchTemplateActionsResponse {
+  repeated BatchTemplateActionResult results = 1;
+}
+
+message BreakerTransitionRecord {
+  string id = 1;
+  string provider_id = 2;
+  string from_state = 3;
+  string to_state = 4;
+  string trigger_kind = 5;
+  string reason = 6;
+  string actor_ref = 7;
+  uint32 error_rate_bps = 8;
+  uint32 slow_call_rate_bps = 9;
+  int64 occurred_at_epoch_ms = 10;
+}
+
+message ListBreakerTransitionsRequest {
+  string tenant_id = 1;
+  string provider_id = 2;
+  uint32 limit = 3;
+  bpmp.authorization.v1.ActorProof actor_proof = 4;
+}
+
+message ListBreakerTransitionsResponse {
+  repeated BreakerTransitionRecord transitions = 1;
+}
+
+message ProbeBreakerRequest {
+  string tenant_id = 1;
+  string provider_id = 2;
+  string reason = 3;
+  string command_id = 4;
+  string idempotency_key = 5;
+  bpmp.authorization.v1.ActorProof actor_proof = 6;
+}
+
+message ProbeBreakerResponse {
+  ProviderHealthRecord provider = 1;
+}
+
+message VariableMappingLink {
+  string process_key = 1;
+  string trigger_kind = 2;
+  string template_key = 3;
+  uint32 schema_major = 4;
+  string variable_key = 5;
+  string severity = 6;
+  string reason = 7;
+}
+
+message QueryVariableMappingRequest {
+  string tenant_id = 1;
+  string process_key = 2;
+  string template_key = 3;
+  bpmp.authorization.v1.ActorProof actor_proof = 4;
+}
+
+message QueryVariableMappingResponse {
+  repeated VariableMappingLink links = 1;
+  repeated string processes = 2;
+}
+
+message TriggerRuleRevisionRecord {
+  string id = 1;
+  string rule_id = 2;
+  uint64 revision = 3;
+  string version_selector = 4;
+  string condition_cel = 5;
+  bytes recipient_spec_json = 6;
+  bytes data_mapping_cel_json = 7;
+  repeated string referenced_vars = 8;
+  uint32 delay_seconds = 9;
+  uint32 dedup_window_seconds = 10;
+  string status = 11;
+  int64 published_at_epoch_ms = 12;
+}
+
+message TriggerRuleRecord {
+  string id = 1;
+  string tenant_id = 2;
+  string rule_key = 3;
+  string name = 4;
+  string workflow_type = 5;
+  string node_id = 6;
+  string trigger_kind = 7;
+  string template_id = 8;
+  uint32 schema_major = 9;
+  uint64 active_ordinal = 10;
+  string status = 11;
+  TriggerRuleRevisionRecord active_revision = 12;
+}
+
+message ListTriggerRulesRequest {
+  string tenant_id = 1;
+  string workflow_type = 2;
+  bpmp.authorization.v1.ActorProof actor_proof = 3;
+}
+
+message ListTriggerRulesResponse {
+  repeated TriggerRuleRecord rules = 1;
+}
+
+message CreateTriggerRuleRequest {
+  string tenant_id = 1;
+  string rule_key = 2;
+  string name = 3;
+  string workflow_type = 4;
+  string node_id = 5;
+  string trigger_kind = 6;
+  string template_id = 7;
+  uint32 schema_major = 8;
+  string command_id = 9;
+  string idempotency_key = 10;
+  bpmp.authorization.v1.ActorProof actor_proof = 11;
+}
+
+message CreateTriggerRuleResponse {
+  TriggerRuleRecord rule = 1;
+}
+
+message SaveTriggerRuleRevisionRequest {
+  string tenant_id = 1;
+  string rule_id = 2;
+  string version_selector = 3;
+  string condition_cel = 4;
+  bytes recipient_spec_json = 5;
+  bytes data_mapping_cel_json = 6;
+  repeated string referenced_vars = 7;
+  uint32 delay_seconds = 8;
+  uint32 dedup_window_seconds = 9;
+  string command_id = 10;
+  string idempotency_key = 11;
+  bpmp.authorization.v1.ActorProof actor_proof = 12;
+}
+
+message SaveTriggerRuleRevisionResponse {
+  TriggerRuleRevisionRecord revision = 1;
+}
+
+message ActivateTriggerRuleRevisionRequest {
+  string tenant_id = 1;
+  string rule_id = 2;
+  uint64 revision = 3;
+  string command_id = 4;
+  string idempotency_key = 5;
+  bpmp.authorization.v1.ActorProof actor_proof = 6;
+}
+
+message ActivateTriggerRuleRevisionResponse {
+  TriggerRuleRecord rule = 1;
+}
+
+message SimulateTriggerRuleRequest {
+  string tenant_id = 1;
+  string rule_id = 2;
+  bytes sample_context_json = 3;
+  bpmp.authorization.v1.ActorProof actor_proof = 4;
+}
+
+message SimulateTriggerRuleResponse {
+  bool matched = 1;
+  bytes mapped_data_json = 2;
+  repeated string warnings = 3;
+}
+
+service NotificationAdminService {
+  rpc CreateTemplate(CreateTemplateRequest) returns (CreateTemplateResponse);
+  rpc ListTemplates(ListTemplatesRequest) returns (ListTemplatesResponse);
+  rpc SaveTemplateVersionDraft(SaveTemplateVersionDraftRequest) returns (SaveTemplateVersionDraftResponse);
+  rpc PublishTemplateVersion(PublishTemplateVersionRequest) returns (PublishTemplateVersionResponse);
+  rpc ActivateTemplateRelease(ActivateTemplateReleaseRequest) returns (ActivateTemplateReleaseResponse);
+  rpc RenderPreview(RenderPreviewRequest) returns (RenderPreviewResponse);
+  rpc SendTestNotification(SendTestNotificationRequest) returns (SendTestNotificationResponse);
+  rpc ListProviderHealth(ListProviderHealthRequest) returns (ListProviderHealthResponse);
+  rpc SetBreakerOverride(SetBreakerOverrideRequest) returns (SetBreakerOverrideResponse);
+  rpc QueryDeliveries(QueryDeliveriesRequest) returns (QueryDeliveriesResponse);
+  rpc ResendDelivery(ResendDeliveryRequest) returns (ResendDeliveryResponse);
+  rpc ValidateTemplate(ValidateTemplateRequest) returns (ValidateTemplateResponse);
+  rpc BatchTemplateActions(BatchTemplateActionsRequest) returns (BatchTemplateActionsResponse);
+  rpc ListBreakerTransitions(ListBreakerTransitionsRequest) returns (ListBreakerTransitionsResponse);
+  rpc ProbeBreaker(ProbeBreakerRequest) returns (ProbeBreakerResponse);
+  rpc QueryVariableMapping(QueryVariableMappingRequest) returns (QueryVariableMappingResponse);
+  rpc ListTriggerRules(ListTriggerRulesRequest) returns (ListTriggerRulesResponse);
+  rpc CreateTriggerRule(CreateTriggerRuleRequest) returns (CreateTriggerRuleResponse);
+  rpc SaveTriggerRuleRevision(SaveTriggerRuleRevisionRequest) returns (SaveTriggerRuleRevisionResponse);
+  rpc ActivateTriggerRuleRevision(ActivateTriggerRuleRevisionRequest) returns (ActivateTriggerRuleRevisionResponse);
+  rpc SimulateTriggerRule(SimulateTriggerRuleRequest) returns (SimulateTriggerRuleResponse);
+}

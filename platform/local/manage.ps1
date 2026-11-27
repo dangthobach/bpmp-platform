@@ -43,9 +43,11 @@ function Start-Datastores {
         "projection-postgres",
         "governance-postgres",
         "authz-postgres",
+        "notification-postgres",
         "redpanda",
         "redis",
-        "otel-collector"
+        "otel-collector",
+        "mailpit"
     )
 }
 
@@ -54,7 +56,8 @@ function Invoke-Migrations {
         "human-migrate",
         "configuration-migrate",
         "projection-migrate",
-        "governance-migrate"
+        "governance-migrate",
+        "notification-migrate"
     )
     foreach ($job in $jobs) {
         Invoke-Compose @("--profile", "ddl", "run", "--rm", $job)

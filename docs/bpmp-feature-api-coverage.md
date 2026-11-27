@@ -4,7 +4,11 @@ Ngày rà soát: 2026-11-21 (Asia/Saigon)
 
 Tài liệu này phân biệt **API được đăng ký**, **API có handler/upstream**, **API có bằng chứng kiểm chứng**, và **API mới là đề xuất** khi đối chiếu các feature trên prototype với BPMP hiện tại. Đây là inventory triển khai, không phải phê duyệt domain proposal.
 
-Phân loại screen/workspace prototype theo Shell, domain MFE, BFF, service owner và thứ tự port: [BPMP Prototype UI → ODS Architecture Map](ods-prototype-ui-architecture-map.md).
+This is a dated API/UI coverage snapshot, not the latest execution status. Use
+[`ods-refactor-progress.md`](ods-refactor-progress.md) for current phase
+evidence. Phân loại screen/workspace prototype theo Shell, domain MFE, BFF,
+service owner và thứ tự port: [BPMP Prototype UI → ODS Architecture
+Map](ods-prototype-ui-architecture-map.md).
 
 Kế hoạch chi tiết kiểm kê controls, API readiness, prototype mock/security risks, thứ tự phase và acceptance theo user journey: [ODS Prototype Porting Plan](ods-prototype-porting-plan.md).
 

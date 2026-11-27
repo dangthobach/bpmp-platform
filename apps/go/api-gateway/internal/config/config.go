@@ -23,9 +23,10 @@ type Config struct {
 	ConfigurationURL      string         `json:"configuration_url"`
 	AuthorizationURL      string         `json:"authorization_url"`
 	AuthorizationAudience string         `json:"authorization_audience"`
-	CockpitGatewayURL     string         `json:"cockpit_gateway_url"`
-	CaseServiceURL        string         `json:"case_service_url"`
-	PublicTLS             PublicTLS      `json:"public_tls"`
+	CockpitGatewayURL      string         `json:"cockpit_gateway_url"`
+	CaseServiceURL         string         `json:"case_service_url"`
+	NotificationServiceURL string         `json:"notification_service_url"`
+	PublicTLS              PublicTLS      `json:"public_tls"`
 	UpstreamTLS           UpstreamTLS    `json:"upstream_tls"`
 	Identity              Identity       `json:"identity"`
 	Workload              Workload       `json:"workload"`
@@ -53,9 +54,10 @@ type UpstreamTLS struct {
 	ProjectionServerName     string `json:"projection_server_name"`
 	ConfigurationServerName  string `json:"configuration_server_name"`
 	AuthorizationServerName  string `json:"authorization_server_name"`
-	CockpitGatewayServerName string `json:"cockpit_gateway_server_name"`
-	CaseServiceServerName    string `json:"case_service_server_name"`
-	AuthoringServerName      string `json:"authoring_server_name"`
+	CockpitGatewayServerName      string `json:"cockpit_gateway_server_name"`
+	CaseServiceServerName         string `json:"case_service_server_name"`
+	NotificationServiceServerName string `json:"notification_service_server_name"`
+	AuthoringServerName           string `json:"authoring_server_name"`
 }
 type Identity struct {
 	JWKSPath         string   `json:"jwks_path"`
@@ -232,6 +234,12 @@ func (c Config) Validate() error {
 		endpoint, parseErr := url.Parse(c.CaseServiceURL)
 		if parseErr != nil || endpoint.Scheme != "https" || endpoint.Host == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" || c.UpstreamTLS.CaseServiceServerName == "" {
 			return errors.New("API Gateway Case Service configuration is invalid")
+		}
+	}
+	if c.NotificationServiceURL != "" || c.UpstreamTLS.NotificationServiceServerName != "" {
+		endpoint, parseErr := url.Parse(c.NotificationServiceURL)
+		if parseErr != nil || endpoint.Scheme != "https" || endpoint.Host == "" || endpoint.User != nil || endpoint.Path != "" || endpoint.RawQuery != "" || endpoint.Fragment != "" || c.UpstreamTLS.NotificationServiceServerName == "" {
+			return errors.New("API Gateway Notification Service configuration is invalid")
 		}
 	}
 	if c.AuthoringAddress != "" || c.UpstreamTLS.AuthoringServerName != "" {

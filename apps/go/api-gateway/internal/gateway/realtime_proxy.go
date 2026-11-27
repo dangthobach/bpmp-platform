@@ -16,7 +16,7 @@ import (
 
 const (
 	realtimePath           = "/realtime/v1/events"
-	maxRealtimeNames       = 4
+	maxRealtimeNames       = 5
 	maxRealtimeNameBytes   = 256
 	maxRealtimeConnections = 512
 )
@@ -192,10 +192,11 @@ func validateRealtimeNames(raw string, capabilities []string) ([]string, error) 
 		return nil, errInvalid
 	}
 	required := map[string][]string{
-		"work-item.changed": {"task.read"},
-		"case.changed":      {"case.read"},
-		"audit.changed":     {"audit.read"},
-		"workflow.changed":  {"workflow.query.own", "workflow.query.all", "task.read"},
+		"work-item.changed":  {"task.read"},
+		"case.changed":       {"case.read"},
+		"audit.changed":      {"audit.read"},
+		"workflow.changed":   {"workflow.query.own", "workflow.query.all", "task.read"},
+		"notification.inapp": {"notification.inbox.read", "notification.read"},
 	}
 	seen := make(map[string]struct{}, len(values))
 	for _, name := range values {

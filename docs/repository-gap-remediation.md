@@ -1,7 +1,8 @@
 # Repository Gap Remediation
 
-Verified against the source tree on 2026-07-30. This document records evidence,
-not roadmap completion claims.
+Source reviewed: 2026-11-25. This document records code evidence separately
+from qualification and release evidence; an implemented adapter is not, by
+itself, production qualification.
 
 ## Corrected Findings
 
@@ -46,12 +47,29 @@ Requirement 6 release evidence is a broker-backed multi-process worker E2E,
 encrypted service-task input projection, and the P99 activation-to-send
 benchmark under configured credit and payload bounds.
 
+## P0 assessment
+
+| P0 item | Current code evidence | Remaining release gate | Closure evidence |
+|---|---|---|---|
+| Payload encryption KMS | `bpmp-adapter-kms` implements Vault Transit wrapping/unwrapping, KV v2 wrapped-DEK persistence, bounded zeroizing cache and revocation fencing. Engine config requires exactly one key source and only permits file keys with explicit development opt-in. See `docs/vault-kms-operations.md`. | Production Vault policies, identity, TLS, backup/restore, rotation and shred procedure have not been qualified against the target environment. | Run the Vault lifecycle and failure/recovery acceptance against the provisioned production-equivalent Vault; capture restore, rotation, barrier, shred, cache-expiry and fail-closed evidence. Do not classify this as “adapter missing.” |
+| WIR artifact signing | Compiler server currently loads a raw 32-byte Ed25519 signing key from a mounted file. The signed artifact contract does not provide the production KMS/HSM key lifecycle described by the authoring design. | KMS/HSM signing, signer key ID/rotation and verifier trust rollout are not implemented. | Add a versioned signer contract and provider adapter with overlap/rotation and fail-closed verification; qualify key custody and rotation before production deployment. |
+| Remote worker production acceptance | mTLS, signed workload proof, credit/lease, Raft-persisted task state and authorized completion path are implemented. | Encrypted service-task input projection, broker-backed multi-process crash/late-ACK recovery, and P99 ready-to-send benchmark remain unproven. | Run the E2E against the Linux production adapter and broker; verify restart/retry/late ACK and encrypted payload behavior, then publish workload bounds and P99 results. |
+| Authoring deploy/rollback acceptance | Authoring durable deployment job, lease recovery and Engine activation/rollback reconciliation are implemented; Engine activation waits for configured Raft-member ACKs. | Real Authoring-to-Engine worker restart, Engine restart/leader change, partial/offline ACK recovery and rollback after restart remain release gates. The browser Modeler still has prototype process identities. | Run the documented provisioned integration flow and bind the UI to real Authoring model/version IDs before exposing deployment as live. |
+
+Call Activity child orchestration remains a high-priority product gap, but it is
+not grouped with production release blockers while the profile clearly marks it
+runtime-partial and process deployments can avoid it. Do not market or deploy it
+as reusable child-process execution until the parent-child lifecycle is complete.
+
 ## Remaining Production Blockers
 
 | Priority | Blocker | Required outcome |
 |---|---|---|
-| P0 | Production KMS adapter | Implement the design's key-management lifecycle behind a provider-neutral port, wrapped DEK persistence, bounded cache keyed by tenant/scope/version/epoch, revocation barrier, and a real Vault/cloud-KMS adapter. File keys remain development-only. |
+| P0 | Payload KMS qualification | The Vault adapter is implemented. Qualify production identity/policies, backup/restore, rotation, revocation barrier, shred and failure recovery against the target Vault. |
+| P0 | WIR signing key lifecycle | Replace mounted-file-only compiler signing with a KMS/HSM-backed, key-ID-aware signer and verifier rotation contract. |
 | P0 | Remote worker release evidence | Add encrypted input projection, broker/process E2E with worker crash and late ACK, and the P99 ready-to-send benchmark. The authoritative transport and lease path are implemented. |
+| P0 | Authoring deploy/rollback integration evidence | Exercise the durable worker and Raft activation/rollback under restarts, leader change and partial/offline node ACKs using provisioned dependencies. |
+| P1 | Call Activity lifecycle | Implement durable parent-child start/completion correlation, mappings, failure/cancellation propagation and crash recovery; current behavior uses service-task completion. |
 | P1 | Dead-letter audit | Persist actor, timestamp, reason, original failure reference, replay identity, and result atomically with replay state; expose tenant-scoped query. |
 | P1 | Go metrics pipeline | Install an OpenTelemetry meter provider/exporter and service-level latency, error, saturation, retry, queue-lag, and pool metrics. Connect configured alert rules to measured series. |
 | P1 | 300k CCU bottlenecks | Remove global proposal/commit/fanout serialization based on measured profiles, then run staged load and soak gates. Horizontal scaling does not compensate for these critical sections. |

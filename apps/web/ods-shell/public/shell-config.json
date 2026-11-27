@@ -8,6 +8,6 @@
   "apiTimeoutMs": 15000,
   "maxApiResponseBytes": 4194304,
   "maxCatalogLifetimeMs": 3155760000000,
-  "allowedRemoteOrigins": ["http://127.0.0.1:4301", "http://127.0.0.1:4302", "http://127.0.0.1:4303"],
+  "allowedRemoteOrigins": ["http://127.0.0.1:4301", "http://127.0.0.1:4302", "http://127.0.0.1:4303", "http://127.0.0.1:4304"],
   "catalogVerificationKeys": {}
 }

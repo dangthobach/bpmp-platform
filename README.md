@@ -6,7 +6,8 @@ incrementally from the deterministic Rust engine outward.
 ## Current implementation
 
 - Canonical generated Protobuf v1 contracts for configuration, WIR, commands, and events.
-- Streaming, namespace-aware BPMN AOT compiler for the linear P0 subset.
+- Streaming, namespace-aware BPMN AOT compiler with a documented executable
+  profile and fail-closed handling for unsupported BPMN constructs.
 - SHA-256 integrity digest and Ed25519-signed WIR artifacts with fail-closed loading.
 - Pure Rust `decide`, `evolve`, and replay functions.
 - Versioned configuration snapshots passed explicitly to every decision.
@@ -29,9 +30,11 @@ incrementally from the deterministic Rust engine outward.
   strict resource quotas, and isolated typed failures.
 
 The in-memory adapter does not provide production durability. Production uses
-the Linux RocksDB/Raft path. Real-PII deployment remains gated on production KMS
-qualification, recovery/chaos evidence, and the production-readiness items
-tracked in [`docs/repository-gap-remediation.md`](docs/repository-gap-remediation.md).
+the Linux RocksDB/Raft path. A Vault Transit/KV v2 payload-key adapter exists;
+real-PII deployment remains gated on production qualification and recovery
+evidence. Compiler WIR signing still uses a mounted Ed25519 key file and needs a
+production signing integration. Current blockers are tracked in
+[`docs/repository-gap-remediation.md`](docs/repository-gap-remediation.md).
 
 The compiler implements the documented executable BPMN/DMN/CMMN profile and
 fails closed for unclassified or unsupported model elements. Passing that

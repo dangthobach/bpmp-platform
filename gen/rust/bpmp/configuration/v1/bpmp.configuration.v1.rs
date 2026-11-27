@@ -356,6 +356,105 @@ pub struct AuthzControlPlanePolicy {
     #[prost(message, optional, tag="10")]
     pub inactive_user_retry: ::core::option::Option<RetryPolicy>,
 }
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct NotificationLanePolicy {
+    #[prost(uint32, tag="1")]
+    pub worker_concurrency: u32,
+    #[prost(uint32, tag="2")]
+    pub claim_batch_size: u32,
+    #[prost(uint64, tag="3")]
+    pub lease_duration_ms: u64,
+    #[prost(message, optional, tag="4")]
+    pub retry: ::core::option::Option<RetryPolicy>,
+    #[prost(uint64, tag="5")]
+    pub max_queue_lag_alert_ms: u64,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct NotificationBreakerPolicy {
+    #[prost(uint64, tag="1")]
+    pub rolling_window_ms: u64,
+    #[prost(uint32, tag="2")]
+    pub min_requests: u32,
+    #[prost(uint32, tag="3")]
+    pub failure_rate_threshold_bps: u32,
+    #[prost(uint64, tag="4")]
+    pub open_state_duration_ms: u64,
+    #[prost(uint32, tag="5")]
+    pub half_open_max_probes: u32,
+    #[prost(uint64, tag="6")]
+    pub max_manual_override_ttl_ms: u64,
+    #[prost(uint64, tag="7")]
+    pub slow_call_threshold_ms: u64,
+    #[prost(uint32, tag="8")]
+    pub slow_call_rate_threshold_bps: u32,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct NotificationRenderLimits {
+    #[prost(uint32, tag="1")]
+    pub max_payload_bytes: u32,
+    #[prost(uint32, tag="2")]
+    pub max_email_html_bytes: u32,
+    #[prost(uint32, tag="3")]
+    pub max_sms_segments: u32,
+    #[prost(uint32, tag="4")]
+    pub max_push_body_bytes: u32,
+    #[prost(uint32, tag="5")]
+    pub max_array_items: u32,
+    #[prost(uint64, tag="6")]
+    pub preview_timeout_ms: u64,
+    #[prost(uint32, tag="7")]
+    pub preview_bulkhead_concurrency: u32,
+    #[prost(uint32, tag="8")]
+    pub preview_rate_limit_per_minute: u32,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct NotificationRetentionPolicy {
+    #[prost(uint32, tag="1")]
+    pub transactional_payload_days: u32,
+    #[prost(uint32, tag="2")]
+    pub bulk_payload_days: u32,
+    #[prost(uint32, tag="3")]
+    pub delivery_metadata_months: u32,
+    #[prost(uint32, tag="4")]
+    pub attempt_callback_days: u32,
+    #[prost(uint32, tag="5")]
+    pub metrics_hourly_months: u32,
+    #[prost(uint32, tag="6")]
+    pub idempotency_inbox_days: u32,
+    #[prost(uint32, tag="7")]
+    pub inapp_message_days: u32,
+    #[prost(uint32, tag="8")]
+    pub instance_context_retention_hours: u32,
+    #[prost(uint32, tag="9")]
+    pub cleanup_batch_size: u32,
+    #[prost(uint64, tag="10")]
+    pub cleanup_interval_ms: u64,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct NotificationPolicy {
+    #[prost(message, optional, tag="1")]
+    pub transactional_lane: ::core::option::Option<NotificationLanePolicy>,
+    #[prost(message, optional, tag="2")]
+    pub normal_lane: ::core::option::Option<NotificationLanePolicy>,
+    #[prost(message, optional, tag="3")]
+    pub bulk_lane: ::core::option::Option<NotificationLanePolicy>,
+    #[prost(message, optional, tag="4")]
+    pub default_breaker: ::core::option::Option<NotificationBreakerPolicy>,
+    #[prost(message, optional, tag="5")]
+    pub render_limits: ::core::option::Option<NotificationRenderLimits>,
+    #[prost(message, optional, tag="6")]
+    pub retention: ::core::option::Option<NotificationRetentionPolicy>,
+    #[prost(uint32, tag="7")]
+    pub default_provider_bulkhead_concurrency: u32,
+    #[prost(uint64, tag="8")]
+    pub provider_call_timeout_ms: u64,
+    #[prost(string, repeated, tag="9")]
+    pub allowed_provider_hosts: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(uint32, tag="10")]
+    pub otp_per_recipient_limit: u32,
+    #[prost(uint64, tag="11")]
+    pub otp_rate_window_ms: u64,
+}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ResolvedConfigurationSnapshot {
     #[prost(string, tag="1")]
@@ -390,6 +489,8 @@ pub struct ResolvedConfigurationSnapshot {
     pub cockpit_gateway: ::core::option::Option<CockpitGatewayPolicy>,
     #[prost(message, optional, tag="16")]
     pub authz_control_plane: ::core::option::Option<AuthzControlPlanePolicy>,
+    #[prost(message, optional, tag="17")]
+    pub notification: ::core::option::Option<NotificationPolicy>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ResolveConfigurationRequest {
@@ -510,6 +611,7 @@ pub enum ConfigurationOwner {
     ConfigurationService = 6,
     CockpitGateway = 7,
     AuthzControlPlane = 8,
+    Notification = 9,
 }
 impl ConfigurationOwner {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -527,6 +629,7 @@ impl ConfigurationOwner {
             Self::ConfigurationService => "CONFIGURATION_OWNER_CONFIGURATION_SERVICE",
             Self::CockpitGateway => "CONFIGURATION_OWNER_COCKPIT_GATEWAY",
             Self::AuthzControlPlane => "CONFIGURATION_OWNER_AUTHZ_CONTROL_PLANE",
+            Self::Notification => "CONFIGURATION_OWNER_NOTIFICATION",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -541,6 +644,7 @@ impl ConfigurationOwner {
             "CONFIGURATION_OWNER_CONFIGURATION_SERVICE" => Some(Self::ConfigurationService),
             "CONFIGURATION_OWNER_COCKPIT_GATEWAY" => Some(Self::CockpitGateway),
             "CONFIGURATION_OWNER_AUTHZ_CONTROL_PLANE" => Some(Self::AuthzControlPlane),
+            "CONFIGURATION_OWNER_NOTIFICATION" => Some(Self::Notification),
             _ => None,
         }
     }

@@ -18,17 +18,19 @@ type Config struct {
 }
 
 type Signal struct {
-	Cursor   string
-	TenantID string
-	Name     string
-	Labels   map[string]string
-	Payload  []byte
+	Cursor      string
+	TenantID    string
+	Name        string
+	RecipientID string
+	Labels      map[string]string
+	Payload     []byte
 }
 
 type Filter struct {
-	TenantID string
-	Name     string
-	Labels   map[string]string
+	TenantID    string
+	Name        string
+	RecipientID string
+	Labels      map[string]string
 }
 
 type Subscription struct {
@@ -150,7 +152,7 @@ func (h *Hub) PublishToIndexedSubscribers(signal Signal) PublishStats {
 	h.appendReplay(group, signal)
 	stats := PublishStats{}
 	for id, item := range group.subscribers {
-		if !labelsMatch(item.filter.Labels, signal.Labels) {
+		if !labelsMatch(item.filter.Labels, signal.Labels) || !recipientMatches(item.filter.RecipientID, signal.RecipientID) {
 			continue
 		}
 		select {
@@ -231,7 +233,7 @@ func replayAfter(group *bucket, filter Filter, cursor string) ([]Signal, bool) {
 	found := false
 	result := make([]Signal, 0, len(ordered))
 	for _, signal := range ordered {
-		if found && labelsMatch(filter.Labels, signal.Labels) {
+		if found && labelsMatch(filter.Labels, signal.Labels) && recipientMatches(filter.RecipientID, signal.RecipientID) {
 			result = append(result, cloneSignal(signal))
 		}
 		if signal.Cursor == cursor {
@@ -260,9 +262,16 @@ func labelsMatch(expected, actual map[string]string) bool {
 	return true
 }
 
+func recipientMatches(filterRecipient, signalRecipient string) bool {
+	if signalRecipient == "" {
+		return true
+	}
+	return filterRecipient != "" && filterRecipient == signalRecipient
+}
+
 func cloneFilter(filter Filter) Filter {
 	return Filter{
-		TenantID: filter.TenantID, Name: filter.Name,
+		TenantID: filter.TenantID, Name: filter.Name, RecipientID: filter.RecipientID,
 		Labels: cloneLabels(filter.Labels),
 	}
 }
@@ -270,8 +279,9 @@ func cloneFilter(filter Filter) Filter {
 func cloneSignal(signal Signal) Signal {
 	return Signal{
 		Cursor: signal.Cursor, TenantID: signal.TenantID, Name: signal.Name,
-		Labels:  cloneLabels(signal.Labels),
-		Payload: append([]byte(nil), signal.Payload...),
+		RecipientID: signal.RecipientID,
+		Labels:      cloneLabels(signal.Labels),
+		Payload:     append([]byte(nil), signal.Payload...),
 	}
 }
 

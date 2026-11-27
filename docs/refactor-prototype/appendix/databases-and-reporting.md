@@ -24,7 +24,7 @@ Các tên `*_db` dưới đây là **logical deployment names đề xuất**, kh
 | Integration Service | PostgreSQL `integration_db`; secrets trong secret manager | Endpoint versions, bindings, callbacks, deliveries/probes, inbox/outbox; DB chỉ có secret refs | Planned |
 | MDM Service | PostgreSQL `mdm_db` + immutable snapshot storage | Model/record versions, release/bundle, subscription; authority cho master data | Planned; [MDM design](mdm-service.md) |
 | Consumer MDM synchronizer | Read replica tables/storage thuộc **chính consumer**; L1 trong process | Cache/projection scoped, không business authority; không dùng chung một DB để mọi service truy cập | Planned per consumer |
-| Notification Service | PostgreSQL `notification_db` | Template versions, subscriptions, deliveries/retries/inbox/outbox | Planned |
+| Notification Service | PostgreSQL `notification_db` | Template/layout versions & releases, categories, applications, dynamic provider profiles, circuit-breaker state/overrides, trigger rules, deliveries/payloads/attempts/callbacks, hourly rollups, inbox/outbox/audit | Planned; [ADR-013](../../adr/ADR-013-notification-service.md), [Notification design](notification-service.md) |
 | Audit Search | PostgreSQL hoặc search index riêng `audit_search` | Rebuildable search; evidence nguyên gốc ở service owner, không ở search index | Planned; chọn search engine khi benchmark yêu cầu |
 | Report Service, nếu tách deployable | PostgreSQL `report_db`; OLAP `report_olap` khi qua gate tải; object storage export/archive | Report definitions/jobs/schedules, source checkpoints; facts/dimensions/aggregates là bản sao phân tích | Planned trong tài liệu này |
 | External IdP / Vault-KMS / CSP | Storage do hệ thống đó quản lý | Platform không truy DB nội bộ của external provider | External |
@@ -51,7 +51,7 @@ Chưa bắt buộc ClickHouse ngay: bắt đầu bằng Projection PostgreSQL + 
 | Authoring | Process/decision/form/version metadata, deployment result | Planned Authoring events hoặc immutable version snapshot | `dim_process_version`, `dim_service`; stable version IDs |
 | MDM | Branch, product/category, currency/calendar, code mapping và version/validity | Scoped publication feed + immutable snapshots | Versioned dimensions; join theo pin/version hoặc event-time rule rõ ràng |
 | Integration | Delivery/response/retry/callback outcomes và latency | Planned committed operation events | `fact_integration_attempt`; correlation refs, loại secret/request PII không cần thiết |
-| Notification | Delivery/failure metadata | Planned committed delivery events | Channel success/failure metrics; không cần message body |
+| Notification | Delivery/failure metadata | Planned committed delivery events (`bpmp.notification.delivery-events.v1.<environment>`) | Channel/lane/provider success/failure metrics; không chứa nội dung bản tin hoặc PII rõ |
 | Governance | Approval/key lifecycle outcome metadata | Versioned approved event contract, chưa có reporting feed mặc định | Compliance metrics; không tải key material/private evidence rộng rãi |
 | Authz | Query scope/revocation/tenant readiness | Existing signed revoke contract cho Projection; Report consumer equivalent là planned | Phục vụ enforcement; không dùng eventual analytics role dimension làm quyền truy cập |
 | Configuration | Effective config versions nếu metric cần giải thích | Version refs / approved publication contract | Dimension phục vụ lineage, không mirror toàn bộ config/secrets |

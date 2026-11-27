@@ -1,6 +1,6 @@
 module github.com/dangthobach/bpmp-platform/apps/go/api-gateway
 
-go 1.25.12
+go 1.27.3
 
 replace github.com/dangthobach/bpmp-platform/go/contracts => ../../../go/contracts
 

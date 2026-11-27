@@ -12,7 +12,7 @@ enterprise runtime implementation.
 | Tasks | `serviceTask`, `userTask`, version-pinned `scriptTask`, `businessRuleTask` | Dedicated task/decision events and commands; User Task committed projection | wrong lifecycle, duplicate completion, empty decision, tenant mismatch, boundary cancellation |
 | Gateways | `exclusiveGateway`, `inclusiveGateway`, `parallelGateway` | Typed guards, persisted token obligations and joins | ambiguity, non-exhaustive coverage, unbalanced pairing, outstanding tokens |
 | Scope | accepted `subProcess` subset | Inline lowering or retained scope identity and replay | invalid ownership, missing scope, single active retained invocation |
-| Reuse | `callActivity` contract | Called element/version retained; external completion protocol | child-instance orchestration is not complete |
+| Reuse | `callActivity` contract | Called element/version retained; activation currently follows the service-task completion path | Child workflow creation, parent-child correlation, variable mapping, failure propagation, and crash recovery are not implemented |
 | Repetition | `multiInstanceLoopCharacteristics`, `loopCardinality`, `completionCondition` | Sequential/bounded-parallel fan-out/fan-in and early completion | zero/cardinality mismatch, configured bounds, cancellation, replay |
 | Boundary | `boundaryEvent` with timer/error/message definitions | Durable subscriptions, correlation, retry and authorized dispatch | duplicate signal, lease recovery, ambiguous error, interrupting/non-interrupting behavior |
 | Models | DMN decision tables and CMMN stage/milestone/sentry profile | Typed evaluation in authoritative Rust lifecycle | type mismatch, no rule, duplicate sentry, deterministic replay |
@@ -23,7 +23,7 @@ enterprise runtime implementation.
 | --- | --- |
 | Compensation associations/events | Execute handler with a durable scoped compensation ledger and cancellation ordering |
 | Retained sub-process boundaries | Scope-instance keyed concurrent tokens and interrupting cancellation |
-| Call activity | Durable parent-child start/completion correlation and crash recovery |
+| Call activity | Durable parent-child start/completion correlation, input/output mapping, failure/cancellation propagation, and crash recovery |
 | Multi-instance User Task | Iteration identity in work-item activation/completion, assignment and cancellation projection |
 | Generated Rust state machine | Behavioral equivalence for retained scope, boundary, compensation, call activity and multi-instance combinations |
 | Data contracts | Deep object/list/nullable/decimal/date-time typing and schema references |

@@ -70,6 +70,7 @@ func (s *Server) ResolveConfiguration(
 			ConfigurationService: policy.ConfigurationService,
 			CockpitGateway:       policy.CockpitGateway,
 			AuthzControlPlane:    policy.AuthzControlPlane,
+			Notification:         policy.Notification,
 		},
 	}, nil
 }
@@ -92,6 +93,8 @@ func ownerFromProto(value configurationv1.ConfigurationOwner) domain.Owner {
 		return domain.OwnerCockpitGateway
 	case configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_AUTHZ_CONTROL_PLANE:
 		return domain.OwnerAuthzControlPlane
+	case configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_NOTIFICATION:
+		return domain.OwnerNotification
 	default:
 		return ""
 	}
@@ -115,6 +118,8 @@ func ownerToProto(value domain.Owner) configurationv1.ConfigurationOwner {
 		return configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_COCKPIT_GATEWAY
 	case domain.OwnerAuthzControlPlane:
 		return configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_AUTHZ_CONTROL_PLANE
+	case domain.OwnerNotification:
+		return configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_NOTIFICATION
 	default:
 		return configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_UNSPECIFIED
 	}

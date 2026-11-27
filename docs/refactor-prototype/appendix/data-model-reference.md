@@ -25,8 +25,9 @@ Access schema dưới đây là vocabulary logic, chưa đủ semantics để t�
 | Configuration | `db/configuration-service/migrations/`: profiles, versions, active scopes, audit/outbox/idempotency | Giữ service và lifecycle hiện có; endpoint secrets, Case hay user không chuyển vào config profile. |
 | Governance | `db/governance-service/migrations/`: approval requests, signed approvals, audit | Tái sử dụng approval/evidence; không nhân bản trong Case. |
 | Access | `apps/rust/authz-control-plane/db/` và owning Rust migrations | Schema ở đây là logical vocabulary; phải map typed policy, subject, tenant lifecycle vào owner hiện có, không tạo parallel Authz DB. External IdP vẫn sở hữu credential/MFA. |
-| Authoring, customer Case, Document, Integration, Notification | Chưa có deployable owners tương ứng trong architecture inventory | New bounded contexts theo ADR-011; migrations chỉ thêm khi triển khai vertical slice. |
+| Authoring, customer Case, Document, Integration | Chưa có deployable owners tương ứng trong architecture inventory | New bounded contexts theo ADR-011; migrations chỉ thêm khi triển khai vertical slice. |
 | MDM | Context planned trong ADR-011, chưa có deployable | Schema động có kiểm soát, immutable release/bundle, read replicas scoped; chi tiết [MDM](mdm-service.md). |
+| Notification | Context planned trong ADR-011, ranh giới chốt trong ADR-013, chưa có deployable | Template version/release bất biến, delivery partition theo thời gian, hàng đợi River trong cùng database; migrations thêm cùng vertical slice đầu tiên; chi tiết [Notification](notification-service.md). |
 | Engine | RocksDB/Raft, không phải SQL | Runtime event/state/snapshot/token/idempotency không có authoritative SQL tables; instance_views và work_items là projections. |
 
 ## Bảng và quan hệ theo owner
@@ -603,30 +604,165 @@ erDiagram
 
 | Bảng | Cột riêng (`?`: nullable) |
 |---|---|
-| notification_templates | `template_key: text`; `channel: text`; `name: text` |
-| notification_template_versions | `template_id: @notification_templates`; `version: bigint`; `locale: text`; `subject: text?`; `body: text`; `variable_schema: jsonb` |
-| notification_subscriptions | `subject_ref: uuid`; `event_type: text`; `channel: text`; `enabled: boolean` |
-| notification_deliveries | `template_version_id: @notification_template_versions`; `recipient_ref: uuid`; `source_event_id: text`; `channel: text`; `status: text`; `provider_ref: text?`; `attempts: int`; `next_attempt_at: timestamptz?` |
+| categories | `category_key: text`; `name: text`; `default_lane: text`; `user_unsubscribable: boolean`; `ambiguous_outcome_policy: text`; `retention_class: text`; `retain_rendered_copy: boolean`; `status: text` |
+| applications | `app_key: text`; `name: text`; `auth_mode: text`; `principal_ref: text`; `allowed_namespaces: jsonb`; `allowed_channels: jsonb`; `default_lane: text`; `quota_config: jsonb`; `callback_url: text?`; `callback_secret_ref: text?`; `owner_team: text?`; `default_sender_identity: jsonb?`; `status: text` |
+| application_api_keys | `application_id: @applications`; `key_prefix: text`; `secret_hash: text`; `status: text`; `expires_at: timestamptz?`; `last_used_at: timestamptz?` |
+| layouts | `layout_key: text`; `name: text`; `channel: text`; `status: text` |
+| layout_versions | `layout_id: @layouts`; `version: bigint`; `syntax: text`; `variable_schema: jsonb`; `content: jsonb`; `content_hash: text`; `status: text`; `published_at: timestamptz?` |
+| templates | `template_key: text`; `application_id: @applications`; `category_id: @categories`; `name: text`; `default_locale: text`; `provenance: jsonb?`; `tags: jsonb`; `status: text` |
+| template_versions | `template_id: @templates`; `version: bigint`; `schema_major: int`; `syntax: text`; `layout_version_id: @layout_versions?`; `variable_schema: jsonb`; `content_hash: text`; `source_commit: text?`; `change_note: text?`; `approval_ref: text?`; `status: text`; `published_at: timestamptz?` |
+| template_variants | `template_version_id: @template_versions`; `channel: text`; `locale: text`; `variant_kind: text`; `subject_tmpl: text?`; `html_tmpl: text?`; `text_tmpl: text?`; `mjml_source: text?`; `provider_template_id: text?`; `param_mapping: jsonb?`; `variant_hash: text` |
+| template_releases | `template_id: @templates`; `schema_major: int`; `template_version_id: @template_versions`; `ordinal: bigint`; `previous_ordinal: bigint?`; `activate_at: timestamptz`; `activated_at: timestamptz?`; `approval_ref: text?`; `status: text` |
+| publication_releases | `artifact_kind: text`; `artifact_id: uuid`; `target_version_id: uuid`; `ordinal: bigint`; `previous_ordinal: bigint?`; `activate_at: timestamptz`; `activated_at: timestamptz?`; `approval_ref: text?`; `status: text` |
+| provider_profiles | `provider_key: text`; `name: text`; `channel: text`; `driver_kind: text`; `preset_key: text?`; `active_ordinal: bigint`; `operational_state: text` |
+| provider_revisions | `provider_id: @provider_profiles`; `revision: bigint`; `config: jsonb`; `credentials_ref: text?`; `sender_identity: jsonb`; `capabilities: jsonb`; `quota_config: jsonb`; `config_hash: text`; `status: text`; `published_at: timestamptz?` |
+| provider_health | `provider_id: @provider_profiles`; `breaker_state: text`; `error_rate_bps: int`; `window_requests: int`; `window_failures: int`; `last_transition_at: timestamptz`; `last_error_code: text?`; `updated_by_replica: text` |
+| breaker_transitions | `provider_id: @provider_profiles`; `from_state: text`; `to_state: text`; `trigger_kind: text`; `reason: text`; `failure_rate_bps: int?`; `slow_call_rate_bps: int?`; `replica_ref: text`; `occurred_at: timestamptz` |
+| breaker_overrides | `provider_id: @provider_profiles`; `override_mode: text`; `reason: text`; `ordinal: bigint`; `expires_at: timestamptz`; `revoked_at: timestamptz?`; `status: text` |
+| routing_policies | `policy_key: text`; `application_id: @applications?`; `category_id: @categories?`; `channel: text`; `active_ordinal: bigint`; `status: text` |
+| routing_policy_versions | `routing_policy_id: @routing_policies`; `version: bigint`; `routes: jsonb`; `failover_policy: jsonb`; `digest: text`; `status: text`; `published_at: timestamptz?` |
+| trigger_rules | `rule_key: text`; `name: text`; `workflow_type: text`; `node_id: text?`; `trigger_kind: text`; `template_id: @templates`; `schema_major: int`; `active_ordinal: bigint`; `status: text` |
+| trigger_rule_revisions | `rule_id: @trigger_rules`; `revision: bigint`; `version_selector: text`; `condition_cel: text?`; `recipient_spec: jsonb`; `data_mapping_cel: jsonb`; `referenced_vars: jsonb`; `delay_seconds: int`; `dedup_window_seconds: int`; `digest: text`; `status: text`; `published_at: timestamptz?` |
+| workflow_instance_contexts | `instance_ref: text`; `workflow_type: text`; `initiator_subject_ref: uuid?`; `encrypted_vars: bytea`; `key_ref: text`; `workflow_completed_at: timestamptz?`; `expires_at: timestamptz` |
+| subject_contacts | `subject_ref: uuid`; `channel: text`; `encrypted_address: bytea`; `address_hash: text`; `masked_address: text`; `locale: text?`; `timezone: text?`; `verified: boolean`; `source_version: bigint` |
+| recipient_preferences | `subject_ref: uuid`; `category_id: @categories`; `channel: text`; `enabled: boolean`; `quiet_hours: jsonb?` |
+| suppressions | `channel: text`; `address_hash: text`; `masked_address: text`; `reason: text`; `source_provider_id: @provider_profiles?`; `expires_at: timestamptz?`; `status: text` |
+| notification_requests | `application_id: @applications`; `idempotency_key: text`; `request_digest: text`; `template_id: @templates`; `schema_major: int`; `pinned_version: bigint?`; `category_id: @categories`; `lane: text`; `priority: smallint`; `correlation_id: text?`; `trigger_rule_revision_id: @trigger_rule_revisions?`; `is_test: boolean`; `send_at: timestamptz?`; `expires_at: timestamptz?`; `status: text` |
+| deliveries | `request_id: @notification_requests`; `template_version_id: @template_versions`; `variant_id: @template_variants`; `release_ordinal: bigint`; `recipient_subject_ref: uuid?`; `address_hash: text`; `masked_address: text`; `channel: text`; `lane: text`; `status: text`; `selected_provider_id: @provider_profiles?`; `provider_message_id: text?`; `content_hash: text`; `resend_of_delivery_id: @deliveries?`; `attempt_count: int`; `next_attempt_at: timestamptz?`; `expires_at: timestamptz?`; `completed_at: timestamptz?` |
+| delivery_payloads | `delivery_id: @deliveries`; `encrypted_address: bytea?`; `encrypted_data: bytea?`; `encrypted_secrets: bytea?`; `rendered_copy_encrypted: bytea?`; `key_ref: text`; `secrets_erased_at: timestamptz?`; `expires_at: timestamptz` |
+| delivery_attempts | `delivery_id: @deliveries`; `provider_id: @provider_profiles`; `provider_revision_id: @provider_revisions`; `attempt_no: int`; `outcome_class: text`; `provider_status_code: text?`; `provider_message_id: text?`; `error_code: text?`; `latency_ms: int`; `started_at: timestamptz`; `finished_at: timestamptz` |
+| delivery_events | `delivery_id: @deliveries`; `event_type: text`; `from_status: text?`; `to_status: text`; `detail: jsonb?`; `occurred_at: timestamptz` |
+| provider_callbacks | `provider_id: @provider_profiles`; `provider_event_id: text`; `delivery_id: @deliveries?`; `event_kind: text`; `provider_status: text`; `signature_valid: boolean`; `payload_digest: text`; `received_at: timestamptz`; `processed_at: timestamptz?` |
+| inapp_messages | `delivery_id: @deliveries`; `subject_ref: uuid`; `category_key: text`; `title: text`; `body_html: text`; `action_url: text?`; `metadata: jsonb?`; `read_at: timestamptz?`; `archived_at: timestamptz?`; `expires_at: timestamptz` |
+| delivery_metrics_hourly | `bucket_start: timestamptz`; `application_id: @applications`; `template_id: @templates`; `category_id: @categories`; `provider_id: @provider_profiles?`; `channel: text`; `lane: text`; `accepted_count: bigint`; `sent_count: bigint`; `delivered_count: bigint`; `bounced_count: bigint`; `failed_count: bigint`; `deferred_count: bigint`; `expired_count: bigint`; `suppressed_count: bigint`; `latency_histogram: jsonb?` |
 | outbox | `event_id: uuid`; `aggregate_id: uuid`; `aggregate_version: bigint`; `event_type: text`; `payload: jsonb`; `published_at: timestamptz?`; `attempts: int` |
 | inbox | `source: text`; `event_id: text`; `payload_digest: text`; `applied_at: timestamptz` |
 | command_receipts | `command_id: uuid`; `intent_digest: text`; `actor_ref: uuid`; `aggregate_id: uuid`; `status: text`; `result: jsonb`; `expires_at: timestamptz?` |
-| audit_evidence | `actor_ref: uuid`; `action: text`; `resource_ref: text`; `command_id: uuid?`; `before_digest: text?`; `after_digest: text?`; `occurred_at: timestamptz` |
+| audit_evidence | `actor_ref: uuid`; `action: text`; `resource_ref: text`; `command_id: uuid?`; `before_digest: text?`; `after_digest: text?`; `resource_type: text`; `severity: text`; `actor_display: text?`; `actor_role: text?`; `client_ip: text?`; `details: jsonb?`; `occurred_at: timestamptz` |
 
 ```mermaid
 erDiagram
-  notification_templates {
+  categories {
     uuid tenant_id PK
     uuid id PK
   }
-  notification_template_versions {
+  applications {
     uuid tenant_id PK
     uuid id PK
   }
-  notification_subscriptions {
+  application_api_keys {
     uuid tenant_id PK
     uuid id PK
   }
-  notification_deliveries {
+  layouts {
+    uuid tenant_id PK
+    uuid id PK
+  }
+  layout_versions {
+    uuid tenant_id PK
+    uuid id PK
+  }
+  templates {
+    uuid tenant_id PK
+    uuid id PK
+  }
+  template_versions {
+    uuid tenant_id PK
+    uuid id PK
+  }
+  template_variants {
+    uuid tenant_id PK
+    uuid id PK
+  }
+  template_releases {
+    uuid tenant_id PK
+    uuid id PK
+  }
+  publication_releases {
+    uuid tenant_id PK
+    uuid id PK
+  }
+  provider_profiles {
+    uuid tenant_id PK
+    uuid id PK
+  }
+  provider_revisions {
+    uuid tenant_id PK
+    uuid id PK
+  }
+  provider_health {
+    uuid tenant_id PK
+    uuid id PK
+  }
+  breaker_transitions {
+    uuid tenant_id PK
+    uuid id PK
+  }
+  breaker_overrides {
+    uuid tenant_id PK
+    uuid id PK
+  }
+  routing_policies {
+    uuid tenant_id PK
+    uuid id PK
+  }
+  routing_policy_versions {
+    uuid tenant_id PK
+    uuid id PK
+  }
+  trigger_rules {
+    uuid tenant_id PK
+    uuid id PK
+  }
+  trigger_rule_revisions {
+    uuid tenant_id PK
+    uuid id PK
+  }
+  workflow_instance_contexts {
+    uuid tenant_id PK
+    uuid id PK
+  }
+  subject_contacts {
+    uuid tenant_id PK
+    uuid id PK
+  }
+  recipient_preferences {
+    uuid tenant_id PK
+    uuid id PK
+  }
+  suppressions {
+    uuid tenant_id PK
+    uuid id PK
+  }
+  notification_requests {
+    uuid tenant_id PK
+    uuid id PK
+  }
+  deliveries {
+    uuid tenant_id PK
+    uuid id PK
+  }
+  delivery_payloads {
+    uuid tenant_id PK
+    uuid id PK
+  }
+  delivery_attempts {
+    uuid tenant_id PK
+    uuid id PK
+  }
+  delivery_events {
+    uuid tenant_id PK
+    uuid id PK
+  }
+  provider_callbacks {
+    uuid tenant_id PK
+    uuid id PK
+  }
+  inapp_messages {
+    uuid tenant_id PK
+    uuid id PK
+  }
+  delivery_metrics_hourly {
     uuid tenant_id PK
     uuid id PK
   }
@@ -646,9 +782,50 @@ erDiagram
     uuid tenant_id PK
     uuid id PK
   }
-  notification_templates ||--o{ notification_template_versions : "template_id"
-  notification_template_versions ||--o{ notification_deliveries : "template_version_id"
+  applications ||--o{ application_api_keys : "application_id"
+  layouts ||--o{ layout_versions : "layout_id"
+  applications ||--o{ templates : "application_id"
+  categories ||--o{ templates : "category_id"
+  templates ||--o{ template_versions : "template_id"
+  layout_versions |o--o{ template_versions : "layout_version_id"
+  template_versions ||--o{ template_variants : "template_version_id"
+  templates ||--o{ template_releases : "template_id"
+  template_versions ||--o{ template_releases : "template_version_id"
+  provider_profiles ||--o{ provider_revisions : "provider_id"
+  provider_profiles ||--o{ provider_health : "provider_id"
+  provider_profiles ||--o{ breaker_transitions : "provider_id"
+  provider_profiles ||--o{ breaker_overrides : "provider_id"
+  applications |o--o{ routing_policies : "application_id"
+  categories |o--o{ routing_policies : "category_id"
+  routing_policies ||--o{ routing_policy_versions : "routing_policy_id"
+  templates ||--o{ trigger_rules : "template_id"
+  trigger_rules ||--o{ trigger_rule_revisions : "rule_id"
+  categories ||--o{ recipient_preferences : "category_id"
+  provider_profiles |o--o{ suppressions : "source_provider_id"
+  applications ||--o{ notification_requests : "application_id"
+  templates ||--o{ notification_requests : "template_id"
+  categories ||--o{ notification_requests : "category_id"
+  trigger_rule_revisions |o--o{ notification_requests : "trigger_rule_revision_id"
+  notification_requests ||--o{ deliveries : "request_id"
+  template_versions ||--o{ deliveries : "template_version_id"
+  template_variants ||--o{ deliveries : "variant_id"
+  provider_profiles |o--o{ deliveries : "selected_provider_id"
+  deliveries |o--o{ deliveries : "resend_of_delivery_id"
+  deliveries ||--o{ delivery_payloads : "delivery_id"
+  deliveries ||--o{ delivery_attempts : "delivery_id"
+  provider_profiles ||--o{ delivery_attempts : "provider_id"
+  provider_revisions ||--o{ delivery_attempts : "provider_revision_id"
+  deliveries ||--o{ delivery_events : "delivery_id"
+  provider_profiles ||--o{ provider_callbacks : "provider_id"
+  deliveries |o--o{ provider_callbacks : "delivery_id"
+  deliveries ||--o{ inapp_messages : "delivery_id"
+  applications ||--o{ delivery_metrics_hourly : "application_id"
+  templates ||--o{ delivery_metrics_hourly : "template_id"
+  categories ||--o{ delivery_metrics_hourly : "category_id"
+  provider_profiles |o--o{ delivery_metrics_hourly : "provider_id"
 ```
+
+`template_versions`, `template_variants`, `layout_versions`, `provider_revisions`, `routing_policy_versions` và `trigger_rule_revisions` là bất biến sau khi `PUBLISHED`. `template_releases` và `publication_releases` dùng `ordinal` tăng đơn điệu (rollback tạo release mới trỏ về version cũ). `delivery_payloads` và `workflow_instance_contexts` lưu dữ liệu nhạy cảm mã hóa AES-256-GCM và phân vùng theo ngày để xóa nhanh theo TTL; `deliveries`, `delivery_attempts`, `delivery_events`, `provider_callbacks` phân vùng theo tháng. Các bảng nội bộ của hàng đợi River đặt trong schema kỹ thuật riêng `notification_queue` trong cùng `notification_db`; chi tiết tại [Notification Service](notification-service.md).
 
 ### projection
 
@@ -887,6 +1064,8 @@ flowchart LR
   Human -. form version .-> Authoring
   Integration[integration.integration_bindings] -. element/version .-> Authoring
   Projection[projection.instance_views] -. committed events .-> Engine
+  Notification[notification.deliveries] -. committed events .-> Engine
+  Notification -. recipient subject .-> Access
   Audit[audit_search.audit_entries] -. evidence ref .-> Owner[authoritative owner audit]
 ```
 

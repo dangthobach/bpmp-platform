@@ -20,5 +20,7 @@ Trang này tóm lược ownership và invariant. [DBML](schema.dbml) là mô hì
 | Projection | PostgreSQL/read models | inbox, searchable workflow state |
 | Access/Authz | PostgreSQL + signed bundles | identities/grants/catalog/policy lifecycle |
 | Case/Document/Integration | context-owned stores | case state, files/metadata, connector execution |
+| MDM | PostgreSQL + immutable snapshots | master models, records, versioned releases/bundles ([chi tiết](appendix/mdm-service.md)) |
+| Notification | PostgreSQL (`notification_db`) | immutable template versions/releases, dynamic providers, deliveries, audit ([chi tiết](appendix/notification-service.md)) |
 
 Mô hình logic chi tiết được giữ trong [data-model reference](appendix/data-model-reference.md). Tuân [entity conventions](appendix/entity-conventions.md) khi thêm entity.

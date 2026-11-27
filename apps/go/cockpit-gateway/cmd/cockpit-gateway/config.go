@@ -21,8 +21,9 @@ type config struct {
 	Realtime        realtimeConfig       `json:"realtime"`
 	Health          healthConfig         `json:"health"`
 	Telemetry       telemetryConfig      `json:"telemetry"`
-	Kafka           kafkaconfig.Consumer `json:"kafka"`
-	HumanEventTopic string               `json:"human_event_topic"`
+	Kafka                      kafkaconfig.Consumer `json:"kafka"`
+	HumanEventTopic            string               `json:"human_event_topic"`
+	NotificationInAppHintTopic string               `json:"notification_inapp_hint_topic"`
 }
 
 type tlsConfig struct {
@@ -140,7 +141,15 @@ func (c config) Validate() error {
 	if err := uniqueNonEmpty(c.Realtime.AllowedSignalNames); err != nil {
 		return err
 	}
-	if len(c.Kafka.TopicList()) != 2 || c.Kafka.TopicList()[1] != c.HumanEventTopic {
+	topics := c.Kafka.TopicList()
+	if c.NotificationInAppHintTopic != "" {
+		if kafkaconfig.ValidateTopic(c.NotificationInAppHintTopic) != nil {
+			return errors.New("cockpit gateway notification in-app hint topic is invalid")
+		}
+		if len(topics) != 3 || topics[1] != c.HumanEventTopic || topics[2] != c.NotificationInAppHintTopic {
+			return errors.New("cockpit gateway must consume Engine, Human Runtime, and Notification in-app hint feeds in that order")
+		}
+	} else if len(topics) != 2 || topics[1] != c.HumanEventTopic {
 		return errors.New("cockpit gateway must consume Engine and Human Runtime feeds in that order")
 	}
 	if err := validOrigins(c.HTTP.AllowedOrigins); err != nil {

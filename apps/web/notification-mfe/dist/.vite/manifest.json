@@ -1,0 +1,214 @@
+{
+  "../../../packages/frontend/mfe-contract/src/index.ts": {
+    "file": "assets/index-B08NiBkz.js",
+    "name": "index",
+    "src": "../../../packages/frontend/mfe-contract/src/index.ts",
+    "isDynamicEntry": true
+  },
+  "../../../packages/frontend/shared-ui/src/index.tsx": {
+    "file": "assets/index-D6FL9Lcw.js",
+    "name": "index",
+    "src": "../../../packages/frontend/shared-ui/src/index.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "__virtual_mf___mfe_internal__notification_mfe__mf_owner__118031267224600__loadShare__shared-BlY3R17z.js",
+      "_vite-preload-helper-CZhp57XC.js"
+    ]
+  },
+  "___virtual_mf___mfe_internal__notification_mfe__mf_owner__118031267224600__loadShare__react__loadShare__.js_commonjs-proxy-B8nqQkUH.js": {
+    "file": "assets/__virtual_mf___mfe_internal__notification_mfe__mf_owner__118031267224600__loadShare__react__loadShare__.js_commonjs-proxy-B8nqQkUH.js",
+    "name": "__virtual_mf___mfe_internal__notification_mfe__mf_owner__118031267224600__loadShare__react__loadShare__.js_commonjs-proxy",
+    "imports": [
+      "__virtual_mf___mfe_internal__notification_mfe__mf_owner__118031267224600__loadShare__shared-BlY3R17z.js"
+    ]
+  },
+  "__commonjsHelpers-C63LSEIc.js": {
+    "file": "assets/_commonjsHelpers-C63LSEIc.js",
+    "name": "_commonjsHelpers"
+  },
+  "__virtual_mf___mfe_internal__notification_mfe__mf_owner__118031267224600__loadShare___mf_0_ods_mf_1_call_mf_2_api__loadShare__.js-CK-KfbRe.js": {
+    "file": "assets/_virtual_mf___mfe_internal__notification_mfe__mf_owner__118031267224600__loadShare___mf_0_ods_mf_1_call_mf_2_api__loadShare__.js-CK-KfbRe.js",
+    "name": "_virtual_mf___mfe_internal__notification_mfe__mf_owner__118031267224600__loadShare___mf_0_ods_mf_1_call_mf_2_api__loadShare__.js",
+    "isDynamicEntry": true
+  },
+  "__virtual_mf___mfe_internal__notification_mfe__mf_owner__118031267224600__loadShare__shared-BlY3R17z.js": {
+    "file": "assets/_virtual_mf___mfe_internal__notification_mfe__mf_owner__118031267224600__loadShare__shared-BlY3R17z.js",
+    "name": "_virtual_mf___mfe_internal__notification_mfe__mf_owner__118031267224600__loadShare__shared",
+    "isDynamicEntry": true,
+    "imports": [
+      "_vite-preload-helper-CZhp57XC.js"
+    ],
+    "dynamicImports": [
+      "virtual:mf:__mfe_internal__notification_mfe__mf_owner__118031267224600__prebuild__react_mf_1_jsx_mf_2_runtime__prebuild__.js",
+      "virtual:mf:__mfe_internal__notification_mfe__mf_owner__118031267224600__prebuild__react_mf_2_dom_mf_1_client__prebuild__.js",
+      "../../../packages/frontend/shared-ui/src/index.tsx",
+      "virtual:mf:__mfe_internal__notification_mfe__mf_owner__118031267224600__prebuild__react__prebuild__.js",
+      "virtual:mf:__mfe_internal__notification_mfe__mf_owner__118031267224600__prebuild__react_mf_2_dom__prebuild__.js",
+      "../../../packages/frontend/mfe-contract/src/index.ts"
+    ]
+  },
+  "_helpers-DibgExdo.js": {
+    "file": "assets/helpers-DibgExdo.js",
+    "name": "helpers",
+    "imports": [
+      "_index-DrH-9OnB.js"
+    ]
+  },
+  "_index-Cwb1Z4kk.js": {
+    "file": "assets/index-Cwb1Z4kk.js",
+    "name": "index",
+    "imports": [
+      "__commonjsHelpers-C63LSEIc.js",
+      "_react.production-CuOFRFTt.js"
+    ]
+  },
+  "_index-DrH-9OnB.js": {
+    "file": "assets/index-DrH-9OnB.js",
+    "name": "index"
+  },
+  "_index-a8doq6Cu.js": {
+    "file": "assets/index-a8doq6Cu.js",
+    "name": "index",
+    "imports": [
+      "_index-DrH-9OnB.js"
+    ]
+  },
+  "_react.production-CuOFRFTt.js": {
+    "file": "assets/react.production-CuOFRFTt.js",
+    "name": "react.production"
+  },
+  "_vite-preload-helper-CZhp57XC.js": {
+    "file": "assets/vite-preload-helper-CZhp57XC.js",
+    "name": "vite-preload-helper"
+  },
+  "index.html": {
+    "file": "assets/index-DKldtYGe.js",
+    "name": "index",
+    "src": "index.html",
+    "isEntry": true,
+    "imports": [
+      "__virtual_mf___mfe_internal__notification_mfe__mf_owner__118031267224600__loadShare__shared-BlY3R17z.js",
+      "__virtual_mf___mfe_internal__notification_mfe__mf_owner__118031267224600__loadShare___mf_0_ods_mf_1_call_mf_2_api__loadShare__.js-CK-KfbRe.js",
+      "src/route.tsx",
+      "_vite-preload-helper-CZhp57XC.js"
+    ]
+  },
+  "src/route.tsx": {
+    "file": "assets/route-DYQUC6-W.js",
+    "name": "route",
+    "src": "src/route.tsx",
+    "isEntry": true,
+    "isDynamicEntry": true,
+    "imports": [
+      "__virtual_mf___mfe_internal__notification_mfe__mf_owner__118031267224600__loadShare__shared-BlY3R17z.js",
+      "_vite-preload-helper-CZhp57XC.js"
+    ]
+  },
+  "virtual:mf-REMOTE_ENTRY_ID:__mfe_internal__notification_mfe__remoteEntry-_hash_": {
+    "file": "remoteEntry-C_QLgbSy.js",
+    "name": "remoteEntry",
+    "src": "virtual:mf-REMOTE_ENTRY_ID:__mfe_internal__notification_mfe__remoteEntry-_hash_",
+    "isDynamicEntry": true,
+    "imports": [
+      "_vite-preload-helper-CZhp57XC.js",
+      "_index-a8doq6Cu.js",
+      "_helpers-DibgExdo.js",
+      "_index-DrH-9OnB.js"
+    ],
+    "dynamicImports": [
+      "src/route.tsx",
+      "virtual:mf-localSharedImportMap:__mfe_internal__notification_mfe__mf_owner__1"
+    ]
+  },
+  "virtual:mf-localSharedImportMap:__mfe_internal__notification_mfe__mf_owner__1": {
+    "file": "assets/_virtual_mf-localSharedImportMap___mfe_internal__notification_mfe__mf_owner__1-D3VEYhg6.js",
+    "name": "_virtual_mf-localSharedImportMap___mfe_internal__notification_mfe__mf_owner__1",
+    "src": "virtual:mf-localSharedImportMap:__mfe_internal__notification_mfe__mf_owner__1",
+    "isDynamicEntry": true,
+    "imports": [
+      "_vite-preload-helper-CZhp57XC.js",
+      "_index-a8doq6Cu.js",
+      "_index-DrH-9OnB.js"
+    ],
+    "dynamicImports": [
+      "virtual:mf:__mfe_internal__notification_mfe__mf_owner__118031267224600__prebuild__react__prebuild__.js",
+      "virtual:mf:__mfe_internal__notification_mfe__mf_owner__118031267224600__prebuild__react_mf_1_jsx_mf_2_runtime__prebuild__.js",
+      "virtual:mf:__mfe_internal__notification_mfe__mf_owner__118031267224600__prebuild__react_mf_2_dom__prebuild__.js",
+      "virtual:mf:__mfe_internal__notification_mfe__mf_owner__118031267224600__prebuild__react_mf_2_dom_mf_1_client__prebuild__.js",
+      "__virtual_mf___mfe_internal__notification_mfe__mf_owner__118031267224600__loadShare___mf_0_ods_mf_1_call_mf_2_api__loadShare__.js-CK-KfbRe.js",
+      "../../../packages/frontend/mfe-contract/src/index.ts",
+      "../../../packages/frontend/shared-ui/src/index.tsx"
+    ]
+  },
+  "virtual:mf:__mfe_internal__notification_mfe__mf_owner__118031267224600__prebuild__react__prebuild__.js": {
+    "file": "assets/_virtual_mf___mfe_internal__notification_mfe__mf_owner__118031267224600__prebuild__react__prebuild__-fkp88I2c.js",
+    "name": "_virtual_mf___mfe_internal__notification_mfe__mf_owner__118031267224600__prebuild__react__prebuild__",
+    "src": "virtual:mf:__mfe_internal__notification_mfe__mf_owner__118031267224600__prebuild__react__prebuild__.js",
+    "isDynamicEntry": true,
+    "imports": [
+      "__commonjsHelpers-C63LSEIc.js",
+      "_react.production-CuOFRFTt.js"
+    ]
+  },
+  "virtual:mf:__mfe_internal__notification_mfe__mf_owner__118031267224600__prebuild__react_mf_1_jsx_mf_2_runtime__prebuild__.js": {
+    "file": "assets/_virtual_mf___mfe_internal__notification_mfe__mf_owner__118031267224600__prebuild__react_mf_1_jsx_mf_2_runtime__prebuild__-CPEVYu45.js",
+    "name": "_virtual_mf___mfe_internal__notification_mfe__mf_owner__118031267224600__prebuild__react_mf_1_jsx_mf_2_runtime__prebuild__",
+    "src": "virtual:mf:__mfe_internal__notification_mfe__mf_owner__118031267224600__prebuild__react_mf_1_jsx_mf_2_runtime__prebuild__.js",
+    "isDynamicEntry": true,
+    "imports": [
+      "__commonjsHelpers-C63LSEIc.js"
+    ]
+  },
+  "virtual:mf:__mfe_internal__notification_mfe__mf_owner__118031267224600__prebuild__react_mf_2_dom__prebuild__.js": {
+    "file": "assets/_virtual_mf___mfe_internal__notification_mfe__mf_owner__118031267224600__prebuild__react_mf_2_dom__prebuild__-BJCnHON5.js",
+    "name": "_virtual_mf___mfe_internal__notification_mfe__mf_owner__118031267224600__prebuild__react_mf_2_dom__prebuild__",
+    "src": "virtual:mf:__mfe_internal__notification_mfe__mf_owner__118031267224600__prebuild__react_mf_2_dom__prebuild__.js",
+    "isDynamicEntry": true,
+    "imports": [
+      "_index-Cwb1Z4kk.js",
+      "__commonjsHelpers-C63LSEIc.js",
+      "_react.production-CuOFRFTt.js"
+    ]
+  },
+  "virtual:mf:__mfe_internal__notification_mfe__mf_owner__118031267224600__prebuild__react_mf_2_dom_mf_1_client__prebuild__.js": {
+    "file": "assets/_virtual_mf___mfe_internal__notification_mfe__mf_owner__118031267224600__prebuild__react_mf_2_dom_mf_1_client__prebuild__-B2jIMayM.js",
+    "name": "_virtual_mf___mfe_internal__notification_mfe__mf_owner__118031267224600__prebuild__react_mf_2_dom_mf_1_client__prebuild__",
+    "src": "virtual:mf:__mfe_internal__notification_mfe__mf_owner__118031267224600__prebuild__react_mf_2_dom_mf_1_client__prebuild__.js",
+    "isDynamicEntry": true,
+    "imports": [
+      "__commonjsHelpers-C63LSEIc.js",
+      "_index-Cwb1Z4kk.js",
+      "_react.production-CuOFRFTt.js"
+    ]
+  },
+  "virtual:mf:__mfe_internal__notification_mfe__mf_owner__1__H_A_I__hostAutoInit__H_A_I__.js": {
+    "file": "assets/hostInit-D4z2XU84.js",
+    "name": "hostInit",
+    "src": "virtual:mf:__mfe_internal__notification_mfe__mf_owner__1__H_A_I__hostAutoInit__H_A_I__.js",
+    "imports": [
+      "_vite-preload-helper-CZhp57XC.js",
+      "_helpers-DibgExdo.js",
+      "_index-DrH-9OnB.js"
+    ],
+    "dynamicImports": [
+      "virtual:mf-REMOTE_ENTRY_ID:__mfe_internal__notification_mfe__remoteEntry-_hash_",
+      "virtual:mf-localSharedImportMap:__mfe_internal__notification_mfe__mf_owner__1"
+    ]
+  },
+  "virtual:mf:__mfe_internal__notification_mfe__mf_owner__1__P_S__pendingShares__P_S__.js": {
+    "file": "assets/pendingShares-Cn9W-UYq.js",
+    "name": "pendingShares",
+    "src": "virtual:mf:__mfe_internal__notification_mfe__mf_owner__1__P_S__pendingShares__P_S__.js",
+    "imports": [
+      "_vite-preload-helper-CZhp57XC.js"
+    ],
+    "dynamicImports": [
+      "__virtual_mf___mfe_internal__notification_mfe__mf_owner__118031267224600__loadShare__shared-BlY3R17z.js",
+      "__virtual_mf___mfe_internal__notification_mfe__mf_owner__118031267224600__loadShare__shared-BlY3R17z.js",
+      "__virtual_mf___mfe_internal__notification_mfe__mf_owner__118031267224600__loadShare___mf_0_ods_mf_1_call_mf_2_api__loadShare__.js-CK-KfbRe.js",
+      "__virtual_mf___mfe_internal__notification_mfe__mf_owner__118031267224600__loadShare__shared-BlY3R17z.js",
+      "__virtual_mf___mfe_internal__notification_mfe__mf_owner__118031267224600__loadShare__shared-BlY3R17z.js",
+      "virtual:mf-localSharedImportMap:__mfe_internal__notification_mfe__mf_owner__1"
+    ]
+  }
+}

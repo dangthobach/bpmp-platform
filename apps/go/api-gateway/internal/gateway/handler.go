@@ -42,6 +42,7 @@ type Handler struct {
 	authorizationProxy *authorizationProxy
 	realtimeProxy      *realtimeProxy
 	caseProxy          *caseProxy
+	notificationProxy  *notificationProxy
 	policyProvider     PolicyProvider
 	upstreams          *upstreamController
 	sessionStore       ports.BrowserSessionStore
@@ -179,6 +180,12 @@ func (h *Handler) Routes() http.Handler {
 		mux.HandleFunc("GET /v1/customer-cases", h.proxyCase)
 		mux.HandleFunc("GET /v1/customer-cases/{rest...}", h.proxyCase)
 		mux.HandleFunc("POST /v1/customer-cases", h.proxyCase)
+	}
+	if h.notificationProxy != nil {
+		for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
+			mux.HandleFunc(method+" /v1/notifications", h.proxyNotification)
+			mux.HandleFunc(method+" /v1/notifications/{rest...}", h.proxyNotification)
+		}
 	}
 	for _, definition := range publicOperationDefinitions {
 		if definition.configuration && h.configurationProxy == nil {
@@ -724,7 +731,8 @@ func (h *Handler) authenticateRequest(r *http.Request, commandRequired bool) (re
 		return requestScope{}, errRateLimited
 	}
 	caseRoute := r.URL.Path == "/v1/customer-cases" || strings.HasPrefix(r.URL.Path, "/v1/customer-cases/")
-	contextAudienceRequired := identity.fromBrowserSession || strings.HasPrefix(r.URL.Path, "/realtime/") || caseRoute
+	notificationRoute := r.URL.Path == notificationPath || strings.HasPrefix(r.URL.Path, notificationPath+"/")
+	contextAudienceRequired := identity.fromBrowserSession || strings.HasPrefix(r.URL.Path, "/realtime/") || caseRoute || notificationRoute
 	if contextAudienceRequired && (identity.proofType != authv1.ActorProofType_ACTOR_PROOF_TYPE_SIGNED_INTERNAL_CONTEXT || len(identity.signedProof) == 0) {
 		audience, audienceOK := actorContextAudience(r.URL.Path, h.workload.id)
 		if !audienceOK || h.authorizationProxy == nil {

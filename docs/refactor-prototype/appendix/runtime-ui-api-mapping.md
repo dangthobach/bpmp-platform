@@ -1,4 +1,11 @@
-# Runtime Cockpit UI/API mapping
+# Legacy Runtime Cockpit UI/API mapping
+
+Status reviewed: 2026-11-25. This control map is for `apps/web/cockpit-web`
+only; it is not the ODS Studio MFE deployment map. Studio's deployment APIs
+and remaining UI/acceptance gaps are described in
+[`bpmp-feature-api-coverage.md`](../../bpmp-feature-api-coverage.md),
+[`authoring-service.md`](../authoring-service.md), and
+[`ods-refactor-progress.md`](../../ods-refactor-progress.md).
 
 This file records application controls that call the current Gateway contract. The prototype inventory in `ui-api-mapping.csv` remains a source interaction inventory; it does not itself prove that runtime controls call an API. `current-registration` means the route is present in the current Gateway contract. Authoring routes are conditional on `authoring_address` being configured, and deployment remains a separate runtime proof.
 
@@ -103,6 +110,6 @@ Batch operations are bounded by configured chunk size/concurrency. A successful 
 ## Current first-slice gaps
 
 - Modeler includes a visual linear BPMN canvas and a constrained paired-gateway canvas. Users can add/remove branches only for a one-level parallel split/join with one task per branch; exclusive gateway conditions are shown but not mutated by canvas actions. Nested gateways, loops, multi-process models and unsupported BPMN elements remain source-only. Any canvas edits persist through the same revision-checked draft API; validation still checks only the saved revision.
-- BPMN and DMN check-in create immutable source versions only from the current persisted revision after compiler validation and digest comparison. Form authoring supports JSON Schema/UI schema drafts, CAS save, bounded UI profile validation, immutable publication, and version history. Tasklist renders the supported primitive form subset and the published profile for ordering, textarea, width and helper text; completion is checked against the exact current published version. Arbitrary custom widgets/layout, pinned-at-process-activation versions, and version rollback remain gaps. Newest-first version history, source preview/download, bounded source-level comparison and restore-as-new-draft are available for BPMN/DMN. Deployment jobs, activation and rollback remain unavailable. BPMN/DMN import and export are bounded local file actions; structured DMN editing supports one input/output table; DMN simulation remains a gap.
+- BPMN and DMN check-in create immutable source versions only from the current persisted revision after compiler validation and digest comparison. Form authoring supports JSON Schema/UI schema drafts, CAS save, bounded UI profile validation, immutable publication, and version history. Tasklist renders the supported primitive form subset and the published profile for ordering, textarea, width and helper text; completion is checked against the exact current published version. Arbitrary custom widgets/layout, pinned-at-process-activation versions, and form version rollback remain gaps. Newest-first version history, source preview/download, bounded source-level comparison and restore-as-new-draft are available for BPMN/DMN. This legacy Cockpit UI does not expose deployment. Studio has deployment submission/history/rollback UI and Gateway APIs, but its catalog still uses prototype identities and its live restart/leader-change acceptance remains open. BPMN/DMN import and export are bounded local file actions; structured DMN editing supports one input/output table; DMN simulation remains a gap.
 - Gateway registration is conditional on `authoring_address`. Without it the UI presents an unavailable state and does not fall back to local examples.
 - The UI has not yet been run against provisioned Gateway, Authoring, Authz, PostgreSQL, Kafka and Compiler deployments; this mapping is implementation evidence, not an end-to-end production acceptance result.

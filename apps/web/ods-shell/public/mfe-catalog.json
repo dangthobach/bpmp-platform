@@ -21,6 +21,15 @@
       "contractVersion": "1.0",
       "minShellVersion": "1.0",
       "requiredCapabilities": ["case.read"]
+    },
+    {
+      "name": "notification-mfe",
+      "routeBasePath": "/notifications",
+      "entry": "http://127.0.0.1:4304/mf-manifest.json",
+      "exposedModule": "route",
+      "contractVersion": "1.0",
+      "minShellVersion": "1.0",
+      "requiredCapabilities": ["notification.read"]
     }
   ]
 }

@@ -1,7 +1,7 @@
 # BPMP Architecture Traceability Matrix
 
 - Status: Current repository traceability index
-- Last verified: 2026-10-30
+- Last source review: 2026-11-25
 
 This matrix connects ownership to contracts, topics, state, background work,
 operations, and executable evidence. Paths are repository-relative. `Planned`
@@ -18,12 +18,14 @@ means the item is an architectural target rather than a current deployable.
 | Human Runtime | `HumanRuntimeService` | Consumes engine events/config; produces `bpmp.human.escalations.v1.*` | Human PostgreSQL work item/inbox/audit/outbox/checkpoint | Event consumer, escalation, config reload | `docs/requirement-2-compliance.md`, production deployment process | Go unit/race tests and PostgreSQL integration tests | Current |
 | Configuration Service | HTTP admin API, `ConfigurationResolverService` | Produces configuration publications/readiness; consumes tenant lifecycle | Configuration PostgreSQL versions/audit/outbox/readiness | Outbox publisher, tenant lifecycle consumer, readiness publisher | ADR-007, `docs/dynamic-configuration-p1.md`, `docs/kafka-topology.md` | Configuration Go tests and E2E topology generation | Current |
 | Projection Service | `ProjectionQueryService` | Consumes engine events, query revokes, configuration publications | Projection PostgreSQL read model/inbox/checkpoint/query/export/revoke/DLQ | Event/revoke consumers, export worker, config reload | `docs/query-api.md`, `docs/query-pdp.md`, `docs/query-revoke-kafka.md`, `docs/projection-rebuild.md` | Projection Go/race/PostgreSQL tests | Current |
+| Case Service | Gateway Case BFF; Case service HTTP boundary | Produces Case outbox events; consumes committed Engine Protobuf events | Case PostgreSQL aggregate, idempotency, start jobs, outbox, inbox and process-state projection | Outbox publisher, workflow-start runner, Engine-event consumer | `apps/go/case-service/README.md`, `docs/ods-refactor-progress.md` | Go/PostgreSQL/broker integration and local Docker browser evidence; production metadata, retention, TLS and staging gates remain | Current Phase 3 implementation; not production-qualified |
 | Governance Service | `GovernanceApprovalService`; calls `EngineGovernanceService` | Consumes configuration publications | Governance PostgreSQL approval/key-lifecycle jobs | Config reload, key lifecycle | ADR-005, `docs/vault-kms-operations.md`, production deployment process | Governance Rust tests and E2E acceptance flow | Current; production KMS gate remains |
-| Cockpit Gateway | HTTPS/SSE | Consumes engine committed events | Ephemeral connection/cursor state | Event consumer, per-connection heartbeat | `apps/go/cockpit-gateway/README.md`, `docs/cockpit-web-architecture.md` | Cockpit Gateway Go tests | Current |
+| Cockpit Gateway | HTTPS/SSE | Consumes Engine committed events and Human Runtime assignment-change events | Ephemeral connection/cursor state | Multi-topic event consumer, per-connection heartbeat | `apps/go/cockpit-gateway/README.md`, `docs/cockpit-web-architecture.md`, `docs/ods-refactor-progress.md` | Go build and local browser claim/delegate invalidation evidence; restart/replay-gap and cross-tenant acceptance remain open | Current |
 | Cockpit Web | REST + SSE clients | SSE hints | Browser-only UI state | None authoritative | `docs/cockpit-web-architecture.md` | Vitest/Playwright under `apps/web/cockpit-web` | Current legacy surface |
-| ODS Shell / Task MFE | Portal/Task REST facade | SSE reconciliation hints | Browser-only UI state | None authoritative | ADR-009/010, ODS plan/progress/release docs | ODS unit/E2E suites | Current Phase 1/2 slice |
+| ODS Shell / Task / Case MFE | Portal/Task/Case REST facades | SSE reconciliation hints | Browser-only UI state | None authoritative | ADR-009/010, ODS plan/progress/release docs | ODS unit/E2E suites and local Case browser evidence | Current Phase 1/2/3 slices; individual production gates remain open |
 | Process Copilot | Not defined | Future committed-event/read-model input | Future service-local store | Future bounded analysis jobs | `microservices-architecture.md` roadmap | None | Planned |
-| Case/Document/Integration | Contracts not yet present | Topics must be created with first real producer/consumer | Separate service-owned PostgreSQL | Saga/outbox/callback workers not implemented | ADR-011 and ODS refactor plan | None | Planned |
+| Document/Integration | Contracts not yet present | Topics must be created with first real producer/consumer | Separate service-owned PostgreSQL | Upload/scan/callback workers not implemented | ADR-011 and ODS refactor plan | None | Planned |
+| Notification Service | Planned `bpmp.notification.v1` + `NotificationPolicy` (`CONFIGURATION_OWNER_NOTIFICATION = 9`) | Planned `bpmp.notification.{requests,delivery-events,inapp-hints,invalidations}.v1.*`; consumes `bpmp.engine.committed-events.v1.*` | Dedicated `notification_db` PostgreSQL (34 tables + `notification_queue` River schema) | Planned intake, lane dispatchers, scheduler/outbox/rollup/cleanup, invalidation & config reloaders | [ADR-013](../adr/ADR-013-notification-service.md), [Notification design](../refactor-prototype/appendix/notification-service.md) | None | Planned (ADR-013 accepted) |
 
 ## Existing Kafka topology
 
@@ -77,7 +79,7 @@ different environment suffix.
 |---|---|---|
 | Unified Portal OIDC endpoints, refresh/logout, session issuance, and signing-key operations are external | Portal/Security | Versioned producer contract, threat model, rotation/outage/logout runbooks, deployment E2E |
 | Authz inactive-user job has fixed retry count/delay and no explicit distributed claim | Authz | Versioned worker policy, replica-safe lease/singleton, failure metrics/tests |
-| Production KMS and full revocation-barrier qualification remain gated | Governance/SRE | Real provider adapter evidence, rotation/revocation/cache chaos, restore/runbook |
+| Vault payload-key adapter exists; production KMS and full revocation-barrier qualification remain gated | Governance/SRE | Target Vault policy/identity, rotation/revocation/cache failure and restore/runbook evidence; WIR signer has a separate mounted-file-only gap |
 | Some planned ODS services have no contract or implementation | ODS domain owners | Add only with real bounded context, contract, store, worker catalog, runbook, and tests |
 | Production-scale latency/lag/CCU evidence is incomplete | Performance/SRE | Representative load profiles, p95/p99, saturation, recovery and soak results |
 
@@ -95,12 +97,12 @@ owner, contract, topic, store, job, runbook, or evidence path. Verify that:
 
 ## Proposed reporting extension
 
-The [database/reporting proposal](../refactor-prototype/databases-and-reporting.md) maps existing and planned source owners to analytical facts and details future reporting contracts, stores and sink guarantees. No Report consumer group, topic, OLAP store or new service is deployed by this documentation change; the current tables above remain the implementation inventory.
+The [database/reporting proposal](../refactor-prototype/appendix/databases-and-reporting.md) maps existing and planned source owners to analytical facts and details future reporting contracts, stores and sink guarantees. No Report consumer group, topic, OLAP store or new service is deployed by this documentation change; the current tables above remain the implementation inventory.
 
 ## API and entity design extension
 
-The [API design catalog](../refactor-prototype/api-spec.md) preserves the current Gateway contract and inventories proposed core/UI operations separately. [Entity conventions](../refactor-prototype/entity-conventions.md) require audit, soft deletion and optimistic concurrency for new/refactored business entities, with immutable/technical storage safety mappings. These are design/contribution requirements; existing runtime schemas and APIs are not migrated by this change.
+The [API design catalog](../refactor-prototype/api-spec.md) preserves the current Gateway contract and inventories proposed core/UI operations separately. [Entity conventions](../refactor-prototype/appendix/entity-conventions.md) require audit, soft deletion and optimistic concurrency for new/refactored business entities, with immutable/technical storage safety mappings. These are design/contribution requirements; existing runtime schemas and APIs are not migrated by this change.
 
 ## Operational contract rollout requirement
 
-Track UUID identity mapping, per-service `/healthz`/readiness/metrics and owner-local scheduled outbox/log cleanup against [backend standards](../refactor-prototype/backend-operations.md). Mark compliance only with endpoint/probe, retention eligibility, checkpoint/hold protection and crash-recovery evidence from the owning deployable.
+Track UUID identity mapping, per-service `/healthz`/readiness/metrics and owner-local scheduled outbox/log cleanup against [backend standards](../refactor-prototype/appendix/backend-operations.md). Mark compliance only with endpoint/probe, retention eligibility, checkpoint/hold protection and crash-recovery evidence from the owning deployable.

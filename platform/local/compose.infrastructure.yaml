@@ -89,6 +89,21 @@ services:
       <<: *postgres-health
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
 
+  notification-postgres:
+    image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${NOTIFICATION_DB_NAME:?set NOTIFICATION_DB_NAME}
+      POSTGRES_USER: ${NOTIFICATION_DB_USER:?set NOTIFICATION_DB_USER}
+      POSTGRES_PASSWORD: ${NOTIFICATION_DB_PASSWORD:?set NOTIFICATION_DB_PASSWORD}
+    ports:
+      - "${NOTIFICATION_DB_PORT:?set NOTIFICATION_DB_PORT}:5432"
+    volumes:
+      - notification-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      <<: *postgres-health
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+
   human-migrate:
     <<: *migration-base
     environment:
@@ -173,6 +188,27 @@ services:
         /opt/bpmp-db/migrate.sh /migrations governance-service &&
         /opt/bpmp-db/verify-schema.sh governance-service
 
+  notification-migrate:
+    <<: *migration-base
+    environment:
+      PGHOST: notification-postgres
+      PGPORT: "5432"
+      PGDATABASE: ${NOTIFICATION_DB_NAME:?set NOTIFICATION_DB_NAME}
+      PGUSER: ${NOTIFICATION_DB_USER:?set NOTIFICATION_DB_USER}
+      PGPASSWORD: ${NOTIFICATION_DB_PASSWORD:?set NOTIFICATION_DB_PASSWORD}
+      MIGRATION_WAIT_TIMEOUT_SECONDS: ${MIGRATION_WAIT_TIMEOUT_SECONDS:-60}
+    volumes:
+      - ../../db/scripts:/opt/bpmp-db:ro
+      - ../../db/notification-service/migrations:/migrations:ro
+    depends_on:
+      notification-postgres:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - >-
+        /opt/bpmp-db/migrate.sh /migrations notification-service &&
+        /opt/bpmp-db/verify-schema.sh notification-service
+
   redpanda:
     image: ${REDPANDA_IMAGE:?set REDPANDA_IMAGE}
     restart: unless-stopped
@@ -252,11 +288,24 @@ services:
       timeout: 5s
       retries: 3
 
+  mailpit:
+    image: ${MAILPIT_IMAGE:?set MAILPIT_IMAGE}
+    restart: unless-stopped
+    ports:
+      - "${MAILPIT_SMTP_PORT:?set MAILPIT_SMTP_PORT}:1025"
+      - "${MAILPIT_HTTP_PORT:?set MAILPIT_HTTP_PORT}:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
 volumes:
   human-postgres-data:
   configuration-postgres-data:
   projection-postgres-data:
   governance-postgres-data:
   authz-postgres-data:
+  notification-postgres-data:
   redpanda-data:
   redis-data:

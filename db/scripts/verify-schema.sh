@@ -127,6 +127,60 @@ case "$namespace" in
     assert_one "Governance approval ownership foreign key" \
       "SELECT count(*) FROM pg_constraint WHERE conrelid = 'governance_signed_approvals'::regclass AND contype = 'f';"
     ;;
+  notification-service)
+    assert_zero "Notification Service required tables" "
+      SELECT count(*) FROM unnest(ARRAY[
+        'categories','applications','application_api_keys',
+        'layouts','layout_versions','templates','template_versions',
+        'template_variants','template_releases','publication_releases',
+        'provider_profiles','provider_revisions','provider_health',
+        'breaker_overrides','breaker_transitions','routing_policies','routing_policy_versions',
+        'trigger_rules','trigger_rule_revisions','workflow_instance_contexts',
+        'subject_contacts','recipient_preferences','suppressions',
+        'notification_requests','deliveries','delivery_payloads',
+        'delivery_attempts','delivery_events','provider_callbacks',
+        'inapp_messages','delivery_metrics_hourly',
+        'outbox','inbox','command_receipts','audit_evidence',
+        'notification_dispatch_jobs'
+      ]) AS required(name)
+      WHERE to_regclass('$schema' || '.' || required.name) IS NULL;"
+    assert_zero "Notification Service owner entities expose row_version and is_deleted" "
+      SELECT count(*) FROM (VALUES
+        ('categories'),('applications'),('application_api_keys'),
+        ('layouts'),('layout_versions'),('templates'),('template_versions'),
+        ('template_variants'),('template_releases'),('publication_releases'),
+        ('provider_profiles'),('provider_revisions'),('provider_health'),
+        ('breaker_overrides'),('breaker_transitions'),('routing_policies'),('routing_policy_versions'),
+        ('trigger_rules'),('trigger_rule_revisions'),('workflow_instance_contexts'),
+        ('subject_contacts'),('recipient_preferences'),('suppressions'),
+        ('notification_requests'),('deliveries'),('delivery_payloads'),
+        ('delivery_attempts'),('delivery_events'),('provider_callbacks'),
+        ('inapp_messages'),('delivery_metrics_hourly'),
+        ('outbox'),('inbox'),('command_receipts'),('audit_evidence')
+      ) AS entity(table_name)
+      CROSS JOIN (VALUES ('row_version'),('is_deleted')) AS required(column_name)
+      WHERE NOT EXISTS (
+        SELECT 1 FROM information_schema.columns c
+        WHERE c.table_schema = '$schema'
+          AND c.table_name = entity.table_name
+          AND c.column_name = required.column_name
+      );"
+    assert_one "Notification audit append-only trigger" \
+      "SELECT count(*) FROM pg_trigger WHERE tgrelid = 'audit_evidence'::regclass AND tgname = 'notification_audit_no_mutation' AND tgenabled <> 'D';"
+    assert_one "Notification breaker transitions append-only trigger" \
+      "SELECT count(*) FROM pg_trigger WHERE tgrelid = 'breaker_transitions'::regclass AND tgname = 'notification_breaker_transitions_no_mutation' AND tgenabled <> 'D';"
+    assert_zero "Notification immutable published artifact triggers" "
+      SELECT count(*) FROM unnest(ARRAY[
+        'template_versions','template_variants','layout_versions',
+        'provider_revisions','routing_policy_versions','trigger_rule_revisions'
+      ]) AS guarded(table_name)
+      WHERE NOT EXISTS (
+        SELECT 1 FROM pg_trigger
+        WHERE tgrelid = (format('%I.%I', '$schema', guarded.table_name))::regclass
+          AND tgname = 'notification_immutable_published_guard'
+          AND tgenabled <> 'D'
+      );"
+    ;;
   *)
     echo "unsupported schema namespace: $namespace" >&2
     exit 2

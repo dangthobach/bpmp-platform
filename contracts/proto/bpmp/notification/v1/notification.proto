@@ -1,0 +1,215 @@
+syntax = "proto3";
+
+package bpmp.notification.v1;
+
+import "bpmp/authorization/v1/authorization.proto";
+
+enum NotificationChannel {
+  NOTIFICATION_CHANNEL_UNSPECIFIED = 0;
+  NOTIFICATION_CHANNEL_EMAIL = 1;
+  NOTIFICATION_CHANNEL_SMS = 2;
+  NOTIFICATION_CHANNEL_PUSH = 3;
+  NOTIFICATION_CHANNEL_IN_APP = 4;
+  NOTIFICATION_CHANNEL_ZNS = 5;
+  NOTIFICATION_CHANNEL_WEBHOOK = 6;
+}
+
+enum NotificationLane {
+  NOTIFICATION_LANE_UNSPECIFIED = 0;
+  NOTIFICATION_LANE_TRANSACTIONAL = 1;
+  NOTIFICATION_LANE_NORMAL = 2;
+  NOTIFICATION_LANE_BULK = 3;
+}
+
+enum DeliveryStatus {
+  DELIVERY_STATUS_UNSPECIFIED = 0;
+  DELIVERY_STATUS_ACCEPTED = 1;
+  DELIVERY_STATUS_SCHEDULED = 2;
+  DELIVERY_STATUS_QUEUED = 3;
+  DELIVERY_STATUS_SENDING = 4;
+  DELIVERY_STATUS_SENT = 5;
+  DELIVERY_STATUS_DELIVERED = 6;
+  DELIVERY_STATUS_BOUNCED = 7;
+  DELIVERY_STATUS_FAILED = 8;
+  DELIVERY_STATUS_DEFERRED = 9;
+  DELIVERY_STATUS_EXPIRED = 10;
+  DELIVERY_STATUS_SUPPRESSED = 11;
+  DELIVERY_STATUS_REJECTED = 12;
+}
+
+message RecipientTarget {
+  string subject_ref = 1;
+  NotificationChannel channel = 2;
+  string external_address = 3;
+  string display_name = 4;
+  string locale = 5;
+  string timezone = 6;
+}
+
+message SubmitNotificationRequest {
+  string tenant_id = 1;
+  string command_id = 2;
+  string idempotency_key = 3;
+  string correlation_id = 4;
+  string template_key = 5;
+  uint32 schema_major = 6;
+  uint64 pinned_version = 7;
+  string category_key = 8;
+  NotificationLane lane_override = 9;
+  string locale = 10;
+  bytes data_json = 11;
+  repeated RecipientTarget recipients = 12;
+  int64 send_at_epoch_ms = 13;
+  int64 expires_at_epoch_ms = 14;
+  bpmp.authorization.v1.ActorProof actor_proof = 15;
+  uint32 priority = 16;
+}
+
+message RoutingCandidatePlan {
+  string provider_id = 1;
+  string provider_key = 2;
+  string breaker_state = 3;
+  bool healthy = 4;
+}
+
+message PlanNotificationRequest {
+  string tenant_id = 1;
+  string template_key = 2;
+  uint32 schema_major = 3;
+  uint64 pinned_version = 4;
+  string category_key = 5;
+  NotificationLane lane_override = 6;
+  string locale = 7;
+  bytes data_json = 8;
+  repeated RecipientTarget recipients = 9;
+  uint32 priority = 10;
+  bpmp.authorization.v1.ActorProof actor_proof = 11;
+}
+
+message PlanNotificationResponse {
+  string template_version_id = 1;
+  uint64 release_ordinal = 2;
+  string variant_id = 3;
+  NotificationChannel channel = 4;
+  string locale = 5;
+  repeated string schema_errors = 6;
+  int32 quota_remaining_minute = 7;
+  int32 quota_remaining_day = 8;
+  repeated RoutingCandidatePlan routing_candidates = 9;
+  string selected_provider_id = 10;
+  string failover_reason = 11;
+  repeated string warnings = 12;
+}
+
+message DeliveryReceipt {
+  string delivery_id = 1;
+  NotificationChannel channel = 2;
+  string recipient_subject_ref = 3;
+  string masked_address = 4;
+  DeliveryStatus status = 5;
+}
+
+message SubmitNotificationResponse {
+  string request_id = 1;
+  bool replayed = 2;
+  string status = 3;
+  repeated DeliveryReceipt deliveries = 4;
+}
+
+message GetNotificationRequestRequest {
+  string tenant_id = 1;
+  string request_id = 2;
+  bpmp.authorization.v1.ActorProof actor_proof = 3;
+}
+
+message GetNotificationRequestResponse {
+  string request_id = 1;
+  string application_id = 2;
+  string template_key = 3;
+  uint32 schema_major = 4;
+  string category_key = 5;
+  NotificationLane lane = 6;
+  string correlation_id = 7;
+  string status = 8;
+  int64 created_at_epoch_ms = 9;
+  repeated DeliveryReceipt deliveries = 10;
+}
+
+message InAppMessage {
+  string id = 1;
+  string delivery_id = 2;
+  string subject_ref = 3;
+  string category_key = 4;
+  string title = 5;
+  string body_html = 6;
+  string action_url = 7;
+  int64 read_at_epoch_ms = 8;
+  int64 created_at_epoch_ms = 9;
+}
+
+message ListInAppMessagesRequest {
+  string tenant_id = 1;
+  bool unread_only = 2;
+  uint32 page_size = 3;
+  string page_token = 4;
+  bpmp.authorization.v1.ActorProof actor_proof = 5;
+}
+
+message ListInAppMessagesResponse {
+  repeated InAppMessage messages = 1;
+  string next_page_token = 2;
+  uint32 unread_count = 3;
+}
+
+message MarkInAppMessagesReadRequest {
+  string tenant_id = 1;
+  repeated string message_ids = 2;
+  string command_id = 3;
+  string idempotency_key = 4;
+  bpmp.authorization.v1.ActorProof actor_proof = 5;
+}
+
+message MarkInAppMessagesReadResponse {
+  uint32 updated_count = 1;
+}
+
+message RecipientPreference {
+  string category_key = 1;
+  NotificationChannel channel = 2;
+  bool enabled = 3;
+  bool user_unsubscribable = 4;
+}
+
+message GetMyPreferencesRequest {
+  string tenant_id = 1;
+  bpmp.authorization.v1.ActorProof actor_proof = 2;
+}
+
+message GetMyPreferencesResponse {
+  repeated RecipientPreference preferences = 1;
+}
+
+message UpdateMyPreferencesRequest {
+  string tenant_id = 1;
+  repeated RecipientPreference preferences = 2;
+  string command_id = 3;
+  string idempotency_key = 4;
+  bpmp.authorization.v1.ActorProof actor_proof = 5;
+}
+
+message UpdateMyPreferencesResponse {
+  repeated RecipientPreference preferences = 1;
+}
+
+service NotificationDispatchService {
+  rpc SubmitNotification(SubmitNotificationRequest) returns (SubmitNotificationResponse);
+  rpc GetNotificationRequest(GetNotificationRequestRequest) returns (GetNotificationRequestResponse);
+  rpc PlanNotification(PlanNotificationRequest) returns (PlanNotificationResponse);
+}
+
+service NotificationInboxService {
+  rpc ListInAppMessages(ListInAppMessagesRequest) returns (ListInAppMessagesResponse);
+  rpc MarkInAppMessagesRead(MarkInAppMessagesReadRequest) returns (MarkInAppMessagesReadResponse);
+  rpc GetMyPreferences(GetMyPreferencesRequest) returns (GetMyPreferencesResponse);
+  rpc UpdateMyPreferences(UpdateMyPreferencesRequest) returns (UpdateMyPreferencesResponse);
+}

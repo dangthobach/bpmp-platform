@@ -103,7 +103,11 @@ func run(configPath string) error {
 		return err
 	}
 	defer eventKafka.Close()
-	consumer, err := eventstream.NewConsumer(eventKafka, hub, value.Kafka.BatchSize, value.HumanEventTopic)
+	var consumerOptions []eventstream.ConsumerOption
+	if value.NotificationInAppHintTopic != "" {
+		consumerOptions = append(consumerOptions, eventstream.WithInAppHintTopic(value.NotificationInAppHintTopic))
+	}
+	consumer, err := eventstream.NewConsumer(eventKafka, hub, value.Kafka.BatchSize, value.HumanEventTopic, consumerOptions...)
 	if err != nil {
 		return err
 	}

@@ -32,6 +32,15 @@ documents are linked from the root (`SECURITY.md`, `CONTRIBUTING.md`, and
 - [Production deployment process](production-deployment-process.md)
 - [RocksDB operations](rocksdb-operations.md)
 - [Vault/KMS operations](vault-kms-operations.md)
+- [Dependency management](dependency-management.md)
+- [OIDC PKCE and browser session contract](contracts/api-gateway-oidc-pkce-session.md)
+
+## Current implementation gaps and evidence
+
+- [Repository gap remediation](repository-gap-remediation.md) — current code evidence, P0 blockers, and release gates.
+- [BPMN element coverage](bpmn-element-coverage.md) — compiler support versus end-to-end runtime behavior.
+- [Requirement 1 compliance](requirement-1-compliance.md) — executable evidence with its verification date and remaining profile gaps.
+- [300k CCU readiness review](300k-ccu-readiness.md) — capacity risks and dated implementation corrections; not a capacity certification.
 
 ## Query and authorization
 
@@ -44,6 +53,7 @@ documents are linked from the root (`SECURITY.md`, `CONTRIBUTING.md`, and
 
 - [ODS plan](ods-microfrontend-microservices-refactor-plan.md) — target/mixed
 - [ODS current progress](ods-refactor-progress.md) — current evidence snapshot
+- [Prototype porting plan](ods-prototype-porting-plan.md) — implementation plan; current phase status is maintained in the progress ledger.
 - [ODS browser session contract](ods-browser-session-contract.md)
 - [ODS release and rollback](ods-release-and-rollback.md)
 
@@ -51,11 +61,13 @@ documents are linked from the root (`SECURITY.md`, `CONTRIBUTING.md`, and
 
 - [BPMP prototype audit, target architecture, ERD and component system](refactor-prototype/README.md) — proposed; source inventory and logical design, not delivered runtime functionality.
 
-- [MDM Service: centralized administration and versioned local reads](refactor-prototype/mdm-service.md) — proposed; configurable models, publication bundles, batch resolution and deterministic replay evidence.
+- [MDM Service: centralized administration and versioned local reads](refactor-prototype/appendix/mdm-service.md) — proposed; configurable models, publication bundles, batch resolution and deterministic replay evidence.
 
-- [Service–database ownership and Reporting data flows](refactor-prototype/databases-and-reporting.md) — current storage inventory plus proposed Report contracts, event sources, large-volume design and recovery gates.
+- [Notification Service: versioned templates, multi-channel routing and delivery runtime](refactor-prototype/appendix/notification-service.md) — proposed ([ADR-013](adr/ADR-013-notification-service.md)); immutable template releases, safe preview, dynamic provider profiles, circuit breakers and workflow trigger rules.
 
-- [Entity audit, soft-delete and optimistic locking conventions](refactor-prototype/entity-conventions.md).
+- [Service–database ownership and Reporting data flows](refactor-prototype/appendix/databases-and-reporting.md) — current storage inventory plus proposed Report contracts, event sources, large-volume design and recovery gates.
+
+- [Entity audit, soft-delete and optimistic locking conventions](refactor-prototype/appendix/entity-conventions.md).
 - [BPMP API Specification and UI action traceability](refactor-prototype/api-spec.md) — current Gateway snapshot plus proposed target API catalog, not a deployed contract.
 
-- [Backend standards: UUID IDs, healthz/metrics and scheduled outbox/log retention](refactor-prototype/backend-operations.md) — required target behavior; per-service implementation evidence remains a rollout gate.
+- [Backend standards: UUID IDs, healthz/metrics and scheduled outbox/log retention](refactor-prototype/appendix/backend-operations.md) — required target behavior; per-service implementation evidence remains a rollout gate.

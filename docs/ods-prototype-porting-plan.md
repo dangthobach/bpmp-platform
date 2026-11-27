@@ -3,6 +3,11 @@
 Ngày lập: 2026-11-24 (Asia/Saigon)  
 Trạng thái: kế hoạch kỹ thuật dựa trên source inventory; chưa thay thế domain-owner approval, API contract hay staging acceptance.
 
+Đây là kế hoạch và inventory snapshot, không phải nguồn trạng thái hiện hành.
+Tiến độ Case/Task và gate mới nhất nằm trong
+[`ods-refactor-progress.md`](ods-refactor-progress.md); kiến trúc triển khai
+hiện tại nằm trong [architecture index](architecture/README.md).
+
 ## 1. Mục tiêu và tiêu chí parity
 
 Port `bpmp-prototype/` theo từng user journey vào ODS, giữ bố cục/hành vi có ích của prototype nhưng chuyển mỗi thao tác sang đúng owner. “Parity” có nghĩa là cùng use case và trạng thái người dùng cần xử lý, không phải sao chép mock data, bearer-token flow hay local mutation. Task/Case implementation tiếp tục trên local stack; staging/production promotion là deployment gate riêng, không phải điều kiện chặn phát triển chức năng.

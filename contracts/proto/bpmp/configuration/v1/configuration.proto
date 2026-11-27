@@ -23,6 +23,7 @@ enum ConfigurationOwner {
   CONFIGURATION_OWNER_CONFIGURATION_SERVICE = 6;
   CONFIGURATION_OWNER_COCKPIT_GATEWAY = 7;
   CONFIGURATION_OWNER_AUTHZ_CONTROL_PLANE = 8;
+  CONFIGURATION_OWNER_NOTIFICATION = 9;
 }
 
 enum ConfigurationPublicationKind {
@@ -235,6 +236,63 @@ message AuthzControlPlanePolicy {
   RetryPolicy inactive_user_retry = 10;
 }
 
+message NotificationLanePolicy {
+  uint32 worker_concurrency = 1;
+  uint32 claim_batch_size = 2;
+  uint64 lease_duration_ms = 3;
+  RetryPolicy retry = 4;
+  uint64 max_queue_lag_alert_ms = 5;
+}
+
+message NotificationBreakerPolicy {
+  uint64 rolling_window_ms = 1;
+  uint32 min_requests = 2;
+  uint32 failure_rate_threshold_bps = 3;
+  uint64 open_state_duration_ms = 4;
+  uint32 half_open_max_probes = 5;
+  uint64 max_manual_override_ttl_ms = 6;
+  uint64 slow_call_threshold_ms = 7;
+  uint32 slow_call_rate_threshold_bps = 8;
+}
+
+message NotificationRenderLimits {
+  uint32 max_payload_bytes = 1;
+  uint32 max_email_html_bytes = 2;
+  uint32 max_sms_segments = 3;
+  uint32 max_push_body_bytes = 4;
+  uint32 max_array_items = 5;
+  uint64 preview_timeout_ms = 6;
+  uint32 preview_bulkhead_concurrency = 7;
+  uint32 preview_rate_limit_per_minute = 8;
+}
+
+message NotificationRetentionPolicy {
+  uint32 transactional_payload_days = 1;
+  uint32 bulk_payload_days = 2;
+  uint32 delivery_metadata_months = 3;
+  uint32 attempt_callback_days = 4;
+  uint32 metrics_hourly_months = 5;
+  uint32 idempotency_inbox_days = 6;
+  uint32 inapp_message_days = 7;
+  uint32 instance_context_retention_hours = 8;
+  uint32 cleanup_batch_size = 9;
+  uint64 cleanup_interval_ms = 10;
+}
+
+message NotificationPolicy {
+  NotificationLanePolicy transactional_lane = 1;
+  NotificationLanePolicy normal_lane = 2;
+  NotificationLanePolicy bulk_lane = 3;
+  NotificationBreakerPolicy default_breaker = 4;
+  NotificationRenderLimits render_limits = 5;
+  NotificationRetentionPolicy retention = 6;
+  uint32 default_provider_bulkhead_concurrency = 7;
+  uint64 provider_call_timeout_ms = 8;
+  repeated string allowed_provider_hosts = 9;
+  uint32 otp_per_recipient_limit = 10;
+  uint64 otp_rate_window_ms = 11;
+}
+
 message ResolvedConfigurationSnapshot {
   string config_id = 1;
   string config_version = 2;
@@ -252,6 +310,7 @@ message ResolvedConfigurationSnapshot {
   ConfigurationServicePolicy configuration_service = 14;
   CockpitGatewayPolicy cockpit_gateway = 15;
   AuthzControlPlanePolicy authz_control_plane = 16;
+  NotificationPolicy notification = 17;
 }
 
 message ResolveConfigurationRequest {

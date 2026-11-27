@@ -1,12 +1,13 @@
-go 1.25.12
+go 1.27.3
 
 use (
 	./apps/go/api-gateway
-	./apps/go/case-service
 	./apps/go/authoring-service
+	./apps/go/case-service
 	./apps/go/cockpit-gateway
 	./apps/go/configuration-service
 	./apps/go/human-runtime
+	./apps/go/notification-service
 	./apps/go/projection-service
 	./go/contracts
 	./go/platform

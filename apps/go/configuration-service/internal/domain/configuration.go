@@ -35,6 +35,7 @@ const (
 	OwnerConfigurationService Owner = "CONFIGURATION_SERVICE"
 	OwnerCockpitGateway       Owner = "COCKPIT_GATEWAY"
 	OwnerAuthzControlPlane    Owner = "AUTHZ_CONTROL_PLANE"
+	OwnerNotification         Owner = "NOTIFICATION"
 )
 
 var (
@@ -156,12 +157,13 @@ type ParsedPolicy struct {
 	ConfigurationService *configurationv1.ConfigurationServicePolicy
 	CockpitGateway       *configurationv1.CockpitGatewayPolicy
 	AuthzControlPlane    *configurationv1.AuthzControlPlanePolicy
+	Notification         *configurationv1.NotificationPolicy
 }
 
 func ValidateOwner(owner Owner) error {
 	switch owner {
 	case OwnerEngine, OwnerAPIGateway, OwnerHumanRuntime, OwnerProjection, OwnerGovernance,
-		OwnerConfigurationService, OwnerCockpitGateway, OwnerAuthzControlPlane:
+		OwnerConfigurationService, OwnerCockpitGateway, OwnerAuthzControlPlane, OwnerNotification:
 		return nil
 	default:
 		return ErrInvalid
@@ -196,6 +198,9 @@ func ParsePolicy(owner Owner, raw []byte) (ParsedPolicy, []byte, [32]byte, error
 	case OwnerAuthzControlPlane:
 		parsed.AuthzControlPlane = &configurationv1.AuthzControlPlanePolicy{}
 		policy = parsed.AuthzControlPlane
+	case OwnerNotification:
+		parsed.Notification = &configurationv1.NotificationPolicy{}
+		policy = parsed.Notification
 	default:
 		return ParsedPolicy{}, nil, [32]byte{}, ErrInvalid
 	}
@@ -234,6 +239,8 @@ func ValidateParsedPolicy(policy ParsedPolicy) error {
 		return validateCockpitGatewayPolicy(policy.CockpitGateway)
 	case policy.AuthzControlPlane != nil:
 		return validateAuthzControlPlanePolicy(policy.AuthzControlPlane)
+	case policy.Notification != nil:
+		return validateNotificationPolicy(policy.Notification)
 	default:
 		return ErrInvalid
 	}
@@ -462,6 +469,82 @@ func validateAuthzControlPlanePolicy(policy *configurationv1.AuthzControlPlanePo
 		return ErrInvalid
 	}
 	return nil
+}
+
+func validateNotificationPolicy(policy *configurationv1.NotificationPolicy) error {
+	if policy == nil ||
+		invalidNotificationLane(policy.GetTransactionalLane()) ||
+		invalidNotificationLane(policy.GetNormalLane()) ||
+		invalidNotificationLane(policy.GetBulkLane()) ||
+		invalidNotificationBreaker(policy.GetDefaultBreaker(), policy.GetProviderCallTimeoutMs()) ||
+		invalidNotificationRenderLimits(policy.GetRenderLimits()) ||
+		invalidNotificationRetention(policy.GetRetention()) ||
+		policy.GetDefaultProviderBulkheadConcurrency() == 0 ||
+		policy.GetProviderCallTimeoutMs() == 0 ||
+		(policy.GetOtpPerRecipientLimit() == 0) != (policy.GetOtpRateWindowMs() == 0) {
+		return ErrInvalid
+	}
+	if len(policy.GetAllowedProviderHosts()) > 0 &&
+		invalidUniqueStrings(policy.GetAllowedProviderHosts()) {
+		return ErrInvalid
+	}
+	return nil
+}
+
+func invalidNotificationLane(lane *configurationv1.NotificationLanePolicy) bool {
+	return lane == nil ||
+		lane.GetWorkerConcurrency() == 0 ||
+		lane.GetClaimBatchSize() == 0 ||
+		lane.GetLeaseDurationMs() == 0 ||
+		invalidRetry(lane.GetRetry())
+}
+
+func invalidNotificationBreaker(breaker *configurationv1.NotificationBreakerPolicy, providerCallTimeoutMs uint64) bool {
+	if breaker == nil ||
+		breaker.GetRollingWindowMs() == 0 ||
+		breaker.GetMinRequests() == 0 ||
+		breaker.GetFailureRateThresholdBps() == 0 ||
+		breaker.GetFailureRateThresholdBps() > 10000 ||
+		breaker.GetOpenStateDurationMs() == 0 ||
+		breaker.GetHalfOpenMaxProbes() == 0 ||
+		breaker.GetMaxManualOverrideTtlMs() == 0 {
+		return true
+	}
+	slowThreshold := breaker.GetSlowCallThresholdMs()
+	slowRate := breaker.GetSlowCallRateThresholdBps()
+	if slowThreshold == 0 && slowRate == 0 {
+		return false
+	}
+	return slowThreshold == 0 ||
+		slowRate == 0 ||
+		slowRate > 10000 ||
+		slowThreshold > providerCallTimeoutMs
+}
+
+func invalidNotificationRenderLimits(limits *configurationv1.NotificationRenderLimits) bool {
+	return limits == nil ||
+		limits.GetMaxPayloadBytes() == 0 ||
+		limits.GetMaxEmailHtmlBytes() == 0 ||
+		limits.GetMaxSmsSegments() == 0 ||
+		limits.GetMaxPushBodyBytes() == 0 ||
+		limits.GetMaxArrayItems() == 0 ||
+		limits.GetPreviewTimeoutMs() == 0 ||
+		limits.GetPreviewBulkheadConcurrency() == 0 ||
+		limits.GetPreviewRateLimitPerMinute() == 0
+}
+
+func invalidNotificationRetention(retention *configurationv1.NotificationRetentionPolicy) bool {
+	return retention == nil ||
+		retention.GetTransactionalPayloadDays() == 0 ||
+		retention.GetBulkPayloadDays() == 0 ||
+		retention.GetDeliveryMetadataMonths() == 0 ||
+		retention.GetAttemptCallbackDays() == 0 ||
+		retention.GetMetricsHourlyMonths() == 0 ||
+		retention.GetIdempotencyInboxDays() == 0 ||
+		retention.GetInappMessageDays() == 0 ||
+		retention.GetInstanceContextRetentionHours() == 0 ||
+		retention.GetCleanupBatchSize() == 0 ||
+		retention.GetCleanupIntervalMs() == 0
 }
 
 func invalidRetry(retry *configurationv1.RetryPolicy) bool {

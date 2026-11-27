@@ -1,0 +1,2 @@
+import"./_virtual_mf___mfe_internal__notification_mfe__mf_owner__118031267224600__loadShare__shared-BlY3R17z.js";
+//# sourceMappingURL=__virtual_mf___mfe_internal__notification_mfe__mf_owner__118031267224600__loadShare__react__loadShare__.js_commonjs-proxy-B8nqQkUH.js.map

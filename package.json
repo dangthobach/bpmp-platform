@@ -9,6 +9,7 @@
     "apps/web/task-mfe",
     "apps/web/studio-mfe",
     "apps/web/case-mfe",
+    "apps/web/notification-mfe",
     "packages/frontend/*"
   ],
   "overrides": {

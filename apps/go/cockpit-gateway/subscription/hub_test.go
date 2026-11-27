@@ -134,3 +134,98 @@ func TestSlowSubscriberIsDisconnected(t *testing.T) {
 	}
 	value.Close()
 }
+
+func TestRecipientScopedSignalDeliveredAndReplayedOnlyToMatchingRecipient(t *testing.T) {
+	hub, err := New(Config{MaxSubscriptions: 8, BufferSize: 8, ReplaySize: 8, MaxReplayStreams: 8})
+	if err != nil {
+		t.Fatal(err)
+	}
+	subA, err := hub.Subscribe(Filter{TenantID: "tenant-a", Name: "notification.inapp", RecipientID: "user-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer subA.Close()
+	subB, err := hub.Subscribe(Filter{TenantID: "tenant-a", Name: "notification.inapp", RecipientID: "user-b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer subB.Close()
+	subUnscoped, err := hub.Subscribe(Filter{TenantID: "tenant-a", Name: "notification.inapp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer subUnscoped.Close()
+
+	if stats := hub.PublishToIndexedSubscribers(Signal{
+		Cursor: "c-1", TenantID: "tenant-a", Name: "notification.inapp", RecipientID: "user-a", Payload: []byte(`{"sequence":1}`),
+	}); stats.Delivered != 1 {
+		t.Fatalf("expected 1 delivery for user-a, got %+v", stats)
+	}
+	if stats := hub.PublishToIndexedSubscribers(Signal{
+		Cursor: "c-2", TenantID: "tenant-a", Name: "notification.inapp", RecipientID: "user-a", Payload: []byte(`{"sequence":2}`),
+	}); stats.Delivered != 1 {
+		t.Fatalf("expected 1 delivery for user-a, got %+v", stats)
+	}
+	if stats := hub.PublishToIndexedSubscribers(Signal{
+		Cursor: "c-3", TenantID: "tenant-a", Name: "notification.inapp", RecipientID: "user-b", Payload: []byte(`{"sequence":3}`),
+	}); stats.Delivered != 1 {
+		t.Fatalf("expected 1 delivery for user-b, got %+v", stats)
+	}
+
+	if got := (<-subA.Signals).Cursor; got != "c-1" {
+		t.Fatalf("expected user-a to receive c-1, got %s", got)
+	}
+	if got := (<-subA.Signals).Cursor; got != "c-2" {
+		t.Fatalf("expected user-a to receive c-2, got %s", got)
+	}
+	select {
+	case leaked := <-subA.Signals:
+		t.Fatalf("user-a received unexpected signal: %+v", leaked)
+	default:
+	}
+
+	if got := (<-subB.Signals).Cursor; got != "c-3" {
+		t.Fatalf("expected user-b to receive c-3, got %s", got)
+	}
+	select {
+	case leaked := <-subB.Signals:
+		t.Fatalf("user-b received unexpected signal: %+v", leaked)
+	default:
+	}
+
+	select {
+	case leaked := <-subUnscoped.Signals:
+		t.Fatalf("unscoped subscriber must not receive recipient-scoped signal: %+v", leaked)
+	default:
+	}
+
+	// Reconnect replay: user B reconnecting with user A's cursor must NEVER receive user A's signal c-2.
+	replayB, err := hub.SubscribeFrom(Filter{TenantID: "tenant-a", Name: "notification.inapp", RecipientID: "user-b"}, "c-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer replayB.Close()
+	if got := (<-replayB.Signals).Cursor; got != "c-3" {
+		t.Fatalf("expected user-b replay to only contain c-3, got %s", got)
+	}
+	select {
+	case leaked := <-replayB.Signals:
+		t.Fatalf("user-b replay leaked signal: %+v", leaked)
+	default:
+	}
+
+	// Reconnect replay: user A reconnecting after c-1 receives c-2 and NOT c-3.
+	replayA, err := hub.SubscribeFrom(Filter{TenantID: "tenant-a", Name: "notification.inapp", RecipientID: "user-a"}, "c-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer replayA.Close()
+	if got := (<-replayA.Signals).Cursor; got != "c-2" {
+		t.Fatalf("expected user-a replay to contain c-2, got %s", got)
+	}
+	select {
+	case leaked := <-replayA.Signals:
+		t.Fatalf("user-a replay leaked signal: %+v", leaked)
+	default:
+	}
+}

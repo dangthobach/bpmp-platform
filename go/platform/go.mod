@@ -1,6 +1,6 @@
 module github.com/dangthobach/bpmp-platform/go/platform
 
-go 1.25.12
+go 1.27.3
 
 require (
 	github.com/MeKo-Christian/xls v0.0.0-20250622054630-1dddf609f0f0

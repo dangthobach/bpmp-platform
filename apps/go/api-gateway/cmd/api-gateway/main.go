@@ -268,6 +268,20 @@ func run(path string) error {
 		}
 		handlerOptions = append(handlerOptions, gateway.WithCaseServiceProxy(caseClient, value.CaseServiceURL))
 	}
+	if value.NotificationServiceURL != "" {
+		notificationClient := &http.Client{
+			Transport: platformtelemetry.HTTPTransport(&http.Transport{
+				ForceAttemptHTTP2: true,
+				TLSClientConfig: &tls.Config{
+					MinVersion: tls.VersionTLS13, ServerName: value.UpstreamTLS.NotificationServiceServerName,
+					RootCAs: roots, Certificates: []tls.Certificate{clientCertificate},
+				},
+				ResponseHeaderTimeout: 10 * time.Second,
+			}),
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		}
+		handlerOptions = append(handlerOptions, gateway.WithNotificationServiceProxy(notificationClient, value.NotificationServiceURL))
+	}
 	if value.OIDC.Enabled {
 		oidcRoots, rootErr := certPool(value.OIDC.CAFile)
 		if rootErr != nil {

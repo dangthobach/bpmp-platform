@@ -9,6 +9,7 @@ import (
 	"github.com/dangthobach/bpmp-platform/apps/go/cockpit-gateway/subscription"
 	enginev1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/engine/v1"
 	humanv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/human/v1"
+	notificationv1 "github.com/dangthobach/bpmp-platform/go/contracts/gen/bpmp/notification/v1"
 	"github.com/dangthobach/bpmp-platform/go/platform/kafkaconfig"
 	"github.com/dangthobach/bpmp-platform/go/platform/requestmeta"
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -16,10 +17,11 @@ import (
 )
 
 const (
-	SignalWorkflowChanged = "workflow.changed"
-	SignalWorkItemChanged = "work-item.changed"
-	SignalCaseChanged     = "case.changed"
-	SignalAuditChanged    = "audit.changed"
+	SignalWorkflowChanged   = "workflow.changed"
+	SignalWorkItemChanged   = "work-item.changed"
+	SignalCaseChanged       = "case.changed"
+	SignalAuditChanged      = "audit.changed"
+	SignalNotificationInApp = "notification.inapp"
 )
 
 type kafkaClient interface {
@@ -27,11 +29,33 @@ type kafkaClient interface {
 	CommitRecords(context.Context, ...*kgo.Record) error
 }
 
+type ConsumerOption func(*Consumer) error
+
+func WithInAppHintTopic(topic string) ConsumerOption {
+	return func(c *Consumer) error {
+		if topic == "" {
+			return nil
+		}
+		if kafkaconfig.ValidateTopic(topic) != nil {
+			return errors.New("cockpit in-app hint topic is invalid")
+		}
+		c.inAppHintTopic = topic
+		return nil
+	}
+}
+
 type Consumer struct {
-	client     kafkaClient
-	hub        *subscription.Hub
-	batchSize  int
-	humanTopic string
+	client         kafkaClient
+	hub            *subscription.Hub
+	batchSize      int
+	humanTopic     string
+	inAppHintTopic string
+}
+
+type inAppHintPayload struct {
+	Sequence    uint64 `json:"sequence"`
+	MessageID   string `json:"message_id"`
+	CategoryKey string `json:"category_key,omitempty"`
 }
 
 type payload struct {
@@ -49,11 +73,21 @@ func NewConsumer(
 	hub *subscription.Hub,
 	batchSize int,
 	humanTopic string,
+	options ...ConsumerOption,
 ) (*Consumer, error) {
 	if client == nil || hub == nil || batchSize <= 0 || kafkaconfig.ValidateTopic(humanTopic) != nil {
 		return nil, errors.New("cockpit event consumer configuration is invalid")
 	}
-	return &Consumer{client: client, hub: hub, batchSize: batchSize, humanTopic: humanTopic}, nil
+	consumer := &Consumer{client: client, hub: hub, batchSize: batchSize, humanTopic: humanTopic}
+	for _, option := range options {
+		if option == nil {
+			continue
+		}
+		if err := option(consumer); err != nil {
+			return nil, err
+		}
+	}
+	return consumer, nil
 }
 
 func (c *Consumer) Run(ctx context.Context) error {
@@ -91,6 +125,9 @@ func (c *Consumer) handle(record *kgo.Record) error {
 	}
 	if record.Topic == c.humanTopic {
 		return c.handleHumanWorkItemChange(record)
+	}
+	if c.inAppHintTopic != "" && record.Topic == c.inAppHintTopic {
+		return c.handleInAppNotificationHint(record)
 	}
 	var envelope enginev1.EventEnvelope
 	if err := proto.Unmarshal(record.Value, &envelope); err != nil {
@@ -160,6 +197,35 @@ func (c *Consumer) handleHumanWorkItemChange(record *kgo.Record) error {
 	c.hub.PublishToIndexedSubscribers(subscription.Signal{
 		Cursor: cursor, TenantID: event.GetTenantId(), Name: SignalWorkItemChanged,
 		Labels: map[string]string{"work_item_id": event.GetWorkItemId()}, Payload: encoded,
+	})
+	return nil
+}
+
+func (c *Consumer) handleInAppNotificationHint(record *kgo.Record) error {
+	var hint notificationv1.InAppNotificationHint
+	if err := proto.Unmarshal(record.Value, &hint); err != nil {
+		return fmt.Errorf("decode in-app notification hint: %w", err)
+	}
+	if hint.GetEventId() == "" || hint.GetTenantId() == "" ||
+		hint.GetRecipientSubjectRef() == "" || hint.GetMessageId() == "" ||
+		hint.GetSequence() == 0 {
+		return errors.New("in-app notification hint metadata is invalid")
+	}
+	encoded, err := json.Marshal(inAppHintPayload{
+		Sequence:    hint.GetSequence(),
+		MessageID:   hint.GetMessageId(),
+		CategoryKey: hint.GetCategoryKey(),
+	})
+	if err != nil {
+		return err
+	}
+	cursor := fmt.Sprintf("%s:%d:%d", record.Topic, record.Partition, record.Offset)
+	c.hub.PublishToIndexedSubscribers(subscription.Signal{
+		Cursor:      cursor,
+		TenantID:    hint.GetTenantId(),
+		Name:        SignalNotificationInApp,
+		RecipientID: hint.GetRecipientSubjectRef(),
+		Payload:     encoded,
 	})
 	return nil
 }

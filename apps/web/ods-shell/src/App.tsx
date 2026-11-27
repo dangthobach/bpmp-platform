@@ -113,6 +113,7 @@ export function App(): ReactNode {
   }
 
   const localCasePreview = state.status === "ready" && state.catalog.remotes.some((remote) => remote.name === "case-mfe");
+  const notificationRemote = availableRemotes.find((remote) => remote.name === "notification-mfe");
   const activeTitle = selectedRemoteName === undefined ? "Workspace" : formatRemoteName(selectedRemoteName);
   return <OdsThemeProvider><Box sx={{ display: "flex", minHeight: "100vh", bgcolor: "#f5f7f5" }}>
     <WorkspaceSidebar
@@ -132,6 +133,10 @@ export function App(): ReactNode {
         loading={state.status === "loading"}
         onModuleSearch={setModuleSearch}
         onRefresh={() => setAttempt((value) => value + 1)}
+        onOpenNotifications={notificationRemote ? () => {
+          setActiveRemote(notificationRemote.name);
+          navigateShell(notificationRemote.routeBasePath ?? "/notifications");
+        } : undefined}
       />
       <Box component="main" sx={{ minWidth: 0, flex: 1 }}>{content}</Box>
     </Box>

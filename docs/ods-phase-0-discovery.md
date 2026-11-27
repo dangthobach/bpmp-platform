@@ -1,5 +1,9 @@
 # ODS Refactor Phase 0 Discovery Baseline
 
+Historical Phase 0 snapshot. It predates the Phase 3 Case Service/MFE work;
+use [`ods-refactor-progress.md`](ods-refactor-progress.md) and the current
+architecture index for present implementation status.
+
 Status: complete for repository evidence; production workload values remain explicit external inputs.
 
 ## 1. Current context map

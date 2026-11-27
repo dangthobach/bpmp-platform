@@ -1,7 +1,7 @@
 # BPMP Service Workflows
 
 - Status: Current architecture workflow catalog
-- Last verified: 2026-10-30
+- Last source review: 2026-11-25
 - Related: `microservices-architecture.md`, ADR-001, ADR-002, ADR-004,
   ADR-005, ADR-008, ADR-010, and ADR-011
 
@@ -309,16 +309,24 @@ the actors must approve the new state.
 
 ## 11. Cockpit realtime update
 
-Cockpit Gateway consumes committed events with its own group and publishes
-bounded SSE hints to authenticated tenant-scoped connections. SSE is a
-reconciliation hint, not the authoritative read model: reconnect uses a cursor
-and the UI refetches Projection/Human APIs. Slow consumers are bounded or
-disconnected; they must not block Kafka consumption or other tenants.
+Cockpit Gateway consumes both Engine committed events and Human Runtime
+assignment-change events with separate configured topics/groups and publishes
+bounded SSE hints to authenticated tenant-scoped connections. Human Runtime
+events are reduced to invalidation hints; clients refetch through the owner API.
+SSE is not the authoritative read model: reconnect uses a cursor and the UI
+refetches Projection/Human APIs. Slow consumers are bounded or disconnected;
+they must not block Kafka consumption or other tenants. The local claim/delegate
+browser path is evidenced; restart/replay-gap and cross-tenant acceptance remain
+open.
 
 ## 12. ODS case/document/integration flows
 
-These flows are **planned**, not current deployables. ADR-011 fixes their
-ownership rules. The target sequences remain in
-`docs/ods-microfrontend-microservices-refactor-plan.md`; they become current
-only when a real producer/consumer contract, storage migration, worker, runbook,
-and executable evidence are added to the traceability matrix.
+Case Service now has an implementation-in-progress local vertical slice:
+authenticated Gateway BFF, tenant-scoped PostgreSQL aggregate, idempotent start
+job, outbox publisher, Engine start adapter, committed-event inbox, and Case 360
+process timeline. Local Docker browser acceptance reached `STARTED` and applied
+Engine sequence 2. The workflow metadata is still an immutable E2E fixture;
+same-key replay, retention/replay/restore, production TLS and authorized staging
+remain open. Do not treat this as production readiness. Document and Integration
+flows remain planned. ADR-011 fixes their ownership rules; the target sequences
+remain in `docs/ods-microfrontend-microservices-refactor-plan.md`.

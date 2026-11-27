@@ -2036,188 +2036,6 @@ Table integration.audit_evidence {
   }
 }
 
-Table notification.notification_templates {
-  tenant_id uuid [not null]
-  id uuid [not null]
-  template_key text [not null]
-  channel text [not null]
-  name text [not null]
-  created_at timestamptz [not null]
-  updated_at timestamptz [not null]
-  row_version bigint [not null, default: 1]
-  created_by text [not null]
-  updated_by text [not null]
-  is_deleted boolean [not null, default: false]
-  deleted_at timestamptz
-  deleted_by text
-  delete_reason text
-  indexes {
-    (tenant_id, id) [pk]
-  }
-}
-
-Table notification.notification_template_versions {
-  tenant_id uuid [not null]
-  id uuid [not null]
-  template_id uuid [not null]
-  version bigint [not null]
-  locale text [not null]
-  subject text
-  body text [not null]
-  variable_schema jsonb [not null]
-  created_at timestamptz [not null]
-  updated_at timestamptz [not null]
-  row_version bigint [not null, default: 1]
-  created_by text [not null]
-  updated_by text [not null]
-  is_deleted boolean [not null, default: false]
-  deleted_at timestamptz
-  deleted_by text
-  delete_reason text
-  indexes {
-    (tenant_id, id) [pk]
-  }
-}
-
-Table notification.notification_subscriptions {
-  tenant_id uuid [not null]
-  id uuid [not null]
-  subject_ref uuid [not null]
-  event_type text [not null]
-  channel text [not null]
-  enabled boolean [not null]
-  created_at timestamptz [not null]
-  updated_at timestamptz [not null]
-  row_version bigint [not null, default: 1]
-  created_by text [not null]
-  updated_by text [not null]
-  is_deleted boolean [not null, default: false]
-  deleted_at timestamptz
-  deleted_by text
-  delete_reason text
-  indexes {
-    (tenant_id, id) [pk]
-  }
-}
-
-Table notification.notification_deliveries {
-  tenant_id uuid [not null]
-  id uuid [not null]
-  template_version_id uuid [not null]
-  recipient_ref uuid [not null]
-  source_event_id text [not null]
-  channel text [not null]
-  status text [not null]
-  provider_ref text
-  attempts int [not null]
-  next_attempt_at timestamptz
-  created_at timestamptz [not null]
-  updated_at timestamptz [not null]
-  row_version bigint [not null, default: 1]
-  created_by text [not null]
-  updated_by text [not null]
-  is_deleted boolean [not null, default: false]
-  deleted_at timestamptz
-  deleted_by text
-  delete_reason text
-  indexes {
-    (tenant_id, id) [pk]
-  }
-}
-
-Table notification.outbox {
-  tenant_id uuid [not null]
-  id uuid [not null]
-  event_id uuid [not null]
-  aggregate_id uuid [not null]
-  aggregate_version bigint [not null]
-  event_type text [not null]
-  payload jsonb [not null]
-  published_at timestamptz
-  attempts int [not null]
-  created_at timestamptz [not null]
-  updated_at timestamptz [not null]
-  row_version bigint [not null, default: 1]
-  created_by text [not null]
-  updated_by text [not null]
-  is_deleted boolean [not null, default: false]
-  deleted_at timestamptz
-  deleted_by text
-  delete_reason text
-  indexes {
-    (tenant_id, id) [pk]
-  }
-}
-
-Table notification.inbox {
-  tenant_id uuid [not null]
-  id uuid [not null]
-  source text [not null]
-  event_id text [not null]
-  payload_digest text [not null]
-  applied_at timestamptz [not null]
-  created_at timestamptz [not null]
-  updated_at timestamptz [not null]
-  row_version bigint [not null, default: 1]
-  created_by text [not null]
-  updated_by text [not null]
-  is_deleted boolean [not null, default: false]
-  deleted_at timestamptz
-  deleted_by text
-  delete_reason text
-  indexes {
-    (tenant_id, id) [pk]
-  }
-}
-
-Table notification.command_receipts {
-  tenant_id uuid [not null]
-  id uuid [not null]
-  command_id uuid [not null]
-  intent_digest text [not null]
-  actor_ref uuid [not null]
-  aggregate_id uuid [not null]
-  status text [not null]
-  result jsonb [not null]
-  expires_at timestamptz
-  created_at timestamptz [not null]
-  updated_at timestamptz [not null]
-  row_version bigint [not null, default: 1]
-  created_by text [not null]
-  updated_by text [not null]
-  is_deleted boolean [not null, default: false]
-  deleted_at timestamptz
-  deleted_by text
-  delete_reason text
-  indexes {
-    (tenant_id, id) [pk]
-  }
-}
-
-Table notification.audit_evidence {
-  tenant_id uuid [not null]
-  id uuid [not null]
-  actor_ref uuid [not null]
-  action text [not null]
-  resource_ref text [not null]
-  command_id uuid
-  before_digest text
-  after_digest text
-  occurred_at timestamptz [not null]
-  created_at timestamptz [not null]
-  updated_at timestamptz [not null]
-  row_version bigint [not null, default: 1]
-  created_by text [not null]
-  updated_by text [not null]
-  is_deleted boolean [not null, default: false]
-  deleted_at timestamptz
-  deleted_by text
-  delete_reason text
-  indexes {
-    (tenant_id, id) [pk]
-  }
-}
-
 Table projection.instance_views {
   tenant_id uuid [not null]
   id uuid [not null]
@@ -2566,8 +2384,6 @@ Ref: integration.integration_bindings.(tenant_id, endpoint_version_id) > integra
 Ref: integration.probe_jobs.(tenant_id, endpoint_id) > integration.endpoints.(tenant_id, id)
 Ref: integration.delivery_attempts.(tenant_id, endpoint_version_id) > integration.endpoint_versions.(tenant_id, id)
 Ref: integration.callback_receipts.(tenant_id, endpoint_id) > integration.endpoints.(tenant_id, id)
-Ref: notification.notification_template_versions.(tenant_id, template_id) > notification.notification_templates.(tenant_id, id)
-Ref: notification.notification_deliveries.(tenant_id, template_version_id) > notification.notification_template_versions.(tenant_id, id)
 Ref: projection.node_execution_facts.(tenant_id, instance_view_id) > projection.instance_views.(tenant_id, id)
 Ref: projection.incident_views.(tenant_id, instance_view_id) > projection.instance_views.(tenant_id, id)
 
@@ -3094,3 +2910,960 @@ Ref: mdm.validation_reports.(tenant_id, dataset_id) > mdm.master_datasets.(tenan
 Ref: mdm.consumer_subscriptions.(tenant_id, dataset_id) > mdm.master_datasets.(tenant_id, id)
 Ref: mdm.consumer_sync_status.(tenant_id, subscription_id) > mdm.consumer_subscriptions.(tenant_id, id)
 Ref: mdm.mdm_jobs.(tenant_id, dataset_id) > mdm.master_datasets.(tenant_id, id)
+
+// Notification extension: proposed owner-local model (ADR-013), not production DDL.
+
+// Notification extension: proposed owner-local model (ADR-013), not production DDL.
+
+// Notification extension: proposed owner-local model (ADR-013), not production DDL.
+
+Table notification.categories {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  category_key text [not null]
+  name text [not null]
+  default_lane text [not null]
+  user_unsubscribable boolean [not null]
+  ambiguous_outcome_policy text [not null]
+  retention_class text [not null]
+  retain_rendered_copy boolean [not null]
+  status text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.applications {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  app_key text [not null]
+  name text [not null]
+  auth_mode text [not null]
+  principal_ref text [not null]
+  allowed_namespaces jsonb [not null]
+  allowed_channels jsonb [not null]
+  default_lane text [not null]
+  quota_config jsonb [not null]
+  callback_url text
+  callback_secret_ref text
+  owner_team text
+  default_sender_identity jsonb
+  status text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.application_api_keys {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  application_id uuid [not null]
+  key_prefix text [not null]
+  secret_hash text [not null]
+  status text [not null]
+  expires_at timestamptz
+  last_used_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.layouts {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  layout_key text [not null]
+  name text [not null]
+  channel text [not null]
+  status text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.layout_versions {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  layout_id uuid [not null]
+  version bigint [not null]
+  syntax text [not null]
+  variable_schema jsonb [not null]
+  content jsonb [not null]
+  content_hash text [not null]
+  status text [not null]
+  published_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.templates {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  template_key text [not null]
+  application_id uuid [not null]
+  category_id uuid [not null]
+  name text [not null]
+  default_locale text [not null]
+  provenance jsonb
+  tags jsonb [not null]
+  status text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.template_versions {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  template_id uuid [not null]
+  version bigint [not null]
+  schema_major int [not null]
+  syntax text [not null]
+  layout_version_id uuid
+  variable_schema jsonb [not null]
+  content_hash text [not null]
+  source_commit text
+  change_note text
+  approval_ref text
+  status text [not null]
+  published_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.template_variants {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  template_version_id uuid [not null]
+  channel text [not null]
+  locale text [not null]
+  variant_kind text [not null]
+  subject_tmpl text
+  html_tmpl text
+  text_tmpl text
+  mjml_source text
+  provider_template_id text
+  param_mapping jsonb
+  variant_hash text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.template_releases {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  template_id uuid [not null]
+  schema_major int [not null]
+  template_version_id uuid [not null]
+  ordinal bigint [not null]
+  previous_ordinal bigint
+  activate_at timestamptz [not null]
+  activated_at timestamptz
+  approval_ref text
+  status text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.publication_releases {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  artifact_kind text [not null]
+  artifact_id uuid [not null]
+  target_version_id uuid [not null]
+  ordinal bigint [not null]
+  previous_ordinal bigint
+  activate_at timestamptz [not null]
+  activated_at timestamptz
+  approval_ref text
+  status text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.provider_profiles {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  provider_key text [not null]
+  name text [not null]
+  channel text [not null]
+  driver_kind text [not null]
+  preset_key text
+  active_ordinal bigint [not null]
+  operational_state text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.provider_revisions {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  provider_id uuid [not null]
+  revision bigint [not null]
+  config jsonb [not null]
+  credentials_ref text
+  sender_identity jsonb [not null]
+  capabilities jsonb [not null]
+  quota_config jsonb [not null]
+  config_hash text [not null]
+  status text [not null]
+  published_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.provider_health {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  provider_id uuid [not null]
+  breaker_state text [not null]
+  error_rate_bps int [not null]
+  window_requests int [not null]
+  window_failures int [not null]
+  last_transition_at timestamptz [not null]
+  last_error_code text
+  updated_by_replica text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.breaker_transitions {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  provider_id uuid [not null]
+  from_state text [not null]
+  to_state text [not null]
+  trigger_kind text [not null]
+  reason text [not null]
+  failure_rate_bps int
+  slow_call_rate_bps int
+  replica_ref text [not null]
+  occurred_at timestamptz [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.breaker_overrides {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  provider_id uuid [not null]
+  override_mode text [not null]
+  reason text [not null]
+  ordinal bigint [not null]
+  expires_at timestamptz [not null]
+  revoked_at timestamptz
+  status text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.routing_policies {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  policy_key text [not null]
+  application_id uuid
+  category_id uuid
+  channel text [not null]
+  active_ordinal bigint [not null]
+  status text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.routing_policy_versions {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  routing_policy_id uuid [not null]
+  version bigint [not null]
+  routes jsonb [not null]
+  failover_policy jsonb [not null]
+  digest text [not null]
+  status text [not null]
+  published_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.trigger_rules {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  rule_key text [not null]
+  name text [not null]
+  workflow_type text [not null]
+  node_id text
+  trigger_kind text [not null]
+  template_id uuid [not null]
+  schema_major int [not null]
+  active_ordinal bigint [not null]
+  status text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.trigger_rule_revisions {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  rule_id uuid [not null]
+  revision bigint [not null]
+  version_selector text [not null]
+  condition_cel text
+  recipient_spec jsonb [not null]
+  data_mapping_cel jsonb [not null]
+  referenced_vars jsonb [not null]
+  delay_seconds int [not null]
+  dedup_window_seconds int [not null]
+  digest text [not null]
+  status text [not null]
+  published_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.workflow_instance_contexts {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  instance_ref text [not null]
+  workflow_type text [not null]
+  initiator_subject_ref uuid
+  encrypted_vars bytea [not null]
+  key_ref text [not null]
+  workflow_completed_at timestamptz
+  expires_at timestamptz [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.subject_contacts {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  subject_ref uuid [not null]
+  channel text [not null]
+  encrypted_address bytea [not null]
+  address_hash text [not null]
+  masked_address text [not null]
+  locale text
+  timezone text
+  verified boolean [not null]
+  source_version bigint [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.recipient_preferences {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  subject_ref uuid [not null]
+  category_id uuid [not null]
+  channel text [not null]
+  enabled boolean [not null]
+  quiet_hours jsonb
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.suppressions {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  channel text [not null]
+  address_hash text [not null]
+  masked_address text [not null]
+  reason text [not null]
+  source_provider_id uuid
+  expires_at timestamptz
+  status text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.notification_requests {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  application_id uuid [not null]
+  idempotency_key text [not null]
+  request_digest text [not null]
+  template_id uuid [not null]
+  schema_major int [not null]
+  pinned_version bigint
+  category_id uuid [not null]
+  lane text [not null]
+  priority smallint [not null]
+  correlation_id text
+  trigger_rule_revision_id uuid
+  is_test boolean [not null]
+  send_at timestamptz
+  expires_at timestamptz
+  status text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.deliveries {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  request_id uuid [not null]
+  template_version_id uuid [not null]
+  variant_id uuid [not null]
+  release_ordinal bigint [not null]
+  recipient_subject_ref uuid
+  address_hash text [not null]
+  masked_address text [not null]
+  channel text [not null]
+  lane text [not null]
+  status text [not null]
+  selected_provider_id uuid
+  provider_message_id text
+  content_hash text [not null]
+  resend_of_delivery_id uuid
+  attempt_count int [not null]
+  next_attempt_at timestamptz
+  expires_at timestamptz
+  completed_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.delivery_payloads {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  delivery_id uuid [not null]
+  encrypted_address bytea
+  encrypted_data bytea
+  encrypted_secrets bytea
+  rendered_copy_encrypted bytea
+  key_ref text [not null]
+  secrets_erased_at timestamptz
+  expires_at timestamptz [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.delivery_attempts {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  delivery_id uuid [not null]
+  provider_id uuid [not null]
+  provider_revision_id uuid [not null]
+  attempt_no int [not null]
+  outcome_class text [not null]
+  provider_status_code text
+  provider_message_id text
+  error_code text
+  latency_ms int [not null]
+  started_at timestamptz [not null]
+  finished_at timestamptz [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.delivery_events {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  delivery_id uuid [not null]
+  event_type text [not null]
+  from_status text
+  to_status text [not null]
+  detail jsonb
+  occurred_at timestamptz [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.provider_callbacks {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  provider_id uuid [not null]
+  provider_event_id text [not null]
+  delivery_id uuid
+  event_kind text [not null]
+  provider_status text [not null]
+  signature_valid boolean [not null]
+  payload_digest text [not null]
+  received_at timestamptz [not null]
+  processed_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.inapp_messages {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  delivery_id uuid [not null]
+  subject_ref uuid [not null]
+  category_key text [not null]
+  title text [not null]
+  body_html text [not null]
+  action_url text
+  metadata jsonb
+  read_at timestamptz
+  archived_at timestamptz
+  expires_at timestamptz [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.delivery_metrics_hourly {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  bucket_start timestamptz [not null]
+  application_id uuid [not null]
+  template_id uuid [not null]
+  category_id uuid [not null]
+  provider_id uuid
+  channel text [not null]
+  lane text [not null]
+  accepted_count bigint [not null]
+  sent_count bigint [not null]
+  delivered_count bigint [not null]
+  bounced_count bigint [not null]
+  failed_count bigint [not null]
+  deferred_count bigint [not null]
+  expired_count bigint [not null]
+  suppressed_count bigint [not null]
+  latency_histogram jsonb
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.outbox {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  event_id uuid [not null]
+  aggregate_id uuid [not null]
+  aggregate_version bigint [not null]
+  event_type text [not null]
+  payload jsonb [not null]
+  published_at timestamptz
+  attempts int [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.inbox {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  source text [not null]
+  event_id text [not null]
+  payload_digest text [not null]
+  applied_at timestamptz [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.command_receipts {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  command_id uuid [not null]
+  intent_digest text [not null]
+  actor_ref uuid [not null]
+  aggregate_id uuid [not null]
+  status text [not null]
+  result jsonb [not null]
+  expires_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+
+Table notification.audit_evidence {
+  tenant_id uuid [not null]
+  id uuid [not null]
+  actor_ref uuid [not null]
+  action text [not null]
+  resource_ref text [not null]
+  command_id uuid
+  before_digest text
+  after_digest text
+  resource_type text [not null]
+  severity text [not null]
+  actor_display text
+  actor_role text
+  client_ip text
+  details jsonb
+  occurred_at timestamptz [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  row_version bigint [not null, default: 1]
+  created_by text [not null]
+  updated_by text [not null]
+  is_deleted boolean [not null, default: false]
+  deleted_at timestamptz
+  deleted_by text
+  delete_reason text
+  indexes {
+    (tenant_id, id) [pk]
+  }
+}
+Ref: notification.application_api_keys.(tenant_id, application_id) > notification.applications.(tenant_id, id)
+Ref: notification.layout_versions.(tenant_id, layout_id) > notification.layouts.(tenant_id, id)
+Ref: notification.templates.(tenant_id, application_id) > notification.applications.(tenant_id, id)
+Ref: notification.templates.(tenant_id, category_id) > notification.categories.(tenant_id, id)
+Ref: notification.template_versions.(tenant_id, template_id) > notification.templates.(tenant_id, id)
+Ref: notification.template_versions.(tenant_id, layout_version_id) > notification.layout_versions.(tenant_id, id)
+Ref: notification.template_variants.(tenant_id, template_version_id) > notification.template_versions.(tenant_id, id)
+Ref: notification.template_releases.(tenant_id, template_id) > notification.templates.(tenant_id, id)
+Ref: notification.template_releases.(tenant_id, template_version_id) > notification.template_versions.(tenant_id, id)
+Ref: notification.provider_revisions.(tenant_id, provider_id) > notification.provider_profiles.(tenant_id, id)
+Ref: notification.provider_health.(tenant_id, provider_id) > notification.provider_profiles.(tenant_id, id)
+Ref: notification.breaker_transitions.(tenant_id, provider_id) > notification.provider_profiles.(tenant_id, id)
+Ref: notification.breaker_overrides.(tenant_id, provider_id) > notification.provider_profiles.(tenant_id, id)
+Ref: notification.routing_policies.(tenant_id, application_id) > notification.applications.(tenant_id, id)
+Ref: notification.routing_policies.(tenant_id, category_id) > notification.categories.(tenant_id, id)
+Ref: notification.routing_policy_versions.(tenant_id, routing_policy_id) > notification.routing_policies.(tenant_id, id)
+Ref: notification.trigger_rules.(tenant_id, template_id) > notification.templates.(tenant_id, id)
+Ref: notification.trigger_rule_revisions.(tenant_id, rule_id) > notification.trigger_rules.(tenant_id, id)
+Ref: notification.recipient_preferences.(tenant_id, category_id) > notification.categories.(tenant_id, id)
+Ref: notification.suppressions.(tenant_id, source_provider_id) > notification.provider_profiles.(tenant_id, id)
+Ref: notification.notification_requests.(tenant_id, application_id) > notification.applications.(tenant_id, id)
+Ref: notification.notification_requests.(tenant_id, template_id) > notification.templates.(tenant_id, id)
+Ref: notification.notification_requests.(tenant_id, category_id) > notification.categories.(tenant_id, id)
+Ref: notification.notification_requests.(tenant_id, trigger_rule_revision_id) > notification.trigger_rule_revisions.(tenant_id, id)
+Ref: notification.deliveries.(tenant_id, request_id) > notification.notification_requests.(tenant_id, id)
+Ref: notification.deliveries.(tenant_id, template_version_id) > notification.template_versions.(tenant_id, id)
+Ref: notification.deliveries.(tenant_id, variant_id) > notification.template_variants.(tenant_id, id)
+Ref: notification.deliveries.(tenant_id, selected_provider_id) > notification.provider_profiles.(tenant_id, id)
+Ref: notification.deliveries.(tenant_id, resend_of_delivery_id) > notification.deliveries.(tenant_id, id)
+Ref: notification.delivery_payloads.(tenant_id, delivery_id) > notification.deliveries.(tenant_id, id)
+Ref: notification.delivery_attempts.(tenant_id, delivery_id) > notification.deliveries.(tenant_id, id)
+Ref: notification.delivery_attempts.(tenant_id, provider_id) > notification.provider_profiles.(tenant_id, id)
+Ref: notification.delivery_attempts.(tenant_id, provider_revision_id) > notification.provider_revisions.(tenant_id, id)
+Ref: notification.delivery_events.(tenant_id, delivery_id) > notification.deliveries.(tenant_id, id)
+Ref: notification.provider_callbacks.(tenant_id, provider_id) > notification.provider_profiles.(tenant_id, id)
+Ref: notification.provider_callbacks.(tenant_id, delivery_id) > notification.deliveries.(tenant_id, id)
+Ref: notification.inapp_messages.(tenant_id, delivery_id) > notification.deliveries.(tenant_id, id)
+Ref: notification.delivery_metrics_hourly.(tenant_id, application_id) > notification.applications.(tenant_id, id)
+Ref: notification.delivery_metrics_hourly.(tenant_id, template_id) > notification.templates.(tenant_id, id)
+Ref: notification.delivery_metrics_hourly.(tenant_id, category_id) > notification.categories.(tenant_id, id)
+Ref: notification.delivery_metrics_hourly.(tenant_id, provider_id) > notification.provider_profiles.(tenant_id, id)

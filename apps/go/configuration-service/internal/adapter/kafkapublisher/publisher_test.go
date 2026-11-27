@@ -29,3 +29,22 @@ func TestPublicationEventPreservesOrderingAndScope(t *testing.T) {
 		t.Fatalf("publication event lost metadata: %+v", event)
 	}
 }
+
+func TestPublicationEventSupportsNotificationOwner(t *testing.T) {
+	t.Parallel()
+	publication := domain.Publication{
+		EventID: "event-2", EventSequence: 43, TenantID: "tenant-a",
+		ProfileID: "profile-notif", VersionID: "version-notif", ConfigVersion: "config-notif-1",
+		PolicyVersion: "policy-notif-1", Ordinal: 1, Owner: domain.OwnerNotification,
+		Scope:       domain.Scope{Type: domain.ScopeTenant, Reference: "tenant-a"},
+		ContentHash: [32]byte{9, 9, 9}, Kind: "configuration.published",
+		OccurredAt: time.UnixMilli(5678).UTC(),
+	}
+	event, err := publicationEvent(publication)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if event.GetOwner() != configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_NOTIFICATION {
+		t.Fatalf("expected CONFIGURATION_OWNER_NOTIFICATION, got %v", event.GetOwner())
+	}
+}

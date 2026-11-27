@@ -74,7 +74,10 @@ func (h *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request)
 		return
 	}
 	tenantID := request.Header.Get("X-BPMP-Tenant-ID")
-	var capabilities []string
+	var (
+		actorID      string
+		capabilities []string
+	)
 	proofHeaders := request.Header.Values("X-BPMP-Signed-Actor-Context")
 	if len(proofHeaders) > 1 || (len(proofHeaders) == 1 && request.Header.Get("Authorization") != "") {
 		writeError(response, http.StatusUnauthorized, "authentication_invalid")
@@ -91,6 +94,7 @@ func (h *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request)
 			writeError(response, http.StatusUnauthorized, "authentication_invalid")
 			return
 		}
+		actorID = identity.ActorID
 		capabilities = identity.Capabilities
 	} else {
 		token, ok := bearerToken(request.Header.Get("Authorization"))
@@ -103,6 +107,7 @@ func (h *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request)
 			writeError(response, http.StatusUnauthorized, "authentication_invalid")
 			return
 		}
+		actorID = identity.Subject
 		capabilities = identity.Capabilities
 	}
 	names, err := h.signalNames(request.URL.Query().Get("names"))
@@ -135,7 +140,7 @@ func (h *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request)
 	resumeReset := false
 	for _, name := range names {
 		value, subscribeErr := h.hub.SubscribeFrom(subscription.Filter{
-			TenantID: tenantID, Name: name,
+			TenantID: tenantID, Name: name, RecipientID: actorID,
 		}, request.Header.Get("Last-Event-ID"))
 		if subscribeErr != nil {
 			status := http.StatusServiceUnavailable
@@ -176,7 +181,11 @@ func (h *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request)
 			if !open {
 				return
 			}
-			if err := writeSSE(response, signal.Cursor, signal.Name, []byte(`{"invalidate":true}`)); err != nil {
+			eventPayload := []byte(`{"invalidate":true}`)
+			if signal.Name == "notification.inapp" && len(signal.Payload) > 0 {
+				eventPayload = signal.Payload
+			}
+			if err := writeSSE(response, signal.Cursor, signal.Name, eventPayload); err != nil {
 				return
 			}
 			flusher.Flush()
@@ -191,10 +200,11 @@ func (h *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request)
 
 func authorizedSignals(names, capabilities []string) bool {
 	required := map[string][]string{
-		"work-item.changed": {"task.read"},
-		"case.changed":      {"case.read"},
-		"audit.changed":     {"audit.read"},
-		"workflow.changed":  {"workflow.query.own", "workflow.query.all", "task.read"},
+		"work-item.changed":  {"task.read"},
+		"case.changed":       {"case.read"},
+		"audit.changed":      {"audit.read"},
+		"workflow.changed":   {"workflow.query.own", "workflow.query.all", "task.read"},
+		"notification.inapp": {"notification.inbox.read", "notification.read"},
 	}
 	for _, name := range names {
 		allowed := false

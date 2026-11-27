@@ -298,6 +298,8 @@ func actorContextAudience(path, gatewayWorkloadID string) (string, bool) {
 		return "cockpit-gateway", true
 	case path == "/v1/customer-cases" || strings.HasPrefix(path, "/v1/customer-cases/"):
 		return "case-service", true
+	case path == notificationPath || strings.HasPrefix(path, notificationPath+"/"):
+		return "notification-service", true
 	case strings.HasPrefix(path, "/v1/work-items"),
 		strings.HasPrefix(path, "/v1/cases/"),
 		path == "/v1/audit-records",

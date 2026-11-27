@@ -1,7 +1,9 @@
 # Requirement 1 Compliance
 
-This document traces Requirement 1 acceptance criteria to executable tests and
-separates two different completion claims:
+Source review updated: 2026-11-25. The executable test result below is dated
+2026-07-19 and is historical evidence; it has not been rerun as part of this
+documentation review. This document traces Requirement 1 acceptance criteria
+and separates two different completion claims:
 
 - **Executable profile:** every construct documented in
   `bpmn-enterprise-compiler-profile.md` must either compile with tested semantics
@@ -14,9 +16,11 @@ gate is `./tools/check.ps1 -IncludeWasmtime`.
 
 ## Current Assessment
 
-As of 2026-07-19, the executable profile is **12/12 passing**. Against the
-literal breadth of Requirement 1, **7 criteria are complete and 5 are partial**.
-Requirement 1 must therefore not be reported as 100% complete.
+At the last recorded execution (2026-07-19), the executable profile was
+**12/12 passing**. The source review on 2026-11-25 confirms that the documented
+call-activity child orchestration remains incomplete and the literal breadth of
+Requirement 1 is still not complete. Do not use the historical test result as a
+current passing gate without rerunning it.
 
 ## Acceptance Matrix
 
@@ -30,7 +34,7 @@ Requirement 1 must therefore not be reported as 100% complete.
 | 6 | Compensation boundary/association resolution and source spans; AC6 | Pass | Complete | Runtime compensation execution is tracked outside this compiler criterion. |
 | 7 | Cumulative longest-path SLA validation and source spans; AC7 | Pass | Complete | Calendar-aware runtime scheduling is outside this static compiler criterion. |
 | 8 | Transitive scalar contracts and DMN output propagation; both AC8 tests | Pass | Partial | No deep object/array/nullable/decimal/date-time schema compatibility or schema-reference resolution. |
-| 9 | Typed CLI diagnostics, non-zero exit and no partial artifact; AC9 and CLI tests | Pass | Complete | The repository still needs a checked-in CI workflow to execute the gate automatically. |
+| 9 | Typed CLI diagnostics, non-zero exit and no partial artifact; AC9 and CLI tests | Pass | Complete | `.github/workflows/rust-linux-authoritative.yml` runs the compiler package tests on Linux for compiler/contract changes. A green hosted run remains required evidence for each release. |
 | 10 | Deterministic Protobuf serialization, signed envelope and direct engine loading; AC10 | Pass | Complete | Artifact bytes do not depend on Rust memory layout. |
 | 11 | Canonical printer and 100-case property tests at compiler and public API boundaries; AC11 | Pass | Partial | Current generators mostly vary identifiers on linear models. They do not generate the supported BPMN/DMN/CMMN grammar or every invalid class required by Properties 1 and 2. |
 | 12 | Shared versioned Protobuf WIR, Ed25519 verification, Buf lint/breaking baseline; AC12 | Pass | Complete | Add old-version golden fixtures when schema version 2 or an upcaster is introduced. |

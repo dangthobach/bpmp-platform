@@ -219,6 +219,8 @@ func ownerToProto(owner domain.Owner) configurationv1.ConfigurationOwner {
 		return configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_COCKPIT_GATEWAY
 	case domain.OwnerAuthzControlPlane:
 		return configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_AUTHZ_CONTROL_PLANE
+	case domain.OwnerNotification:
+		return configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_NOTIFICATION
 	default:
 		return configurationv1.ConfigurationOwner_CONFIGURATION_OWNER_UNSPECIFIED
 	}
